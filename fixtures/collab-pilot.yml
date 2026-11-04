@@ -15,6 +15,15 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
+      - name: Run pilot behavior checks when provided
+        working-directory: collab-pilot
+        run: |
+          if [ -f package-lock.json ] && [ -f test/browser.test.mjs ]; then
+            npm ci
+            npx playwright install --with-deps chromium
+            npm test
+            npm run typecheck
+          fi
       - name: Validate and assemble preview
         env:
           DELIVERY_SHA: ${{ github.event.pull_request.head.sha || github.sha }}

@@ -27,7 +27,7 @@ export type Agent = Config['agents'][string];
 const stateRoot = process.env.COLLAB_STATE_DIR ?? path.join(root, '.runtime');
 export const configPath = process.env.COLLAB_CONFIG ?? path.join(stateRoot, 'config.json');
 export function loadConfig(): Config { return configSchema.parse(JSON.parse(readFileSync(configPath, 'utf8'))); }
-export function secrets(): { adminToken: string; agentTokens: Record<string, string>; jwtSecret: string } {
+export function secrets(): { adminToken: string; agentTokens: Record<string, string>; paperclipTokens?: Record<string, string>; jwtSecret: string } {
   return JSON.parse(readFileSync(path.join(stateRoot, 'secrets.json'), 'utf8'));
 }
 export const runtime = (...parts: string[]) => path.join(stateRoot, ...parts);

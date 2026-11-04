@@ -1,9 +1,10 @@
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { root } from './config.ts';
+import { root, runtime } from './config.ts';
 // Dynamic package boundaries avoid typechecking DSH's unrelated host/peer APIs.
 // The code executed here is still the pinned, unmodified upstream source.
 const moduleAt = (file: string) => import(pathToFileURL(path.join(root, 'upstream', file)).href);
+process.env.AGENT_AUTOLOOP_HOME = runtime('autoloop');
 const feishu = await moduleAt('superagent/src/sources/feishu-trigger.ts');
 const channel = await moduleAt('superagent/src/sources/feishu-channel.ts');
 const contract = await moduleAt('autoloop/worker/contract.ts');

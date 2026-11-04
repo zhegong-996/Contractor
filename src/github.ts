@@ -1,4 +1,4 @@
-import { mkdir, writeFile, readFile, copyFile, access } from 'node:fs/promises';
+import { mkdir, writeFile, readFile, copyFile, access, lstat } from 'node:fs/promises';
 import path from 'node:path';
 import { command } from './commands.ts';
 import type { Config } from './config.ts';
@@ -13,6 +13,14 @@ export function parsePr(url: string, repository: string): number {
   const u = new URL(url); const expected = `/${repository}/pull/`;
   if (u.protocol !== 'https:' || u.hostname !== 'github.com' || !u.pathname.toLowerCase().startsWith(expected.toLowerCase())) throw new Error('PR is outside the configured repository');
   const value = u.pathname.slice(expected.length); if (!/^\d+\/?$/.test(value)) throw new Error('Invalid PR URL'); return Number(value.replace('/', ''));
+}
+async function noSymlink(rootPath: string, file: string) {
+  let current = rootPath;
+  for (const part of file.split('/')) {
+    current = path.join(current, part);
+    try { if ((await lstat(current)).isSymbolicLink()) throw new Error('Delivery paths must not contain symbolic links'); }
+    catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+  }
 }
 export class Github {
   constructor(readonly config: Config) {}
@@ -30,22 +38,32 @@ export class Github {
     return { workspace, branch, baseSha: (await command('git', ['rev-parse', 'HEAD'], workspace)).trim() };
   }
   async publish(task: Task): Promise<Delivery> {
-    if (this.config.allowedPaths.includes('.github/workflows/collab-pilot.yml')) {
+    const taskPaths: string[] = JSON.parse(task.context).allowedPaths ?? [];
+    const permitted = (file: string) => allowedFile(file, this.config.allowedPaths) && allowedFile(file, taskPaths);
+    if ((await command('git', ['branch', '--show-current'], task.workspace)).trim() !== task.branch) throw new Error('Workspace branch changed');
+    if (permitted('.github/workflows/collab-pilot.yml')) {
+      await noSymlink(task.workspace, '.github/workflows/collab-pilot.yml');
       await mkdir(path.join(task.workspace, '.github/workflows'), { recursive: true });
       await copyFile(path.join(root, 'fixtures/collab-pilot.yml'), path.join(task.workspace, '.github/workflows/collab-pilot.yml'));
     }
     await command('git', ['diff', '--check'], task.workspace);
     const status = await command('git', ['status', '--porcelain=v1', '-uall', '-z'], task.workspace);
     const files = status.split('\0').filter(Boolean).map(line => line.slice(3));
-    if (files.some(f => !allowedFile(f, this.config.allowedPaths))) throw new Error('Changes exceed project allowedPaths');
+    if (files.some(f => !permitted(f))) throw new Error('Changes exceed task or project allowedPaths');
+    for (const file of files) await noSymlink(task.workspace, file);
     if (files.length) {
       await command('git', ['add', '--', ...files], task.workspace);
       await command('git', ['-c', 'core.hooksPath=/dev/null', 'commit', '-m', `${task.identifier}：交付协作试点任务`], task.workspace);
     }
     const headSha = (await command('git', ['rev-parse', 'HEAD'], task.workspace)).trim();
+    const taskBase: string = JSON.parse(task.context).baseSha;
+    if (!/^[a-f0-9]{40}$/.test(taskBase)) throw new Error('Task base commit is missing');
+    const committedFiles = (await command('git', ['diff', '--name-only', '--no-renames', '-z', taskBase, 'HEAD'], task.workspace)).split('\0').filter(Boolean);
+    if (committedFiles.some(file => !permitted(file))) throw new Error('Committed changes exceed task or project allowedPaths');
+    for (const file of committedFiles) await noSymlink(task.workspace, file);
     const baseSha = (await command('git', ['rev-parse', 'origin/main'], task.workspace)).trim();
     if (headSha === baseSha) throw new Error('No code change to deliver');
-    await command('git', ['-c', 'core.hooksPath=/dev/null', 'push', '-u', 'origin', task.branch], task.workspace);
+    await command('git', ['-c', 'core.hooksPath=/dev/null', 'push', `https://github.com/${this.config.repository}.git`, `HEAD:refs/heads/${task.branch}`], task.workspace);
     const pulls = await this.api(`pulls?state=open&head=${encodeURIComponent(this.config.repository.split('/')[0] + ':' + task.branch)}`);
     let pr = pulls.find((p: any) => p.head.ref === task.branch);
     if (!pr) {
@@ -65,7 +83,8 @@ export class Github {
   async inspect(prNumber: number): Promise<Delivery> {
     const pr = await this.api(`pulls/${prNumber}`);
     const checks = await this.api(`commits/${pr.head.sha}/check-runs`);
-    const expected = checks.check_runs.filter((c: any) => c.name === 'collab-pilot');
+    const expected = checks.check_runs.filter((c: any) => c.name === 'collab-pilot' && c.app?.slug === 'github-actions')
+      .sort((a: any, b: any) => b.id - a.id).slice(0, 1);
     const ci = expected.some((c: any) => c.status === 'completed' && c.conclusion !== 'success') ? 'failed'
       : expected.length && expected.every((c: any) => c.status === 'completed' && c.conclusion === 'success') ? 'passed' : 'pending';
     return { pr: pr.number, url: pr.html_url, headSha: pr.head.sha, ci, merged: Boolean(pr.merged_at), ...(pr.merged_at ? { mergeSha: pr.merge_commit_sha } : {}) };
@@ -76,13 +95,15 @@ export class Github {
     if (delivery.headSha !== task.delivery.headSha || delivery.ci !== 'passed') throw new Error('PR changed since CI evidence was recorded');
     const runs = await this.api(`actions/runs?head_sha=${delivery.headSha}&status=success`);
     let selected: any;
-    for (const run of runs.workflow_runs) {
+    for (const run of runs.workflow_runs.filter((r: any) => r.path === '.github/workflows/collab-pilot.yml')) {
       const artifacts = await this.api(`actions/runs/${run.id}/artifacts`);
       if (artifacts.artifacts.some((a: any) => a.name === `collab-pilot-${delivery.headSha}` && !a.expired)) { selected = run; break; }
     }
     if (!selected) throw new Error('No matching CI artifact found');
     const dir = runtime('previews', task.id, delivery.headSha); await mkdir(dir, { recursive: true });
-    await command('gh', ['run', 'download', String(selected.id), '--repo', this.config.repository, '--name', `collab-pilot-${delivery.headSha}`, '--dir', dir]);
+    const cached = await readFile(path.join(dir, 'version.json'), 'utf8').then(s => JSON.parse(s).commit === delivery.headSha).catch(() => false);
+    const hasPage = await access(path.join(dir, 'index.html')).then(() => true).catch(() => false);
+    if (!cached || !hasPage) await command('gh', ['run', 'download', String(selected.id), '--repo', this.config.repository, '--name', `collab-pilot-${delivery.headSha}`, '--dir', dir]);
     const version = JSON.parse(await readFile(path.join(dir, 'version.json'), 'utf8'));
     if (version.commit !== delivery.headSha) throw new Error('CI artifact version does not match delivery commit');
     await readFile(path.join(dir, 'index.html'), 'utf8');

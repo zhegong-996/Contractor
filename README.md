@@ -25,6 +25,7 @@ npm run install:upstream
 npm run setup -- --prepare-only
 npm run up
 npm run setup
+npm run install:wiki
 npm run doctor
 ```
 
@@ -90,6 +91,14 @@ lark-cli config init --new --name ai-native-collab --lang zh_cn
 
 任务的 `handoff`、`checkpoint`、`delivery`、`deployment`、`acceptance`、`decisions` 使用 Paperclip 已有的任务文档保存。SQLite 只存来源映射、消息去重、执行接入状态和发件箱，不替代 Paperclip 的任务库。
 
+## 知识与跨职能协作
+
+复用 Paperclip 自带的 **LLM Wiki 插件**作为知识浏览、来源、Markdown 页面、版本及维护入口，不另写编辑器和检索引擎。安装脚本使用同一固定提交的插件，通过其原生配置 API 绑定专用本地目录和现有接单身份。自动摄取默认关闭；插件的团队空间字段尚不能视为已经验证的保密边界，私有业务资料不进入这个共享 Wiki。
+
+本仓库的薄接入层负责结构化知识合同：专业标签、事实字段、适用范围、来源、正文、候选/确认/撤回、版本绑定和任务引用。记录仍保存在 Paperclip 任务文档，读取时重新检查原生任务 ACL；确认签名防止模型直接改正文状态来自行升级为已确认知识。更改或撤回源资料后，后续执行不会继续自动加载原确认。
+
+跨专业共享和授权方案、开源对照及尚未启用的部分见 [知识与授权架构](docs/KNOWLEDGE-AND-ACCESS.md)。当前是本机单操作者联调，尚未上线多人身份与部门知识库；不能把 Agent 身份的测试结果等同于多人生产环境验收。
+
 平台保留“作者自行合并、Actions 发布”的现有协作约定。试点代码不会自动合入业务仓库。
 
 ## 验证
@@ -101,3 +110,5 @@ npm run doctor
 ```
 
 自动测试使用临时状态和模拟接口，覆盖去重、并发签出、过期回执、部分失败重试、交付范围、版本验收及真实 stdio MCP 协议。真实飞书消息、模型执行、GitHub CI、预览与人工验收应分别记录；通过单元测试不等于真实全流程通过。
+
+本机已跑通的真实流程与尚未启用的能力见 [验证记录](docs/VALIDATION.md)。CLI 用量保存在回执中，费用尚未完整回填 Paperclip 成本账本，界面的零费用不代表没有发生模型调用。

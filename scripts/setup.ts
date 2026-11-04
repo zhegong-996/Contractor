@@ -28,6 +28,8 @@ const config: Config = existsSync(file) ? JSON.parse(readFileSync(file, 'utf8'))
 writeFileSync(file, JSON.stringify(config, null, 2), { mode: 0o600 });
 if (process.argv.includes('--prepare-only')) { console.log('Local configuration prepared'); process.exit(0); }
 const pc = new Paperclip(config.paperclipUrl);
+const authFile = runtime('secrets.json'), auth = JSON.parse(readFileSync(authFile, 'utf8'));
+auth.paperclipTokens ??= {};
 const companies = await pc.get<any[]>('/companies');
 let company = companies.find(c => c.name === 'SuitMe 协作台');
 if (!company) company = await pc.post('/companies', { name: 'SuitMe 协作台', description: '团队与 Agent 的研发协作工作台' });
@@ -54,8 +56,17 @@ for (const [key, agent] of Object.entries(config.agents)) {
     permissions: { canCreateAgents: false, canCreateSkills: false },
   };
   if (!existing) existing = await pc.post(`/companies/${company.id}/agents`, data);
-  else await pc.patch(`/agents/${existing.id}`, data);
+  else {
+    const { permissions, ...update } = data;
+    await pc.patch(`/agents/${existing.id}`, update);
+  }
   agent.paperclipId = existing.id;
+  if (agent.enabled && !auth.paperclipTokens[key]) {
+    const created = await pc.post(`/agents/${existing.id}/keys`, { name: 'SuitMe bridge access checks', scope: { kind: 'standard' } });
+    if (!created.token) throw new Error('Paperclip did not return the new access-check credential');
+    auth.paperclipTokens[key] = created.token;
+    writeFileSync(authFile, JSON.stringify(auth, null, 2), { mode: 0o600 });
+  }
 }
 writeFileSync(file, JSON.stringify(config, null, 2), { mode: 0o600 });
 console.log(JSON.stringify({ company: company.name, companyId: company.id, projectId: project.id, agents: Object.keys(config.agents), url: config.paperclipUrl }, null, 2));

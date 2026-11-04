@@ -65,12 +65,14 @@ export class Controller {
     if (!agent?.enabled || !agent.paperclipId) throw new Error('Agent is not configured or enabled');
     if (!this.config.companyId || !this.config.projectId) throw new Error('Run setup first');
     const issue = await this.pc.post(`/companies/${this.config.companyId}/issues`, {
-      idempotencyKey: input.triggerId, projectId: this.config.projectId, title: input.text.split('\n')[0]!.slice(0, 120),
+      idempotencyKey: input.triggerId, allowDuplicate: true, projectId: this.config.projectId, title: input.text.split('\n')[0]!.slice(0, 120),
       description: `${input.text}\n\n来源：${input.messageId.startsWith('om_') ? '飞书任务' : '本地 API 联调'}。Agent 回执、代码交付、部署和业务验收分别记录。`,
       status: 'backlog', assigneeAgentId: agent.paperclipId,
     });
+    const linked = this.store.list().find(t => t.id === issue.id);
+    if (linked && linked.triggerId !== input.triggerId) throw new Error('Paperclip returned a task linked to a different source event');
     const prepared = await this.github.prepare(issue.id);
-    const acceptanceLine = /^验收[:：]\s*(.+)$/m.exec(input.text)?.[1];
+    const acceptanceLine = /(?:^|\s)验收[:：]\s*(.+)$/m.exec(input.text)?.[1];
     const businessAcceptance = acceptanceLine ? acceptanceLine.split(/[；;]/).map(s => s.trim()).filter(Boolean).slice(0, 12) : ['符合任务要求'];
     const context = JSON.stringify({ schemaVersion: 1, taskId: issue.id, identifier: issue.identifier, request: input.text,
       repository: this.config.repository, baseSha: prepared.baseSha, allowedPaths: this.config.allowedPaths,
@@ -83,7 +85,7 @@ export class Controller {
     await this.pc.document(task.id, 'handoff', '任务交接包', `版本：1\n\n\`\`\`json\n${context}\n\`\`\``);
     await mkdir(runtime('tasks', task.id), { recursive: true });
     await writeFile(runtime('tasks', task.id, 'context.json'), context, { mode: 0o600 });
-    this.store.notify(`intake:${task.id}`, task.id, `已接单：${task.identifier}，交给${agent.name}。\n[任务](${this.config.paperclipUrl}/${this.config.companyId}/issues/${task.id})`);
+    this.store.notify(`intake:${task.id}`, task.id, `已接单：${task.identifier}，交给${agent.name}。\n[任务](${this.config.paperclipUrl}/${task.identifier.split('-')[0]}/issues/${task.identifier})`);
     await this.pc.patch(`/issues/${task.id}`, { status: 'todo' });
     this.store.audit('task.created', task.id, { agent: input.agent, baseSha: prepared.baseSha });
     return task;
@@ -125,37 +127,68 @@ export class Controller {
     if (!task.runId) throw new Error('No managed execution to reconcile');
     const run = await this.pc.get(`/heartbeat-runs/${task.runId}`);
     if (!['failed', 'cancelled', 'succeeded'].includes(run.status)) throw new Error('Execution has not terminated');
-    let journal: { pid?: number; session?: string; finished?: boolean; text?: string } | undefined;
+    let journal: { pid?: number; session?: string; finished?: boolean; text?: string; cancelled?: boolean } | undefined;
     try { journal = JSON.parse(await readFile(runtime('tasks', task.id, `process-${task.runId}.json`), 'utf8')); }
     catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
     if (journal?.pid) {
-      let alive = false; try { process.kill(journal.pid, 0); alive = true; } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error; }
+      let alive = false; try { process.kill(process.platform === 'win32' ? journal.pid : -journal.pid, 0); alive = true; } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error; }
       if (alive) throw new Error('The previous Agent process may still be writing');
       if (!journal.session && !journal.finished) throw new Error('Execution outcome is unknown; inspect the retained workspace before resuming');
       task.session = journal.session ?? task.session;
       if (journal.text) task.lastMessage = journal.text;
     }
+    if (!journal) throw new Error('No execution journal: inspect and resolve the original Paperclip recovery before resuming');
+    const recovery = await this.pc.get(`/issues/${task.id}/recovery-actions`);
+    for (const action of recovery.actions ?? []) {
+      if (action.evidence?.runId !== task.runId || action.evidence?.automaticRecovery?.replay !== 'blocked') continue;
+      await this.pc.post(`/issues/${task.id}/recovery-actions/resolve`, {
+        actionId: action.id, outcome: 'restored', sourceIssueStatus: 'todo',
+        resolutionNote: '已核对原执行终止、进程组退出，工作树和会话检查点保留；只允许从现有检查点继续。',
+        executionReconciliation: { runId: task.runId, providerStopped: true, actionOutcome: 'mixed',
+          outcomeEvidence: `Run ${task.runId} is ${run.status}; owned process group ${journal.pid} is absent. The saved session ${journal.session ?? 'none'} and task worktree are retained. No previous external action is replayed by reconciliation.` },
+      });
+    }
     delete task.lease; task.phase = 'waiting'; this.store.save(task);
     this.store.audit('run.reconciled', task.id, { runId: task.runId, state: run.status, processJournal: Boolean(journal) });
     return task;
   }
-  async receipt(id: string, input: { receiptId: string; agent: string; lease: string; text: string; session?: string }) {
-    const existing = this.store.db.prepare('SELECT value FROM receipts WHERE id=?').get(input.receiptId) as { value: string } | undefined;
-    if (existing) return JSON.parse(existing.value);
+  async receipt(id: string, input: { receiptId: string; agent: string; lease: string; text: string; session?: string; runToken?: string }) {
     const task = this.store.get(id);
+    const existing = this.store.db.prepare('SELECT issue_id,value FROM receipts WHERE id=?').get(input.receiptId) as { issue_id: string; value: string } | undefined;
+    if (existing) { if (existing.issue_id !== task.id) throw new Error('Receipt belongs to another task'); return JSON.parse(existing.value); }
     if (task.agent !== input.agent || task.lease !== input.lease || task.phase !== 'running') throw new Error('Stale or foreign execution receipt');
+    const actorPc = input.runToken ? new Paperclip(this.config.paperclipUrl, input.runToken, task.runId) : this.pc;
+    if (this.config.agents[input.agent]?.mode === 'managed') {
+      if (!input.runToken || !task.runId) throw new Error('Managed receipts require their run-scoped identity');
+      const actor = await actorPc.get('/agents/me');
+      if (actor.id !== this.config.agents[input.agent]!.paperclipId) throw new Error('Run identity does not match the assigned agent');
+    }
     const parsed = resultFrom(readMessage(input.text), { session: input.session });
     if (parsed.problem) throw new Error(`Invalid upstream receipt: ${parsed.problem}`);
     if (parsed.result.events?.length || parsed.result.resolve?.length) throw new Error('This project does not grant arbitrary event emission or cross-task resolution');
     const nextPhase = parsed.result.ask?.length ? 'waiting' : parsed.result.outcome === 'failed' ? 'failed' : 'executed';
-    await this.pc.post(`/issues/${task.id}/comments`, { body: input.text, clientRequestId: stableUuid(input.receiptId), resume: false });
-    await this.pc.document(task.id, 'checkpoint', '执行检查点', `执行端：${task.agent}\n\n${input.text}`);
-    await this.pc.patch(`/issues/${task.id}`, { status: nextPhase === 'waiting' || nextPhase === 'failed' ? 'blocked' : 'in_review',
-      ...(nextPhase === 'waiting' ? { unblockDescriptor: { owner: 'board', action: parsed.result.ask!.map(q => q.title).join('；') } } : {}) });
-    task.session = input.session; task.lastMessage = input.text; task.phase = nextPhase; delete task.lease; this.store.save(task);
-    if (parsed.result.ask?.length) this.store.notify(`ask:${input.receiptId}`, task.id, parsed.result.ask.map(q => `${q.title}\n${q.text}\n${q.options.map((o, i) => `${i + 1}. ${o}`).join('\n')}`).join('\n'));
-    if (parsed.result.later?.length) this.store.audit('receipt.deferred-check', task.id, parsed.result.later);
-    this.store.db.prepare('INSERT INTO receipts VALUES(?,?,?)').run(input.receiptId, task.id, JSON.stringify(parsed.result));
+    await actorPc.post(`/issues/${task.id}/comments`, { body: input.text, clientRequestId: stableUuid(input.receiptId), resume: false });
+    await actorPc.document(task.id, 'checkpoint', '执行检查点', `执行端：${task.agent}\n\n${input.text}`);
+    if (parsed.result.ask?.length) {
+      await actorPc.post(`/issues/${task.id}/interactions`, {
+        kind: 'ask_user_questions', idempotencyKey: `autoloop-ask:${input.receiptId}`,
+        title: parsed.result.ask[0]!.title, continuationPolicy: 'wake_assignee',
+        payload: { version: 1, supersedeOnUserComment: true, questions: parsed.result.ask.map((question, index) => ({
+          id: `q${index}`, prompt: question.title, helpText: question.text,
+          selectionMode: 'single', required: true, allowOther: true,
+          options: question.options.map((label, option) => ({ id: `o${option}`, label })),
+        })) },
+      });
+    }
+    await actorPc.patch(`/issues/${task.id}`, { status: nextPhase === 'waiting' || nextPhase === 'failed' ? 'blocked' : 'in_review',
+      ...(nextPhase === 'failed' ? { unblockDescriptor: { owner: this.config.agents[input.agent]?.paperclipId ? { agentId: this.config.agents[input.agent]!.paperclipId } : 'board',
+        action: parsed.result.error ?? '核对执行失败原因后恢复剩余步骤' } } : {}) });
+    this.store.atomic(() => {
+      task.session = input.session; task.lastMessage = input.text; task.phase = nextPhase; delete task.lease; this.store.save(task);
+      if (parsed.result.ask?.length) this.store.notify(`ask:${input.receiptId}`, task.id, parsed.result.ask.map(q => `${q.title}\n${q.text}\n${q.options.map((o, i) => `${i + 1}. ${o}`).join('\n')}`).join('\n'));
+      if (parsed.result.later?.length) this.store.audit('receipt.deferred-check', task.id, parsed.result.later);
+      this.store.db.prepare('INSERT INTO receipts VALUES(?,?,?)').run(input.receiptId, task.id, JSON.stringify(parsed.result));
+    });
     return parsed.result;
   }
   async publish(id: string) {
@@ -169,10 +202,10 @@ export class Controller {
     const task = this.store.get(id); if (!task.delivery) return task;
     const old = task.delivery; const current = await this.github.inspect(old.pr);
     task.delivery = current.headSha === old.headSha ? { ...old, ...current } : current;
-    if (current.headSha !== old.headSha) task.phase = 'delivered';
+    if (current.headSha !== old.headSha) { task.phase = 'delivered'; await this.pc.patch(`/issues/${task.id}`, { status: 'in_review' }); }
     this.store.save(task);
     if (current.headSha !== old.headSha) this.store.audit('delivery.changed', task.id, { previous: old.headSha, current: current.headSha });
-    await this.pc.document(task.id, 'delivery', 'GitHub 交付', JSON.stringify(task.delivery, null, 2));
+    if (JSON.stringify(old) !== JSON.stringify(task.delivery)) await this.pc.document(task.id, 'delivery', 'GitHub 交付', JSON.stringify(task.delivery, null, 2));
     return task;
   }
   async preview(id: string) {

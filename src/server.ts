@@ -9,9 +9,13 @@ import { Store } from './store.ts';
 import { Controller } from './controller.ts';
 import { command } from './commands.ts';
 import { sendFeishu } from './upstream.ts';
+import { KnowledgeService } from './knowledge.ts';
+import { Paperclip } from './paperclip.ts';
 
 const config = loadConfig(); const credentials = secrets();
 const store = new Store(runtime('bridge.sqlite')); const control = new Controller(config, store);
+const knowledge = new KnowledgeService(config, store, control.pc, credentials.jwtSecret);
+let feishuState = config.feishu.enabled ? 'connecting' : 'disabled';
 let tail: Promise<unknown> = Promise.resolve();
 const serialize = <T>(job: () => Promise<T>): Promise<T> => { const next = tail.then(job, job); tail = next.catch(() => {}); return next; };
 function equal(a: string, b: string) { const x = Buffer.from(a), y = Buffer.from(b); return x.length === y.length && timingSafeEqual(x, y); }
@@ -26,7 +30,7 @@ const server = createServer(async (req, res) => {
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
   try {
     const url = new URL(req.url ?? '/', `http://127.0.0.1:${config.bridgePort}`);
-    if (url.pathname === '/health') { res.end(JSON.stringify({ status: 'ok', paperclip: config.paperclipUrl, feishu: config.feishu.enabled, agents: Object.entries(config.agents).filter(([, a]) => a.enabled).map(([key, a]) => ({ key, mode: a.mode })) })); return; }
+    if (url.pathname === '/health') { res.end(JSON.stringify({ status: 'ok', paperclip: config.paperclipUrl, feishu: feishuState, agents: Object.entries(config.agents).filter(([, a]) => a.enabled).map(([key, a]) => ({ key, mode: a.mode })) })); return; }
     if (req.method === 'GET' && url.pathname.startsWith('/preview/')) {
       const match = /^\/preview\/([a-f0-9-]+)\/([a-f0-9]{40})\/(index\.html|version\.json)$/.exec(url.pathname);
       if (!match) throw new Error('Invalid preview path');
@@ -39,6 +43,11 @@ const server = createServer(async (req, res) => {
     }
     if (req.headers.origin) throw new Error('Browser mutations are not accepted by this local bridge');
     const actor = identity(req);
+    const reader = actor.agent ? new Paperclip(config.paperclipUrl, credentials.paperclipTokens?.[actor.agent] ?? 'unconfigured-identity') : control.pc;
+    if (url.pathname === '/knowledge') {
+      if (!actor.admin || req.method !== 'GET') throw new Error('Unauthorized');
+      res.end(JSON.stringify(await serialize(() => knowledge.list()))); return;
+    }
     if (req.method === 'GET' && url.pathname === '/tasks') {
       const tasks = store.list().filter(t => actor.admin || t.agent === actor.agent).map(({ lease, context, ...t }) => t);
       res.end(JSON.stringify(tasks)); return;
@@ -47,17 +56,26 @@ const server = createServer(async (req, res) => {
       if (!actor.admin) throw new Error('Unauthorized'); const data = await body(req);
       res.end(JSON.stringify(await serialize(() => control.ingest(data)))); return;
     }
-    const match = /^\/tasks\/([^/]+)(?:\/(claim|receipt|publish|sync|preview|accept|handoff|reply|reconcile))?$/.exec(url.pathname);
+    const match = /^\/tasks\/([^/]+)(?:\/(claim|receipt|publish|sync|preview|accept|handoff|reply|reconcile|knowledge-propose|knowledge-review|knowledge-attach))?$/.exec(url.pathname);
     if (!match) { res.statusCode = 404; res.end(JSON.stringify({ error: 'Not found' })); return; }
     const task = store.get(match[1]!);
     if (!actor.admin && task.agent !== actor.agent) throw new Error('Task belongs to another agent');
-    if (req.method === 'GET' && !match[2]) { const { lease, ...safe } = task; res.end(JSON.stringify(safe)); return; }
+    if (req.method === 'GET' && !match[2]) { const { lease, ...safe } = task; res.end(JSON.stringify({ ...safe, knowledge: await knowledge.resolve(task, reader) })); return; }
     if (req.method !== 'POST') throw new Error('Method not allowed');
     const data = await body(req); const action = match[2];
     const result = await serialize(async () => {
+      if (action === 'knowledge-propose') return knowledge.propose(store.get(task.id), data, actor.agent ?? 'local-operator', reader);
+      if (action === 'knowledge-review' || action === 'knowledge-attach') {
+        if (!actor.admin) throw new Error('Unauthorized');
+        if (action === 'knowledge-attach') return knowledge.attach(store.get(task.id), data.refs);
+        if (!['confirmed', 'withdrawn'].includes(data.state)) throw new Error('Invalid review state');
+        return knowledge.review({ taskId: task.id, key: data.key }, data.state, data.revision, 'local-operator');
+      }
       if (action === 'claim') {
         const agent = actor.agent ?? data.agent;
         if (!config.agents[agent]?.enabled) throw new Error('Agent unavailable');
+        const sourceReader = new Paperclip(config.paperclipUrl, credentials.paperclipTokens?.[agent] ?? 'unconfigured-identity');
+        if ((await knowledge.resolve(store.get(task.id), sourceReader)).excluded.length) throw new Error('Knowledge access changed; review the source grants and previous checkpoint before resuming');
         const issue = await control.pc.get(`/issues/${task.id}`);
         if (data.runId) {
           const run = await control.pc.get(`/heartbeat-runs/${data.runId}`);
@@ -129,7 +147,7 @@ if (config.feishu.enabled) {
   consumer = spawn('lark-cli', ['--profile', config.feishu.profile, 'event', 'consume', 'im.message.receive_v1', '--as', 'bot'], { stdio: ['pipe', 'pipe', 'pipe'] });
   let ready = false;
   readline.createInterface({ input: consumer.stderr! }).on('line', line => {
-    if (line.includes('[event] ready event_key=')) { ready = true; console.log('Feishu message listener ready'); }
+    if (line.includes('[event] ready event_key=')) { ready = true; feishuState = 'ready'; console.log('Feishu message listener ready'); }
     else console.error(line);
   });
   readline.createInterface({ input: consumer.stdout! }).on('line', line => {
@@ -137,7 +155,8 @@ if (config.feishu.enabled) {
     try { const event = JSON.parse(line); void serialize(() => control.ingest(event)).catch(error => console.error('IM intake:', String(error).slice(0, 500))); }
     catch { console.error('Invalid Feishu event JSON'); }
   });
-  consumer.on('exit', code => { if (!stopping) { console.error(`Feishu listener exited (${code}); restart after restoring the connection`); void shutdown(1); } });
+  consumer.on('error', error => { feishuState = 'disconnected'; console.error('Feishu listener:', error.message); });
+  consumer.on('exit', code => { ready = false; feishuState = 'disconnected'; if (!stopping) console.error(`Feishu listener exited (${code}); restart after restoring the connection`); });
 }
 server.listen(config.bridgePort, '127.0.0.1', () => { console.log(`SuitMe bridge: http://127.0.0.1:${config.bridgePort}`); void tick(); });
 async function shutdown(code = 0) {

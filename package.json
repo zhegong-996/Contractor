@@ -8,6 +8,7 @@
   "scripts": {
     "setup": "node --import tsx scripts/setup.ts",
     "install:upstream": "node --import tsx scripts/install-upstream.ts",
+    "install:wiki": "node --import tsx scripts/install-wiki.ts",
     "paperclip": "node --import tsx scripts/paperclip.ts",
     "up": "node --import tsx scripts/up.ts",
     "stop": "node --import tsx scripts/up.ts stop",

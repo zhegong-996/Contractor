@@ -1,10 +1,11 @@
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
+import type { KnowledgeRef } from './knowledge.ts';
 
 export type Task = { id: string; identifier: string; triggerId: string; chatId: string; messageId: string; senderId: string;
   agent: string; workspace: string; branch: string; context: string; generation: number;
-  phase: string; session?: string; runId?: string; lastMessage?: string; delivery?: Delivery; lease?: string };
+  phase: string; session?: string; runId?: string; lastMessage?: string; delivery?: Delivery; lease?: string; knowledgeRefs?: KnowledgeRef[] };
 export type Delivery = { pr: number; url: string; headSha: string; ci: 'pending' | 'passed' | 'failed'; merged: boolean;
   mergeSha?: string; environment?: string; deployedSha?: string; previewUrl?: string; artifactRunId?: number };
 
