@@ -1,0 +1,25 @@
+{
+  "name": "suitme-collab",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "SuitMe 协作台：Paperclip control plane with upstream source and CLI adapters",
+  "engines": { "node": ">=24.11.0" },
+  "scripts": {
+    "setup": "node --import tsx scripts/setup.ts",
+    "install:upstream": "node --import tsx scripts/install-upstream.ts",
+    "paperclip": "node --import tsx scripts/paperclip.ts",
+    "up": "node --import tsx scripts/up.ts",
+    "stop": "node --import tsx scripts/up.ts stop",
+    "status": "node --import tsx scripts/up.ts status",
+    "start": "node --import tsx src/server.ts",
+    "cli": "node --import tsx src/cli.ts",
+    "mcp": "node --import tsx src/mcp.ts",
+    "doctor": "node --import tsx scripts/doctor.ts",
+    "test": "node --import tsx --test tests/*.test.ts",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc --noEmit"
+  },
+  "dependencies": { "@modelcontextprotocol/sdk": "1.31.0", "tsx": "4.23.15", "zod": "4.4.3" },
+  "devDependencies": { "@types/node": "24.0.0", "typescript": "7.0.2" }
+}

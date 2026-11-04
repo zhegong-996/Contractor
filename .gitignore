@@ -1,0 +1,7 @@
+node_modules/
+.runtime/
+workspaces/
+evidence/private/
+.env
+*.log
+.DS_Store

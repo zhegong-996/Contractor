@@ -1,0 +1,39 @@
+name: SuitMe collaboration pilot
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  collab-pilot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Validate and assemble preview
+        env:
+          DELIVERY_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync, mkdirSync, copyFileSync, writeFileSync } from 'node:fs';
+          import assert from 'node:assert/strict';
+          const html = readFileSync('collab-pilot/index.html', 'utf8');
+          assert.match(html, /<!doctype html>/i, 'A complete HTML document is required');
+          assert.match(html, /<title>[^<]+<\/title>/i, 'A page title is required');
+          assert.match(html, /<html[^>]*lang=/i, 'A document language is required');
+          assert.ok(!/<script[^>]+src\s*=\s*["']https?:/i.test(html), 'Pilot must not depend on remote scripts');
+          mkdirSync('preview-artifact', { recursive: true });
+          copyFileSync('collab-pilot/index.html', 'preview-artifact/index.html');
+          writeFileSync('preview-artifact/version.json', JSON.stringify({ commit: process.env.DELIVERY_SHA, environment: 'pr-preview', builtAt: new Date().toISOString() }));
+          console.log('Pilot document checks passed');
+          NODE
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: collab-pilot-${{ github.event.pull_request.head.sha || github.sha }}
+          path: preview-artifact/
+          retention-days: 7
