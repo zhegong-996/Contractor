@@ -9,6 +9,7 @@
 | Agent Autoloop | plugins/{codex,claude,command,acp}、worker/agents.ts、worker/contract.ts、protocol/validate.ts | 不启动 Autoloop hub；不照搬其自动合并策略 |
 | OpenHands SDK | 参考执行服务与协作控制平面的边界 | 第一版不引入另一套执行服务 |
 | Paperclip LLM Wiki | packages/plugins/plugin-llm-wiki 原版 UI、worker、迁移、来源与页面工具 | 与 Paperclip 同一固定提交；共享资料入口，自动摄取关闭，未把 Alpha 空间字段当作 ACL |
+| Paperclip Plugin SDK | 原版构建预设、宿主身份、导航、Markdown 组件，以及私有项目、审批、任务授权和修订 API | 第二阶段扩展位于 plugins/knowledge-workspaces，未修改上游；详见 WORKSPACES.md |
 
 src/upstream.ts 只声明本项目用到的接口并加载固定源码。动态包边界避免把未使用的 DeepSeek Harness 宿主及其 peer dependencies 拉进本项目的类型检查；实际执行的是上游实现。测试覆盖这些真实导出，而非本地仿制实现。
 

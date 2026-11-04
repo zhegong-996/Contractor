@@ -7,6 +7,10 @@
   "engines": { "node": ">=24.11.0" },
   "scripts": {
     "setup": "node --import tsx scripts/setup.ts",
+    "setup:workspaces": "node --import tsx scripts/setup-workspaces.ts",
+    "install:workspaces": "node --import tsx scripts/install-workspace-plugin.ts",
+    "build:workspaces": "node --import tsx scripts/install-workspace-plugin.ts --build-only && tsc --noEmit -p plugins/knowledge-workspaces/tsconfig.json",
+    "test:cross-role": "node --import tsx scripts/smoke-cross-role.ts --run",
     "install:upstream": "node --import tsx scripts/install-upstream.ts",
     "install:wiki": "node --import tsx scripts/install-wiki.ts",
     "paperclip": "node --import tsx scripts/paperclip.ts",

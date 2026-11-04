@@ -1,0 +1,129 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { Store, type Task } from '../src/store.ts';
+const temp = mkdtempSync(path.join(tmpdir(), 'suitme-workflow-test-'));
+process.env.COLLAB_STATE_DIR = temp;
+writeFileSync(path.join(temp, 'secrets.json'), JSON.stringify({ jwtSecret: 'test-key', adminToken: 'operator', agentTokens: {},
+  paperclipTokens: { 'role-growth': 'fake-growth-native-identity', 'role-product': 'fake-product-native-identity' } }));
+const { Workspaces, requestIsCurrent, contractProof } = await import('../src/workspaces.ts');
+const { configSchema } = await import('../src/config.ts');
+const config = configSchema.parse({ companyId: 'company', projectId: 'project', paperclipUrl: 'http://127.0.0.1:3100', repository: 'test/repo',
+  checkout: temp, allowedPaths: ['pilot/'], defaultAgent: 'role-growth',
+  agents: { 'role-growth': { name: '增长', mode: 'manual', enabled: true, paperclipId: 'growth-id' }, 'role-product': { name: '产研', mode: 'manual', enabled: true, paperclipId: 'product-id' } }, feishu: { profile: 'test' } });
+function fixture() {
+  const dir = mkdtempSync(path.join(temp, 'case-')), store = new Store(path.join(dir, 'state.sqlite'));
+  const task: Task = { id: 'task-one', identifier: 'SUI-ONE', kind: 'collaboration', triggerId: 'one', chatId: 'local', messageId: 'local', senderId: 'operator',
+    agent: 'role-growth', workspace: '', branch: '', context: '{}', generation: 1, phase: 'ready' };
+  store.save(task); const service = new Workspaces(config, store);
+  const state: any = { version: 1, sources: ['sales'], requests: ['request-one'], snapshots: [{ id: 'snapshot-one', sources: ['sales'], grants: [{ agent: task.agent, id: 'snapshot-grant' }] }], outcomes: [], history: [] };
+  const access: any = { id: 'request-one', taskId: task.id, sourceId: 'sales', agent: task.agent, grantId: 'source-grant',
+    state: 'approved', expiresAt: '2099-01-01T00:00:00Z' };
+  service.state = async () => state; service.access = async () => access; service.source = () => ({ id: 'sales', title: '销售资料', domain: 'sales', ref: { taskId: 'source-task', key: 'knowledge-sales' } });
+  service.issue = async () => ({ id: task.id, companyId: 'company' });
+  service.reader = () => ({ get: async () => { throw new Error('404'); } }) as any;
+  service.allowed = async () => false;
+  service.saveAccess = async () => {};
+  service.save = async (t, s, event, detail) => { s.history.push({ at: new Date().toISOString(), event, detail }); store.save(t); };
+  service.pc.patch = async () => ({}) as any;
+  return { store, task, service, state, access, close() { store.close(); rmSync(dir, { recursive: true, force: true }); } };
+}
+test.after(() => rmSync(temp, { recursive: true, force: true }));
+test('approval and expiry are both required; pending, revoking and exact deadline deny access', () => {
+  const now = Date.parse('2026-11-04T00:00:00Z');
+  assert.equal(requestIsCurrent({ state: 'approved', expiresAt: '2026-11-04T00:00:01Z' }, now), true);
+  for (const state of ['pending', 'revoking', 'revoked', 'denied'] as const) assert.equal(requestIsCurrent({ state, expiresAt: '2099-01-01T00:00:00Z' }, now), false);
+  assert.equal(requestIsCurrent({ state: 'approved', expiresAt: '2026-11-04T00:00:00Z' }, now), false);
+});
+test('workflow attestations bind sources and the owning task, so direct document edits cannot widen a handoff', () => {
+  const state = { sources: ['private-sales'], requests: ['approved-one'], snapshots: [{ id: 'private-checkpoint', sources: ['private-sales'] }] };
+  const proof = contractProof('task', 'task-one', state, 'test-key');
+  assert.equal(contractProof('task', 'task-one', { ...state, proof }, 'test-key'), proof);
+  assert.notEqual(contractProof('task', 'task-two', state, 'test-key'), proof);
+  assert.notEqual(contractProof('task', 'task-one', { ...state, sources: [] }, 'test-key'), proof);
+  assert.notEqual(contractProof('task', 'task-one', { ...state, snapshots: [{ id: 'private-checkpoint', sources: [] }] }, 'test-key'), proof);
+  const request = { agent: 'role-growth', expiresAt: '2026-11-04T10:00:00Z', state: 'pending' };
+  assert.notEqual(contractProof('request', 'r', request, 'test-key'), contractProof('request', 'r', { ...request, state: 'approved' }, 'test-key'));
+});
+test('an Agent cannot approve, revoke or publish by choosing a different principal in input', async () => {
+  const f = fixture();
+  try {
+    await assert.rejects(f.service.decide('request-one', 'approved', 'self approval', { admin: false, agent: 'role-growth' }), /Unauthorized/);
+    await assert.rejects(f.service.revoke('request-one', 'self revoke', { admin: false, agent: 'role-growth' }), /Unauthorized/);
+    await assert.rejects(f.service.publish('task-one', 'outcome', 'revision', 'release', { admin: false, agent: 'role-growth' }), /Unauthorized/);
+    await assert.rejects(f.service.request({ taskId: f.task.id, sourceId: 'sales', agent: 'role-product', purpose: 'x', requestKey: 'x' }, { admin: false, agent: 'role-growth' }), /Unauthorized/);
+  } finally { f.close(); }
+});
+test('handoff refuses before any assignment mutation if the new executor lacks material access', async () => {
+  const f = fixture();
+  try {
+    let writes = 0; f.service.domain = () => 'product'; f.service.requireSources = async () => { throw new Error('missing material access'); };
+    f.service.pc.patch = async () => { writes++; return {} as any; };
+    await assert.rejects(f.service.handoff(f.task.id, 'role-product', { admin: true }), /missing material/);
+    assert.equal(writes, 0); assert.equal(f.store.get(f.task.id).agent, 'role-growth');
+  } finally { f.close(); }
+});
+test('partial revocation stays fail-closed and recovery preserves manual-revocation status', async () => {
+  const f = fixture();
+  try {
+    const removed: string[] = []; f.service.revokeGrant = async (_issue, id) => { removed.push(id); };
+    let fail = true; f.service.pc.patch = async () => { if (fail) { fail = false; throw new Error('temporary native write failure'); } return {} as any; };
+    await assert.rejects(f.service.revoke('request-one', '负责人撤销', { admin: true }), /temporary/);
+    assert.equal(f.access.state, 'revoking'); assert.equal(requestIsCurrent(f.access), false);
+    await f.service.revoke('request-one', 'background recovery', { admin: true }, true);
+    assert.equal(f.access.state, 'revoked'); assert.equal(f.access.reason, '负责人撤销');
+    assert.ok(removed.includes('source-grant')); assert.ok(removed.includes('snapshot-grant'));
+    assert.equal(f.store.get(f.task.id).phase, 'access_blocked');
+  } finally { f.close(); }
+});
+test('revoking a live external execution fences its lease and blocks replacement until a stopped acknowledgement', async () => {
+  const f = fixture();
+  try {
+    f.task.phase = 'running'; f.task.lease = 'owned-lease'; f.store.save(f.task);
+    f.service.revokeGrant = async () => {};
+    await f.service.revoke('request-one', 'scope removed', { admin: true });
+    assert.equal(f.store.get(f.task.id).phase, 'unknown'); assert.equal(f.store.get(f.task.id).lease, undefined);
+    assert.equal(f.state.fence.lease, 'owned-lease');
+    await assert.rejects(f.service.stopped(f.task.id, 'wrong-lease', 'stopped', true, { admin: false, agent: 'role-growth' }), /Unauthorized/);
+    await assert.rejects(f.service.checkpoint(f.task.id, 'late result', { admin: false, agent: 'role-growth' }, 'owned-lease'), /Stale/);
+    await f.service.stopped(f.task.id, 'owned-lease', '原执行端已结束写入', true, { admin: false, agent: 'role-growth' });
+    assert.equal(f.store.get(f.task.id).phase, 'access_blocked'); assert.equal(f.state.fence, undefined);
+  } finally { f.close(); }
+});
+test('one task cannot revoke another task authorization that shares the same native grant', async () => {
+  const f = fixture();
+  try {
+    const second = { ...f.task, id: 'task-two', identifier: 'SUI-TWO', triggerId: 'two' }; f.store.save(second);
+    const secondAccess = { ...f.access, id: 'request-two', taskId: second.id };
+    const states: any = { 'task-one': f.state, 'task-two': { ...f.state, requests: ['request-two'], snapshots: [], outcomes: [], history: [] } };
+    f.service.state = async t => states[t.id];
+    f.service.access = async id => id === 'request-one' ? f.access : secondAccess;
+    let sourceRevokes = 0;
+    f.service.revokeGrant = async (_issue, id) => { if (id === 'source-grant') sourceRevokes++; };
+    f.service.reader = () => ({ get: async () => ({}) }) as any;
+    await f.service.revoke('request-one', 'end task one access', { admin: true });
+    assert.equal(sourceRevokes, 0); assert.equal(f.access.remainingNativeAccess, true);
+    assert.equal(f.store.get(second.id).phase, 'ready'); assert.equal(secondAccess.state, 'approved');
+    await f.service.revoke('request-two', 'end last access', { admin: true });
+    assert.equal(sourceRevokes, 1);
+  } finally { f.close(); }
+});
+test('a persisted handoff resumes at the same generation after the native assignment response is lost', async () => {
+  const f = fixture();
+  try {
+    f.service.domain = () => 'product'; f.service.requireSources = async () => {};
+    f.state.requests = []; f.state.snapshots = [];
+    let nativeAssignee = 'growth-id', fail = true;
+    f.service.issue = async () => ({ id: f.task.id, assigneeAgentId: nativeAssignee });
+    f.service.pc.patch = async (_route, body: any) => { nativeAssignee = body.assigneeAgentId; if (fail) { fail = false; throw new Error('lost native response'); } return {} as any; };
+    f.service.pc.get = async () => [] as any;
+    await assert.rejects(f.service.handoff(f.task.id, 'role-product', { admin: true }), /lost native/);
+    assert.equal(f.store.get(f.task.id).phase, 'handoff_pending'); assert.equal(nativeAssignee, 'product-id');
+    await assert.rejects(f.service.guard(f.store.get(f.task.id)), /交接尚未完成/);
+    const resumed = await f.service.handoff(f.task.id, 'role-product', { admin: true });
+    assert.equal(resumed.agent, 'role-product'); assert.equal(resumed.generation, 2); assert.equal(resumed.phase, 'ready');
+    assert.equal(f.state.pendingHandoff, undefined);
+  } finally { f.close(); }
+});

@@ -21,4 +21,16 @@ server.registerTool('publish_delivery', { description: '由后台校验范围后
   ({ taskId }) => output(api(`/tasks/${taskId}/publish`, {}, agent)));
 server.registerTool('propose_knowledge', { description: '将本任务的专业结论沉淀为候选知识。确认后才可跨任务引用', inputSchema: { taskId: z.string(), record: knowledgeInput } },
   ({ taskId, record }) => output(api(`/tasks/${taskId}/knowledge-propose`, record, agent)));
+server.registerTool('professional_workspaces', { description: '读取专业知识目录、自己的跨岗位任务和访问申请；受限内容按当前身份过滤', inputSchema: {} },
+  () => output(api('/workspace/view', {}, agent)));
+server.registerTool('request_material_access', { description: '为自己的当前协作任务申请指定资料；审批前不授予读取能力',
+  inputSchema: { taskId: z.string(), sourceId: z.string(), purpose: z.string(), hours: z.number().min(1 / 60).max(168).default(8), requestKey: z.string() } },
+  data => output(api('/workspace/request', data, agent)));
+server.registerTool('read_authorized_material', { description: '读取本任务获准使用的资料；每次重新核对原生权限、期限和任务范围',
+  inputSchema: { taskId: z.string(), sourceId: z.string() } }, data => output(api('/workspace/read-source', data, agent)));
+server.registerTool('propose_professional_knowledge', { description: '根据当前任务提出受限知识候选，保留资料依赖；由人确认和决定共享范围',
+  inputSchema: { taskId: z.string(), record: knowledgeInput } }, data => output(api('/workspace/propose', data, agent)));
+server.registerTool('acknowledge_stopped_execution', { description: '原执行端在停止所有写入后回传停止确认；撤权后不回传成果，只结束未知执行状态',
+  inputSchema: { taskId: z.string(), lease: z.string().uuid(), note: z.string().min(1), confirmed: z.literal(true) } },
+  data => output(api('/workspace/stopped', data, agent)));
 await server.connect(new StdioServerTransport());

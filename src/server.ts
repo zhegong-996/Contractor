@@ -11,10 +11,12 @@ import { command } from './commands.ts';
 import { sendFeishu } from './upstream.ts';
 import { KnowledgeService } from './knowledge.ts';
 import { Paperclip } from './paperclip.ts';
+import { Workspaces } from './workspaces.ts';
 
 const config = loadConfig(); const credentials = secrets();
 const store = new Store(runtime('bridge.sqlite')); const control = new Controller(config, store);
 const knowledge = new KnowledgeService(config, store, control.pc, credentials.jwtSecret);
+const workspaces = new Workspaces(config, store);
 let feishuState = config.feishu.enabled ? 'connecting' : 'disabled';
 let tail: Promise<unknown> = Promise.resolve();
 const serialize = <T>(job: () => Promise<T>): Promise<T> => { const next = tail.then(job, job); tail = next.catch(() => {}); return next; };
@@ -42,6 +44,21 @@ const server = createServer(async (req, res) => {
       res.end(await readFile(file)); return;
     }
     if (req.headers.origin) throw new Error('Browser mutations are not accepted by this local bridge');
+    if (req.method === 'POST' && url.pathname.startsWith('/workspace/')) {
+      const data = await body(req), token = req.headers.authorization?.replace(/^Bearer /, '') ?? '';
+      let workspaceActor;
+      if (credentials.workspacePluginToken && equal(token, credentials.workspacePluginToken)) {
+        const host = data.hostActor;
+        if (host?.companyId !== config.companyId) throw new Error('Unauthorized: company boundary');
+        if (host.type === 'user' && host.userId === 'local-board') workspaceActor = { admin: true };
+        else if (host.type === 'agent') {
+          const key = Object.entries(config.agents).find(([, value]) => value.enabled && value.paperclipId === host.agentId)?.[0];
+          if (!key) throw new Error('Unauthorized'); workspaceActor = { admin: false, agent: key };
+        } else throw new Error('Unauthorized: this installation has no multi-user operator binding');
+      } else workspaceActor = identity(req);
+      const payload = data.payload ?? data;
+      res.end(JSON.stringify(await serialize(() => workspaces.dispatch(url.pathname.slice('/workspace/'.length), payload, workspaceActor)))); return;
+    }
     const actor = identity(req);
     const reader = actor.agent ? new Paperclip(config.paperclipUrl, credentials.paperclipTokens?.[actor.agent] ?? 'unconfigured-identity') : control.pc;
     if (url.pathname === '/knowledge') {
@@ -64,8 +81,9 @@ const server = createServer(async (req, res) => {
     if (req.method !== 'POST') throw new Error('Method not allowed');
     const data = await body(req); const action = match[2];
     const result = await serialize(async () => {
-      if (action === 'knowledge-propose') return knowledge.propose(store.get(task.id), data, actor.agent ?? 'local-operator', reader);
+      if (action === 'knowledge-propose') return task.kind === 'collaboration' ? workspaces.propose(task.id, data, actor) : knowledge.propose(store.get(task.id), data, actor.agent ?? 'local-operator', reader);
       if (action === 'knowledge-review' || action === 'knowledge-attach') {
+        if (task.kind === 'collaboration') throw new Error('请通过知识协作入口处理来源依赖与确认');
         if (!actor.admin) throw new Error('Unauthorized');
         if (action === 'knowledge-attach') return knowledge.attach(store.get(task.id), data.refs);
         if (!['confirmed', 'withdrawn'].includes(data.state)) throw new Error('Invalid review state');
@@ -74,6 +92,8 @@ const server = createServer(async (req, res) => {
       if (action === 'claim') {
         const agent = actor.agent ?? data.agent;
         if (!config.agents[agent]?.enabled) throw new Error('Agent unavailable');
+        if (task.kind === 'knowledge') throw new Error('知识条目不能作为执行任务领取');
+        if (task.kind === 'collaboration') await workspaces.guard(task, agent);
         const sourceReader = new Paperclip(config.paperclipUrl, credentials.paperclipTokens?.[agent] ?? 'unconfigured-identity');
         if ((await knowledge.resolve(store.get(task.id), sourceReader)).excluded.length) throw new Error('Knowledge access changed; review the source grants and previous checkpoint before resuming');
         const issue = await control.pc.get(`/issues/${task.id}`);
@@ -91,16 +111,17 @@ const server = createServer(async (req, res) => {
       }
       if (action === 'receipt') {
         if (!actor.admin && data.agent !== actor.agent) throw new Error('Unauthorized');
+        if (task.kind === 'collaboration') return { outcome: 'done', checkpoint: await workspaces.checkpoint(task.id, data.text, actor, data.lease, data.receiptId) };
         return control.receipt(task.id, data);
       }
-      if (action === 'publish') return control.publish(task.id);
+      if (action === 'publish') { if (task.kind === 'collaboration') throw new Error('跨岗位任务通过知识采用交付，不推送代码'); return control.publish(task.id); }
       if (action === 'sync') return control.sync(task.id);
       if (action === 'preview') return control.preview(task.id);
       if (!actor.admin) throw new Error('This action requires the human task owner');
       if (action === 'reconcile') return control.reconcile(task.id);
       if (action === 'accept') return control.accept(task.id, data.sha, data.cases, data.actor ?? 'local-operator', data.eventId ?? randomUUID());
-      if (action === 'handoff') return control.handoff(task.id, data.agent);
-      if (action === 'reply') return control.reply(task.id, data.text, data.eventId ?? randomUUID());
+      if (action === 'handoff') return task.kind === 'collaboration' ? workspaces.handoff(task.id, data.agent, actor) : control.handoff(task.id, data.agent);
+      if (action === 'reply') { if (task.kind === 'collaboration') throw new Error('请使用受限检查点记录后续工作'); return control.reply(task.id, data.text, data.eventId ?? randomUUID()); }
       throw new Error('Unknown action');
     });
     res.end(JSON.stringify(result));
@@ -137,6 +158,7 @@ async function tick() {
         }
       }
       await deliver();
+      await workspaces.tick();
     });
   } catch (error) { console.error('Background check:', String(error).slice(0, 500)); }
   if (!stopping) setTimeout(tick, config.pollMs).unref();
