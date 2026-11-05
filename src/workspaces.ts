@@ -357,7 +357,7 @@ export class Workspaces {
     for (const snap of state.snapshots) {
       if (!snap.grants.some(g => g.agent === next)) snap.grants.push({ agent: next, id: (await this.nativeGrant(snap.id, next)).id });
     }
-    await this.pc.patch('/issues/' + task.id, { assigneeAgentId: this.agent(next).paperclipId, status: 'backlog' });
+    await this.pc.patch('/issues/' + task.id, { assigneeAgentId: this.agent(next).paperclipId, assigneeUserId: null, status: 'backlog' });
     // Task-scoped notes without source dependencies must end with the old executor too.
     for (const snap of [...state.snapshots, ...state.outcomes]) {
       for (const grant of snap.grants.filter(g => g.agent === previous)) await this.revokeGrant(snap.id, grant.id);

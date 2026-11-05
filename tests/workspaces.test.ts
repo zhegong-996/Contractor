@@ -127,7 +127,7 @@ test('a persisted handoff resumes at the same generation after the native assign
     f.state.requests = []; f.state.snapshots = [];
     let nativeAssignee = 'growth-id', fail = true;
     f.service.issue = async () => ({ id: f.task.id, assigneeAgentId: nativeAssignee });
-    f.service.pc.patch = async (_route, body: any) => { nativeAssignee = body.assigneeAgentId; if (fail) { fail = false; throw new Error('lost native response'); } return {} as any; };
+    f.service.pc.patch = async (_route, body: any) => { assert.equal(body.assigneeUserId, null); nativeAssignee = body.assigneeAgentId; if (fail) { fail = false; throw new Error('lost native response'); } return {} as any; };
     f.service.pc.get = async () => [] as any;
     await assert.rejects(f.service.handoff(f.task.id, 'role-product', { admin: true }), /lost native/);
     assert.equal(f.store.get(f.task.id).phase, 'handoff_pending'); assert.equal(nativeAssignee, 'product-id');
