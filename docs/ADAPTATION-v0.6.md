@@ -4,11 +4,11 @@
 > 对象仓库：`/Users/gong.zhe/Developer/ai-native-collab`（`github.com/zhegong-996/suitme-collab`）
 > 依据：`docs/ARCHITECTURE-v0.6.md`（产品架构定稿）、`docs/PRD-v0.6.md`、Codex 会话「研究 AI Native 协作平台融合」、本仓库 `README.md` / `docs/*` / `sources.lock.json` / `src/*` / `git status`
 > 立场：**以 PRD v0.6 为准绳，代码适配产品**。已有实现尽量保留，以「补层」为主，不推倒重来；工程红线见 `PRD-v0.6.md` 第 2.2 节。
-> 状态：**方案已执行两轮**（底座 `f27a0e1` 已提交；功能补全见 0.000 节）。文档随实施进度更新，边界声明以 0.000 节为准。
+> 状态：**方案已执行两轮并全部提交**（底座 `f27a0e1`、功能补全 `7791c7b`）。文档随实施进度更新，边界声明以 0.000 节为准。
 
 ---
 
-## 0.000 功能补全（2026-11-06 · 第二轮）
+## 0.000 功能补全（2026-11-06 · 第二轮，已提交 `7791c7b`）
 
 在底座提交 `f27a0e1` 之后，按 PRD 第 5 节把功能补齐到可调用、可测试、可留痕。**前端仍一行未改**；所有新能力经现有 `/workspace/v06-*` action 走「IM 会话 + 插件式工作台」形态，语义对象统一由 `channels.renderForChannel` 渲染，不另起界面。
 
