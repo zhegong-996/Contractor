@@ -11,7 +11,9 @@
 | Paperclip LLM Wiki | packages/plugins/plugin-llm-wiki 原版 UI、worker、迁移、来源与页面工具 | 与 Paperclip 同一固定提交；共享资料入口，自动摄取关闭，未把 Alpha 空间字段当作 ACL |
 | Paperclip Plugin SDK | 原版构建预设、宿主身份、导航、Markdown 组件，以及私有项目、审批、任务授权和修订 API | 第二阶段扩展位于 plugins/knowledge-workspaces，未修改上游；详见 WORKSPACES.md |
 
-src/upstream.ts 只声明本项目用到的接口并加载固定源码。动态包边界避免把未使用的 DeepSeek Harness 宿主及其 peer dependencies 拉进本项目的类型检查；实际执行的是上游实现。测试覆盖这些真实导出，而非本地仿制实现。
+src/upstream.ts 声明本项目用到的接口并加载固定源码；出站包装只把过长通知标识映射为飞书允许的稳定幂等键。动态包边界避免把未使用的 DeepSeek Harness 宿主及其 peer dependencies 拉进本项目的类型检查；实际执行的是上游实现。测试覆盖这些真实导出，而非本地仿制实现。
+
+中文宿主通过 `scripts/build-chinese-shell.ts` 在构建阶段应用 `locales/shell.zh-CN.json`。只替换展示文案，不修改上游工作树、许可证、路由、API 枚举或用户内容。复用原生 Vite / React 构建；不在浏览器中注入 DOM 翻译脚本。`npm run build:chinese-shell` 可复现中文资源；重新执行上游原版 UI 构建可恢复原界面。插件自己的文案仍由各插件维护，覆盖范围见 SYSTEM-ARCHITECTURE.md。
 
 三个复用仓库的主许可证均标为 MIT；许可证文件保留在各自子模块。第三方 CLI、账号、服务和依赖仍按各自规则使用。个人登录文件不复制进项目或 GitHub。
 

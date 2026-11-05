@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { loadConfig, runtime, secrets, type Config } from './config.ts';
 import { Paperclip } from './paperclip.ts';
 import { Store, type Task } from './store.ts';
-import { KnowledgeService, knowledgeInput, reusable, parseKnowledge } from './knowledge.ts';
+import { KnowledgeService, knowledgeInput, reusable, parseKnowledge, renderKnowledge } from './knowledge.ts';
 import { contextHash, deliveryEvidence, goalEvidence, discussionEvidence, type InputRef } from './context.ts';
 import { FeishuSources, FeishuUnavailable, feishuReference, type FeishuReference } from './feishu-sources.ts';
 
@@ -22,7 +22,7 @@ export function collaborationOwnerMatches(issue: any, expected: string[], comple
       && stage.participants.some((p: any) => p.type === 'user' && p.userId === 'local-board')
       || completed && issue.status === 'done' && issue.executionPolicy.stages.some((s: any) => s.type === 'review' && s.participants.some((p: any) => p.type === 'user' && p.userId === 'local-board'))));
 }
-export type Catalog = { companyId: string; coordinationProject: string; vaultProject: string; participants?: string[];
+export type Catalog = { companyId: string; coordinationProject: string; vaultProject: string; participants?: string[]; modelRegistryIssueId?: string;
   feishuConnection?: Pick<FeishuReference, 'profile' | 'appId' | 'userOpenId'>;
   spaces: Record<string, { projectId: string; agent: string; name?: string; members?: string[]; description?: string }>;
   sources: { id: string; title: string; domain: string; ref: { taskId: string; key: string }; external?: FeishuReference }[] };
@@ -196,6 +196,21 @@ export class Workspaces {
   async reviewSource(id: string, state: 'confirmed' | 'withdrawn', revision: string, actor: WorkspaceActor) {
     if (this.source(id).external) throw new Error('飞书原始证据不能直接确认成知识，请在任务内提出并审阅结论');
     this.manager(actor); return this.knowledge.review(this.source(id).ref, state, revision, 'local-operator');
+  }
+  async updateSource(id: string, input: unknown, revision: string, actor: WorkspaceActor) {
+    this.manager(actor); const source = this.source(id);
+    if (source.external) throw new Error('飞书原始资料在飞书编辑；本系统只保存引用');
+    const current = await this.knowledge.read(source.ref), data = knowledgeInput.parse(input);
+    if (!revision || current.revision !== revision) throw new Error('内容已变化，请重新读取当前版本');
+    if (data.key !== source.ref.key || JSON.stringify(data.domains) !== JSON.stringify(current.value.domains)) throw new Error('编辑内容不能改变资料身份或共享范围');
+    const { confirmedBy, confirmedAt, confirmation, expiresAt, ...previous } = current.value;
+    const value = { ...previous, ...data, state: 'candidate' as const, proposedBy: 'local-operator', updatedAt: new Date().toISOString() };
+    await this.pc.request('PUT', '/issues/' + source.ref.taskId + '/documents/' + source.ref.key,
+      { title: value.title, format: 'markdown', body: renderKnowledge(value), baseRevisionId: revision });
+    await this.pc.patch('/issues/' + id, { title: value.title });
+    const catalog = this.catalog(); catalog.sources.find(s => s.id === id)!.title = value.title; this.saveCatalog(catalog);
+    this.store.audit('knowledge.content-updated', id, { previousRevision: revision, state: 'candidate' });
+    return this.knowledge.read(source.ref);
   }
   async allowed(task: Task, sourceId: string, agent: string, state?: State) {
     const s = this.source(sourceId); this.domain(agent);
@@ -657,6 +672,7 @@ export class Workspaces {
     if (action === 'view') return this.view(actor);
     if (action === 'create-source') return this.createSource(z.string().parse(data.domain), data.record, actor);
     if (action === 'review-source') return this.reviewSource(data.id, z.enum(['confirmed', 'withdrawn']).parse(data.state), data.revision, actor);
+    if (action === 'update-source') return this.updateSource(z.string().parse(data.id), data.record, z.string().parse(data.revision), actor);
     if (action === 'create-task') return this.createTask(data, actor);
     if (action === 'request') return this.request(data, actor);
     if (action === 'decide') return this.decide(data.id, z.enum(['approved', 'denied']).parse(data.decision), data.reason ?? '', actor);

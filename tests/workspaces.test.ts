@@ -38,6 +38,22 @@ test('approval and expiry are both required; pending, revoking and exact deadlin
   for (const state of ['pending', 'revoking', 'revoked', 'denied'] as const) assert.equal(requestIsCurrent({ state, expiresAt: '2099-01-01T00:00:00Z' }, now), false);
   assert.equal(requestIsCurrent({ state: 'approved', expiresAt: '2026-11-04T00:00:00Z' }, now), false);
 });
+test('editing knowledge preserves scope, resets confirmation, and uses the exact native revision', async () => {
+  const f = fixture(); try {
+    const value: any = { key: 'knowledge-sales', title: '规则', domains: ['sales'], kind: 'reference', appliesTo: '试点', facts: { count: 3, ready: false }, body: '旧正文', sources: ['https://example.com/reference'], state: 'confirmed', expiresAt: '2026-12-01T00:00:00Z', confirmation: 'old-proof', confirmedBy: 'reviewer', confirmedAt: '2026-11-01T00:00:00Z' };
+    f.service.knowledge.read = async () => ({ ref: { taskId: 'source-task', key: value.key }, revision: 'current', hash: '', value });
+    const { state, confirmation, confirmedBy, confirmedAt, expiresAt, ...input } = value;
+    let written: any; f.service.pc.request = async (_method, _route, body: any) => { written = body; return {} as any; };
+    f.service.catalog = () => ({ sources: [{ id: 'sales', title: '规则' }] }) as any; f.service.saveCatalog = () => {};
+    await assert.rejects(f.service.updateSource('sales', input, 'old', { admin: true }), /已变化/);
+    await assert.rejects(f.service.updateSource('sales', { ...input, domains: ['other'] }, 'current', { admin: true }), /共享范围/);
+    await assert.rejects(f.service.updateSource('sales', input, 'current', { admin: false, agent: 'role-growth' }), /Unauthorized/);
+    assert.equal(written, undefined);
+    await f.service.updateSource('sales', { ...input, body: '新正文' }, 'current', { admin: true });
+    const saved = written as unknown as { baseRevisionId: string; body: string };
+    assert.equal(saved.baseRevisionId, 'current'); assert.match(saved.body, /"state": "candidate"/); assert.doesNotMatch(saved.body, /old-proof|confirmedBy|expiresAt/); assert.match(saved.body, /"count": 3/); assert.match(saved.body, /"ready": false/);
+  } finally { f.close(); }
+});
 test('native human review may temporarily own the coordinator only when the signed executor remains its return assignee', () => {
   const issue: any = { assigneeAgentId: null, assigneeUserId: 'local-board', reviewPolicy: 'human_only', executionPolicy: { stages: [{ id: 'review', type: 'review', participants: [{ type: 'user', userId: 'local-board' }] }] },
     executionState: { currentStageId: 'review', currentStageType: 'review', currentParticipant: { type: 'user', userId: 'local-board' }, returnAssignee: { type: 'agent', agentId: 'expected' } } };

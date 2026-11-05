@@ -16,6 +16,7 @@ import { WorkspaceAssistant } from './assistant.ts';
 import { z } from 'zod';
 import { withFeishuReads } from './feishu-sources.ts';
 import { CollaborationIntake } from './collaboration-intake.ts';
+import { ModelSettingsService } from './model-settings.ts';
 
 const config = loadConfig(); const credentials = secrets();
 const store = new Store(runtime('bridge.sqlite')); const control = new Controller(config, store);
@@ -23,6 +24,7 @@ const knowledge = new KnowledgeService(config, store, control.pc, credentials.jw
 const workspaces = new Workspaces(config, store);
 const assistant = new WorkspaceAssistant(workspaces);
 const collaborationIntake = new CollaborationIntake(workspaces, assistant);
+const modelSettings = new ModelSettingsService(workspaces);
 const ingest = async (input: unknown) => (await collaborationIntake.ingest(input)) ?? control.ingest(input);
 let feishuState = config.feishu.enabled ? 'connecting' : 'disabled';
 let tail: Promise<unknown> = Promise.resolve();
@@ -66,6 +68,18 @@ const server = createServer(async (req, res) => {
       const payload = data.payload ?? data;
       const action = url.pathname.slice('/workspace/'.length);
       res.end(JSON.stringify(await serialize(async () => {
+        if (action === 'model-settings') return modelSettings.read(workspaceActor);
+        if (action === 'save-model-settings') return modelSettings.save(payload.settings, payload.revision ?? null, workspaceActor);
+        if (action === 'system-status') {
+          workspaces.manager(workspaceActor);
+          const health = await workspaces.pc.get('/health');
+          return { services: { paperclip: health.status, bridge: 'ok', feishu: feishuState }, deploymentMode: health.deploymentMode,
+            storage: { primary: 'PostgreSQL（本机持久化）', events: 'SQLite', configuration: '本机配置文件', wiki: '本机 Markdown 目录',
+              databaseBackup: health.databaseBackup?.status ?? 'unknown', offsiteRestoreVerified: false },
+            records: Object.fromEntries(['tasks', 'events', 'outbox', 'audit'].map(table => [table, store.db.prepare('SELECT COUNT(*) n FROM ' + table).get()!.n])),
+            integrations: { modelApi: false, embedding: false, vectorSearch: false, objectStorage: false, multiUserSso: false },
+            upstream: { name: 'Paperclip', version: health.version, commit: health.commit } };
+        }
         if (action === 'enable-collaboration-im') return collaborationIntake.enable(payload.taskId, workspaceActor);
         if (action === 'assistant-context') return assistant.context(payload.jobId, payload.runId, workspaceActor);
         if (action === 'context-pack') return assistant.taskContext.inspect(payload.taskId, workspaceActor);

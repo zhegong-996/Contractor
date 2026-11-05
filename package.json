@@ -4,13 +4,16 @@
   "private": true,
   "type": "module",
   "description": "SuitMe 协作台：Paperclip control plane with upstream source and CLI adapters",
-  "engines": { "node": ">=24.11.0" },
+  "engines": {
+    "node": ">=24.11.0"
+  },
   "scripts": {
     "setup": "node --import tsx scripts/setup.ts",
     "setup:workspaces": "node --import tsx scripts/setup-workspaces.ts",
     "setup:assistant": "node --import tsx scripts/setup-assistant.ts",
     "install:workspaces": "node --import tsx scripts/install-workspace-plugin.ts",
     "build:workspaces": "node --import tsx scripts/install-workspace-plugin.ts --build-only && tsc --noEmit -p plugins/knowledge-workspaces/tsconfig.json",
+    "build:chinese-shell": "node --import tsx scripts/build-chinese-shell.ts",
     "test:cross-role": "node --import tsx scripts/smoke-cross-role.ts --run",
     "install:upstream": "node --import tsx scripts/install-upstream.ts",
     "install:wiki": "node --import tsx scripts/install-wiki.ts",
@@ -27,6 +30,14 @@
     "typecheck": "tsc --noEmit",
     "build": "tsc --noEmit"
   },
-  "dependencies": { "@modelcontextprotocol/sdk": "1.31.0", "tsx": "4.23.15", "zod": "4.4.3" },
-  "devDependencies": { "@types/node": "24.0.0", "typescript": "7.0.2" }
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.31.0",
+    "tsx": "4.23.15",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@babel/parser": "8.1.0",
+    "@types/node": "24.0.0",
+    "typescript": "7.0.2"
+  }
 }
