@@ -7,3 +7,9 @@
 [submodule "upstream/autoloop"]
 	path = upstream/autoloop
 	url = https://github.com/KKKKhazix/agent-autoloop.git
+[submodule "upstream/prime-agent"]
+	path = upstream/prime-agent
+	url = https://github.com/PrimeIntellect-ai/prime-agent.git
+[submodule "upstream/deepseek-harness"]
+	path = upstream/deepseek-harness
+	url = https://github.com/deepseek-ai/deepseek-harness.git

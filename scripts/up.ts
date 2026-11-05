@@ -9,9 +9,22 @@ const services = [
   { name: 'paperclip', script: 'scripts/paperclip.ts', url: 'http://127.0.0.1:3100/api/health' },
   { name: 'bridge', script: 'src/server.ts', url: 'http://127.0.0.1:4180/health' },
 ];
-for (const service of action === 'stop' ? [...services].reverse() : services) {
+for (const service of action === 'restart-bridge' ? services.filter(s => s.name === 'bridge') : action === 'stop' ? [...services].reverse() : services) {
   const file = runtime(`${service.name}-service.pid`);
-  const online = await fetch(service.url).then(r => r.ok).catch(() => false);
+  let online = await fetch(service.url).then(r => r.ok).catch(() => false);
+  if (action === 'restart-bridge' && online) {
+    if (!existsSync(file)) throw new Error('Bridge is not owned by this supervisor');
+    const pid = Number(readFileSync(file, 'utf8'));
+    const cmd = execFileSync('ps', ['-p', String(pid), '-o', 'command='], { encoding: 'utf8' });
+    if (!cmd.includes(path.join(root, service.script))) throw new Error('PID identity changed; refusing to stop');
+    process.kill(pid, 'SIGTERM');
+    const deadline = Date.now() + 35000;
+    while (Date.now() < deadline) {
+      online = await fetch(service.url).then(r => r.ok).catch(() => false); if (!online) break;
+      await new Promise(resolve => setTimeout(resolve, 200));
+    }
+    if (online) throw new Error('Bridge is finishing in-flight work; retry after it stops');
+  }
   if (action === 'status') { console.log(`${service.name}: ${online ? 'running' : 'stopped'}`); continue; }
   if (action === 'stop') {
     if (!existsSync(file)) { console.log(`${service.name}: not owned by this supervisor`); continue; }

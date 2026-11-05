@@ -21,3 +21,5 @@ export type Reading = { text?: string; error?: string; session?: string; usage?:
 export type Turn = { prompt: string; session: string; resume: string | null; cwd: string; access: 'read' | 'edit'; folder: string; contextFile: string; command?: string[]; model?: string; effort?: string };
 export type Adapter = { command(turn: Turn): string[]; read(stdout: string, code: number | null, stderr: string): Reading; check?(): string | null };
 export const adapterFor: (use: string) => Promise<Adapter> = agents.adapterFor;
+// Pure upstream reference-envelope serialization; no Harness host is started.
+export { stringifyTagSafeJson } from '../upstream/deepseek-harness/packages/context/session-reference/src/serialization.ts';

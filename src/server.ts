@@ -12,11 +12,14 @@ import { sendFeishu } from './upstream.ts';
 import { KnowledgeService } from './knowledge.ts';
 import { Paperclip } from './paperclip.ts';
 import { Workspaces } from './workspaces.ts';
+import { WorkspaceAssistant } from './assistant.ts';
+import { z } from 'zod';
 
 const config = loadConfig(); const credentials = secrets();
 const store = new Store(runtime('bridge.sqlite')); const control = new Controller(config, store);
 const knowledge = new KnowledgeService(config, store, control.pc, credentials.jwtSecret);
 const workspaces = new Workspaces(config, store);
+const assistant = new WorkspaceAssistant(workspaces);
 let feishuState = config.feishu.enabled ? 'connecting' : 'disabled';
 let tail: Promise<unknown> = Promise.resolve();
 const serialize = <T>(job: () => Promise<T>): Promise<T> => { const next = tail.then(job, job); tail = next.catch(() => {}); return next; };
@@ -57,7 +60,45 @@ const server = createServer(async (req, res) => {
         } else throw new Error('Unauthorized: this installation has no multi-user operator binding');
       } else workspaceActor = identity(req);
       const payload = data.payload ?? data;
-      res.end(JSON.stringify(await serialize(() => workspaces.dispatch(url.pathname.slice('/workspace/'.length), payload, workspaceActor)))); return;
+      const action = url.pathname.slice('/workspace/'.length);
+      res.end(JSON.stringify(await serialize(async () => {
+        if (action === 'assistant-context') return assistant.context(payload.jobId, payload.runId, workspaceActor);
+        if (action === 'context-pack') return assistant.taskContext.inspect(payload.taskId, workspaceActor);
+        if (action === 'context-record') return assistant.taskContext.readRecord(payload.taskId, payload.recordId, workspaceActor);
+        if (action === 'context-search') {
+          const task = store.get(payload.taskId); assistant.taskContext.authorize(task, workspaceActor);
+          return assistant.taskContext.search(task, String(payload.query ?? '').slice(0, 5000));
+        }
+        if (['context-note', 'context-discover', 'context-link', 'context-expand', 'context-include', 'context-exclude'].includes(action)) {
+          const result = action === 'context-note' ? await assistant.taskContext.note(payload.taskId, String(payload.text ?? ''), workspaceActor)
+            : action === 'context-discover' ? await assistant.taskContext.enrich(payload.taskId, workspaceActor)
+            : action === 'context-link' ? await assistant.taskContext.link(payload.taskId, payload.linkedId, workspaceActor)
+            : action === 'context-include' ? await assistant.taskContext.include(payload.taskId, payload.sourceId, workspaceActor)
+            : action === 'context-exclude' ? await assistant.taskContext.exclude(payload.taskId, payload.sourceId, workspaceActor)
+            : await assistant.taskContext.expand(payload.taskId, payload.sourceId, workspaceActor);
+          await assistant.tick(); return result;
+        }
+        if (action === 'assistant-result') return assistant.result(payload.jobId, payload.runId, payload.output, payload.usage, workspaceActor);
+        if (action === 'assistant-failed') { await assistant.fail(payload.jobId, payload.runId, payload.error ?? '运行失败', workspaceActor); return { recorded: true }; }
+        if (action === 'assistant-delegate') return (await assistant.delegate(payload.taskId, payload.enabled === true, z.enum(['prepare', 'advance']).parse(payload.mode),
+          String(payload.instruction ?? ''), workspaceActor, payload.nonce)) ?? { unchanged: true };
+        if (action === 'start-collaboration') {
+          const task = await workspaces.createTask(payload.task, workspaceActor);
+          if (payload.delegate && assistant.available()) await assistant.delegate(task.id, true, z.enum(['prepare', 'advance']).parse(payload.mode ?? 'advance'), '', workspaceActor, payload.task.requestKey);
+          return task;
+        }
+        const result = await workspaces.dispatch(action, payload, workspaceActor);
+        if (action === 'view') {
+          const view = result as Awaited<ReturnType<Workspaces['view']>>;
+          return { ...view, assistantAvailable: assistant.available(), assistantEngine: config.assistant?.engine ?? 'codex',
+            tasks: await Promise.all(view.tasks.map(async t => {
+              try { return { ...t, assistant: await assistant.view(store.get(t.id), workspaceActor) }; }
+              catch { return { ...t, assistant: { status: 'unavailable', error: 'Agent 记录待核对' } }; }
+            })) };
+        }
+        await assistant.tick();
+        return result;
+      }))); return;
     }
     const actor = identity(req);
     const reader = actor.agent ? new Paperclip(config.paperclipUrl, credentials.paperclipTokens?.[actor.agent] ?? 'unconfigured-identity') : control.pc;
@@ -159,6 +200,7 @@ async function tick() {
       }
       await deliver();
       await workspaces.tick();
+      await assistant.tick();
     });
   } catch (error) { console.error('Background check:', String(error).slice(0, 500)); }
   if (!stopping) setTimeout(tick, config.pollMs).unref();

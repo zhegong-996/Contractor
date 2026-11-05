@@ -53,6 +53,7 @@ test('an Agent cannot approve, revoke or publish by choosing a different princip
     await assert.rejects(f.service.decide('request-one', 'approved', 'self approval', { admin: false, agent: 'role-growth' }), /Unauthorized/);
     await assert.rejects(f.service.revoke('request-one', 'self revoke', { admin: false, agent: 'role-growth' }), /Unauthorized/);
     await assert.rejects(f.service.publish('task-one', 'outcome', 'revision', 'release', { admin: false, agent: 'role-growth' }), /Unauthorized/);
+    await assert.rejects(f.service.adopt('task-one', 'outcome', 'revision', 'release', { admin: false, agent: 'role-growth' }), /Unauthorized/);
     await assert.rejects(f.service.request({ taskId: f.task.id, sourceId: 'sales', agent: 'role-product', purpose: 'x', requestKey: 'x' }, { admin: false, agent: 'role-growth' }), /Unauthorized/);
   } finally { f.close(); }
 });
@@ -125,5 +126,35 @@ test('a persisted handoff resumes at the same generation after the native assign
     const resumed = await f.service.handoff(f.task.id, 'role-product', { admin: true });
     assert.equal(resumed.agent, 'role-product'); assert.equal(resumed.generation, 2); assert.equal(resumed.phase, 'ready');
     assert.equal(f.state.pendingHandoff, undefined);
+  } finally { f.close(); }
+});
+test('handoff moves a task note and revokes the old executor even when the note has no knowledge dependencies', async () => {
+  const f = fixture();
+  try {
+    f.state.requests = []; f.state.snapshots = [{ id: 'note-one', key: 'context-note', sources: [], grants: [{ agent: 'role-growth', id: 'old-note-grant' }] }];
+    f.service.domain = () => 'product'; f.service.requireSources = async () => {};
+    f.service.nativeGrant = async () => ({ id: 'new-note-grant' }) as any;
+    f.service.pc.get = async () => [] as any;
+    const revoked: string[] = []; f.service.revokeGrant = async (_issue, id) => { revoked.push(id); };
+    await f.service.handoff(f.task.id, 'role-product', { admin: true });
+    assert.deepEqual(revoked, ['old-note-grant']);
+    assert.deepEqual(f.state.snapshots[0].grants, [{ agent: 'role-product', id: 'new-note-grant' }]);
+    assert.equal(f.store.get(f.task.id).agent, 'role-product');
+  } finally { f.close(); }
+});
+test('a retried model receipt deduplicates each artifact but cannot alias the checkpoint and knowledge native issues', async () => {
+  const f = fixture();
+  try {
+    const ids = new Map<string, string>(); f.service.catalog = () => ({ vaultProject: 'vault' }) as any;
+    f.service.pc.post = async (_route, body: any) => {
+      if (!ids.has(body.idempotencyKey)) ids.set(body.idempotencyKey, 'artifact-' + ids.size);
+      return { id: ids.get(body.idempotencyKey) } as any;
+    };
+    f.service.pc.document = async () => {}; f.service.nativeGrant = async () => ({ id: 'grant' }) as any;
+    f.service.domain = () => 'product';
+    const a = await f.service.snapshot(f.task, 'checkpoint', 'draft', 'body', [], 'same-receipt');
+    const b = await f.service.snapshot(f.task, 'knowledge-candidate', 'candidate', 'body', [], 'same-receipt');
+    const retry = await f.service.snapshot(f.task, 'checkpoint', 'draft', 'body', [], 'same-receipt');
+    assert.notEqual(a.id, b.id); assert.equal(retry.id, a.id); assert.equal(ids.size, 2);
   } finally { f.close(); }
 });

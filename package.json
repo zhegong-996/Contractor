@@ -8,6 +8,7 @@
   "scripts": {
     "setup": "node --import tsx scripts/setup.ts",
     "setup:workspaces": "node --import tsx scripts/setup-workspaces.ts",
+    "setup:assistant": "node --import tsx scripts/setup-assistant.ts",
     "install:workspaces": "node --import tsx scripts/install-workspace-plugin.ts",
     "build:workspaces": "node --import tsx scripts/install-workspace-plugin.ts --build-only && tsc --noEmit -p plugins/knowledge-workspaces/tsconfig.json",
     "test:cross-role": "node --import tsx scripts/smoke-cross-role.ts --run",
@@ -15,6 +16,7 @@
     "install:wiki": "node --import tsx scripts/install-wiki.ts",
     "paperclip": "node --import tsx scripts/paperclip.ts",
     "up": "node --import tsx scripts/up.ts",
+    "restart:bridge": "node --import tsx scripts/up.ts restart-bridge",
     "stop": "node --import tsx scripts/up.ts stop",
     "status": "node --import tsx scripts/up.ts status",
     "start": "node --import tsx src/server.ts",

@@ -18,6 +18,8 @@ export const configSchema = z.object({
   repository: z.string().regex(/^[\w.-]+\/[\w.-]+$/),
   checkout: z.string(), allowedPaths: z.array(z.string()).min(1),
   defaultAgent: z.string(), agents: z.record(z.string().regex(/^[a-z][a-z0-9-]*$/), agentSchema),
+  assistant: z.object({ agentKey: z.string().default('workspace-assistant'), engine: z.enum(['codex', 'claude']).default('codex'),
+    model: z.string().optional(), effort: z.string().optional(), projectId: z.string().optional(), enabled: z.boolean().default(true) }).optional(),
   feishu: z.object({ profile: z.string(), enabled: z.boolean().default(false), botId: z.string().default(''), appId: z.string().default(''),
     allowedSenders: z.array(z.string()).default([]), allowedChats: z.array(z.string()).default([]) }),
   pollMs: z.number().int().min(1000).default(15000),

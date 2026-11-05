@@ -46,6 +46,7 @@ if (!project) project = await pc.post(`/companies/${company.id}/projects`, {
 config.projectId = project.id;
 const agents = await pc.get<any[]>(`/companies/${company.id}/agents`);
 for (const [key, agent] of Object.entries(config.agents)) {
+  if (key === config.assistant?.agentKey) continue; // Its dedicated native runner is configured by setup:assistant.
   let existing = agents.find(a => a.name === agent.name);
   const managed = agent.mode === 'managed';
   const data = { name: agent.name, role: 'engineer', adapterType: 'process', runner: 'legacy',

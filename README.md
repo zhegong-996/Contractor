@@ -113,3 +113,10 @@ npm run doctor
 自动测试使用临时状态和模拟接口，覆盖去重、并发签出、过期回执、部分失败重试、交付范围、版本验收及真实 stdio MCP 协议。真实飞书消息、模型执行、GitHub CI、预览与人工验收应分别记录；通过单元测试不等于真实全流程通过。
 
 本机已跑通的真实流程与尚未启用的能力见 [验证记录](docs/VALIDATION.md)。CLI 用量保存在回执中，费用尚未完整回填 Paperclip 成本账本，界面的零费用不代表没有发生模型调用。
+
+
+### 协作 Agent 与上下文工作区
+
+入口仍为 /SUI/knowledge-workspaces，按“我的工作、跨岗位任务、知识空间、授权申请”组织。用户给出目标后，Agent 在岗位权限内查找上下文、准备访问申请、归纳待办、制作工作稿、保存检查点与知识候选；关键授权、知识采用和验收由人决定。支持补充背景、关联已有飞书/GitHub交付、查看输入来源与版本，内容或权限变化后停用旧结果。
+
+运行 npm run setup:assistant、npm run restart:bridge、npm run install:workspaces 启用，当前使用已登录 Codex。详见 [Agent 与上下文说明](docs/ASSISTANT-CONTEXT.md) 和 [第三方声明](THIRD_PARTY_NOTICES.md)。

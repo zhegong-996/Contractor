@@ -24,3 +24,12 @@ src/upstream.ts 只声明本项目用到的接口并加载固定源码。动态�
 落实为任务和证据共同维护、按需打扰、原处交付、等待时释放执行、按版本采用结论。以上是本项目的工程取舍，不是对原作者的逐字引述。
 
 补充核读了 Paperclip 的 ISSUE-PRIVACY.md、LLM Wiki 源码，以及 Outline、Onyx、OpenFGA 官方资料。比较与具体复用边界见 [知识与授权](KNOWLEDGE-AND-ACCESS.md)。未引入后三个项目的代码或运行服务。
+
+
+## 2026-11-05 上下文与 Agent 整理
+
+- Prime Agent 74591cddef28d11249c3171112114fc4755375d7 (MIT)：移植 harness.py 的 query runs/terms 和 harness_digest.rs 的目标/近期上下文权重，见 src/vendor/prime-query.ts。测试基准来自原版 Python 函数的实际输出。未启动其 daemon 或全局 refinement。
+- DeepSeek Harness fcc0ad462172522aaf5c93a7b2e01f6b9f0b0159 (MIT)：直接使用 packages/util/output-retention/src/index.ts 和 packages/context/session-reference/src/serialization.ts；未修改上游。system-prompt、session-reference、compaction-basic 的来源、覆盖和稳定性合同作为设计参考，没有宣称整套宿主服务已接入。
+- 用户自有本体论产品原型 ai_bridge.py 与 knowledge.py：引用核验、快照与撤回投影逻辑迁移为 src/evidence.ts 并重新测试。未迁移原型数据库、模型环境或业务数据；未复制 Alice 原包恢复代码。
+
+接线、边界和验证见 docs/ASSISTANT-CONTEXT.md。
