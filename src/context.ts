@@ -1,3 +1,4 @@
+import {taskOnlyContext} from './agent-definition.ts';
 import { createHash, randomUUID } from 'node:crypto';
 import type { Workspaces, WorkspaceActor } from './workspaces.ts';
 import type { Task } from './store.ts';
@@ -55,14 +56,14 @@ export class TaskContext {
     if(this.w.config?.companyId){try{const {TeamMemory}=await import('./team-memory.ts');const recalled=await new TeamMemory(this.w).search(task.id,query,{admin:false,agent:task.agent});for(const hit of recalled.hits){const s=this.w.source(hit.sourceId);if(!matches.some(m=>m.id===s.id))matches.push({id:s.id,title:s.title,domain:s.domain,revision:hit.revision,score:hit.score+6,selected:state.sources.includes(s.id),reason:'Cognee BM25 持久记忆检索；当前版本与权限已复查'});}}catch(error){this.w.store.audit?.('memory.recall-unavailable',task.id,{error:String(error).slice(0,160)});}}
     // Discovery uses the executor's original professional membership. Other departments
     // enter through an explicit task reference + normal access application, never admin RAG.
-    for (const source of this.w.catalog().sources.filter(s => (!state.context?.networkParent || state.sources.includes(s.id)) && (s.external ? state.sources.includes(s.id) : (this.w.members?.(s.domain) ?? [this.w.catalog().spaces[s.domain].agent]).includes(task.agent)) && !state.outcomes.some(o => o.publicationId === s.id))) {
+    for (const source of this.w.catalog().sources.filter(s => (!taskOnlyContext(state) || state.sources.includes(s.id)) && (s.external ? state.sources.includes(s.id) : (this.w.members?.(s.domain) ?? [this.w.catalog().spaces[s.domain].agent]).includes(task.agent)) && !state.outcomes.some(o => o.publicationId === s.id))) {
       try {
         if (source.external && !await this.w.allowed(task, source.id, task.agent, state)) continue;
         const record = this.w.readMaterial ? await this.w.readMaterial(source.id, task.agent) : await this.w.knowledge.read(source.ref, this.w.reader(task.agent));
         if (!source.external && !reusable(record.value, this.w.config, secrets().jwtSecret)) continue;
         const text = (source.title + '\n' + record.value.appliesTo + '\n' + JSON.stringify(record.value.facts) + '\n' + record.value.body).toLowerCase();
         const score = [...weighted].reduce((n, [term, weight]) => n + (!ignored.has(term) && text.includes(term) ? weight : 0), 0);
-        if (score >= 6) matches.push({ id: source.id, title: source.title, domain: source.domain, revision: record.revision, score, selected: state.sources.includes(source.id), reason: '按当前目标及近期背景匹配，执行岗位已有读取权限' });
+        if (score >= 6 && !matches.some(m=>m.id===source.id)) matches.push({ id: source.id, title: source.title, domain: source.domain, revision: record.revision, score, selected: state.sources.includes(source.id), reason: '按当前目标及近期背景匹配，执行岗位已有读取权限' });
       } catch {}
     }
     return matches.sort((a, b) => b.score - a.score).slice(0, 5);
@@ -73,7 +74,7 @@ export class TaskContext {
     if (automatic && !state.context?.autoDiscover) return { added: [], matches: [] };
     const issue = await this.w.issue(task.id), matches = await this.search(task, issue.title + '\n' + issue.description + '\n' + (state.delegation?.instruction ?? ''));
     const added = matches.filter(m => !m.selected && !state.context?.excludedSources?.includes(m.id)).slice(0, Math.min(3, 8 - state.sources.length)).map(m => m.id);
-    if (added.length) { state.sources.push(...added); await this.w.save(task, state, 'context-discovered', { sourceIds: added, scope: task.agent, automatic }); }
+    if (added.length) { state.sources=[...new Set([...state.sources,...added])]; await this.w.save(task, state, 'context-discovered', { sourceIds: added, scope: task.agent, automatic }); }
     return { added, matches };
   }
   async collect(task: Task, omitReceipt?: string) {

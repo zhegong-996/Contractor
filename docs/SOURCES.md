@@ -32,7 +32,7 @@ Paperclip、Super-agent、Autoloop 的主许可证为 MIT，Cognee 为 Apache-2.
 ## 2026-11-05 上下文与 Agent 整理
 
 - Prime Agent 74591cddef28d11249c3171112114fc4755375d7 (MIT)：移植 harness.py 的 query runs/terms 和 harness_digest.rs 的目标/近期上下文权重，见 src/vendor/prime-query.ts。测试基准来自原版 Python 函数的实际输出。未启动其 daemon 或全局 refinement。
-- DeepSeek Harness fcc0ad462172522aaf5c93a7b2e01f6b9f0b0159 (MIT)：直接使用 packages/util/output-retention/src/index.ts 和 packages/context/session-reference/src/serialization.ts；未修改上游。system-prompt、session-reference、compaction-basic 的来源、覆盖和稳定性合同作为设计参考，没有宣称整套宿主服务已接入。
+- DeepSeek Harness fcc0ad462172522aaf5c93a7b2e01f6b9f0b0159 (MIT)：直接使用 packages/util/output-retention/src/index.ts 和 packages/context/session-reference/src/serialization.ts；未修改上游。新增直接装配原版 Cordis Context、scope、system-prompt、ToolsService、tool-executor-native、persona，以及 preset definition 的 entryListProblem。工作方法、工具选择与参数校验由 SuitMe 适配；原版作用域、提示词装配、工具限制与调用管线实际执行。集成入口为 integrations/deepseek/runtime.ts 和 src/harness-composition.ts，esbuild 只打包固定源码。没有启用完整 AgentLoop、动态模块装载器、第二套调度器或新的模型服务；compaction-basic 仍仅作设计参考。
 - 用户自有本体论产品原型 ai_bridge.py 与 knowledge.py：引用核验、快照与撤回投影逻辑迁移为 src/evidence.ts 并重新测试。未迁移原型数据库、模型环境或业务数据；未复制 Alice 原包恢复代码。
 
 接线、边界和验证见 docs/ASSISTANT-CONTEXT.md。

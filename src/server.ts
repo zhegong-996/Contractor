@@ -6,10 +6,12 @@ import { existsSync, readdirSync } from 'node:fs';
 import readline from 'node:readline';
 import path from 'node:path';
 import { loadConfig, runtime, secrets } from './config.ts';
+import{Development}from'./development.ts';
 import { Store } from './store.ts';
 import { Controller } from './controller.ts';
 import { command } from './commands.ts';
 import { sendFeishu } from './upstream.ts';
+import { fromAssistantTurn } from './event-stream.ts';
 import { KnowledgeService } from './knowledge.ts';
 import { Paperclip } from './paperclip.ts';
 import { Workspaces } from './workspaces.ts';
@@ -30,6 +32,7 @@ const store = new Store(runtime('bridge.sqlite')); const control = new Controlle
 const knowledge = new KnowledgeService(config, store, control.pc, credentials.jwtSecret);
 const workspaces = new Workspaces(config, store);
 const assistant = new WorkspaceAssistant(workspaces);
+const development=new Development(workspaces,control,assistant);
 const agentServices = new AgentServices(workspaces);
 const teamMembers = new TeamMembers(workspaces);
 const serviceNetwork = new ServiceNetwork(workspaces, assistant);
@@ -83,11 +86,14 @@ const server = createServer(async (req, res) => {
       const action = url.pathname.slice('/workspace/'.length);
       // Reads recheck their own scope and revisions. They need not wait behind
       // indexing or native process reconciliation; mutations keep the single lane.
-      const readOnly=['view','team-members','agent-services','network-view','memory-status','memory-search','memory-annotations','context-pack','context-record','context-search','ontology-view','model-settings','system-status'].includes(action)||action==='knowledge-graph'&&payload.project!==true;
+      const readOnly=['view','team-members','agent-services','agent-build','development-view','network-view','memory-status','memory-search','memory-annotations','context-pack','context-record','context-search','ontology-view','model-settings','system-status','trace-view'].includes(action)||action==='knowledge-graph'&&payload.project!==true;
       const runWorkspace=readOnly?<T>(job:()=>Promise<T>)=>withFeishuReads(job):serialize;
       res.end(JSON.stringify(await runWorkspace(async () => {
         workspaceActor = await teamMembers.gate(action, payload, workspaceActor);
         if(workspaceActor.userId&&action!=='view')store.audit('member.action',payload.taskId??config.companyId!,{userId:workspaceActor.userId,action});
+        if(action==='development-view')return development.view(payload.taskId,workspaceActor);
+        if(action==='development-start')return development.start(payload,workspaceActor);
+        if(action==='development-accept')return development.accept(payload,workspaceActor);
         if (action === 'network-route') return serviceNetwork.route(payload, workspaceActor);
         if (action === 'network-delegate') return serviceNetwork.start(payload.taskId,payload.serviceId,workspaceActor);
         if (action === 'network-view') return serviceNetwork.view(payload.taskId,workspaceActor);
@@ -104,6 +110,7 @@ const server = createServer(async (req, res) => {
         if (action === 'bind-member-agent') return teamMembers.bind(payload, workspaceActor);
         if (action === 'provision-member-agent') return teamMembers.provision(payload, workspaceActor);
         if (action === 'agent-services') return agentServices.view(workspaceActor);
+        if (action === 'agent-build') return agentServices.build(payload.profile,workspaceActor);
         if (action === 'save-agent-services') return agentServices.save(payload.profiles, payload.revision ?? null, workspaceActor);
         if (action === 'invoke-agent-service') return agentServices.start(payload, workspaceActor, assistant);
         if (action === 'rebind-agent-service') return agentServices.rebind(payload.taskId, payload.version, workspaceActor, assistant);
@@ -129,6 +136,11 @@ const server = createServer(async (req, res) => {
         if (action === 'assistant-tool') return assistant.tool(payload.jobId, payload.runId, payload.callId, payload.input, workspaceActor);
         if (action === 'assistant-receipt') return assistant.receipt(payload.jobId, payload.runId, payload.receipt, workspaceActor);
         if (action === 'assistant-context') return assistant.context(payload.jobId, payload.runId, workspaceActor);
+        if (action === 'trace-view') {
+          const task = store.get(payload.taskId);
+          assistant.taskContext.authorize(task, workspaceActor);
+          return control.trace.view(task.id);
+        }
         if (action === 'context-pack') return assistant.taskContext.inspect(payload.taskId, workspaceActor);
         if (action === 'context-record') return assistant.taskContext.readRecord(payload.taskId, payload.recordId, workspaceActor);
         if (action === 'context-search') {
@@ -144,7 +156,18 @@ const server = createServer(async (req, res) => {
             : await assistant.taskContext.expand(payload.taskId, payload.sourceId, workspaceActor);
           await serviceNetwork.tick(); await assistant.tick(); return result;
         }
-        if (action === 'assistant-result') return assistant.result(payload.jobId, payload.runId, payload.output, payload.usage, workspaceActor);
+        if (action === 'assistant-result') {
+          const job: any = await assistant.result(payload.jobId, payload.runId, payload.output, payload.usage, workspaceActor);
+          // v0.6: the assistant turn is the model-invocation evidence source.
+          // Best-effort: a trace failure never changes the assistant result.
+          if (job?.taskId) await control.trace.append(job.taskId, fromAssistantTurn({
+            taskId: job.taskId, jobId: payload.jobId, runId: payload.runId,
+            engine: config.assistant?.engine ?? 'codex', model: config.assistant?.model,
+            usage: payload.usage as Record<string, any> | undefined,
+            at: new Date().toISOString(), outcome: String(job.status ?? 'completed'),
+          }));
+          return job;
+        }
         if (action === 'assistant-failed') { await assistant.fail(payload.jobId, payload.runId, payload.error ?? '运行失败', workspaceActor); return { recorded: true }; }
         if (action === 'assistant-delegate') return (await assistant.delegate(payload.taskId, payload.enabled === true, z.enum(['prepare', 'advance']).parse(payload.mode),
           String(payload.instruction ?? ''), workspaceActor, payload.nonce)) ?? { unchanged: true };
@@ -161,6 +184,7 @@ const server = createServer(async (req, res) => {
         const result = await workspaces.dispatch(action, payload, workspaceActor);
         if (action === 'view') {
           const view = result as Awaited<ReturnType<Workspaces['view']>>;
+          const offered=await agentServices.resources();for(const s of offered)if(!view.sources.some(v=>v.id===s.id))view.sources.push({...s,restricted:true,knowledgeState:undefined} as any);
           return { ...view,sourceRequests:await teamMembers.inbox(workspaceActor), assistantAvailable: assistant.available(), assistantEngine: config.assistant?.engine ?? 'codex',
             tasks: await Promise.all(view.tasks.map(async t => {
               try {const network=await serviceNetwork.view(t.id,workspaceActor).catch(()=>[{status:{state:0},metadata:{blockedBy:'unknown'}}]);return { ...t,requests:t.requests.map(r=>({...r,canReview:workspaceActor.admin||!!workspaceActor.userId&&workspaceActor.humanRole!=='viewer'&&workspaces.members(workspaces.source(r.sourceId).domain).includes(workspaceActor.agent!)})),networkCount:network.length,networkAttention:network.some(n=>[0,4,7,8].includes(n.status?.state??0)),networkPending:network.some(n=>![3,4,5,7].includes(n.status?.state??0)), assistant: await assistant.view(store.get(t.id), workspaceActor) }; }

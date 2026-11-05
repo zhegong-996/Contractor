@@ -24,8 +24,11 @@ const descriptions: Record<string,string> = {
  read_graph:'读取当前任务已获准且已确认的知识修订图谱。',
 };
 const server = new McpServer({name:'suitme-scoped-collaboration',version:'1.0.0'});
+const admission=await fetch(`http://127.0.0.1:${config.bridgePort}/workspace/assistant-context`,{method:'POST',signal:AbortSignal.timeout(60000),headers:{'Content-Type':'application/json',Authorization:'Bearer '+secrets().agentTokens[key]},body:JSON.stringify({jobId,runId})});
+if(!admission.ok)throw new Error('当前原生执行无法获得 Agent 能力');
+const admitted=await admission.json() as any,allowed=admitted.context.agentDefinition?.toolNames??runtimeToolInput.options.map(o=>o.shape.name.value);
 for(const option of runtimeToolInput.options){
- const name=option.shape.name.value;
+ const name=option.shape.name.value;if(!allowed.includes(name))continue;
  server.registerTool(name,{description:descriptions[name],inputSchema:(option as any).omit({name:true}).shape},async(args: Record<string,unknown>)=>{
   try{
    const response=await fetch(`http://127.0.0.1:${config.bridgePort}/workspace/assistant-tool`,{method:'POST',signal:AbortSignal.timeout(60000),

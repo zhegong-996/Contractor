@@ -69,8 +69,9 @@ test('cancellation leaves a durable stop state and does not hold the receipt lan
   assert.equal(stopRequested, true); assert.equal(f.job.status, 'cancelling');
   finishStop({});
 });
+test('failure records a native recovery action instead of leaving a worker retrying an invalid blocked transition',async()=>{const f=fixture();let written:any;f.ws.pc.patch=async(_route:string,p:any)=>{written=p;return{};};await f.service.fail('job','run','MCP startup failed',{admin:false,agent:'engine'});assert.equal(f.job.status,'failed');assert.equal(written.status,'blocked');assert.ok(written.unblockDescriptor.action);assert.equal(written.unblockDescriptor.owner,'board');});
 test('the assistant context omits revoked source bodies and does not retrieve their prior checkpoints', async () => {
-  const f = fixture(); f.ws.source = (id: string) => ({ id, title: '销售资料', domain: 'sales', ref: { taskId: id, key: 'knowledge-sales' } });
+  const f = fixture();f.ws.catalog=()=>({memberAgents:{}}); f.ws.source = (id: string) => ({ id, title: '销售资料', domain: 'sales', ref: { taskId: id, key: 'knowledge-sales' } });
   f.ws.sourceStatus = async () => ({ allowed: false, reason: 'permission' });
   f.ws.issue = async () => ({ title: '授权测试', description: '整理资料' });
   f.state.snapshots = [{ id: 'old-private-note', key: 'checkpoint', sources: ['sales'] }]; let reads = 0;

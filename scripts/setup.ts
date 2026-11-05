@@ -1,6 +1,6 @@
 import { mkdirSync, existsSync, writeFileSync, readFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
-import { root, runtime, type Config } from '../src/config.ts';
+import { root, runtime, configPath, type Config } from '../src/config.ts';
 import { Paperclip } from '../src/paperclip.ts';
 import path from 'node:path';
 
@@ -31,7 +31,7 @@ const pc = new Paperclip(config.paperclipUrl);
 const authFile = runtime('secrets.json'), auth = JSON.parse(readFileSync(authFile, 'utf8'));
 auth.paperclipTokens ??= {};
 const companies = await pc.get<any[]>('/companies');
-let company = companies.find(c => c.name === 'SuitMe 协作台');
+let company = companies.find(c => config.companyId&&c.id===config.companyId)??companies.find(c => c.name === 'SuitMe 协作台');
 if (!company) company = await pc.post('/companies', { name: 'SuitMe 协作台', description: '团队与 Agent 的研发协作工作台' });
 config.companyId = company.id;
 await pc.patch(`/companies/${company.id}`, { requireBoardApprovalForNewAgents: false });
@@ -52,7 +52,7 @@ for (const [key, agent] of Object.entries(config.agents)) {
   const data = { name: agent.name, role: 'engineer', adapterType: 'process', runner: 'legacy',
     capabilities: managed ? `通过已配置的 ${agent.use} CLI 执行任务` : '人工通过 CLI 或 MCP 领取任务，提交交接包和成果',
     adapterConfig: { command: process.execPath, args: ['--import', path.join(root, 'node_modules/tsx/dist/loader.mjs'), path.join(root, 'src/runner.ts'), key],
-      cwd: root, timeoutSec: 1800, graceSec: 15 },
+      cwd: root, timeoutSec: 1800, graceSec: 15,env:{COLLAB_STATE_DIR:runtime(),COLLAB_CONFIG:configPath} },
     runtimeConfig: { heartbeat: { enabled: false, wakeOnDemand: managed && agent.enabled, maxConcurrentRuns: 1 } },
     permissions: { canCreateAgents: false, canCreateSkills: false },
   };

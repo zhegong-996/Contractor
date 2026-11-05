@@ -19,6 +19,16 @@
       "url": "https://github.com/topoteretes/cognee",
       "commit": "525b1d1179c550cd5b5661bcbf8f00f57a676928",
       "license": "Apache-2.0"
+    },
+    "prime-agent": {
+      "url": "https://github.com/PrimeIntellect-ai/prime-agent",
+      "commit": "74591cddef28d11249c3171112114fc4755375d7",
+      "license": "MIT"
+    },
+    "deepseek-harness": {
+      "url": "https://github.com/deepseek-ai/deepseek-harness",
+      "commit": "fcc0ad462172522aaf5c93a7b2e01f6b9f0b0159",
+      "license": "MIT"
     }
   }
 }

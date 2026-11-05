@@ -1,3 +1,4 @@
+import {compileAgent,executeComposedTool} from './harness-composition.ts';
 import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { secrets } from './config.ts';
@@ -60,6 +61,9 @@ export class WorkspaceAssistant {
     await this.pc.document(job.id, 'assistant-job', 'Agent 整理记录', JSON.stringify(job, null, 2)); }
   async bundle(task: Task, job?: Pick<Job, 'id'>) {
     const state = await this.workspaces.state(task); await new AgentServices(this.workspaces).assertCurrent(state);
+    const{TeamMembers}=await import('./members.ts');await new TeamMembers(this.workspaces).checkAgentOwner(task.agent);
+    const bound=state.context?.service,agentProfile={id:bound?.id??task.agent,name:bound?.name??this.config.agents[task.agent]?.name??task.agent,responsibilities:bound?.responsibilities??'在当前任务内完成委托的准备工作',definition:bound?.definition};
+    const compiled=await compileAgent(agentProfile);
     const pack = await this.taskContext.collect(task, job ? 'assistant:' + job.id : undefined);
     const { sources: materials, checkpoints, missing, requests, decisions, goal } = pack.layers;
     const goalRevision = pack.manifest.find(r => r.kind === 'goal')?.revision ?? hash(goal);
@@ -68,7 +72,7 @@ export class WorkspaceAssistant {
     const basis = hash({ id: task.id, generation: task.generation, agent: task.agent, manifest: pack.manifest,
       selection: [...sources, ...checkpoints].map(s => ({ id: s.id, range: s.range })), missing, requests,
       delegation: { mode: state.delegation?.mode, nonce: state.delegation?.nonce, instruction: state.delegation?.instruction } });
-    return { basis, manifest: pack.manifest, context: { task: { id: task.id, identifier: task.identifier, title: goal.title, goal: goal.goal,
+    return { basis, manifest: pack.manifest, context: { agentDefinition:compiled, task: { id: task.id, identifier: task.identifier, title: goal.title, goal: goal.goal,
       requirements: goal.requirements, origin: goal.origin, participant: this.config.agents[task.agent]?.name ?? task.agent, service: state.context?.service, serviceRoutes: state.context?.serviceRoutes, networkParent: state.context?.networkParent },
       instruction: state.delegation?.instruction ?? '', sources, missing, requests, checkpoints, decisions, coverage: pack.coverage } };
   }
@@ -146,7 +150,7 @@ export class WorkspaceAssistant {
     if ((await this.bundle(task, job)).basis !== job.basis) throw new Error('装配期间上下文发生变化，停止本次整理');
     job.status = 'running'; job.runId = runId; await this.save(job);
     return { context: bundle.context, engine: this.config.assistant!.engine, model: this.config.assistant?.model,
-      effort: this.config.assistant?.effort, schema: assistantOutputSchema, runtime: job.runtime, events: job.events ?? [], rule: preparationRule, toolBudget: maxRuntimeTools, recheck: job.recheck };
+      effort: this.config.assistant?.effort, schema: assistantOutputSchema, runtime: job.runtime, events: job.events ?? [], rule: preparationRule, toolBudget: bundle.context.agentDefinition.definition.maxToolCalls, recheck: job.recheck };
   }
   async tool(jobId: string, runId: string, callId: string, value: unknown, actor: WorkspaceActor) {
     const input = runtimeToolInput.parse(value), job = await this.owned(jobId, runId, actor);
@@ -157,20 +161,22 @@ export class WorkspaceAssistant {
     job.toolCalls ??= []; const previous = job.toolCalls.find(c => c.id === callId);
     if (previous && previous.hash !== hash(input)) throw new Error('同一工具调用不能更换参数');
     if (previous?.status === 'completed' && ['assess_scope', 'discover_context', 'expand_context', 'request_access', 'schedule_recheck'].includes(input.name)) return { replayed: true, context: before.context, assessment: job.assessment, recheck: job.recheck };
-    if (!previous && job.toolCalls.length >= maxRuntimeTools) throw new Error('本轮工具预算已用完，请保留成果并结束');
+    if (!previous && job.toolCalls.length >= (before.context.agentDefinition?.definition?.maxToolCalls??maxRuntimeTools)) throw new Error('本轮工具预算已用完，请保留成果并结束');
     const action = previous ?? { id: callId, name: input.name, hash: hash(input), at: new Date().toISOString(), status: 'started' as const };
     if (!previous) job.toolCalls.push(action); await this.save(job);
     try {
       const scoped = { admin: false, agent: task.agent };
       const mutation = ['discover_context', 'expand_context', 'request_access', 'read_execution_evidence', 'delegate_service', 'reply_service', 'propose_memory'].includes(input.name);
       if (mutation && input.name !== 'read_execution_evidence' && job.assessment?.kind !== 'accept') throw new Error('先判断本轮工作范围，再推进准备步骤');
+      const bound=state.context?.service;
+      const result=await executeComposedTool({id:bound?.id??task.agent,name:bound?.name??task.agent,responsibilities:bound?.responsibilities??'处理当前任务',definition:bound?.definition},input.name,Object.fromEntries(Object.entries(input).filter(([key])=>key!=='name')),callId,async()=>{
       let result: unknown;
       if(input.name==='delegate_service') result=await new ServiceNetwork(this.workspaces,this).start(task.id,input.serviceId,scoped);
       else if(input.name==='reply_service') result=await new ServiceNetwork(this.workspaces,this).replyFromSource(task.id,input.childId,input.sourceId,input.quote,scoped);
       else if(input.name==='read_service_network') result=await new ServiceNetwork(this.workspaces,this).view(task.id,scoped);
       else if(input.name==='read_memory_dictionary'){if(!state.sources.includes(input.sourceId)||!await this.workspaces.allowed(task,input.sourceId,task.agent,state))throw new Error('资料不在当前可用范围');const {OntologyService}=await import('./ontology.ts');result=await new OntologyService(this.workspaces).read(this.workspaces.source(input.sourceId).domain,{admin:true});}
       else if(input.name==='propose_memory') result=await new TeamMemory(this.workspaces).propose(input.annotation,scoped,task.id);
-      else if (input.name === 'read_context') result = { context: before.context, events: job.events ?? [], rule: preparationRule, remainingTools: maxRuntimeTools - job.toolCalls.length };
+      else if (input.name === 'read_context') result = { context: before.context, events: job.events ?? [], rule: preparationRule, remainingTools: (before.context.agentDefinition?.definition?.maxToolCalls??maxRuntimeTools) - (job.toolCalls?.length??0) };
       else if (input.name === 'assess_scope') { job.assessment = assessPreparation(input.assessment); result = job.assessment; }
       else if (input.name === 'discover_services') result = (await new AgentServices(this.workspaces).read()).profiles.filter(p => p.enabled).map(({id,name,kind,ownerUserId,responsibilities,offers})=>({id,name,kind,ownerUserId,responsibilities,offers}));
       else if (input.name === 'read_execution_evidence') {
@@ -192,7 +198,7 @@ export class WorkspaceAssistant {
       else if (input.name === 'search_context') result = await this.taskContext.search(task, input.query);
       else if (input.name === 'read_record') result = await this.taskContext.readRecord(task.id, input.recordId, scoped);
       else if (input.name === 'schedule_recheck') {
-        if (job.mode !== 'advance' || job.assessment?.kind !== 'accept' || (state.delegation.recheckCount ?? 0) >= 2) throw new Error('本任务暂不允许继续自动复查；需要新的明确委托');
+        if (job.mode !== 'advance' || job.assessment?.kind !== 'accept' || (state.delegation!.recheckCount ?? 0) >= 2) throw new Error('本任务暂不允许继续自动复查；需要新的明确委托');
         if (before.context.missing.some(m => m.reason === 'permission')) throw new Error('等待人的授权时不定时重试');
         if (input.kind === 'delivery' && !state.context?.linkedTasks.length) throw new Error('先明确关联需要核对的交付');
         job.recheck = { at: new Date(Date.now() + input.afterSeconds * 1000).toISOString(), kind: input.kind, reason: input.reason }; result = job.recheck;
@@ -207,6 +213,8 @@ export class WorkspaceAssistant {
         result = existing ? { id: existing.id, state: existing.state, reused: true } : await this.workspaces.request({ taskId: task.id, sourceId: input.sourceId, purpose: input.purpose, hours: 8,
           requestKey: 'runtime:' + job.id + ':' + input.sourceId }, scoped);
       }
+      return result;
+      });
       const after = await this.bundle(this.store.get(task.id), job);
       if (JSON.stringify(after.context.task) !== JSON.stringify(before.context.task)
         || before.manifest.some(r => r.kind !== 'goal' && !after.manifest.some(n => n.id === r.id && n.revision === r.revision && n.hash === r.hash))) throw new Error('工具执行期间目标、资料或授权已变化，结果不交付');
@@ -281,7 +289,7 @@ export class WorkspaceAssistant {
     const job = await this.owned(jobId, runId, actor);
     if (['completed', 'cancelled', 'stale'].includes(job.status)) return;
     job.status = 'failed'; job.error = error.slice(0, 600); await this.save(job);
-    await this.pc.patch('/issues/' + job.id, { status: 'blocked' });
+    await this.pc.patch('/issues/' + job.id, { status: 'blocked',unblockDescriptor:{owner:'board',action:'核对本轮失败原因后，从原任务恢复委托'} });
   }
   async cancel(taskId: string, actor: WorkspaceActor) {
     this.workspaces.manager(actor); const state = await this.workspaces.state(this.store.get(taskId));

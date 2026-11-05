@@ -13,7 +13,7 @@ const agents = await pc.get<any[]>('/companies/' + config.companyId + '/agents')
 let agent = agents.find(a => a.id === config.agents[key]?.paperclipId || a.name === '协作事务 Agent');
 const data = { name: '协作事务 Agent', role: 'general', adapterType: 'process', runner: 'legacy',
   capabilities: '按已委托任务自主判断，调用受限上下文工具、准备访问申请、检查点、交接和知识候选；需要人时结束本轮，按事件接续。授权、知识采用和最终验收由人决定。',
-  adapterConfig: { command: process.execPath, args: ['--import', path.join(root, 'node_modules/tsx/dist/loader.mjs'), path.join(root, 'src/assistant-runner.ts')], cwd: root, timeoutSec: 420, graceSec: 15 },
+  adapterConfig: { command: process.execPath, args: ['--import', path.join(root, 'node_modules/tsx/dist/loader.mjs'), path.join(root, 'src/assistant-runner.ts')], cwd: root, timeoutSec: 420, graceSec: 15,env:{COLLAB_STATE_DIR:runtime(),COLLAB_CONFIG:configPath} },
   runtimeConfig: { heartbeat: { enabled: false, wakeOnDemand: true, maxConcurrentRuns: 1 } } };
 if (!agent) agent = await pc.post('/companies/' + config.companyId + '/agents', { ...data, permissions: { canCreateAgents: false, canCreateSkills: false } });
 else agent = await pc.patch('/agents/' + agent.id, data);

@@ -55,7 +55,7 @@ export class ServiceNetwork {
       sources: route.sourceIds, autoDiscover: false, requestKey: 'network:' + digest({ parentId, generation: task.generation, route, version: serviceVersion(service) }) }, { admin: true, userId: state.context?.requesterUserId ?? actor.userId });
     const childState = await this.w.state(child);
     childState.context!.networkParent = parentId;
-    childState.context!.service = { id: service.id, name: service.name, version: serviceVersion(service), ownerUserId: service.ownerUserId, responsibilities: service.responsibilities, offer: service.offers[0]! };
+    childState.context!.service = { id: service.id, name: service.name, version: serviceVersion(service), ownerUserId: service.ownerUserId, responsibilities: service.responsibilities, offer: service.offers[0]!,...service.definition?{definition:service.definition}:{} };
     await this.w.save(child, childState, 'service-invoked', { parentId, serviceId: service.id });
     const link: Link = { childId: child.id, parentId, serviceId: service.id, serviceVersion: serviceVersion(service), sourceIds: route.sourceIds, caller: task.agent,
       goal: route.goal, ownerUserId: state.context?.requesterUserId ?? actor.userId ?? 'local-board', createdAt: new Date().toISOString(),generation:task.generation };

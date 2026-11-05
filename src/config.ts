@@ -23,6 +23,14 @@ export const configSchema = z.object({
   feishu: z.object({ profile: z.string(), enabled: z.boolean().default(false), botId: z.string().default(''), appId: z.string().default(''),
     allowedSenders: z.array(z.string()).default([]), allowedChats: z.array(z.string()).default([]) }),
   pollMs: z.number().int().min(1000).default(15000),
+  // v0.6 P0: the acceptance contract is available but opt-in until an
+  // independent review model is wired in (P1). Turning this on without a
+  // reviewer would block the originator's /accept with no way to pass.
+  acceptance: z.object({
+    sealPlanOnCreate: z.boolean().default(false),
+    level: z.enum(['L1', 'L2', 'L3', 'L4']).default('L3'),
+    reviewerModel: z.string().min(1).default('independent-reviewer'),
+  }).optional(),
 });
 export type Config = z.infer<typeof configSchema>;
 export type Agent = Config['agents'][string];

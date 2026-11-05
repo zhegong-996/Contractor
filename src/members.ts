@@ -85,7 +85,7 @@ export class TeamMembers {
   async gate(action: string, payload: any, actor: WorkspaceActor): Promise<WorkspaceActor> {
     if(actor.agent&&!actor.userId)await this.checkAgentOwner(actor.agent);
     if (actor.admin || !actor.userId) return actor;
-    const reads = ['view', 'agent-services', 'team-members', 'member-pair-code', 'network-view', 'memory-search', 'memory-status', 'memory-annotations', 'context-pack', 'context-record', 'context-search', 'knowledge-graph'];
+    const reads = ['view', 'agent-services', 'agent-build', 'development-view', 'team-members', 'member-pair-code', 'network-view', 'memory-search', 'memory-status', 'memory-annotations', 'context-pack', 'context-record', 'context-search', 'knowledge-graph'];
     if (reads.includes(action)) return actor;
     if(actor.humanRole==='viewer')throw new Error('只读成员不能修改任务、权限或知识');
     if(action==='request')return actor;
@@ -97,14 +97,14 @@ export class TeamMembers {
     if (['start-collaboration', 'create-task'].includes(action)) {
       const request = payload.task ?? payload;
       if (request.agent !== actor.agent) throw new Error('不能冒用其他成员的资料身份');
-      for (const id of request.sources ?? []) await this.w.reader(actor.agent!).get('/issues/' + this.w.source(id).ref.taskId);
+      for (const id of request.sources ?? []) {try{await this.w.reader(actor.agent!).get('/issues/' + this.w.source(id).ref.taskId);}catch{const{AgentServices}=await import('./agent-services.ts');if(!(await new AgentServices(this.w).resources()).some(s=>s.id===id))throw new Error('只能引用本人可读或负责人已列为可申请的资料');}}
       return elevated;
     }
-    if (['network-delegate', 'network-answer', 'network-cancel', 'network-route'].includes(action)) {
+    if (['network-delegate', 'network-answer', 'network-cancel', 'network-route','development-start','development-accept'].includes(action)) {
       const task = this.w.store.get(payload.taskId); if (task.agent !== actor.agent) throw new Error('Unauthorized: task owner');
       return elevated;
     }
-    if (['assistant-delegate', 'rebind-agent-service', 'context-note', 'context-discover', 'context-link', 'context-expand', 'context-include', 'context-exclude', 'checkpoint', 'handoff', 'complete', 'review', 'publish', 'memory-propose', 'memory-review'].includes(action)) {
+    if (['assistant-delegate', 'rebind-agent-service', 'context-note', 'context-discover', 'context-link', 'context-expand', 'context-include', 'context-exclude', 'checkpoint', 'handoff', 'complete', 'review', 'publish','adopt', 'memory-propose', 'memory-review'].includes(action)) {
       const task = this.w.store.get(payload.taskId); if (task.agent !== actor.agent) throw new Error('Unauthorized: task owner');
       if(action==='memory-review'&&!this.w.members(this.w.source(payload.sourceId).domain).includes(actor.agent!))throw new Error('只能采用本人知识空间的概念关系');
       if(['publish','adopt'].includes(action)){const state=await this.w.state(task);if(!this.w.members(this.w.targetSpace(task,state)).includes(actor.agent!))throw new Error('不能向无权限知识空间发布');}

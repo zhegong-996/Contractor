@@ -1,6 +1,7 @@
 import { createHash, createHmac, randomUUID } from 'node:crypto';
 import { readFileSync, existsSync, writeFileSync, renameSync } from 'node:fs';
 import { z } from 'zod';
+import type {AgentDefinition} from './agent-definition.ts';
 import { loadConfig, runtime, secrets, type Config } from './config.ts';
 import { Paperclip } from './paperclip.ts';
 import { Store, type Task } from './store.ts';
@@ -30,7 +31,7 @@ export type Catalog = { companyId: string; coordinationProject: string; vaultPro
 export type State = { version: 1; sources: string[]; requests: string[]; snapshots: Snapshot[]; outcomes: Snapshot[]; history: { at: string; event: string; detail: unknown }[];
   imBinding?: { senderId: string; chatId: string };
   delegation?: { enabled: boolean; mode: 'prepare' | 'advance'; jobId?: string; lastBasis?: string; instruction?: string; nonce?: string; eventCursor?: number; recheckCount?: number; recheck?: { at: string; reason: string; kind: 'context' | 'delivery' } };
-  context?: { requesterUserId?: string; networkParent?: string; serviceRoutes?: { serviceId: string; serviceVersion: string; goal: string; sourceIds: string[] }[]; service?: { id: string; version: string; ownerUserId: string; name: string; responsibilities: string; offer: string }; autoDiscover: boolean; linkedTasks: string[]; requirements: string[]; fullSources: string[]; excludedSources?: string[]; knowledgeSpace?: string };
+  context?: { developmentTasks?:string[]; requesterUserId?: string; networkParent?: string; serviceRoutes?: { serviceId: string; serviceVersion: string; goal: string; sourceIds: string[] }[]; service?: { id: string; version: string; ownerUserId: string; name: string; responsibilities: string; offer: string;definition?:AgentDefinition }; autoDiscover: boolean; linkedTasks: string[]; requirements: string[]; fullSources: string[]; excludedSources?: string[]; knowledgeSpace?: string };
   fence?: { agent: string; lease?: string; runId?: string; generation: number };
   pendingHandoff?: { previous: string; next: string; generation: number }; proof?: string };
 type Snapshot = { id: string; title: string; domain: Domain; sources: string[]; key: string; grants: { agent: string; id: string }[]; published?: boolean; publicationId?: string; receiptId?: string; systemEvidence?: boolean; inputManifest?: InputRef[] };
@@ -102,6 +103,7 @@ export class Workspaces {
     return value;
   }
   async save(task: Task, state: State, event: string, detail: unknown) {
+    state.sources=[...new Set(state.sources)];
     state.history.push({ at: new Date().toISOString(), event, detail });
     state.proof = contractProof('task', task.id, state, secrets().jwtSecret);
     await this.pc.document(task.id, 'collaboration', '授权与协作记录', JSON.stringify(state, null, 2));
@@ -458,6 +460,7 @@ export class Workspaces {
     this.manager(actor); if (!reason.trim()) throw new Error('共享需要说明采用依据与共享范围');
     const task = this.store.get(taskId), state = await this.state(task), snap = state.outcomes.find(s => s.id === outcomeId);
     if (!snap) throw new Error('结论不属于此任务');
+    if(actor.scopedHuman&&snap.sources.some(id=>!this.members(this.source(id).domain).includes(actor.agent!)))throw new Error('临时访问不授予永久共享权；请由资料负责人在其知识空间沉淀，或先明确新的共享授权');
     if (snap.inputManifest) await this.assertManifest(task, snap.inputManifest);
     const record = await this.knowledge.read({ taskId: snap.id, key: snap.key });
     if (record.revision !== revision || !reusable(record.value, this.config, secrets().jwtSecret)) throw new Error('先确认当前结论版本再发布');
@@ -520,7 +523,7 @@ export class Workspaces {
       const knowledgeState = source.external ? 'source' : record?.value.state === 'confirmed' && !reusable(record.value, this.config, secrets().jwtSecret) ? 'candidate' : record?.value.state;
       sources.push({ ...source, ref: undefined, external: source.external ? { kind: source.external.kind, url: source.external.url } : undefined, record, restricted: !record, knowledgeState,canMaintain:Boolean(actor.admin||actor.userId&&actor.humanRole!=='viewer'&&this.members(source.domain).includes(actor.agent!)) });
     }
-    return { spaces: Object.entries(c.spaces).map(([id, s]) => ({ ...s, domain: id, name: this.spaceName(id), members: this.members(id) })), sources, tasks,
+    return { spaces: Object.entries(c.spaces).map(([id, s]) => ({ ...s, domain: id, name: this.spaceName(id), members: this.members(id), canContribute: Boolean(actor.admin&&!actor.scopedHuman || actor.userId&&actor.humanRole!=='viewer'&&this.members(id).includes(actor.agent!)) })), sources, tasks,
       feishuConnected: actor.admin && Boolean(c.feishuConnection), configurableAgents: actor.admin ? Object.entries(this.config.agents).filter(([key, a]) => a.enabled && key !== this.config.assistant?.agentKey && secrets().paperclipTokens?.[key]).map(([key, a]) => ({ key, name: a.name })) : [],
       actors: this.participantKeys().filter(key => this.config.agents[key]?.enabled).map(key => ({ key, name: this.config.agents[key]!.name })), currentUserId:actor.userId??'local-board',currentAgent:actor.agent,canManageWorkspace:actor.admin&&!actor.scopedHuman,operator: actor.admin ? '本机管理员' : actor.agent };
   }
@@ -534,9 +537,12 @@ export class Workspaces {
     };
     if (task.phase === 'accepted' && issue.status === 'done') { notify(); return task; }
     if (task.phase === 'running' || task.phase === 'unknown' || issue.executionRunId || issue.checkoutRunId || task.lease) throw new Error('先核对执行已经结束');
+    if((state.context?.developmentTasks??[]).some(id=>this.store.get(id).phase!=='accepted'))throw new Error('请先按指定版本完成关联研发交付验收');
     if (review.checkpoint) {
       const snapshot = state.snapshots.find(s => s.id === review.checkpoint!.id && s.key === 'checkpoint');
       if (!snapshot || (await this.pc.get('/issues/' + snapshot.id + '/documents/' + snapshot.key)).latestRevisionId !== review.checkpoint.revision) throw new Error('工作稿版本已变化，请审阅当前版本再验收');
+      if(snapshot.inputManifest)await this.assertManifest(task,snapshot.inputManifest);
+      else for(const sourceId of snapshot.sources)if(!await this.allowed(task,sourceId,task.agent,state))throw new Error('工作稿来源访问已变化，请重新核对当前交付再验收');
     }
     if (!state.outcomes.some(s => s.publicationId) && !(review.noKnowledge && review.reason && review.checkpoint)) throw new Error('请明确采用知识，或按已审阅工作稿记录本次暂不采用知识的验收依据');
     for (const id of state.requests) {

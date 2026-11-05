@@ -32,6 +32,9 @@ function fixture() {
   return { store, task, service, state, access, close() { store.close(); rmSync(dir, { recursive: true, force: true }); } };
 }
 test.after(() => rmSync(temp, { recursive: true, force: true }));
+test('temporary access cannot be converted into a permanent publication by a different knowledge owner',async()=>{const f=fixture();try{f.state.outcomes=[{id:'draft',sources:['sales']}];f.service.members=()=>['role-product'];await assert.rejects(f.service.publish(f.task.id,'draft','revision','adopt',{admin:true,scopedHuman:true,userId:'alice',agent:'role-growth'}),/临时访问不授予永久共享权/);}finally{f.close();}});
+test('parent acceptance waits for the development it explicitly commissioned',async()=>{const f=fixture();try{f.state.context={developmentTasks:['dev']};f.store.save({...f.task,id:'dev',triggerId:'dev',kind:'development',phase:'executed'});await assert.rejects(f.service.complete(f.task.id,{admin:true},{reason:'reviewed',noKnowledge:true}),/关联研发交付验收/);}finally{f.close();}});
+test('an exact document revision cannot pass acceptance after its underlying source was revoked',async()=>{const f=fixture();try{f.state.snapshots=[{id:'draft',key:'checkpoint',sources:['sales'],grants:[]}];f.service.pc.get=async()=>({latestRevisionId:'same'})as any;await assert.rejects(f.service.complete(f.task.id,{admin:true},{reason:'reviewed',noKnowledge:true,checkpoint:{id:'draft',revision:'same'}}),/来源访问已变化/);}finally{f.close();}});
 test('approval and expiry are both required; pending, revoking and exact deadline deny access', () => {
   const now = Date.parse('2026-11-04T00:00:00Z');
   assert.equal(requestIsCurrent({ state: 'approved', expiresAt: '2026-11-04T00:00:01Z' }, now), true);

@@ -19,7 +19,7 @@ async function bridge(action:string,data:unknown){
 // Paperclip continues to own task assignment, concurrency and all wakeups.
 process.env.AGENT_AUTOLOOP_HOME=runtime('autoloop-native',jobId);
 const {createWorker}=await import(pathToFileURL(path.join(root,'upstream/autoloop/worker/worker.ts')).href);
-for(const name of Object.keys(process.env))if(!['PATH','HOME','TMPDIR','LANG','LC_ALL','SHELL','CODEX_HOME','AGENT_AUTOLOOP_HOME'].includes(name))delete process.env[name];
+for(const name of Object.keys(process.env))if(!['PATH','HOME','TMPDIR','LANG','LC_ALL','SHELL','CODEX_HOME','AGENT_AUTOLOOP_HOME','COLLAB_STATE_DIR','COLLAB_CONFIG'].includes(name))delete process.env[name];
 let settled=false,cancelled=false,failed=false;
 const id=parseInt(createHash('sha256').update(jobId).digest('hex').slice(0,12),16),token=createHash('sha256').update(jobId+runId).digest('hex');
 const claim = nativeWorkGate(id);

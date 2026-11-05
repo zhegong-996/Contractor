@@ -37,6 +37,7 @@
     "classnames": "2.5.1",
     "culori": "4.0.2",
     "d3-force-3d": "3.0.6",
+    "esbuild": "0.28.2",
     "react-force-graph-2d": "1.29.2",
     "tsx": "4.23.15",
     "uuid": "13.0.0",

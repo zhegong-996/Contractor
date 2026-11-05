@@ -1,0 +1,270 @@
+# SuitMe 协作台 · 现有代码适配 v0.6 PRD 方案
+
+> 日期：2026-11-05
+> 对象仓库：`/Users/gong.zhe/Developer/ai-native-collab`（`github.com/zhegong-996/suitme-collab`）
+> 依据：`docs/ARCHITECTURE-v0.6.md`（产品架构定稿）、`docs/PRD-v0.6.md`、Codex 会话「研究 AI Native 协作平台融合」、本仓库 `README.md` / `docs/*` / `sources.lock.json` / `src/*` / `git status`
+> 立场：**以 PRD v0.6 为准绳，代码适配产品**。已有实现尽量保留，以「补层」为主，不推倒重来；工程红线见 `PRD-v0.6.md` 第 2.2 节。
+> 状态：改造方案，未执行；本文档只新增文档，未修改任何业务代码。
+
+---
+
+## 0.00 本轮实施进度（2026-11-06 · 底座先行）
+
+用户本轮确认：动的是代码；**先优化底座，再把功能全部补上**；现有已跑通的功能复用、不重写；**现有「IM 会话 + 插件式工作台」就是产品形态本身**，PRD 语义要嫁接到它上面；所有讨论过的开源项目都可作为复用对象，但**协议各不相同，必须逐一说明**。
+
+**已完成**（均为未提交改动，可整体回退；上一轮那批 27 个已修改文件一个没碰、没替用户提交）：
+
+| 项 | 文件 | 说明 |
+|---|---|---|
+| 类型收口 | `tests/event-stream.test.ts` | 修正泛型与枚举三处类型错误 |
+| 事件流水真正接线 | `src/trace-bridge.ts`、`src/controller.ts`、`src/server.ts` | best-effort 接入 `receipt / publish / preview / accept / assistant-result`；验收时回填 Paperclip 原生成本账本；新增只读 action `trace-view`。**流水故障只写 audit，不改变任何业务结果** |
+| 渠道适配层 | `src/channels.ts` | 渠道无关信封 + adapter 注册表 + 语义对象降级渲染；现有飞书直连不动 |
+| 回归测试 | `tests/trace-bridge.test.ts`、`tests/channels.test.ts`、`tests/acceptance-contract.test.ts` | 覆盖 best-effort 不阻断、篡改检测、逐项判定、waived 分支、降级不丢字段 |
+| 协议合规 | `docs/OPEN-SOURCE-COMPLIANCE.md`、`THIRD_PARTY_NOTICES.md`、`sources.lock.json` | 三类项目逐项协议与复用边界；补齐 Prime Agent / DeepSeek Harness 的 lock 条目；补 LobeHub Community License 说明 |
+| 形态校准 | `docs/PRD-v0.6.md` 第 10A 节 | S1–S6 形态约束 + FR-29~31 |
+
+**仍未做（不要宣称已实现）**：独立评审模型与视觉输入、Acceptance submodule 引入、Role Registry / Transfer、图谱边状态、汇报拓扑开关、组织信号闭环、**前端任何改动**。新验收流程仍**默认关闭**（`config.acceptance.sealPlanOnCreate = false`），因为独立评审服务未接上，贸然开启会堵死现有发起人 `/accept`。
+
+**顺序不变**：底座（本轮）→ 功能补全 → 前端增补 → 最后整理上游代码。第 6 节执行清单第 1 步「先收口上一轮 27 个未提交改动」仍未执行。
+
+---
+
+## 0.0 先看这里：产品视角的差异（不含技术术语）
+
+> 本节是给产品/业务阅读的摘要，与第 1 节 C1–C5 一一对应。技术实现以第 1 节为准。
+
+**一句话总纲**：现有代码像一个很靠谱的工单系统——任务能派、能审批、权限收得住、知识能查；v0.6 想做的是「一个组织」。工单系统只回答「这单跑完没有」，组织还要回答三件事：**谁对什么负责、凭什么算做对了、AI 是依据什么做的**。下面五处差异都落在这三个问题上。
+
+用一件具体的事对照：让开发小李帮忙写一份客户方案 PRD。
+
+| | 现在打开系统 | 按 v0.6 改完 |
+|---|---|---|
+| 验收（C2） | 开工时没写「怎样算做好」；干完由发起人一句 `/accept` 全盘接受，要么全过要么全退 | 开工前把验收清单写死并锁定；干活时每条留证据（这条从哪读的、还是 AI 自己写的）；换一个不是干活的模型逐条判定；人看着逐条报告点通过；哪条没过只退那一条，退回原因沉淀成下次自查清单。签字人不变 |
+| 过程证据（C4） | 证据散在执行输出、任务回执、CI 三处；界面显示费用 0，但 `VALIDATION.md` 自己写了「不代表没调用模型」 | 一条完整流水，每一步读了什么、调了什么、花了多少都能回放，成本回填账本。**没有它，上面的逐条验收就没有可信证据源** |
+| 成员与责任（C3） | 找小李就是一次 @，系统里没有「他主职能是开发」这条稳定事实，也没有责任转移记录 | 每人有稳定主职能、会随项目变的领域、可选的邻接能力；跨职能派单生成一条授权记录（谁授权、依据什么能力、只管这一个 Task、验收标准由产品职能起草、对外发布要联签）。责任不隐含在一次 @ 里 |
+| 知识库（C1） | 知识按「哪份文件的哪个版本」分开存，安全，但跨文件的关系（谁负责过这个客户、这份方案引用了哪版报价）表达不了；旧关系也不会因报价更新而失效 | 关系本身要带状态（AI 猜的 / 已验收 / 可复用）和有效期，只有已验收的关系才能被 Agent 当依据；报价一换，旧关系自动作废。**做法是不动现有那份，旁边加一层新图** |
+| 汇报方式（C5） | 明确不做汇报树，谁都能直接找谁 | 扁平还是分层交给每个空间的负责人设；人多了被 @ 爆再切成「只找自己的 Agent，插手要开工单」 |
+
+**差异的性质**（这决定改造量）：
+
+- 只有 **C1** 是「想法真不一样」，且解法是补一层、不推翻现有隔离边界；
+- **C2 / C4** 是「少了两个前置步骤」；
+- **C3** 是「少了两个记录对象」（职能、授权）；
+- **C5** 是「把一个写死的选择改成开关」。
+
+结论：**没有一处要求重写已经跑通的流程**，签字人、任务真源、权限红线、前端都不动；改动集中在「加记录、加前置、加开关」。
+
+---
+
+## 0. 现状基线（开工前必须知道）
+
+### 0.1 代码与运行形态
+
+| 项 | 现状 |
+|---|---|
+| 仓库 | `suitme-collab`，Node 24.11+ / TypeScript / tsx；Paperclip 0.3.1 提供 3100 工作台，SuitMe bridge 4180 |
+| 真源 | Paperclip + PostgreSQL 18.1（54329）存任务/成员/审批/文档/修订/审计；SQLite 只存映射、幂等、接入状态 |
+| 上游 | 6 个 Git submodule 固定提交：`paperclip`、`superagent`、`autoloop`、`prime-agent`、`deepseek-harness`、`cognee`；`sources.lock.json` 锁 4 个 |
+| 多实例 | 主实例 3100 / 4180（本机管理员 `local_trusted`）；另有 3110 / 4181 三模拟成员 `authenticated` 隔离实例 |
+| 前端 | 单页插件入口 `/SUI/knowledge-workspaces`，5 个 view tab（我的工作 / 协作 / 知识 / Agent / 设置）；中文由构建期 AST 词典覆盖，深层原生页面仍有未翻译部分 |
+| **工作区状态** | `git status` 有约 27 个已修改文件 + 未跟踪 `docs/AGENT-BUILDING.md`，说明上一轮 Codex 改造尚未收口 |
+
+> **第 0 步动作**：P0 开工前先把这批未提交改动提交或明确归属，避免 v0.6 改造与上一轮改动混在同一批 diff 里，无法回滚。
+
+### 0.2 已真实跑通（可直接作为回归基线）
+
+| 证据 | 能力 |
+|---|---|
+| SUI-4 / PR #2 `4b4b49f` | 真实飞书单聊配对 → 接单 / 提问 / PR / 预览 / 原消息回写 / 发起人 `/accept` |
+| SUI-10 / SUI-25 | 原生 API 全流程：审批前拒绝 → 批准后可读 → 跨岗位交接 / 撤权 / 采用（`cross-role-evidence.json`） |
+| SUI-19 | 实际浏览器全流程：创建 / 申请 / 授权 / 检查点 / 重授权交接 / 撤权 / 候选 / 版本确认 / 采用 |
+| SUI-81 / PR #3 `c6e74db` | 原版 Autoloop worker 真实执行、CI 通过、同 SHA `version.json` 本地预览 |
+| SUI-85 / SUI-74 | 「团队 Agent」发起、范围判断、工具检索、工作稿、原版 `ask` 等待释放 |
+| SUI-103 / SUI-106 | `@a2a-js/sdk` 1.3.0 真实 HTTP `delegate_service` 子任务回传、父任务自动接续 |
+| SUI-123 | 知识 → 检索与记忆 → 交给 Agent 整理关系，8 概念 / 6 关系候选（无人审签名、无自动采用） |
+| 自动测试 | 14/14 → 69/69 → 90/90 → 108/108；真实 stdio MCP、并发领取、过期回执、ACL 撤回过滤、确认防篡改 |
+| Cognee | 原版 DataPoint / Ladybug / provenance，4 节点 3 关系、模型调用 0、跨进程持久；BM25 中文检索、别名召回 |
+
+### 0.3 明确未启用 / 未完成（不要当成已有能力）
+
+- 新模型服务、自动实体抽取、embedding / 向量语义检索、LLM `cognify`、自动知识采用、自动最终验收。
+- 完整 Harness `AgentLoop`、动态模块装载器、完整 preset registry、Prime Agent daemon、Autoloop hub、第二套调度器。
+- 真实员工登录与飞书组织映射、跨真实员工生产协作、第二位真人登录证据、公网 Agent 发现。
+- Claude Code / WorkBuddy / 豆包 / Grok Bot / Cursor 云端自动派单、ACP 远端恢复（均只到接口或人工接单层）。
+- **Trace 未入库、CLI 用量未回填成本账本**（`docs/VALIDATION.md:42` 明确「界面零费用不代表没有发生模型调用」）。
+- 无合并试点 PR、无生产部署、无对象存储 / 向量服务 / Redis / SSO；异机恢复与联合备份未验证。
+
+> 边界共识（沿用现有文档）：模拟成员 ≠ 真实员工、本地预览 ≠ 生产部署、CI 通过 ≠ 业务验收、Agent 完成 ≠ 验收。这些在 v0.6 改造后继续成立。
+
+---
+
+## 1. 五处架构差异（必须先解决，否则会改错方向）
+
+### C1 · 图谱：按来源修订物理隔离 vs 全局一份图谱（**真冲突**）
+
+- **现状**：`docs/KNOWLEDGE-ENGINE.md:35` — 图文件按 `sha256(sourceId@revision)` 存 `.runtime/knowledge-graph`，读取前不加载全公司图；旧版图不能冒充新版。隔离保证很强，但跨来源关系无法表达。
+- **PRD v0.6 / B4**：全局一份图谱 + 节点/边级可见性标签，用于能力地图、越权可达性、制品 lineage、证据溯源、组织体温传播路径；边带状态与有效期（FR-09）。
+- **直接切全局的代价**：丢掉现有「按来源修订物理隔离」这一已验证的安全边界，且撤权/变版后的失效机制要重做。
+- **建议双层，不动现状**：
+  1. **L1 证据图（保留）**：现有按 `sourceId@revision` 的物理图，存文档 / 字段 / `has_field` / 来源关系，继续作为可验证的证据投影。
+  2. **L2 组织图（新增）**：一份全局图，**只存跨来源的组织语义边**（PRD 第 4 节五类边），节点引用 L1 的 `sourceId@revision`；每条边带 `状态（草稿/已验收/可复用）`、`证据引用`、`valid_at / invalid_at`、`可见性标签`。
+  3. **查询路径**：先按标签裁剪 L2 子图 → 再回 L1 取原文片段 → 前后双重复查来源版本与访问资格（沿用现有 `docs/KNOWLEDGE-ENGINE.md:36`）。
+  4. **授权与撤权**：授权 = 开放 L2 子图可达性 + L1 片段级许可；撤权 = 写 `invalid_at` + 收回片段许可，旧边不再被引用但历史可查。
+  5. **时间语义**：借鉴 **Graphiti / Zep 的 `valid_at / invalid_at` 双时间边**处理事实取代（supersession）。Cognee 是「累积型」语料图谱，不自动让旧事实失效，因此**边状态与失效必须由 SuitMe 适配层实现**；不部署 Graphiti 服务（需 Neo4j/FalkorDB），Cognee 官方 `GraphitiSource` 适配器留作未来迁移路径。
+- **回滚**：L2 组织图可整体删除，L1 证据图与现有验证记录完全不受影响。
+
+### C2 · 验收：发起人 `/accept` vs 开工前锁计划 + 独立评审（**补前置步骤，不推翻红线**）
+
+- **现状**：验收只能由原任务发起人在原会话操作，`/accept` 表示确认交接包中所有业务验收项；后台核对提交 / CI / 预览 / 两项验收 / 发起人身份（`README.md:79`、`docs/VALIDATION.md:15`）。红线 R3 / R4 明确 Agent 完成 ≠ 验收。
+- **PRD FR-16~19**：开工前锁定 Acceptance Plan、证据来源分类、独立评审者（不得是产出模型、需视觉）、逐项判定、部分打回、打回沉淀成标准、人核可。
+- **适配判断**：**保留 `/accept` 作为最终人核可**，在它之前插入四步（锁计划 → 证据采集 → 独立评审 → 逐项报告）。这样 R3/R4 完全不破，也不改变「谁签字」。
+- **关键区分**：独立评审产出的是**给发起人看的证据与逐项判定**，不是替代发起人核可；跨职能时职能 owner 联签是**追加签字**，同样不替代发起人。写进验收报告，避免产品语义混淆。
+- **落地**：
+  - Acceptance Plan 存 Paperclip 任务文档的**原生修订** —— 不可篡改特性天然满足「开工前锁定」，改动即产生新版本并作废原计划。
+  - 扩展现有 `review` 记录为 Acceptance Round（通过 / 未通过 / 受阻 + 退回原因）。
+  - 部分打回复用 Autoloop 原版 `ask` 等待释放机制，在失败那轮保留上下文修正。
+  - 引入 `lobehub/acceptance`（Apache-2.0，v2.2.21）作为契约与实现参照；若不引入 submodule，需自研同等五要素并说明理由（PRD Q5）。
+- **注意**：现有 `/accept` 是整体通过，没有「部分打回」；打回后不能关闭任务，也不能把未通过项算作通过。
+
+### C3 · 成员：扁平 `AgentServices` + 可配置空间 vs 三层能力 + 职能注册表（**不冲突，缺一层**）
+
+- **现状**：`src/agent-services.ts` 管服务与职责版本；可配置 `domain` 知识空间；`docs/AGENT-SERVICE-NETWORK.md:7` 明确「部门名称和汇报树不决定系统功能模块」；`docs/FEISHU-SOURCES.md:3` 明确「空间是可配置组织方式，不是预设部门」。
+- **这是正确之处，必须继承**：Codex 会话里用户拍板「产研/增长/销售/职能不应该是划分好的明确界限或系统中明确的功能模块，应该是配置迭代出来的结果」——与 v0.6 的 D11「产品不预设名单」完全一致。
+- **要补的只是三层**：
+  1. 新增 **Role Registry**（落 Paperclip 原生私有文档）：职能 ID / 显示名 / owner / 成员 / 版本 / 生效失效时间，四条硬约束（唯一性、owner 齐备、ID 稳定、粒度自检）。
+  2. 现有「当前职责版本化」保留为**领域流动**；把 `domain` 从「空间名」提升为可从 Task / Artifact / L2 图谱关系派生的标签，不覆盖主职能。
+  3. 新增 **Responsibility Transfer** 与 Transfer Grant Policy，复用现有 `collaboration` 协作合同与 `handoff-assigned` 执行身份更新，补授权人 / 能力依据 / 范围 / 标准起草方 / 联签人 / 批次 ID。
+- **不改**：个人 Agent 服务身份与 Codex 等执行引擎分离、职责变更使旧结果停用、成员来自原生登录 —— 三者都与 v0.6 相容。
+
+### C4 · Trace：三套分散证据 vs 统一可回放事件流（**B2，最硬的阻塞**）
+
+- **现状**：证据分散在 Harness `output-retention`、Autoloop 回执（含 CLI 用量）、GitHub CI / `live-journey-evidence.json`（`.runtime`）；成本未回填 Paperclip 成本账本；`docs/VALIDATION.md:42` 已自认不完整。
+- **PRD FR-25 / B2**：结构化事件流是 M9 证据链、X2 回放与成本归因、闸门 HITL、独立评审的唯一真相源；缺字段禁止启用 L4 验收。
+- **适配判断**：**不换框架**（用户既定「方案集成 + 个性化优化」，现有 Autoloop worker + Harness 组合已跑通真实流程）。在 J 层加一个 **Event Sink**：
+  - 归一字段：`taskId / actor / model / tool / token / cost / sourceRef@revision / checkpoint / outcome / evidenceKind(捕获|导入|自撰)`
+  - 落点：Paperclip 任务文档或只读事件投影（**不得成为第二业务库**，R1）；成本回填原生成本账本。
+  - 三个来源各自保留原产出，Event Sink 只做汇聚与补全，不替代。
+- **准入**：先跑一条真实任务（建议沿用 SUI-81 或新建 SUI-xx）验证字段齐全、可从 checkpoint 回放，再启用 FR-16~19；否则 L4 验收的证据链是断的。
+
+### C5 · 汇报拓扑：主动排除 vs 可配置（**从「排除」改为「配置」**）
+
+- 现有明确不把汇报树做成功能模块（这是对的，避免组织写死）；v0.6 D10 要求由 Workspace owner 配置扁平 @ / 分层汇报。
+- 适配：新增一个 **Workspace 级配置项**，默认扁平 @；选分层时中途插手走 Task 卡片开工单（LobeHub 的教训）。**事件订阅直通属工程路由，不受该配置影响**（v0.2 已修正，别再混）。切换建议由跨组调用密度、人均被打断次数自动给出。
+
+---
+
+## 2. 逐模块差距对照
+
+> 动作：保留 / 扩展 / 新增 / 替换。「保留」的模块不得因改造回退现有验证。
+
+| v0.6 模块 | 现有实现 | 动作 | 主要文件 | 优先级 |
+|---|---|---|---|---|
+| A 场域与成员 | Paperclip 项目/成员 + `AgentServices` + 可配置 `domain` | **扩展**：Role Registry、主职能声明、粒度自检 | `src/members.ts`、`src/agent-services.ts`、新增 `src/role-registry.ts` | P0 |
+| B 沟通与 @ 委派 | Super-agent 原版归一化/幂等/策略、`/task`、`/reply`、`src/coordination.ts` | **保留 + 扩展**：汇报拓扑配置 | `src/coordination.ts`、`src/commands.ts`、`src/collaboration-intake.ts` | P1 |
+| C 上下文中枢 | `src/context.ts`、交接包、`bundle.manifest`、prime-query 权重 | **扩展**：独立 Context Pack 对象、版本/过期、只纳入已验收边 | `src/context.ts`、`src/assistant.ts`、新增 `src/context-pack.ts` | P0 |
+| D 交织引擎 | `src/service-network.ts`、A2A `delegate_service`、`src/coordination.ts` | **扩展**：Transfer 生成、联签路由、授权批次 | 新增 `src/transfer.ts`、`src/service-network.ts` | P0 |
+| E 制品与工作区 | Paperclip 文档修订、GitHub `src/github.ts`、`src/development.ts`、证据 `src/evidence.ts` | **保留 + 扩展**：制品三态、lineage 反查 | `src/evidence.ts`、`src/development.ts` | P1 |
+| F 风险闸门与验收 | 发起人 `/accept`、`review`、CI/预览核对、`platform-evidence.ts` | **重点新增**：Acceptance Plan / Round、独立评审、逐项打回、验证等级策略 | 新增 `src/acceptance-plan.ts`、`src/acceptance-round.ts`、`src/verification-policy.ts` | P0 |
+| G 组织状态信号面 | 「需要你决定」面板、`attention` 列表、`src/team-memory.ts` | **新增**：只读指标 + 聚类 → Task → 复测闭环 | 新增 `src/signals.ts`、前端 tab | P2 |
+| H 入口与介入 | `plugins/knowledge-workspaces/src/ui`、中文壳 `scripts/build-chinese-shell.ts` | **保留**，P3 再重构弱化区 | `plugins/knowledge-workspaces/src/ui/*`、`locales/` | P3 |
+| I 主动性与注意力 | 事件合并、排除自身进度、每轮 ≤12 次工具、每委托 ≤2 次复查 | **扩展**：显式两级过滤 + 注意力预算 + 静默策略 | `src/coordination.ts`、`src/assistant-turn.ts` | P1 |
+| J 运行时底座 | Autoloop worker、Harness 装配、`src/native-worker.ts`、会话接续 | **扩展**：Event Sink、checkpoint、Watchdog | 新增 `src/event-stream.ts`、`src/watchdog.ts`、`integrations/deepseek/runtime.ts` | P0 |
+| K 知识底座 | Cognee `LadybugAdapter` / DataPoint / provenance / GraphSchema / BM25；`src/graph.ts`、`src/ontology.ts`、`src/knowledge.ts`、`scripts/cognee-graph.py` | **扩展**：L2 组织图、边状态/有效期/可见性标签、统一 ID 与标签 | 新增 `src/org-graph.ts`、`src/edge-state.ts`，扩展 `src/graph.ts` | P0 |
+| X1 治理平面 | 原生 ACL、`access-contract`、调用前后复查、`src/workspaces.ts` | **扩展**：空间 owner、子图/片段级授权、双层标签校验、配置审计 | `src/workspaces.ts`、新增 `src/policy.ts` | P0 |
+| X2 可观测与成本 | `.runtime` 轨迹、回执 CLI 用量 | **扩展**：Event Sink + 成本回填 | 同 C4 | P0 |
+| X3 组织信号 | 无独立模块 | 由 G 消费 | — | P2 |
+
+---
+
+## 3. 开源项目整合：动作清单
+
+| 项目 | 本版动作 | 是否需要改上游 | 许可证动作 |
+|---|---|---|---|
+| Paperclip / LLM Wiki / Plugin SDK | **保留不动**，所有新对象落原生文档或适配层 | 否 | 已有 |
+| DeepSeek Super-agent | 保留；补「订阅直通 ≠ 组织越级」的区分 | 否 | 已有 |
+| Agent Autoloop | 保留；回执补 Trace 字段；`ask` 用于部分打回 | 否 | 已有 |
+| DeepSeek Harness | 保留；评估启用完整 AgentLoop / checkpoint 作为 B2 准入；output-retention 接入 Event Sink | 否 | 已有 |
+| Prime Agent | 保留 `prime-query.ts` 权重策略 | 否 | 已有 |
+| Cognee | 保留 L1 证据图与字典；新增 SuitMe 边状态/有效期适配层；LLM/embedding 管线继续关闭 | 否 | 已有 Apache-2.0 声明 |
+| Graphiti / Zep | **只借鉴双时间边语义**，不部署服务、不引入代码 | 否 | 无需（未引入） |
+| @a2a-js/sdk | 保留；`delegate_service` 补 Transfer 与联签路由 | 否 | 已有 Apache-2.0 声明 |
+| **Acceptance（新）** | **建议新增 submodule**，作为 FR-16~19 的契约与实现参照 | 否 | **新增** `THIRD_PARTY_NOTICES.md` 条目 + `licenses/acceptance-APACHE-2.0.txt` + `sources.lock.json` |
+| LobeHub | 只作产品参照（三层汇报、L1–L5、注意力预算、Agent Vent 闭环），不引入代码 | 否 | 无需 |
+| LightRAG / KAG / OpenHands / Outline / Onyx / OpenFGA | 仅参考，不叠加索引/服务；**Outline BSL 1.1 尤其不得引入代码** | 否 | 无需 |
+
+> 两批来源的分工：现有 submodule 覆盖**工程底座**（任务真源、事件接入、执行适配、图谱存储），本轮新增参照覆盖**产品语义**（证据化验收、职能轴、责任转移、组织信号）。整合不是把项目堆在一起，是让两边各补对方缺的那一层。
+
+---
+
+## 4. 迁移路径
+
+> 顺序按用户最新要求：**集成方案 + 个性化优化 → 功能全部实现 → 再改前端界面与交互 → 最后整理/优化复用过来的上游代码**（Codex 会话 USER 54）。
+> 注意：本仓库 `docs/KNOWLEDGE-ENGINE.md:3` 写的是「集成 → 改造界面 → 完整流程验收 → 整理复用代码」，与用户后续表述略有差异；**以用户最新表述为准**，前端重构放在功能闭环验收之后。
+
+### P0 · 契约地基（最先做，且不改前端）
+
+1. 收口当前未提交改动（提交或明确归属），记录 `git status` 基线。
+2. **Event Sink（C4 / FR-25 / FR-27）**：归一三套证据、补字段、成本回填；跑一条真实任务验证可回放。
+3. **Acceptance Plan 前置（C2 / FR-16~19）**：锁计划 → 证据分类 → 独立评审 → 逐项报告 → 人核可；保留 `/accept` 与 R3/R4；引入 Acceptance 契约。
+4. **Role Registry + 三层能力（C3 / FR-01/02）**：不预设名单、四条硬约束、职能快照不回溯。
+5. **Transfer（FR-11/12）**：默认 L0，标准外置、双段责任链、高风险联签。
+6. **知识底座边状态与双层图（C1 / FR-06/07/09/10）**：L1 不动，新增 L2 组织图；空间 owner 审批、子图/片段级授权、撤权写 `invalid_at`。
+7. **回归**：`npm test` / `npm run typecheck` / `npm run doctor` / `npm run test:cross-role`；SUI-4、SUI-10/19/25、SUI-81、SUI-103/106 全流程不得回退。
+
+### P1 · 核心差异化
+
+汇报拓扑配置（C5）、授权档位 L1/L2 与自动收紧、默认图谱本体与 lineage、验证等级策略、介入/注意力/Watchdog、配置变更审计与兼容期双写。每项配一条真实 journey。
+
+### P2 · 可自调节
+
+粒度自检、组织信号面与「信号 → 聚类 → 建 Task → 次日复测」闭环。只读、只预警、不排名、不做情绪推断。
+
+### P3 · 体验与代码整理
+
+中文补全（尤其知识 / 协同 / Agent 三块弱化区）、窄屏走查（1280 / 425）、最后再整理冗余适配与替换不合适的上游界面，保留来源与升级路径。**产品闭环经真人验收后才动复用代码**。
+
+### 验证环境顺序
+
+先在 3110 / 4181 三模拟成员隔离实例验证权限矩阵（不同成员授权、撤权、联签），再回 3100 / 4180 主实例跑真实任务；真实员工登录与飞书组织映射仍属未完成项，不得用模拟成员冒充。
+
+---
+
+## 5. 风险与回滚
+
+| 风险 | 应对 |
+|---|---|
+| 上一轮未提交改动与本次改造混批 | P0 第 1 步先收口；每个阶段单独提交，保留可回滚点 |
+| 切全局图谱破坏已验证的隔离边界 | 采用 C1 双层；L2 可整体删除，L1 不动 |
+| 新验收契约与「发起人验收」红线冲突 | 保留 `/accept` 为最终核可，评审只提供证据；联签是追加签字 |
+| 上游固定提交升级导致 API 变化 | `sources.lock.json` + gitlink 锁版本；先 `npm run doctor` 再升级，升级单独提交 |
+| 新增依赖的许可证与归属 | Acceptance 补声明与 licenses；Outline BSL 1.1 不引入；Cognee 商业版「单 PostgreSQL 图存储」不算已交付 |
+| 真实资料外发 | 真实飞书正文不进图处理接口、不提交 GitHub、不向新模型服务发送（沿用 `docs/KNOWLEDGE-ENGINE.md:37` 与会话约定） |
+| 功能未定型就改前端 | 前端重构排 P3；P0/P1 期间允许界面「不好看但能用」 |
+| 模拟身份被误当成生产验证 | 文档与界面继续标注边界：三虚拟成员 ≠ 真实员工、本地预览 ≠ 生产 |
+
+---
+
+## 6. 给 Codex 的执行清单（可直接照做）
+
+按序执行，每步完成后跑对应验证，不要在一步里同时改多个层：
+
+1. `git status` 收口基线，确认 `docs/AGENT-BUILDING.md` 归属。
+2. 新增 `src/event-stream.ts`：定义事件 schema，接收 Harness / Autoloop / GitHub 三路证据；补 `src/assistant-runner.ts`、`src/runner.ts`、`src/github.ts` 的埋点；成本回填原生账本。
+3. 新增 `src/acceptance-plan.ts` / `src/acceptance-round.ts` / `src/verification-policy.ts`；扩展 `src/controller.ts` 的 `/accept` 前置流程；**不改发起人身份校验**。
+4. 新增 `src/role-registry.ts`；扩展 `src/members.ts`、`src/agent-services.ts`；保留 `domain` 可配置语义。
+5. 新增 `src/transfer.ts`；接入 `src/service-network.ts` 的 A2A 委派与 `src/workspaces.ts` 的协作合同。
+6. 新增 `src/context-pack.ts`；扩展 `src/context.ts`；只引用已验收边。
+7. 新增 `src/org-graph.ts` / `src/edge-state.ts`；扩展 `src/graph.ts` 与 `scripts/cognee-graph.py`；**不改动 L1 物理图隔离逻辑**。
+8. 扩展 `src/workspaces.ts` 的 `access-contract`：补空间 owner、子图/片段粒度、`valid_at / invalid_at`、撤销即失效。
+9. 新增 `src/policy.ts`：双层标签校验、配置审计、兼容期双写。
+10. 补齐 `tests/`（参照现有 `workspaces.test.ts`、`assistant.test.ts`、`agent-services.test.ts`）与 `docs/VALIDATION.md` 记录；每个新增 FR 至少一条真实 journey 证据。
+11. 更新 `THIRD_PARTY_NOTICES.md`、`licenses/`、`sources.lock.json`、`docs/SOURCES.md`、`README.md`。
+12. P0 全量回归：`npm test` / `npm run typecheck` / `npm run doctor` / `npm run test:cross-role`，并在 3110 隔离实例验证多成员授权与撤权。
+13. P1/P2 按第 4 节推进；P3 才动 `plugins/knowledge-workspaces/src/ui/*` 与 `scripts/build-chinese-shell.ts`。
+14. 全程不得：修改上游 submodule、合并试点 PR、发布业务仓库、启用新模型服务、把真实正文提交 GitHub、用模拟成员宣称生产验证。
+
+---
+
+## 7. 一句话结论
+
+现有代码把「任务 + 审批 + 权限 + 知识候选」做扎实了，缺的是 v0.6 的**职能轴、责任转移、开工前锁定的验收、以及带状态与时效的组织图谱**；四处补层 + 一条统一 Trace 即可对齐，不需要换框架、不需要推倒 Paperclip 真源、也不需要先把前端重做一遍。最该先做的是 **C4 事件流**——没有它，C2 的证据化验收就没有可信的证据来源。

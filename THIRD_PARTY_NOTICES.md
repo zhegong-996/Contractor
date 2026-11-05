@@ -141,6 +141,8 @@ Copyright (c) 2025 Mario Zechner, used under the MIT License.
 
 Pinned commit: fcc0ad462172522aaf5c93a7b2e01f6b9f0b0159. Original source retained unmodified under upstream/deepseek-harness.
 
+Additional reused modules: `vendor/cordis`, `vendor/cosmokit`, `vendor/schemastery`, `packages/core/{scope,system-prompt,tools,tool-executor-native}`, `packages/preset/persona`, preset registry definition validation and the LLM message/error constructors. Original vendored dependencies remain MIT, Copyright (c) 2021-present Shigma; their full notices are retained in the three original `vendor/*/LICENSE` files and `licenses/harness-vendor-MIT.txt`. SuitMe composes a restricted scoped runtime; it does not activate the full Harness AgentLoop or a provider.
+
 ```text
 MIT License
 
@@ -186,3 +188,18 @@ The existing pinned Super-agent MIT source also supplies `settingsPolicy` and `a
 ## Additional Cognee memory integration
 
 The existing pinned Cognee source additionally supplies `BM25ChunksRetriever.initialize`, `_build_corpus_stats`, `_scorer` and content-derived chunk identity. SuitMe binds the corpus to authorized source-version Ladybug files, uses the existing Prime-derived tokenizer, and keeps proposed concepts/relations subject to human review and current GraphSchema. The pinned upstream remains unmodified. LLM/embedding services are not enabled by this integration.
+
+## 2026-11-06 licence review — reference-only projects (no code imported)
+
+Full review and the actionable checklist: `docs/OPEN-SOURCE-COMPLIANCE.md`. The following projects were studied during the v0.6 architecture work but **no source code, UI component, package or running service from them is included in this repository**. Their licences differ from the MIT/Apache-2.0 upstreams above and must not be treated as interchangeable.
+
+- **LobeHub (`lobehub/lobehub`)** — **LobeHub Community License**: Apache-2.0 *with additional conditions* (GitHub reports `Other`, not OSI open source). It permits commercial use as an unmodified frontend/backend service, but **developing and distributing a derivative work requires a commercial licence from the producer**; contributors also agree the producer may change the licence terms and use contributions commercially. Only its product concepts (role Agents, three-layer reporting, L1–L5 autonomy, attention budget, organisation signals) are studied and re-implemented independently here. No source is copied, forked or bundled.
+- **Acceptance (`lobehub/acceptance`)** — a **separate repository under Apache-2.0** (`Copyright © 2026 LobeHub`), NOT covered by the Community License above. It is **not yet imported**. If FR-16~19 adopts it, the pinned commit, `licenses/acceptance-APACHE-2.0.txt`, a notice entry and a `sources.lock.json` entry are required first.
+- **Graphiti (`getzep/graphiti`)** — Apache-2.0. Only the temporal-edge (`valid_at` / `invalid_at`) semantics are borrowed; its graph database and LLM services are not deployed.
+- **OpenHands Software Agent SDK** — MIT. Studied for the execution/control-plane boundary only; no second execution service is introduced.
+- **Outline** — **BSL 1.1** (source-available, not OSI open source, with production-use restrictions). Permission model studied only; **code import is prohibited** for this integration.
+- **Onyx / OpenFGA / LightRAG / KAG** — design references only. The licences of Onyx and OpenFGA have **not been verified in this repository**; they must be verified before any future import.
+
+`src/evidence.ts` ports reference-validation and invalidation-projection logic from the user's own prototypes `ai_bridge.py` / `knowledge.py`, with the user's authorisation; no prototype database, model environment, business data or third-party code was transferred. The Alice research package remains a design reference only (manifest says MIT; the complete licence is unverified, and static recovery is not treated as proof of upstream authorisation).
+
+This notice is not a legal audit of transitive npm dependencies; each published package retains its own licence.

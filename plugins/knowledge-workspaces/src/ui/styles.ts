@@ -45,4 +45,6 @@ export const styles = `
 @media(min-width:721px) and (max-width:900px){.suitme-workbench .sm-space-layout .sm-mobile-select{display:block}}
 
 .suitme-workbench .sm-relation-review{padding:12px 0;border-bottom:1px solid var(--border)}.suitme-workbench .sm-relation-review blockquote{margin:6px 0;color:var(--muted-foreground);font-size:13px;line-height:1.7}
+
+.suitme-workbench .sm-builder-code{font-family:inherit;white-space:pre-wrap;overflow-wrap:anywhere;font-size:13px;max-width:76ch;line-height:1.7}.suitme-workbench .sm-agent-builder fieldset{min-width:0}.suitme-workbench .sm-agent-builder legend{font-weight:600;margin-bottom:8px}
 `;

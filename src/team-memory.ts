@@ -1,3 +1,4 @@
+import {taskOnlyContext} from './agent-definition.ts';
 import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
@@ -62,7 +63,7 @@ export class TeamMemory {
   }
   async search(taskId:string|undefined,query:string,actor:WorkspaceActor){
     const task=taskId?this.w.store.get(taskId):undefined,state=task?await this.w.state(task):undefined;if(task&&(task.phase==='accepted'||!actor.admin&&actor.agent!==task.agent)||!task&&!actor.admin&&!actor.userId)throw new Error('Unauthorized: memory task scope');
-    const sources:any[]=[];for(const source of this.w.catalog().sources.filter(s=>!s.external&&!state?.outcomes.some(o=>o.publicationId===s.id)&&(!state?.context?.networkParent||state.sources.includes(s.id)))){
+    const sources:any[]=[];for(const source of this.w.catalog().sources.filter(s=>!s.external&&!state?.outcomes.some(o=>o.publicationId===s.id)&&(!state||!taskOnlyContext(state)||state.sources.includes(s.id)))){
       if(task){if(!state!.sources.includes(source.id)&&!this.w.members(source.domain).includes(task.agent))continue;if(!await this.w.allowed(task,source.id,task.agent,state))continue;}else if(!actor.admin&&!this.w.members(source.domain).includes(actor.agent!))continue;
       const principal=task?.agent??(!actor.admin?actor.agent:undefined),before=await this.w.readMaterial(source.id,principal);if(!reusable(before.value,this.w.config,secrets().jwtSecret))continue;
       const file=path.join(await this.folder(source.id,before.revision),'ready.json');

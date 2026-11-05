@@ -37,3 +37,16 @@ test('a lost service response resumes the same task and binds the IM origin befo
  }finally{store.close();rmSync(dir,{recursive:true,force:true});}
 });
 test('service version is independent of JSON field insertion order',()=>{const p=serviceProfileInput.parse(profile);assert.equal(serviceVersion(p),serviceVersion(Object.fromEntries(Object.entries(p).reverse())as any));});
+test('members cannot take over another service and public directory does not expose private instructions',async()=>{
+ const {defaultAgentDefinition}=await import('../src/agent-definition.ts');
+ const p=serviceProfileInput.parse({...profile,definition:{...defaultAgentDefinition,instructions:'private professional instructions'}});
+ let written:any;const w:any={manager:()=>{},participant:()=>{},config:{assistant:{}},catalog:()=>({serviceRegistryIssueId:'i'}),store:{audit:()=>{}},pc:{request:async(_m:any,_r:any,body:any)=>{written=JSON.parse(body.body).profiles;}}};
+ const services=new AgentServices(w);services.read=async()=>({profiles:[p],revision:'r',issueId:'i'});
+ const other:any={admin:true,scopedHuman:true,userId:'owner-b',agent:'other'};
+ const visible=await services.view(other);assert.equal(visible.profiles[0]!.definition,undefined);assert.equal(visible.profiles[0]!.version,serviceVersion(p));
+ await assert.rejects(services.save([{...p,ownerUserId:'owner-b',actorKey:'other'}],'r',other),/不能更改既有/);
+ const {version,editable,...publicProfile}=visible.profiles[0]!;
+ await services.save([publicProfile],'r',other);assert.deepEqual(written[0].definition,p.definition);
+ await assert.rejects(services.save([{...publicProfile,responsibilities:'tampered'}],'r',other),/只能修改自己的/);
+ assert.equal((await services.view({admin:false,userId:'owner-a'})).profiles[0]!.definition?.instructions,p.definition!.instructions);
+});
