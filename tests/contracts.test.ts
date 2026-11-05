@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { Store, type Task } from '../src/store.ts';
 import { allowedFile, parsePr } from '../src/github.ts';
-import { feishuTrigger, feishuTriggerId, readMessage, resultFrom, adapterFor } from '../src/upstream.ts';
+import { feishuTrigger, feishuTriggerId, readMessage, resultFrom, adapterFor, sendFeishu } from '../src/upstream.ts';
 import { Controller, validateAcceptance } from '../src/controller.ts';
 import { configSchema } from '../src/config.ts';
 
@@ -28,6 +28,21 @@ test('upstream Feishu intake deduplicates by message, not event delivery; ignore
   const b = feishuTrigger({ ...event, event_id: 'delivery-two' }, 'ou_bot', 'cli_test');
   assert.equal(a?.id, b?.id); assert.equal(a?.id, feishuTriggerId('om_one')); assert.equal(a?.addressed, 'direct');
   assert.equal(feishuTrigger({ ...event, sender_id: 'ou_bot' }, 'ou_bot', 'cli_test'), undefined);
+});
+test('upstream Feishu replies retry long outbox IDs with a bounded stable key while preserving existing short keys', async () => {
+  const keys: string[] = []; let interrupted = true;
+  const host = { commands: { lark: async (args: string[]) => {
+    const key = args[args.indexOf('--idempotency-key') + 1]!;
+    if (key.length > 50) throw new Error('Feishu key exceeds 50 characters');
+    keys.push(key);
+    if (interrupted) { interrupted = false; throw new Error('response lost'); }
+    return {};
+  } } };
+  const message = { id: 'assistant-prepared:' + 'a'.repeat(36), text: 'Work drafts ready', channel: { address: { messageId: 'om_test' } } };
+  await assert.rejects(sendFeishu(host, message), /response lost/);
+  assert.equal(await sendFeishu(host, message), 'sent'); assert.equal(keys[0], keys[1]);
+  await sendFeishu(host, { ...message, id: message.id + '-different-job' }); assert.notEqual(keys[1], keys[2]);
+  await sendFeishu(host, { ...message, id: 'existing-short-key' }); assert.equal(keys[3], 'existing-short-key');
 });
 test('durable claim excludes another writer and another agent, including after reopening SQLite', () => {
   const f = fixture();

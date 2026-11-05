@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { createHash } from 'node:crypto';
 import { root, runtime } from './config.ts';
 // Dynamic package boundaries avoid typechecking DSH's unrelated host/peer APIs.
 // The code executed here is still the pinned, unmodified upstream source.
@@ -13,7 +14,11 @@ export type NativeTrigger = { id: string; human: boolean; addressed?: string; ac
 export const feishuTrigger: (input: unknown, botId: string, appId: string) => NativeTrigger | undefined = feishu.feishuTrigger;
 export const feishuThreadId: (chat: string, root: string | undefined, message: string) => string = feishu.feishuThreadId;
 export const feishuTriggerId: (message: string) => string = feishu.feishuTriggerId;
-export const sendFeishu: (host: any, message: any) => Promise<'sent' | 'gone'> = channel.sendFeishu;
+export const sendFeishu: (host: any, message: any) => Promise<'sent' | 'gone'> = (host, message) => {
+  // Keep existing short keys stable; bound new long keys to Feishu's 50-character limit.
+  const id = message.id.length <= 50 ? message.id : 'sui-' + createHash('sha256').update(message.id).digest('base64url');
+  return channel.sendFeishu(host, { ...message, id });
+};
 export type Result = { outcome: string; summary?: string; error?: string; ask?: { title: string; text: string; options: string[] }[]; later?: unknown[]; events?: unknown[]; resolve?: unknown[] };
 export const readMessage: (said: string) => unknown = contract.readMessage;
 export const resultFrom: (message: unknown, extra: { session?: string }) => { result: Result; problem?: string } = contract.resultFrom;
