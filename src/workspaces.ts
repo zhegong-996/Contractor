@@ -32,7 +32,7 @@ export type State = { version: 1; sources: string[]; requests: string[]; snapsho
   context?: { service?: { id: string; version: string; ownerUserId: string; name: string; responsibilities: string; offer: string }; autoDiscover: boolean; linkedTasks: string[]; requirements: string[]; fullSources: string[]; excludedSources?: string[]; knowledgeSpace?: string };
   fence?: { agent: string; lease?: string; runId?: string; generation: number };
   pendingHandoff?: { previous: string; next: string; generation: number }; proof?: string };
-type Snapshot = { id: string; title: string; domain: Domain; sources: string[]; key: string; grants: { agent: string; id: string }[]; published?: boolean; publicationId?: string; receiptId?: string; inputManifest?: InputRef[] };
+type Snapshot = { id: string; title: string; domain: Domain; sources: string[]; key: string; grants: { agent: string; id: string }[]; published?: boolean; publicationId?: string; receiptId?: string; systemEvidence?: boolean; inputManifest?: InputRef[] };
 type Access = { id: string; taskId: string; sourceId: string; agent: string; purpose: string; expiresAt: string;
   state: 'pending' | 'approved' | 'denied' | 'revoking' | 'revoked' | 'expired'; grantId?: string; approvalId?: string; requestedBy: string; reviewedBy?: string; reason?: string; revokeOutcome?: 'expired' | 'revoked'; remainingNativeAccess?: boolean; proof?: string };
 export type WorkspaceActor = { userId?: string; admin: boolean; agent?: string; automation?: string };
@@ -603,7 +603,7 @@ export class Workspaces {
         const value = contextHash(discussionEvidence(await this.pc.get('/issues/' + ref.id + '/comments'))); revision = hash = value;
       } else if (ref.kind === 'delivery') {
         if (!state.context?.linkedTasks.includes(ref.id)) throw new Error('研发上下文关联已变化');
-        const other = this.store.get(ref.id), value = contextHash(deliveryEvidence(other, await this.issue(other.id))); revision = hash = value;
+        const other = this.store.get(ref.id), value = contextHash(deliveryEvidence(other, await this.reader(task.agent).get('/issues/' + other.id))); revision = hash = value;
       } else {
         const snapshot = state.snapshots.find(s => s.id === ref.id && s.key === ref.key);
         if (!snapshot) throw new Error('上下文记录不属于此任务');

@@ -179,7 +179,7 @@ export class WorkspaceAssistant {
         if(job.mode==='advance'){
           const text='后台实时执行证据；只记录运行与检查事实，不代表业务功能或最终验收通过。\n\n'+JSON.stringify(result,null,2);
           const receiptId='runtime-evidence:'+job.id+':'+hash(result),fresh=await this.workspaces.state(task);
-          if(!fresh.snapshots.some(s=>s.receiptId===receiptId)){const snap=await this.workspaces.snapshot(task,'context-note','后台执行证据',text,[],receiptId);snap.receiptId=receiptId;fresh.snapshots.push(snap);await this.workspaces.save(task,fresh,'runtime-evidence-recorded',{jobId,id:snap.id,author:'system'});}
+          if(!fresh.snapshots.some(s=>s.receiptId===receiptId)){const snap=await this.workspaces.snapshot(task,'context-note','后台执行证据',text,[],receiptId);snap.receiptId=receiptId;snap.systemEvidence=true;snap.inputManifest=before.manifest.filter(r=>r.kind==='goal'||r.kind==='delivery');fresh.snapshots.push(snap);await this.workspaces.save(task,fresh,'runtime-evidence-recorded',{jobId,id:snap.id,author:'system'});}
         }
       }
       else if (input.name === 'search_context') result = await this.taskContext.search(task, input.query);

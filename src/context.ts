@@ -41,7 +41,7 @@ export function deliveryEvidence(task: Task, issue: any) {
     origin: task.messageId.startsWith('om_') ? 'feishu' : 'local', messageId: task.messageId.startsWith('om_') ? task.messageId : undefined };
 }
 export function goalEvidence(issue: any, state: any) { return { title: issue.title, goal: issue.description, service: state.context?.service, requirements: state.context?.requirements ?? [],
-  sourceIds: state.sources, knowledgeSpace: state.context?.knowledgeSpace, notes: state.snapshots.filter((s: any) => s.key === 'context-note').map((s: any) => s.id), linkedTasks: state.context?.linkedTasks ?? [] }; }
+  sourceIds: state.sources, knowledgeSpace: state.context?.knowledgeSpace, notes: state.snapshots.filter((s: any) => s.key === 'context-note' && !s.systemEvidence).map((s: any) => s.id), linkedTasks: state.context?.linkedTasks ?? [] }; }
 export function discussionEvidence(comments: any[]) { return comments.filter(c => c.authorUserId && !c.authorAgentId).map(c => ({ id: c.id, body: c.body, createdAt: c.createdAt, updatedAt: c.updatedAt })); }
 export class TaskContext {
   constructor(readonly w: Workspaces) {}
@@ -104,7 +104,7 @@ export class TaskContext {
         const doc = await this.w.reader(task.agent).get('/issues/' + snap.id + '/documents/' + snap.key), kind = snap.key === 'context-note' ? 'note' : 'checkpoint';
         const passage = selectPassage(doc.body, query, Math.min(state.context?.fullSources?.includes(snap.id) ? 80000 : kind === 'note' ? 12000 : 9000, Math.max(0, budget))); budget -= passage.includedBytes;
         const ref = { kind, id: snap.id, key: snap.key, revision: doc.latestRevisionId, hash: contextHash(doc.body) } as InputRef; manifest.push(ref);
-        if (kind === 'note') sources.push({ ...ref, title: snap.title, ...passage, selectionReason: '用户明确补充到本任务的背景与约束' });
+        if (kind === 'note') sources.push({ ...ref, title: snap.title, ...passage, selectionReason: snap.systemEvidence ? '后台实时核对的执行事实；不作为人的需求变更或最终验收' : '用户明确补充到本任务的背景与约束' });
         else checkpoints.push({ ...ref, title: snap.title, contextState: snap.inputManifest ? 'current' : 'legacy', ...passage, selectionReason: '本任务已有工作记录，含机器工作稿和人工修订；旧记录须重新核对' });
       } catch { missing.push({ id: snap.id, title: snap.title, reason: 'unavailable' }); }
     }

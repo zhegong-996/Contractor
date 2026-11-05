@@ -121,3 +121,11 @@ test('a service responsibility change stops the real context path before any mat
  f.ws.pc.get=async()=>({body:JSON.stringify({profiles:[{...p,responsibilities:'当前负责支付'}]})});let collected=false;f.service.taskContext.collect=async()=>{collected=true;throw new Error('must not read');};
  await assert.rejects(WorkspaceAssistant.prototype.bundle.call(f.service,f.task),/职责已改变/);assert.equal(collected,false);assert.equal(f.writes.length,0);
 });
+
+test('recording machine execution evidence does not masquerade as a changed human goal',async()=>{
+ const {goalEvidence,contextHash}=await import('../src/context.ts');const issue={title:'核对当前交付',description:'准备审阅证据'};
+ const state:any={sources:[],snapshots:[{id:'human-note',key:'context-note'}],context:{linkedTasks:['delivery']}};
+ const original=contextHash(goalEvidence(issue,state));
+ state.snapshots.push({id:'runtime-note',key:'context-note',systemEvidence:true});assert.equal(contextHash(goalEvidence(issue,state)),original);
+ state.snapshots.push({id:'new-human-note',key:'context-note'});assert.notEqual(contextHash(goalEvidence(issue,state)),original);
+});
