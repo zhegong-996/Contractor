@@ -41,8 +41,8 @@ export function deliveryEvidence(task: Task, issue: any) {
     origin: task.messageId.startsWith('om_') ? 'feishu' : 'local', messageId: task.messageId.startsWith('om_') ? task.messageId : undefined };
 }
 export function goalEvidence(issue: any, state: any) { return { title: issue.title, goal: issue.description, requirements: state.context?.requirements ?? [],
-  sourceIds: state.sources, notes: state.snapshots.filter((s: any) => s.key === 'context-note').map((s: any) => s.id), linkedTasks: state.context?.linkedTasks ?? [] }; }
-export function discussionEvidence(comments: any[]) { return comments.filter(c => !c.authorAgentId).map(c => ({ id: c.id, body: c.body, createdAt: c.createdAt, updatedAt: c.updatedAt })); }
+  sourceIds: state.sources, knowledgeSpace: state.context?.knowledgeSpace, notes: state.snapshots.filter((s: any) => s.key === 'context-note').map((s: any) => s.id), linkedTasks: state.context?.linkedTasks ?? [] }; }
+export function discussionEvidence(comments: any[]) { return comments.filter(c => c.authorUserId && !c.authorAgentId).map(c => ({ id: c.id, body: c.body, createdAt: c.createdAt, updatedAt: c.updatedAt })); }
 export class TaskContext {
   constructor(readonly w: Workspaces) {}
   authorize(task: Task, actor: WorkspaceActor) { if (!actor.admin && actor.agent !== task.agent) throw new Error('Unauthorized: task context'); }
@@ -54,10 +54,11 @@ export class TaskContext {
     const weighted = primeDigestQueryTerms(query, recent);
     // Discovery uses the executor's original professional membership. Other departments
     // enter through an explicit task reference + normal access application, never admin RAG.
-    for (const source of this.w.catalog().sources.filter(s => this.w.catalog().spaces[s.domain].agent === task.agent && !state.outcomes.some(o => o.publicationId === s.id))) {
+    for (const source of this.w.catalog().sources.filter(s => (s.external ? state.sources.includes(s.id) : (this.w.members?.(s.domain) ?? [this.w.catalog().spaces[s.domain].agent]).includes(task.agent)) && !state.outcomes.some(o => o.publicationId === s.id))) {
       try {
-        const record = await this.w.knowledge.read(source.ref, this.w.reader(task.agent));
-        if (!reusable(record.value, this.w.config, secrets().jwtSecret)) continue;
+        if (source.external && !await this.w.allowed(task, source.id, task.agent, state)) continue;
+        const record = this.w.readMaterial ? await this.w.readMaterial(source.id, task.agent) : await this.w.knowledge.read(source.ref, this.w.reader(task.agent));
+        if (!source.external && !reusable(record.value, this.w.config, secrets().jwtSecret)) continue;
         const text = (source.title + '\n' + record.value.appliesTo + '\n' + JSON.stringify(record.value.facts) + '\n' + record.value.body).toLowerCase();
         const score = [...weighted].reduce((n, [term, weight]) => n + (!ignored.has(term) && text.includes(term) ? weight : 0), 0);
         if (score >= 6) matches.push({ id: source.id, title: source.title, domain: source.domain, revision: record.revision, score, selected: state.sources.includes(source.id), reason: '按当前目标及近期背景匹配，执行岗位已有读取权限' });
@@ -76,31 +77,35 @@ export class TaskContext {
   }
   async collect(task: Task, omitReceipt?: string) {
     const state = await this.w.state(task), issue = await this.w.issue(task.id), query = issue.title + '\n' + issue.description + '\n' + (state.delegation?.instruction ?? '');
-    const sources: any[] = [], missing: any[] = [], manifest: InputRef[] = [], checkpoints: any[] = [];
+    const sources: any[] = [], missing: any[] = [], manifest: InputRef[] = [], checkpoints: any[] = [], excludedCheckpoints: any[] = [];
     const goalHash = contextHash(goalEvidence(issue, state)); manifest.push({ kind: 'goal', id: task.id, revision: goalHash, hash: goalHash });
     let budget = 192000;
     for (const id of state.sources) {
       const source = this.w.source(id), status = await this.w.sourceStatus(task, id, task.agent, state);
       if (!status.allowed) { missing.push({ id, title: source.title, domain: source.domain, reason: status.reason }); continue; }
-      const record = await this.w.knowledge.read(source.ref, this.w.reader(task.agent));
+      const record = this.w.readMaterial ? await this.w.readMaterial(id, task.agent) : await this.w.knowledge.read(source.ref, this.w.reader(task.agent));
       // Revalidate the actual record sent to the model, not the record read by sourceStatus.
-      if (!reusable(record.value, this.w.config, secrets().jwtSecret)) { missing.push({ id, title: source.title, domain: source.domain, reason: 'version' }); continue; }
+      if (!source.external && !reusable(record.value, this.w.config, secrets().jwtSecret)) { missing.push({ id, title: source.title, domain: source.domain, reason: 'version' }); continue; }
       const passage = selectPassage(record.value.body, query, Math.min(state.context?.fullSources?.includes(id) ? 120000 : 9000, Math.max(0, budget)));
       budget -= passage.includedBytes;
       const facts = retainFacts(record.value.facts, Math.min(12000, Math.max(0, budget))); budget -= Buffer.byteLength(JSON.stringify(facts.facts));
       sources.push({ id, kind: 'knowledge', title: source.title, domain: source.domain, revision: record.revision, hash: record.hash,
-        appliesTo: record.value.appliesTo, facts: facts.facts, factsTruncated: facts.truncated,
-        ...passage, selectionReason: passage.truncated ? '按任务目标选取相关片段；其余内容未载入本轮' : '当前已确认版本的完整正文' });
+        appliesTo: record.value.appliesTo, facts: facts.facts, factsTruncated: facts.truncated, external: source.external ? { provider: 'feishu', kind: source.external.kind, url: source.external.url, details: record.details } : undefined,
+        ...passage, selectionReason: passage.truncated ? '按任务目标选取相关片段；其余内容未载入本轮' : source.external ? '飞书当前可读原文；历史讨论不等于当前决定' : '当前已确认版本的完整正文' });
       manifest.push({ kind: 'knowledge', id, revision: record.revision, hash: record.hash });
     }
     for (const snap of state.snapshots.filter(s => !omitReceipt || s.receiptId !== omitReceipt)) {
       if (snap.sources.some(id => !state.sources.includes(id) || missing.some(m => m.id === id))) continue;
       try {
+        if (snap.inputManifest && this.w.assertManifest) {
+          try { await this.w.assertManifest(task, snap.inputManifest); }
+          catch { excludedCheckpoints.push({ id: snap.id, title: snap.title, reason: '生成所用来源已变化；保留审计，不作为当前输入' }); continue; }
+        }
         const doc = await this.w.reader(task.agent).get('/issues/' + snap.id + '/documents/' + snap.key), kind = snap.key === 'context-note' ? 'note' : 'checkpoint';
         const passage = selectPassage(doc.body, query, Math.min(state.context?.fullSources?.includes(snap.id) ? 80000 : kind === 'note' ? 12000 : 9000, Math.max(0, budget))); budget -= passage.includedBytes;
         const ref = { kind, id: snap.id, key: snap.key, revision: doc.latestRevisionId, hash: contextHash(doc.body) } as InputRef; manifest.push(ref);
         if (kind === 'note') sources.push({ ...ref, title: snap.title, ...passage, selectionReason: '用户明确补充到本任务的背景与约束' });
-        else checkpoints.push({ ...ref, title: snap.title, ...passage, selectionReason: '本任务已有工作记录，含机器工作稿和人工修订' });
+        else checkpoints.push({ ...ref, title: snap.title, contextState: snap.inputManifest ? 'current' : 'legacy', ...passage, selectionReason: '本任务已有工作记录，含机器工作稿和人工修订；旧记录须重新核对' });
       } catch { missing.push({ id: snap.id, title: snap.title, reason: 'unavailable' }); }
     }
     for (const id of state.context?.linkedTasks ?? []) {
@@ -132,7 +137,7 @@ export class TaskContext {
     for (const id of state.requests) { const r = await this.w.access(id); if (r.agent === task.agent) requests.push({ id: r.id, sourceId: r.sourceId, state: r.state, expiresAt: r.expiresAt }); }
     const decisions = state.history.filter(h => ['handoff', 'knowledge-published', 'knowledge-withdrawn', 'context-discovered', 'context-note', 'context-linked'].includes(h.event)).slice(-20);
     const layers = { goal: { title: issue.title, goal: issue.description, requirements: state.context?.requirements ?? [], origin: task.messageId.startsWith('om_') ? 'feishu' : 'workbench' },
-      sources, checkpoints, decisions, missing, requests };
+      sources, checkpoints, excludedCheckpoints, decisions, missing, requests };
     return { layers, manifest, coverage: { includedChars: sources.reduce((n, s) => n + s.includedChars, 0) + checkpoints.reduce((n, s) => n + s.includedChars, 0),
       partialSources: [...sources, ...checkpoints].filter(s => s.truncated || s.truncatedMessages || s.factsTruncated).length, missingCount: missing.length, limitBytes: 192000 } };
   }

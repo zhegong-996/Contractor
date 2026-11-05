@@ -14,15 +14,19 @@ import { Paperclip } from './paperclip.ts';
 import { Workspaces } from './workspaces.ts';
 import { WorkspaceAssistant } from './assistant.ts';
 import { z } from 'zod';
+import { withFeishuReads } from './feishu-sources.ts';
+import { CollaborationIntake } from './collaboration-intake.ts';
 
 const config = loadConfig(); const credentials = secrets();
 const store = new Store(runtime('bridge.sqlite')); const control = new Controller(config, store);
 const knowledge = new KnowledgeService(config, store, control.pc, credentials.jwtSecret);
 const workspaces = new Workspaces(config, store);
 const assistant = new WorkspaceAssistant(workspaces);
+const collaborationIntake = new CollaborationIntake(workspaces, assistant);
+const ingest = async (input: unknown) => (await collaborationIntake.ingest(input)) ?? control.ingest(input);
 let feishuState = config.feishu.enabled ? 'connecting' : 'disabled';
 let tail: Promise<unknown> = Promise.resolve();
-const serialize = <T>(job: () => Promise<T>): Promise<T> => { const next = tail.then(job, job); tail = next.catch(() => {}); return next; };
+const serialize = <T>(job: () => Promise<T>): Promise<T> => { const work = () => withFeishuReads(job); const next = tail.then(work, work); tail = next.catch(() => {}); return next; };
 function equal(a: string, b: string) { const x = Buffer.from(a), y = Buffer.from(b); return x.length === y.length && timingSafeEqual(x, y); }
 function identity(req: IncomingMessage): { admin: boolean; agent?: string } {
   const token = req.headers.authorization?.replace(/^Bearer /, '') ?? '';
@@ -62,6 +66,7 @@ const server = createServer(async (req, res) => {
       const payload = data.payload ?? data;
       const action = url.pathname.slice('/workspace/'.length);
       res.end(JSON.stringify(await serialize(async () => {
+        if (action === 'enable-collaboration-im') return collaborationIntake.enable(payload.taskId, workspaceActor);
         if (action === 'assistant-context') return assistant.context(payload.jobId, payload.runId, workspaceActor);
         if (action === 'context-pack') return assistant.taskContext.inspect(payload.taskId, workspaceActor);
         if (action === 'context-record') return assistant.taskContext.readRecord(payload.taskId, payload.recordId, workspaceActor);
@@ -112,7 +117,7 @@ const server = createServer(async (req, res) => {
     }
     if (url.pathname === '/ingest' && req.method === 'POST') {
       if (!actor.admin) throw new Error('Unauthorized'); const data = await body(req);
-      res.end(JSON.stringify(await serialize(() => control.ingest(data)))); return;
+      res.end(JSON.stringify(await serialize(() => ingest(data)))); return;
     }
     const match = /^\/tasks\/([^/]+)(?:\/(claim|receipt|publish|sync|preview|accept|handoff|reply|reconcile|knowledge-propose|knowledge-review|knowledge-attach))?$/.exec(url.pathname);
     if (!match) { res.statusCode = 404; res.end(JSON.stringify({ error: 'Not found' })); return; }
@@ -216,7 +221,7 @@ if (config.feishu.enabled) {
   });
   readline.createInterface({ input: consumer.stdout! }).on('line', line => {
     if (!ready) return;
-    try { const event = JSON.parse(line); void serialize(() => control.ingest(event)).catch(error => console.error('IM intake:', String(error).slice(0, 500))); }
+    try { const event = JSON.parse(line); void serialize(() => ingest(event)).catch(error => console.error('IM intake:', String(error).slice(0, 500))); }
     catch { console.error('Invalid Feishu event JSON'); }
   });
   consumer.on('error', error => { feishuState = 'disconnected'; console.error('Feishu listener:', error.message); });

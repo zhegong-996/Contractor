@@ -117,6 +117,8 @@ npm run doctor
 
 ### 协作 Agent 与上下文工作区
 
-入口仍为 /SUI/knowledge-workspaces，按“我的工作、跨岗位任务、知识空间、授权申请”组织。用户给出目标后，Agent 在岗位权限内查找上下文、准备访问申请、归纳待办、制作工作稿、保存检查点与知识候选；关键授权、知识采用和验收由人决定。支持补充背景、关联已有飞书/GitHub交付、查看输入来源与版本，内容或权限变化后停用旧结果。
+入口仍为 /SUI/knowledge-workspaces，按“我的工作、协作任务、知识空间、授权申请”组织。用户给出目标后，Agent 在已配置的资源权限和任务委托内查找上下文、准备访问申请、归纳待办、制作工作稿、保存检查点与知识候选；关键授权、知识采用和验收由人决定。支持补充背景、关联已有飞书/GitHub交付、查看输入来源与版本，内容或权限变化后停用旧结果。
 
 运行 npm run setup:assistant、npm run restart:bridge、npm run install:workspaces 启用，当前使用已登录 Codex。详见 [Agent 与上下文说明](docs/ASSISTANT-CONTEXT.md) 和 [第三方声明](THIRD_PARTY_NOTICES.md)。
+
+真实飞书 Docx 与选定历史讨论现已按任务读取，支持从 IM 接续同一协作任务。空间与参与者可配置，不将部门名称写成权限枚举。见 [飞书来源与动态协作](docs/FEISHU-SOURCES.md)。

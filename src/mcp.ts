@@ -23,11 +23,11 @@ server.registerTool('propose_knowledge', { description: '将本任务的专业�
   ({ taskId, record }) => output(api(`/tasks/${taskId}/knowledge-propose`, record, agent)));
 server.registerTool('professional_workspaces', { description: '读取专业知识目录、自己的跨岗位任务和访问申请；受限内容按当前身份过滤', inputSchema: {} },
   () => output(api('/workspace/view', {}, agent)));
-server.registerTool('read_task_context', { description: '读取当前任务的目标、背景、专业证据、版本、检查点、关联GitHub交付、缺口和截断范围；每次核对岗位权限', inputSchema: { taskId: z.string() } },
+server.registerTool('read_task_context', { description: '读取当前任务的目标、背景、专业证据、版本、检查点、关联GitHub交付、缺口和截断范围；每次核对资源权限', inputSchema: { taskId: z.string() } },
   data => output(api('/workspace/context-pack', data, agent)));
 server.registerTool('read_context_record', { description: '按需读取本任务背景或检查点全文；重查当前来源权限，不从旧摘要绕过撤权', inputSchema: { taskId: z.string(), recordId: z.string() } },
   data => output(api('/workspace/context-record', data, agent)));
-server.registerTool('search_task_context', { description: '在当前执行岗位本来可读且已确认的知识中检索；不使用管理员权限搜索其他岗位私有正文', inputSchema: { taskId: z.string(), query: z.string().max(5000) } },
+server.registerTool('search_task_context', { description: '在当前执行身份本来可读且已确认的知识中检索；不使用管理员权限搜索其他参与者私有正文', inputSchema: { taskId: z.string(), query: z.string().max(5000) } },
   data => output(api('/workspace/context-search', data, agent)));
 server.registerTool('expand_authorized_context', { description: '扩展已获准长资料的读取范围；不改变资料授权，受本任务上下文预算限制', inputSchema: { taskId: z.string(), sourceId: z.string() } },
   data => output(api('/workspace/context-expand', data, agent)));

@@ -8,6 +8,7 @@ const dir = mkdtempSync(path.join(tmpdir(), 'suitme-context-'));
 process.env.COLLAB_STATE_DIR = dir;
 writeFileSync(path.join(dir, 'secrets.json'), JSON.stringify({ jwtSecret: 'context-test-key' }));
 const { TaskContext, selectPassage, retainFacts, contextHash } = await import('../src/context.ts');
+const { discussionEvidence } = await import('../src/context.ts');
 const { confirmation } = await import('../src/knowledge.ts');
 const { Workspaces } = await import('../src/workspaces.ts');
 test.after(() => rmSync(dir, { recursive: true, force: true }));
@@ -16,6 +17,13 @@ test('ported Prime Agent query terms match the pinned original Python implementa
   for (const c of fixture.cases) assert.deepEqual(primeQueryTerms(c.query), c.terms, c.query);
   const weighted = primeDigestQueryTerms('门店试用目标', ['新增合同约束', '旧背景']);
   assert.equal(weighted.get('门店'), 3); assert.equal(weighted.get('合同'), 2); assert.equal(weighted.get('背景'), 1.5);
+});
+test('native repair notices and model replies do not impersonate human discussion or trigger re-summarization', () => {
+  const human = { id: 'human', body: '请核对验收口径', authorUserId: 'local-board' };
+  const system = { id: 'repair', body: 'Automatic review repair finished', authorUserId: null, authorAgentId: null };
+  const agent = { id: 'agent', body: '已处理', authorAgentId: 'executor' };
+  assert.deepEqual(discussionEvidence([human, system, agent]), discussionEvidence([human]));
+  assert.notDeepEqual(discussionEvidence([{ ...human, body: '人工新要求' }]), discussionEvidence([human]));
 });
 test('upstream DeepSeek retention preserves UTF8, discloses omissions and selects a relevant distant passage', () => {
   const body = '不相关的前言。'.repeat(100) + '目标证据：门店试用转化，需要清晰解释。' + '背景。'.repeat(100);
@@ -62,6 +70,7 @@ test('discovery does not read another profession private body even if the platfo
 });
 test('adoption rechecks the exact input versions and blocks historical knowledge', async () => {
   const f = fixture();
+  f.w.readMaterial = async () => f.w.knowledge.read();
   await Workspaces.prototype.assertManifest.call(f.w, f.task, [{ kind: 'knowledge', id: 'source', revision: 'v1', hash: 'hash-v1' }]);
   await assert.rejects(Workspaces.prototype.assertManifest.call(f.w, f.task, [{ kind: 'knowledge', id: 'source', revision: 'older', hash: 'old' }]), /上下文已经变化/);
 });
@@ -74,4 +83,11 @@ test('automatic discovery excludes knowledge published by this task, so adoption
   const f = fixture(); f.state.outcomes = [{ publicationId: 'own-publication' }];
   f.w.catalog = () => ({ sources: [{ id: 'own-publication', title: '门店试用规范', domain: 'product', ref: { taskId: 'own-publication' } }], spaces: { product: { agent: f.task.agent } } });
   assert.deepEqual(await f.context.search(f.task, '门店试用规范'), []); assert.equal(f.reads(), 0);
+});
+test('a historical draft cannot reintroduce changed source evidence into a fresh model context', async () => {
+  const f = fixture(); f.state.snapshots.push({ id: 'old-draft', key: 'checkpoint', title: '旧稿', sources: ['source'], inputManifest: [{ kind: 'knowledge', id: 'source', revision: 'old', hash: 'old' }] });
+  f.w.assertManifest = async () => { throw new Error('changed source'); };
+  const pack = await f.context.collect(f.task);
+  assert.equal(pack.layers.checkpoints.length, 0); assert.equal(pack.layers.excludedCheckpoints[0].id, 'old-draft');
+  assert.ok(!pack.manifest.some(r => r.id === 'old-draft')); assert.equal(pack.layers.missing.length, 0);
 });

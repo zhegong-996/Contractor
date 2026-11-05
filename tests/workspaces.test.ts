@@ -158,3 +158,50 @@ test('a retried model receipt deduplicates each artifact but cannot alias the ch
     assert.notEqual(a.id, b.id); assert.equal(retry.id, a.id); assert.equal(ids.size, 2);
   } finally { f.close(); }
 });
+test('a custom project space has no department enum and creates no implicit membership grant', async () => {
+  const f = fixture();
+  try {
+    const catalog: any = { spaces: { existing: { projectId: 'existing', agent: 'role-growth', members: ['role-growth', 'role-product'] } }, sources: [], participants: ['role-growth', 'role-product'] };
+    f.service.catalog = () => catalog; f.service.saveCatalog = c => Object.assign(catalog, c);
+    const calls: string[] = []; f.service.pc.post = async route => { calls.push(route); return { id: 'custom-project', companyId: 'company', visibility: 'private' } as any; };
+    const space = await f.service.configureSpace({ id: 'research-pilot', name: '研究试点', agent: 'role-product', description: '按项目组织' }, { admin: true });
+    assert.equal(space.domain, 'research-pilot'); assert.deepEqual(space.members, []); assert.equal(space.grantsCreated, 0);
+    assert.ok(calls.every(route => !route.includes('access-members'))); assert.equal(f.service.domain('role-product'), 'existing');
+    await assert.rejects(f.service.configureSpace({ id: 'another', name: 'x', agent: 'role-product' }, { admin: false, agent: 'role-growth' }), /Unauthorized/);
+  } finally { f.close(); }
+});
+test('a space label or an existing native grant cannot bypass a different task Feishu delegation', async () => {
+  const f = fixture();
+  try {
+    f.service.allowed = Workspaces.prototype.allowed; f.service.domain = () => 'custom-project';
+    f.service.source = () => ({ id: 'sales', domain: 'custom-project', ref: { taskId: 'source-task', key: 'external-reference' }, external: { provider: 'feishu' } }) as any;
+    f.service.reader = () => ({ get: async () => ({}) }) as any;
+    let reads = 0; f.service.feishu.read = async () => { reads++; return {} as any; };
+    f.access.state = 'pending'; assert.equal((await f.service.sourceStatus(f.task, 'sales', f.task.agent, f.state)).allowed, false); assert.equal(reads, 0);
+    f.access.state = 'approved'; assert.equal(await f.service.allowed(f.task, 'sales', f.task.agent, f.state), true); assert.equal(reads, 1);
+    f.access.expiresAt = '2000-01-01T00:00:00Z'; assert.equal(await f.service.allowed(f.task, 'sales', f.task.agent, f.state), false); assert.equal(reads, 1);
+  } finally { f.close(); }
+});
+test('a collaboration coordinator has a human review path and does not wake the development runner on creation', async () => {
+  const f = fixture(); try {
+    f.service.domain = () => 'research'; f.service.catalog = () => ({ coordinationProject: 'coordinator', spaces: { research: { projectId: 'research-project', agent: 'role-growth' } }, sources: [] }) as any;
+    let creation: any, patches = 0;
+    f.service.pc.post = async (_route, body) => { creation = body; return { id: 'new-task', identifier: 'SUI-NEW' } as any; };
+    f.service.pc.patch = async () => { patches++; return {} as any; };
+    await f.service.createTask({ title: '研究任务', goal: '整理待审阅证据', agent: 'role-growth', sources: [], knowledgeSpace: 'research', requestKey: 'new-coordinator' }, { admin: true });
+    assert.equal(creation.status, 'backlog'); assert.equal(creation.reviewPolicy, 'human_only'); assert.equal(patches, 0);
+    assert.deepEqual(creation.executionPolicy.stages[0].participants, [{ type: 'user', userId: 'local-board' }]);
+  } finally { f.close(); }
+});
+test('human draft acceptance can defer knowledge adoption, but requires an exact reviewed checkpoint and a reason', async () => {
+  const f = fixture(); try {
+    f.state.requests = []; f.state.snapshots = [{ id: 'reviewed-draft', key: 'checkpoint', sources: [], grants: [] }];
+    f.service.pc.get = async () => ({ latestRevisionId: 'current-revision' }) as any;
+    await assert.rejects(f.service.complete(f.task.id, { admin: true }), /验收依据/);
+    await assert.rejects(f.service.complete(f.task.id, { admin: true }, { reason: '只验收资料整理', noKnowledge: true, checkpoint: { id: 'reviewed-draft', revision: 'old' } }), /版本已变化/);
+    await assert.rejects(f.service.complete(f.task.id, { admin: false, agent: 'role-growth' }, { noKnowledge: true, reason: 'self accept' }), /Unauthorized/);
+    const result = await f.service.complete(f.task.id, { admin: true }, { reason: '已审阅资料工作稿；不表示功能已实现，暂不采用知识', noKnowledge: true, checkpoint: { id: 'reviewed-draft', revision: 'current-revision' } });
+    assert.equal(result.phase, 'accepted'); assert.equal(f.state.outcomes.length, 0);
+    assert.equal(f.state.history.at(-1).detail.review.noKnowledge, true);
+  } finally { f.close(); }
+});

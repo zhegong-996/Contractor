@@ -21,6 +21,11 @@ async function bridge<T = any>(route: string, data?: unknown): Promise<T> {
     ...(data === undefined ? {} : { body: JSON.stringify(data) }), signal: AbortSignal.timeout(60000),
   }); const body = await response.json() as any; if (!response.ok) throw new Error(body.error); return body;
 }
+const initial = await bridge<Task>(`/tasks/${taskId}`);
+if (initial.kind === 'collaboration' || initial.kind === 'knowledge') {
+  console.log(JSON.stringify({ taskId, outcome: 'handled_by_collaboration_workspace', claimed: false }));
+  process.exit(0);
+}
 const lease = randomUUID();
 const task = await bridge<Task>(`/tasks/${taskId}/claim`, { lease, runId });
 const taskDetail = await bridge<any>(`/tasks/${taskId}`);

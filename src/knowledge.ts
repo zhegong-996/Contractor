@@ -7,7 +7,7 @@ import { Store, type Task } from './store.ts';
 // Canonical knowledge and its revision history stay in Paperclip task documents.
 export const knowledgeInput = z.object({
   key: z.string().regex(/^knowledge-[a-z0-9-]{1,36}$/), title: z.string().min(1).max(120),
-  domains: z.array(z.enum(['shared', 'product', 'engineering', 'growth', 'sales', 'operations'])).min(1),
+  domains: z.array(z.string().regex(/^[a-z][a-z0-9-]{0,63}$/)).min(1).max(20),
   kind: z.enum(['decision', 'procedure', 'experiment', 'feedback', 'reference']),
   appliesTo: z.string().min(1).max(1000),
   facts: z.record(z.string(), z.union([z.string().max(2000), z.number(), z.boolean()])).default({}),

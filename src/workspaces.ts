@@ -6,15 +6,21 @@ import { Paperclip } from './paperclip.ts';
 import { Store, type Task } from './store.ts';
 import { KnowledgeService, knowledgeInput, reusable, parseKnowledge } from './knowledge.ts';
 import { contextHash, deliveryEvidence, goalEvidence, discussionEvidence, type InputRef } from './context.ts';
+import { FeishuSources, FeishuUnavailable, feishuReference, type FeishuReference } from './feishu-sources.ts';
 
 export const domains = ['product', 'growth', 'sales', 'operations'] as const;
-export type Domain = typeof domains[number];
+export type Domain = string;
 export const domainNames: Record<Domain, string> = { product: '产研', growth: '增长', sales: '销售', operations: '职能' };
-export type Catalog = { companyId: string; coordinationProject: string; vaultProject: string; spaces: Record<Domain, { projectId: string; agent: string }>;
-  sources: { id: string; title: string; domain: Domain; ref: { taskId: string; key: string } }[] };
+// These four names are legacy seed examples, never an organization or permission enum.
+export const collaborationReviewPolicy = { reviewPolicy: 'human_only', executionPolicy: { stages: [{ type: 'review', participants: [{ type: 'user', userId: 'local-board' }] }] } };
+export type Catalog = { companyId: string; coordinationProject: string; vaultProject: string; participants?: string[];
+  feishuConnection?: Pick<FeishuReference, 'profile' | 'appId' | 'userOpenId'>;
+  spaces: Record<string, { projectId: string; agent: string; name?: string; members?: string[]; description?: string }>;
+  sources: { id: string; title: string; domain: string; ref: { taskId: string; key: string }; external?: FeishuReference }[] };
 export type State = { version: 1; sources: string[]; requests: string[]; snapshots: Snapshot[]; outcomes: Snapshot[]; history: { at: string; event: string; detail: unknown }[];
+  imBinding?: { senderId: string; chatId: string };
   delegation?: { enabled: boolean; mode: 'prepare' | 'advance'; jobId?: string; lastBasis?: string; instruction?: string; nonce?: string };
-  context?: { autoDiscover: boolean; linkedTasks: string[]; requirements: string[]; fullSources: string[]; excludedSources?: string[] };
+  context?: { autoDiscover: boolean; linkedTasks: string[]; requirements: string[]; fullSources: string[]; excludedSources?: string[]; knowledgeSpace?: string };
   fence?: { agent: string; lease?: string; runId?: string; generation: number };
   pendingHandoff?: { previous: string; next: string; generation: number }; proof?: string };
 type Snapshot = { id: string; title: string; domain: Domain; sources: string[]; key: string; grants: { agent: string; id: string }[]; published?: boolean; publicationId?: string; receiptId?: string; inputManifest?: InputRef[] };
@@ -25,7 +31,7 @@ const requestSchema = z.object({ taskId: z.string(), sourceId: z.string(), agent
   purpose: z.string().trim().min(1).max(1000), hours: z.number().min(1 / 60).max(168).default(8), requestKey: z.string().min(1).max(120) }).strict();
 const taskSchema = z.object({ title: z.string().trim().min(1).max(120), goal: z.string().trim().min(1).max(5000),
   agent: z.string(), sources: z.array(z.string()).max(8), requestKey: z.string().min(1).max(120),
-  autoDiscover: z.boolean().default(true), requirements: z.array(z.string().max(500)).max(12).default([]) }).strict();
+  autoDiscover: z.boolean().default(true), knowledgeSpace: z.string().optional(), requirements: z.array(z.string().max(500)).max(12).default([]) }).strict();
 export function requestIsCurrent(r: Pick<Access, 'state' | 'expiresAt'>, now = Date.now()) { return r.state === 'approved' && Date.parse(r.expiresAt) > now; }
 const digest = (s: string) => createHash('sha256').update(s).digest('hex').slice(0, 28);
 export function contractProof(kind: string, id: string, value: object, key: string) {
@@ -40,6 +46,7 @@ export function contractProof(kind: string, id: string, value: object, key: stri
 export class Workspaces {
   readonly pc: Paperclip;
   readonly knowledge: KnowledgeService;
+  readonly feishu = new FeishuSources();
   constructor(readonly config: Config, readonly store: Store) {
     this.pc = new Paperclip(config.paperclipUrl);
     this.knowledge = new KnowledgeService(config, store, this.pc, secrets().jwtSecret);
@@ -60,10 +67,16 @@ export class Workspaces {
     return a;
   }
   reader(key: string) { this.agent(key); return new Paperclip(this.config.paperclipUrl, secrets().paperclipTokens![key]); }
+  spaceName(id: string) { return this.catalog().spaces[id]?.name ?? domainNames[id] ?? id; }
+  members(id: string) { const space = this.catalog().spaces[id]; return space?.members ?? (space ? [space.agent] : []); }
+  participantKeys() { return this.catalog().participants ?? [...new Set(Object.keys(this.catalog().spaces).flatMap(id => this.members(id)))]; }
+  participant(key: string) { if (!this.participantKeys().includes(key)) throw new Error('请选择已配置的协作参与者'); return this.agent(key); }
   domain(key: string): Domain {
-    const found = domains.find(d => this.catalog().spaces[d].agent === key);
-    if (!found) throw new Error('请选择一个已配置的专业岗位'); return found;
+    this.participant(key);
+    const found = Object.keys(this.catalog().spaces).find(d => this.members(d).includes(key)) ?? Object.keys(this.catalog().spaces)[0];
+    if (!found) throw new Error('请先配置知识空间'); return found;
   }
+  targetSpace(task: Task, state: State) { return state.context?.knowledgeSpace ?? this.domain(task.agent); }
   async issue(id: string) {
     const issue = await this.pc.get('/issues/' + id);
     if (issue.companyId !== this.config.companyId) throw new Error('Unauthorized: company boundary');
@@ -101,8 +114,67 @@ export class Workspaces {
   source(id: string) {
     const s = this.catalog().sources.find(s => s.id === id); if (!s) throw new Error('资料未在公开目录登记'); return s;
   }
+  async readMaterial(id: string, agent?: string): Promise<any> {
+    const source = this.source(id);
+    if (!source.external) return this.knowledge.read(source.ref, agent ? this.reader(agent) : this.pc);
+    await (agent ? this.reader(agent) : this.pc).get('/issues/' + source.ref.taskId);
+    const record = await this.feishu.read(source.external);
+    return { ...record, ref: source.ref };
+  }
+  async configureSpace(input: unknown, actor: WorkspaceActor) {
+    this.manager(actor);
+    const data = z.object({ id: z.string().regex(/^[a-z][a-z0-9-]{0,63}$/), name: z.string().trim().min(1).max(80),
+      agent: z.string(), description: z.string().max(1000).default('') }).strict().parse(input);
+    this.agent(data.agent); const catalog = this.catalog(), prior = catalog.spaces[data.id];
+    const project = prior ? await this.pc.get('/projects/' + prior.projectId) : await this.pc.post('/companies/' + this.config.companyId + '/projects', {
+      name: data.name, visibility: 'private', status: 'in_progress', idempotencyKey: 'configured-space:' + data.id });
+    if (project.companyId !== this.config.companyId || project.visibility !== 'private') throw new Error('原生空间边界已变化');
+    catalog.spaces[data.id] = { ...prior, projectId: project.id, name: data.name, agent: data.agent,
+      description: data.description, members: prior ? this.members(data.id) : [] };
+    catalog.participants = [...new Set([...(catalog.participants ?? this.participantKeys()), data.agent])];
+    this.saveCatalog(catalog); return { domain: data.id, ...catalog.spaces[data.id], grantsCreated: 0 };
+  }
+  async configureParticipants(keys: string[], actor: WorkspaceActor) {
+    this.manager(actor); if (!keys.length || keys.length > 50) throw new Error('请选择1到50个执行身份');
+    for (const key of keys) this.agent(key);
+    for (const task of this.store.list().filter(t => t.kind === 'collaboration' && t.phase !== 'accepted'))
+      if (!keys.includes(task.agent)) throw new Error('先完成或交接正在由该身份负责的任务');
+    const catalog = this.catalog(); catalog.participants = [...new Set(keys)]; this.saveCatalog(catalog);
+    return { participants: catalog.participants, note: '执行身份列表不授予或撤销资料权限；资源成员与任务授权独立管理' };
+  }
+  async registerExternal(space: string, input: unknown, actor: WorkspaceActor) {
+    this.manager(actor); const ref = feishuReference.parse(input), catalog = this.catalog();
+    if (!catalog.spaces[space]) throw new Error('知识空间不存在');
+    // Validate the operator's source before registering a reference. Never duplicate
+    // raw Feishu bodies into a department project or auto-confirm them as knowledge.
+    await this.feishu.read(ref);
+    if (!catalog.feishuConnection) { catalog.feishuConnection = { profile: ref.profile, appId: ref.appId, userOpenId: ref.userOpenId }; this.saveCatalog(catalog); }
+    const key = digest(JSON.stringify(ref)), existing = catalog.sources.find(s => s.external && digest(JSON.stringify(s.external)) === key);
+    if (existing) return existing;
+    const issue = await this.pc.post('/companies/' + this.config.companyId + '/issues', { allowDuplicate: true,
+      idempotencyKey: 'external:' + key, projectId: catalog.vaultProject, visibility: 'private', title: ref.title, status: 'backlog' });
+    await this.pc.document(issue.id, 'external-reference', '飞书来源引用', JSON.stringify({ provider: 'feishu', kind: ref.kind, url: ref.url,
+      rule: '原始正文按任务委托与飞书当前可读状态实时获取；空间分类不授予访问' }, null, 2));
+    this.store.save({ id: issue.id, identifier: issue.identifier, triggerId: 'external:' + key, chatId: 'local-workspace', messageId: 'local-workspace',
+      senderId: 'local-operator', agent: catalog.spaces[space].agent, workspace: '', branch: '', context: '{}', generation: 1, phase: 'knowledge', kind: 'knowledge' });
+    const source = { id: issue.id, title: ref.title, domain: space, ref: { taskId: issue.id, key: 'external-reference' }, external: ref };
+    catalog.sources.push(source); this.saveCatalog(catalog); return source;
+  }
+  async syncSpaceMembers(spaceId: string, actor: WorkspaceActor) {
+    this.manager(actor); const catalog = this.catalog(), space = catalog.spaces[spaceId]; if (!space) throw new Error('知识空间不存在');
+    const rows = await this.pc.get<any[]>('/projects/' + space.projectId + '/access-members');
+    space.members = Object.entries(this.config.agents).filter(([, a]) => rows.some(r => r.subjectType === 'agent' && r.subjectId === a.paperclipId)).map(([key]) => key);
+    this.saveCatalog(catalog); return { members: space.members, nativePermissionsChanged: false };
+  }
+  async attachFeishuDocument(space: string, input: string, actor: WorkspaceActor) {
+    this.manager(actor); const connection = this.catalog().feishuConnection; if (!connection) throw new Error('先配置并验证飞书用户连接');
+    const url = new URL(input), match = /^\/docx\/([A-Za-z0-9_-]+)\/?$/.exec(url.pathname);
+    if (url.protocol !== 'https:' || !url.hostname.endsWith('.feishu.cn') || !match) throw new Error('当前支持飞书 docx 文档链接；其他类型请先明确实际来源');
+    const reference = feishuReference.parse({ ...connection, provider: 'feishu', kind: 'docx', token: match[1], messageIds: [], title: '飞书文档', url: url.origin + url.pathname });
+    return this.registerExternal(space, reference, actor);
+  }
   async createSource(domain: Domain, input: unknown, actor: WorkspaceActor) {
-    this.manager(actor); if (!domains.includes(domain)) throw new Error('Invalid professional space');
+    this.manager(actor); if (!this.catalog().spaces[domain]) throw new Error('知识空间不存在');
     const data = knowledgeInput.parse(input), c = this.catalog();
     const issue = await this.pc.post('/companies/' + this.config.companyId + '/issues', { allowDuplicate: true, idempotencyKey: 'source:' + randomUUID(),
       projectId: c.spaces[domain].projectId, visibility: 'private', title: data.title, status: 'backlog' });
@@ -113,15 +185,23 @@ export class Workspaces {
     c.sources.push(source); this.saveCatalog(c); return { source, record };
   }
   async reviewSource(id: string, state: 'confirmed' | 'withdrawn', revision: string, actor: WorkspaceActor) {
+    if (this.source(id).external) throw new Error('飞书原始证据不能直接确认成知识，请在任务内提出并审阅结论');
     this.manager(actor); return this.knowledge.review(this.source(id).ref, state, revision, 'local-operator');
   }
   async allowed(task: Task, sourceId: string, agent: string, state?: State) {
     const s = this.source(sourceId); this.domain(agent);
+    if (s.external) {
+      const current = state ?? await this.state(task);
+      if (!current.sources.includes(sourceId)) return false;
+      const requests = await Promise.all(current.requests.map(id => this.access(id)));
+      if (!requests.some(r => r.agent === agent && r.sourceId === sourceId && requestIsCurrent(r))) return false;
+      try { await this.reader(agent).get('/issues/' + s.ref.taskId); await this.feishu.read(s.external); return true; } catch { return false; }
+    }
     // Native ACL is always re-evaluated, including when another explicit grant remains.
     try { const record = await this.knowledge.read(s.ref, this.reader(agent));
       if (!reusable(record.value, this.config, secrets().jwtSecret)) return false;
     } catch { return false; }
-    if (this.catalog().spaces[s.domain].agent === agent) return true;
+    if (this.members(s.domain).includes(agent)) return true;
     for (const id of (state ?? await this.state(task)).requests) {
       const r = await this.access(id);
       if (r.agent === agent && r.sourceId === sourceId && requestIsCurrent(r)) return true;
@@ -131,12 +211,13 @@ export class Workspaces {
   async requireSources(task: Task, agent: string, state?: State) {
     const current = state ?? await this.state(task), missing = [];
     for (const id of current.sources) if (!await this.allowed(task, id, agent, current)) missing.push(this.source(id).title);
-    if (missing.length) throw new Error('需要为' + domainNames[this.domain(agent)] + '执行者申请或恢复访问：' + missing.join('、'));
+    if (missing.length) throw new Error('需要为' + this.agent(agent).name + '申请或恢复访问：' + missing.join('、'));
   }
   async sourceStatus(task: Task, sourceId: string, agent: string, state?: State) {
     if (await this.allowed(task, sourceId, agent, state)) return { sourceId, allowed: true, reason: 'current' };
+    if (this.source(sourceId).external) return { sourceId, allowed: false, reason: 'permission' };
     try {
-      const record = await this.knowledge.read(this.source(sourceId).ref, this.reader(agent));
+      const record = await this.readMaterial(sourceId, agent);
       if (!reusable(record.value, this.config, secrets().jwtSecret)) return { sourceId, allowed: false, reason: 'version' };
     } catch {}
     return { sourceId, allowed: false, reason: 'permission' };
@@ -150,18 +231,19 @@ export class Workspaces {
   }
   async createTask(input: unknown, actor: WorkspaceActor) {
     this.manager(actor); const data = taskSchema.parse(input); this.domain(data.agent); data.sources.forEach(s => this.source(s));
+    if (data.knowledgeSpace && !this.catalog().spaces[data.knowledgeSpace]) throw new Error('知识空间不存在');
     const trigger = 'workspace:' + digest(data.requestKey);
     const prior = this.store.byTrigger(trigger); if (prior) return prior;
     const issue = await this.pc.post('/companies/' + this.config.companyId + '/issues', { idempotencyKey: trigger, allowDuplicate: true,
       projectId: this.catalog().coordinationProject, visibility: 'private', title: data.title, description: data.goal,
-      assigneeAgentId: this.agent(data.agent).paperclipId, status: 'backlog' });
+      assigneeAgentId: this.agent(data.agent).paperclipId, status: 'backlog', ...collaborationReviewPolicy });
     const task: Task = { id: issue.id, identifier: issue.identifier, triggerId: trigger, chatId: 'local-workspace', messageId: 'local-workspace',
       senderId: 'local-operator', agent: data.agent, workspace: '', branch: '', context: JSON.stringify({ request: data.goal, source: 'workspace-ui' }),
       generation: 1, phase: 'ready', kind: 'collaboration' };
     const state: State = { version: 1, sources: [...new Set(data.sources)], requests: [], snapshots: [], outcomes: [], history: [],
-      context: { autoDiscover: data.autoDiscover, requirements: data.requirements, linkedTasks: [], fullSources: [] } };
+      context: { autoDiscover: data.autoDiscover, requirements: data.requirements, linkedTasks: [], fullSources: [], knowledgeSpace: data.knowledgeSpace } };
     await this.save(task, state, 'task-created', { agent: data.agent });
-    await this.pc.patch('/issues/' + task.id, { status: 'todo' }); return task;
+    return task;
   }
   async request(input: unknown, actor: WorkspaceActor) {
     const data = requestSchema.parse(input), task = this.store.get(data.taskId), state = await this.state(task);
@@ -173,8 +255,8 @@ export class Workspaces {
     const key = 'access-' + digest(task.id + source.id + agent + data.requestKey);
     for (const id of state.requests) { const r = await this.access(id); if ((r as Access & { key?: string }).key === key) return this.ensureApproval(r); }
     const issue = await this.pc.post('/companies/' + this.config.companyId + '/issues', { idempotencyKey: key, allowDuplicate: true,
-      projectId: this.catalog().coordinationProject, visibility: 'private', title: domainNames[source.domain] + '资料访问申请',
-      description: '用途：' + data.purpose, status: 'todo', assigneeAgentId: this.agent(this.catalog().spaces[source.domain].agent).paperclipId });
+      projectId: this.catalog().coordinationProject, visibility: 'private', title: this.spaceName(source.domain) + '资料访问申请',
+      description: '用途：' + data.purpose, status: 'backlog', assigneeAgentId: this.agent(this.catalog().spaces[source.domain].agent).paperclipId });
     const r = { id: issue.id, taskId: task.id, sourceId: source.id, agent, key, purpose: data.purpose,
       expiresAt: new Date(Date.now() + data.hours * 3600000).toISOString(), state: 'pending' as const, requestedBy: actor.admin ? 'local-operator' : agent };
     await this.saveAccess(r); await this.nativeGrant(issue.id, agent);
@@ -219,7 +301,7 @@ export class Workspaces {
     const task = this.store.get(taskId); await this.state(task);
     if (!actor.admin && (actor.agent !== task.agent || !await this.allowed(task, sourceId, actor.agent!))) throw new Error('Unauthorized: source access');
     if (!(await this.state(task)).sources.includes(sourceId)) throw new Error('资料不在本任务范围内');
-    return this.knowledge.read(this.source(sourceId).ref, actor.admin ? this.pc : this.reader(actor.agent!));
+    return this.readMaterial(sourceId, actor.admin ? undefined : actor.agent);
   }
   async guard(task: Task, agent = task.agent) {
     const state = await this.state(task); if (state.pendingHandoff) throw new Error('交接尚未完成，暂停领取执行');
@@ -249,7 +331,7 @@ export class Workspaces {
       allowDuplicate: true, projectId: this.catalog().vaultProject, visibility: 'private', title, status: 'backlog' });
     if (body) await this.pc.document(issue.id, key, title, body);
     const grant = await this.nativeGrant(issue.id, task.agent);
-    return { id: issue.id, key, title, domain: this.domain(task.agent), sources: [...sources], grants: [{ agent: task.agent, id: grant.id }] };
+    return { id: issue.id, key, title, domain: this.targetSpace(task, await this.state(task)), sources: [...sources], grants: [{ agent: task.agent, id: grant.id }] };
   }
   async handoff(taskId: string, next: string, actor: WorkspaceActor) {
     this.manager(actor); const task = this.store.get(taskId), state = await this.state(task), issue = await this.issue(task.id); this.domain(next);
@@ -266,7 +348,7 @@ export class Workspaces {
     for (const snap of state.snapshots) {
       if (!snap.grants.some(g => g.agent === next)) snap.grants.push({ agent: next, id: (await this.nativeGrant(snap.id, next)).id });
     }
-    await this.pc.patch('/issues/' + task.id, { assigneeAgentId: this.agent(next).paperclipId, status: 'todo' });
+    await this.pc.patch('/issues/' + task.id, { assigneeAgentId: this.agent(next).paperclipId, status: 'backlog' });
     // Task-scoped notes without source dependencies must end with the old executor too.
     for (const snap of [...state.snapshots, ...state.outcomes]) {
       for (const grant of snap.grants.filter(g => g.agent === previous)) await this.revokeGrant(snap.id, grant.id);
@@ -365,7 +447,7 @@ export class Workspaces {
     await this.knowledge.review(proposed.ref, 'confirmed', proposed.revision, 'local-operator');
     await this.pc.document(issue.id, 'provenance', '知识采用记录', JSON.stringify({ sourceTask: task.id, sourceOutcome: outcomeId,
       sourceRevision: revision, sources: snap.sources, releasedBy: 'local-operator', reason, releasedAt: new Date().toISOString(),
-      audience: domainNames[snap.domain] + '知识空间成员', facts: record.value.facts }, null, 2));
+      audience: this.spaceName(snap.domain) + '知识空间成员', facts: record.value.facts }, null, 2));
     // The released document is separately scoped, never a public Wiki copy.
     snap.publicationId = issue.id;
     const catalog = this.catalog();
@@ -406,20 +488,27 @@ export class Workspaces {
     }
     const sources = [];
     for (const source of c.sources) {
-      if (!actor.admin && c.spaces[source.domain].agent !== actor.agent && !tasks.some(t => t.state.sources.includes(source.id))) continue;
+      if (!actor.admin && !this.members(source.domain).includes(actor.agent!) && !tasks.some(t => t.state.sources.includes(source.id))) continue;
       let record;
-      try { if (actor.admin || c.spaces[source.domain].agent === actor.agent) record = await this.knowledge.read(source.ref, actor.admin ? this.pc : this.reader(actor.agent!)); } catch {}
-      const knowledgeState = record?.value.state === 'confirmed' && !reusable(record.value, this.config, secrets().jwtSecret) ? 'candidate' : record?.value.state;
-      sources.push({ ...source, ref: undefined, record, restricted: !record, knowledgeState });
+      try { if (!source.external && (actor.admin || this.members(source.domain).includes(actor.agent!))) record = await this.knowledge.read(source.ref, actor.admin ? this.pc : this.reader(actor.agent!)); } catch {}
+      const knowledgeState = source.external ? 'source' : record?.value.state === 'confirmed' && !reusable(record.value, this.config, secrets().jwtSecret) ? 'candidate' : record?.value.state;
+      sources.push({ ...source, ref: undefined, external: source.external ? { kind: source.external.kind, url: source.external.url } : undefined, record, restricted: !record, knowledgeState });
     }
-    return { spaces: domains.map(d => ({ domain: d, name: domainNames[d], ...c.spaces[d] })), sources, tasks,
-      actors: domains.map(d => ({ key: c.spaces[d].agent, name: domainNames[d] })), operator: actor.admin ? '本机管理员' : actor.agent };
+    return { spaces: Object.entries(c.spaces).map(([id, s]) => ({ ...s, domain: id, name: this.spaceName(id), members: this.members(id) })), sources, tasks,
+      feishuConnected: actor.admin && Boolean(c.feishuConnection), configurableAgents: actor.admin ? Object.entries(this.config.agents).filter(([key, a]) => a.enabled && key !== this.config.assistant?.agentKey && secrets().paperclipTokens?.[key]).map(([key, a]) => ({ key, name: a.name })) : [],
+      actors: this.participantKeys().filter(key => this.config.agents[key]?.enabled).map(key => ({ key, name: this.config.agents[key]!.name })), operator: actor.admin ? '本机管理员' : actor.agent };
   }
-  async complete(taskId: string, actor: WorkspaceActor) {
+  async complete(taskId: string, actor: WorkspaceActor, input: unknown = {}) {
     this.manager(actor); const task = this.store.get(taskId), state = await this.state(task), issue = await this.issue(taskId);
+    const review = z.object({ reason: z.string().trim().max(2000).optional(), noKnowledge: z.boolean().default(false),
+      checkpoint: z.object({ id: z.string(), revision: z.string() }).strict().optional() }).strict().parse(input);
     if (task.phase === 'accepted') return task;
     if (task.phase === 'running' || task.phase === 'unknown' || issue.executionRunId || issue.checkoutRunId || task.lease) throw new Error('先核对执行已经结束');
-    if (!state.outcomes.some(s => s.publicationId)) throw new Error('先完成知识确认与专业空间采用');
+    if (review.checkpoint) {
+      const snapshot = state.snapshots.find(s => s.id === review.checkpoint!.id && s.key === 'checkpoint');
+      if (!snapshot || (await this.pc.get('/issues/' + snapshot.id + '/documents/' + snapshot.key)).latestRevisionId !== review.checkpoint.revision) throw new Error('工作稿版本已变化，请审阅当前版本再验收');
+    }
+    if (!state.outcomes.some(s => s.publicationId) && !(review.noKnowledge && review.reason && review.checkpoint)) throw new Error('请明确采用知识，或按已审阅工作稿记录本次暂不采用知识的验收依据');
     for (const id of state.requests) {
       const r = await this.access(id);
       if (r.state === 'pending') {
@@ -434,7 +523,7 @@ export class Workspaces {
       snap.grants = [];
     }
     current.phase = 'accepted'; await this.pc.patch('/issues/' + taskId, { status: 'done' });
-    await this.save(current, currentState, 'completed', { adoptedKnowledge: currentState.outcomes.map(s => s.publicationId).filter(Boolean), temporaryAccessEnded: true });
+    await this.save(current, currentState, 'completed', { adoptedKnowledge: currentState.outcomes.map(s => s.publicationId).filter(Boolean), review, temporaryAccessEnded: true });
     return current;
   }
   async prepareHandoff(taskId: string, agent: string, actor: WorkspaceActor) {
@@ -470,8 +559,8 @@ export class Workspaces {
       if (ref.kind === 'goal') { const value = contextHash(goalEvidence(await this.issue(task.id), state)); revision = hash = value; }
       else if (ref.kind === 'knowledge') {
         if (!state.sources.includes(ref.id)) throw new Error('来源不再属于本任务');
-        const record = await this.knowledge.read(this.source(ref.id).ref);
-        if (!reusable(record.value, this.config, secrets().jwtSecret)) throw new Error('来源版本待重新确认'); revision = record.revision; hash = record.hash;
+        const record = await this.readMaterial(ref.id);
+        if (!this.source(ref.id).external && !reusable(record.value, this.config, secrets().jwtSecret)) throw new Error('来源版本待重新确认'); revision = record.revision; hash = record.hash;
       } else if (ref.kind === 'conversation') {
         if (ref.id !== task.id && !state.context?.linkedTasks.includes(ref.id)) throw new Error('讨论来源不属于本任务上下文');
         const value = contextHash(discussionEvidence(await this.pc.get('/issues/' + ref.id + '/comments'))); revision = hash = value;
@@ -509,6 +598,10 @@ export class Workspaces {
       const currentTask = this.store.get(task.id);
       for (const id of (await this.state(currentTask)).requests) {
         let r = await this.access(id);
+        if (requestIsCurrent(r) && this.source(r.sourceId).external) {
+          try { await this.feishu.read(this.source(r.sourceId).external!); }
+          catch (error) { if (error instanceof FeishuUnavailable && error.permanent) { await this.revoke(id, '飞书来源访问已失效，结束本任务委托；恢复后需重新确认', { admin: true }); continue; } }
+        }
         if (r.state === 'pending' && Date.parse(r.expiresAt) <= Date.now()) { await this.expirePending(r); continue; }
         if (r.state === 'pending' && !r.approvalId) r = await this.ensureApproval(r);
         if (r.state === 'revoking' || r.state === 'approved' && Date.parse(r.expiresAt) <= Date.now()) await this.revoke(id, '授权到期或恢复未完成的撤权', { admin: true }, Date.parse(r.expiresAt) <= Date.now());
@@ -529,8 +622,13 @@ export class Workspaces {
     await this.pc.patch('/issues/' + r.id, { status: 'cancelled' });
   }
   async dispatch(action: string, data: any, actor: WorkspaceActor) {
+    if (action === 'configure-space') return this.configureSpace(data, actor);
+    if (action === 'configure-participants') return this.configureParticipants(z.array(z.string()).parse(data.keys), actor);
+    if (action === 'sync-space-members') return this.syncSpaceMembers(z.string().parse(data.space), actor);
+    if (action === 'register-feishu-source') return this.registerExternal(data.space, data.reference, actor);
+    if (action === 'attach-feishu-document') return this.attachFeishuDocument(z.string().parse(data.space), z.string().parse(data.url), actor);
     if (action === 'view') return this.view(actor);
-    if (action === 'create-source') return this.createSource(z.enum(domains).parse(data.domain), data.record, actor);
+    if (action === 'create-source') return this.createSource(z.string().parse(data.domain), data.record, actor);
     if (action === 'review-source') return this.reviewSource(data.id, z.enum(['confirmed', 'withdrawn']).parse(data.state), data.revision, actor);
     if (action === 'create-task') return this.createTask(data, actor);
     if (action === 'request') return this.request(data, actor);
@@ -544,7 +642,7 @@ export class Workspaces {
     if (action === 'review') return this.review(data.taskId, data.outcomeId, z.enum(['confirmed', 'withdrawn']).parse(data.state), data.revision, actor);
     if (action === 'publish') return this.publish(data.taskId, data.outcomeId, data.revision, data.reason ?? '', actor);
     if (action === 'adopt') return this.adopt(data.taskId, data.outcomeId, data.revision, data.reason ?? '', actor);
-    if (action === 'complete') return this.complete(data.taskId, actor);
+    if (action === 'complete') { const { taskId, ...review } = data; return this.complete(taskId, actor, review); }
     if (action === 'stopped') return this.stopped(data.taskId, data.lease, data.note ?? '', data.confirmed === true, actor);
     throw new Error('Unknown workspace action');
   }

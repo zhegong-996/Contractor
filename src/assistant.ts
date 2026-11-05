@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { secrets } from './config.ts';
-import { Workspaces, contractProof, domainNames, type WorkspaceActor } from './workspaces.ts';
+import { Workspaces, contractProof, type WorkspaceActor } from './workspaces.ts';
 import type { Task } from './store.ts';
 import { verifyEvidenceQuotes, projectHistoricalEvidence } from './evidence.ts';
 import { TaskContext, type InputRef } from './context.ts';
@@ -57,7 +57,7 @@ export class WorkspaceAssistant {
       selection: [...sources, ...checkpoints].map(s => ({ id: s.id, range: s.range })), missing, requests,
       delegation: { mode: state.delegation?.mode, nonce: state.delegation?.nonce, instruction: state.delegation?.instruction } });
     return { basis, manifest: pack.manifest, context: { task: { id: task.id, identifier: task.identifier, title: goal.title, goal: goal.goal,
-      requirements: goal.requirements, origin: goal.origin, professionalRole: domainNames[this.workspaces.domain(task.agent)] },
+      requirements: goal.requirements, origin: goal.origin, participant: this.config.agents[task.agent]?.name ?? task.agent },
       instruction: state.delegation?.instruction ?? '', sources, missing, requests, checkpoints, decisions, coverage: pack.coverage } };
   }
   async delegate(taskId: string, enabled: boolean, mode: 'prepare' | 'advance', instruction: string, actor: WorkspaceActor, nonce?: string) {
@@ -159,16 +159,18 @@ export class WorkspaceAssistant {
       if (output.knowledge && !job.applied.knowledge) {
         const k = output.knowledge;
         job.applied.knowledge = (await this.workspaces.propose(task.id, { key: 'knowledge-agent-' + job.id.replaceAll('-', '').slice(0, 22), title: k.title,
-          domains: [this.workspaces.domain(task.agent)], kind: 'procedure', appliesTo: k.appliesTo,
+          domains: [this.workspaces.targetSpace?.(task, state) ?? this.workspaces.domain(task.agent)], kind: 'procedure', appliesTo: k.appliesTo,
           facts: Object.fromEntries(k.facts.map(f => [f.name, f.value])), body: k.body,
           sources: [...new Set(output.evidenceQuotes.map(q => { const s = [...bundle.context.sources, ...bundle.context.checkpoints].find(s => s.id === q.sourceId)!;
-            return this.config.paperclipUrl + '/SUI/issues/' + (s.nativeIssueId ?? s.id); }))] }, automated, 'assistant:' + job.id, bundle.manifest)).id;
+            return s.external?.url ?? this.config.paperclipUrl + '/SUI/issues/' + (s.nativeIssueId ?? s.id); }))] }, automated, 'assistant:' + job.id, bundle.manifest)).id;
         await this.save(job);
       }
     }
     job.status = 'completed'; await this.save(job);
     await this.pc.patch('/issues/' + job.id, { status: 'done' });
     await this.workspaces.save(this.store.get(task.id), await this.workspaces.state(this.store.get(task.id)), 'assistant-prepared', { jobId, preparedBy: this.key, mode: job.mode });
+    if (task.messageId.startsWith('om_')) this.store.notify('assistant-prepared:' + job.id, task.id,
+      `${task.identifier} 已准备 ${output.workProducts.length} 份待审阅工作稿。授权、知识采用和验收仍由你决定。\n${this.config.paperclipUrl}/SUI/knowledge-workspaces`);
     return { completed: true, applied: job.applied };
   }
   async fail(jobId: string, runId: string, error: string, actor: WorkspaceActor) {
