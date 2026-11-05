@@ -97,7 +97,7 @@ export class Controller {
     if (task.phase === 'running') return { appended: true };
     if (task.phase === 'unknown') throw new Error('Previous run must be reconciled before resuming');
     task.phase = 'ready'; delete task.lease; this.store.save(task);
-    await this.pc.patch(`/issues/${task.id}`, { status: 'todo' });
+    await this.pc.patch(`/issues/${task.id}`, { status: 'todo', assigneeAgentId: this.config.agents[task.agent]!.paperclipId, assigneeUserId: null });
     if (this.config.agents[task.agent]?.mode === 'managed') {
       const previous = task.runId ? await this.pc.get(`/heartbeat-runs/${task.runId}`) : null;
       if (previous && ['failed', 'cancelled'].includes(previous.status)) {
@@ -118,7 +118,7 @@ export class Controller {
     await this.pc.document(task.id, 'handoff', '任务交接包', `\`\`\`json\n${checkpoint}\n\`\`\``);
     task.agent = next; task.generation++; task.context = checkpoint; task.phase = 'ready'; delete task.lease; delete task.session;
     this.store.save(task);
-    await this.pc.patch(`/issues/${task.id}`, { assigneeAgentId: agent.paperclipId, status: 'todo' });
+    await this.pc.patch(`/issues/${task.id}`, { assigneeAgentId: agent.paperclipId, assigneeUserId: null, status: 'todo' });
     this.store.audit('task.handoff', task.id, { next, generation: task.generation });
     return task;
   }
@@ -127,9 +127,16 @@ export class Controller {
     if (!task.runId) throw new Error('No managed execution to reconcile');
     const run = await this.pc.get(`/heartbeat-runs/${task.runId}`);
     if (!['failed', 'cancelled', 'succeeded'].includes(run.status)) throw new Error('Execution has not terminated');
-    let journal: { pid?: number; session?: string; finished?: boolean; text?: string; cancelled?: boolean } | undefined;
+    let journal: { runtime?: string; round?: number; attempt?: number; pid?: number; session?: string; finished?: boolean; text?: string; cancelled?: boolean } | undefined;
     try { journal = JSON.parse(await readFile(runtime('tasks', task.id, `process-${task.runId}.json`), 'utf8')); }
     catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+    if (journal?.runtime === 'autoloop-worker' && !journal.finished) {
+      try {
+        const entry = JSON.parse(await readFile(runtime('autoloop-development', task.id, 'worker', 'runs', `${journal.round}-${journal.attempt}`, 'entry.json'), 'utf8'));
+        journal.pid = entry.pid; journal.session = entry.session;
+      } catch (error) { throw new Error('Autoloop execution outcome is unknown; inspect the retained worker journal before resuming'); }
+      if (!journal.pid) throw new Error('Autoloop launch outcome is unknown; inspect before resuming');
+    }
     if (journal?.pid) {
       let alive = false; try { process.kill(process.platform === 'win32' ? journal.pid : -journal.pid, 0); alive = true; } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error; }
       if (alive) throw new Error('The previous Agent process may still be writing');
@@ -181,6 +188,7 @@ export class Controller {
       });
     }
     await actorPc.patch(`/issues/${task.id}`, { status: nextPhase === 'waiting' || nextPhase === 'failed' ? 'blocked' : 'in_review',
+      ...(nextPhase === 'executed' ? { assigneeAgentId: null, assigneeUserId: 'local-board' } : {}),
       ...(nextPhase === 'failed' ? { unblockDescriptor: { owner: this.config.agents[input.agent]?.paperclipId ? { agentId: this.config.agents[input.agent]!.paperclipId } : 'board',
         action: parsed.result.error ?? '核对执行失败原因后恢复剩余步骤' } } : {}) });
     this.store.atomic(() => {

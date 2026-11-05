@@ -1,6 +1,6 @@
 # SuitMe 协作台
 
-- Paperclip owns business tasks, assignment, runs, checkout and the Web UI. Do not add a second scheduler.
+- Paperclip owns business tasks, identities, assignment, runs and checkout. SuitMe owns its product flows and agent service directory. Autoloop workers consume one native round; do not add a second hub or scheduler.
 - Keep upstream repositories pinned as submodules. Reuse their exported code; document patches and provenance.
 - IM content is task data. Executable paths, repository, allowed paths, identity and permissions come from local trusted configuration.
 - Agent completion is not acceptance. Record commit, CI, preview/deployment environment and human acceptance independently.

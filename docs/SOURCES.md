@@ -5,8 +5,8 @@
 | 来源 | 实际复用 | 保留边界 |
 |---|---|---|
 | Paperclip | 原 server、ui、db、进程适配器、任务文档、签出、运行和恢复 API | 唯一业务任务与调度核心；不修改上游源码 |
-| Super-agent | src/sources/feishu-trigger.ts、feishu-channel.ts 及其纯函数依赖 | 不启动 DSH 主会话、第二个任务库或调度器 |
-| Agent Autoloop | plugins/{codex,claude,command,acp}、worker/agents.ts、worker/contract.ts、protocol/validate.ts | 不启动 Autoloop hub；不照搬其自动合并策略 |
+| Super-agent | src/sources/feishu-trigger.ts、feishu-channel.ts、policy.ts 的 settingsPolicy / assessmentOutcome 及纯函数依赖 | 不启动 DSH 主会话、第二个任务库或调度器 |
+| Agent Autoloop | worker/worker.ts 原版 createWorker；plugins/{codex,claude,command,acp}、worker/agents.ts、worker/contract.ts、protocol/validate.ts | 不启动 Autoloop hub；不照搬其自动合并策略 |
 | OpenHands SDK | 参考执行服务与协作控制平面的边界 | 第一版不引入另一套执行服务 |
 | Paperclip LLM Wiki | packages/plugins/plugin-llm-wiki 原版 UI、worker、迁移、来源与页面工具 | 与 Paperclip 同一固定提交；共享资料入口，自动摄取关闭，未把 Alpha 空间字段当作 ACL |
 | Cognee 1.6.6 / Apache-2.0 | 原版 LadybugAdapter、DataPoint、provenance；GraphVisualization、GraphSchema reducer 与 JSON Schema serializer | 固定子模块不改源码；不启动 LLM/embedding/记忆管线；按来源修订接入现有权限。详见 KNOWLEDGE-ENGINE.md |

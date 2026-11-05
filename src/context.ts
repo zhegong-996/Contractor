@@ -40,7 +40,7 @@ export function deliveryEvidence(task: Task, issue: any) {
   return { title: issue.title, description: issue.description ?? '', status: task.phase, delivery: task.delivery ?? null,
     origin: task.messageId.startsWith('om_') ? 'feishu' : 'local', messageId: task.messageId.startsWith('om_') ? task.messageId : undefined };
 }
-export function goalEvidence(issue: any, state: any) { return { title: issue.title, goal: issue.description, requirements: state.context?.requirements ?? [],
+export function goalEvidence(issue: any, state: any) { return { title: issue.title, goal: issue.description, service: state.context?.service, requirements: state.context?.requirements ?? [],
   sourceIds: state.sources, knowledgeSpace: state.context?.knowledgeSpace, notes: state.snapshots.filter((s: any) => s.key === 'context-note').map((s: any) => s.id), linkedTasks: state.context?.linkedTasks ?? [] }; }
 export function discussionEvidence(comments: any[]) { return comments.filter(c => c.authorUserId && !c.authorAgentId).map(c => ({ id: c.id, body: c.body, createdAt: c.createdAt, updatedAt: c.updatedAt })); }
 export class TaskContext {

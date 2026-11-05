@@ -77,7 +77,7 @@ test('the assistant context omits revoked source bodies and does not retrieve th
   f.ws.knowledge = { read: async () => { reads++; throw new Error('must not read'); } };
   f.ws.reader = () => ({ get: async (route: string) => { if (route.endsWith('/comments')) return []; reads++; throw new Error('must not read'); } });
   const result = await WorkspaceAssistant.prototype.bundle.call(f.service, f.task);
-  assert.equal(reads, 0); assert.equal(result.context.sources.length, 0); assert.equal(result.context.checkpoints.length, 0); assert.equal(result.context.missing[0]!.reason, 'permission');
+  assert.equal(reads, 0); assert.deepEqual(result.context.sources.map(s => s.id), ['goal:task']); assert.equal(result.context.sources[0]!.body, '整理资料'); assert.equal(result.context.checkpoints.length, 0); assert.equal(result.context.missing[0]!.reason, 'permission');
 });
 test('automatic preparation respects a prior refusal and does not request an unconfirmed source version', async () => {
   for (const reason of ['permission', 'version']) {
@@ -87,4 +87,37 @@ test('automatic preparation respects a prior refusal and does not request an unc
     let requests = 0; f.ws.request = async () => { requests++; throw new Error('must not reapply'); };
     await f.service.advance('task'); assert.equal(requests, 0);
   }
+});
+
+test('an autonomous run needs a recorded Super-agent decision before writing any draft',async()=>{
+ const f=fixture();f.job.runtime='autoloop-v1';
+ await assert.rejects(f.service.result('job','run',output,{}, {admin:false,agent:'engine'}),/范围判断/);assert.equal(f.writes.length,0);assert.equal(f.job.output,undefined);
+});
+test('autonomous tools enforce task scope, bounded calls, and source changes during reads',async()=>{
+ const {randomUUID}=await import('node:crypto');const f=fixture();f.job.runtime='autoloop-v1';
+ const pack={basis:'current',manifest:[],context:{sources,missing:[],task:{title:'当前任务'},instruction:'',requests:[],checkpoints:[]}};
+ f.service.bundle=async()=>pack as any;
+ await assert.rejects(f.service.tool('job','run',randomUUID(),{name:'request_access',sourceId:'sales',purpose:'整理交接'}, {admin:false,agent:'engine'}),/先判断/);
+ f.job.assessment={kind:'accept'};
+ await assert.rejects(f.service.tool('job','run',randomUUID(),{name:'request_access',sourceId:'foreign',purpose:'整理交接'}, {admin:false,agent:'engine'}),/明确纳入/);
+ f.service.taskContext.search=async()=>{f.service.bundle=async()=>({...pack,basis:'changed'}) as any;return[];};
+ await assert.rejects(f.service.tool('job','run',randomUUID(),{name:'search_context',query:'验收'}, {admin:false,agent:'engine'}),/上下文已变化/);
+ f.service.bundle=async()=>pack as any;f.job.toolCalls=Array.from({length:12},()=>({id:randomUUID(),status:'completed'}));
+ await assert.rejects(f.service.tool('job','run',randomUUID(),{name:'read_context'}, {admin:false,agent:'engine'}),/预算/);
+});
+
+test('a supplied goal can support a task draft but cannot alone become reusable professional knowledge',async()=>{
+ const f=fixture();f.service.bundle=async()=>({basis:'current',context:{sources:[{id:'goal:task',revision:'g1',body:'用户说结果解释不足，要求整理问题。'}],checkpoints:[],missing:[]}})as any;
+ const value={...output,evidenceQuotes:[{sourceId:'goal:task',quote:'结果解释不足'}],nextSteps:output.nextSteps.map(s=>({...s,sourceIds:['goal:task']}))};
+ await assert.rejects(f.service.result('job','run',value,{}, {admin:false,agent:'engine'}),/不能独自成为长期知识/);assert.equal(f.writes.length,0);
+ await f.service.result('job','run',{...value,knowledge:null}, {}, {admin:false,agent:'engine'});assert.equal(f.writes.length,1);
+});
+
+test('a service responsibility change stops the real context path before any material is collected',async()=>{
+ const {randomUUID}=await import('node:crypto');const {serviceVersion,serviceProfileInput}=await import('../src/agent-services.ts');const f=fixture();
+ const p=serviceProfileInput.parse({id:randomUUID(),key:'my-agent',name:'我的协作 Agent',kind:'personal',ownerUserId:'local-board',actorKey:f.task.agent,responsibilities:'当前负责移动端',offers:['feasibility'],enabled:true});
+ f.state.context={service:{id:p.id,version:serviceVersion(p),responsibilities:p.responsibilities}};
+ f.ws.catalog=()=>({serviceRegistryIssueId:'registry'});f.ws.issue=async()=>({projectId:'private-runs',visibility:'private'});
+ f.ws.pc.get=async()=>({body:JSON.stringify({profiles:[{...p,responsibilities:'当前负责支付'}]})});let collected=false;f.service.taskContext.collect=async()=>{collected=true;throw new Error('must not read');};
+ await assert.rejects(WorkspaceAssistant.prototype.bundle.call(f.service,f.task),/职责已改变/);assert.equal(collected,false);assert.equal(f.writes.length,0);
 });

@@ -5,24 +5,26 @@
 ## 当前架构
 
 ```mermaid
-flowchart TB
-  IM[飞书测试机器人] --> Bridge
-  UI[中文工作台 / 知识库 / 设置] --> PC
-  MCP[个人 Agent · CLI / MCP / 人工接单] --> Bridge
-  PC[Paperclip API / React 宿主 · 3100] <--> Bridge[SuitMe 接入与治理 · 4180]
-  PC --> Tasks[唯一任务调度 / 运行 / 锁 / 原生权限 / 文档修订]
-  Tasks --> PG[(PostgreSQL 18.1 · 本机持久化)]
-  Bridge --> Context[上下文包 / 来源版本 / 用途授权 / 交接 / 人工验收]
-  Bridge --> SQLite[(SQLite · 事件去重 / 回执 / 接入投影)]
-  Context --> Feishu[飞书文档与选定讨论 · 按任务读取]
-  Context --> Source[原生知识记录 · 字段 + 正文 + 来源 + 修订]
-  Context --> Exec[现有 Codex CLI / 其他已验证接单端]
-  Exec --> GH[GitHub PR / Actions / 本机版本预览]
-  GH --> Accept[逐项验收 · 人决定]
-  Accept --> Source
-  Source --> Gate[确切来源版本与访问检查]
+flowchart TD
+  Events[飞书 / GitHub / 当前任务事件] --> Control[协作控制层 · SuitMe · 4180]
+  Humans[人的界面 · 讨论 / 决定 / 修改 / 验收] <--> Control
+  Services[个人与公共服务 Agent · 负责人 / 当前职责 / 版本] <--> Control
+  Context[团队上下文 · 目标 / 规则 / 获准资料 / 历史决定] --> Control
+  Control --> Policy[Super-agent 原版策略 · 范围判断]
+  Policy --> PC[Paperclip · 唯一任务 / 原生运行 / 锁 / ACL / 文档修订 · 3100]
+  PC --> PG[(真实 PostgreSQL 18.1)]
+  Control --> SQLite[(SQLite · 事件去重 / 回执 / 接入投影)]
+  PC --> Worker[Autoloop 原版 worker · 执行适配层]
+  Worker --> Exec[现有 Codex CLI / 已验证执行端]
+  Exec --> Tools[任务绑定工具 · 检索 / 记录 / 图谱 / 申请 / 证据]
+  Tools --> Context
+  Exec --> Evidence[可审阅工作稿 / GitHub PR / CI / 同 SHA 预览]
+  Evidence --> Control
+  Humans -->|明确采用| Source[知识内容 · 正文 / 类型字段 / 来源修订]
+  Source --> Gate[当前身份 / 用途 / 确切版本检查]
   Gate --> Cognee[Cognee 原版 SDK / 图谱渲染 / GraphSchema 字典]
   Cognee --> Ladybug[(Ladybug · 按来源版本隔离)]
+  Source --> Context
   Model[Flash/Lite · 通用 · 编码模型配置] -.预备策略，未启用新服务.-> Exec
   Cognee -.尚未启用.-> Memory[实体抽取 / 语义检索 / Agent 长期记忆]
 ```
@@ -36,7 +38,8 @@ flowchart TB
 | SuitMe bridge / SQLite | 4180 health ok，真实本地数据库 | 飞书事件、去重、发件箱、接入记录与任务投影；不取代主业务库 |
 | 飞书 | 专用测试机器人与事件监听已连通 | 白名单测试单聊；文档/历史讨论已按明确任务许可实测，旧任务授权到期或撤销后不继续使用 |
 | GitHub | 测试仓库 PR、CI 与带 SHA 的本机预览已实测 | 不表示业务仓库已合并或生产部署 |
-| 现有协作助手 | 原生运行中的 Codex CLI 已有真实成功记录 | 当前未显式绑定轻量模型；独立开发 Codex 身份的最近历史运行有 setup_failed，不能概括为所有执行器健康 |
+| 协作与开发执行 | 真实 Codex CLI + 原版 Autoloop worker；SUI-74、SUI-81、SUI-85 已运行 | 协作按证据调用工具、提问等待并接续；开发 PR #3 已交付且 CI 通过。旧项目访问失败不通过扩大授权解决 |
+| 服务 Agent | 当前负责人已登记个人服务，页面已发起 SUI-85 | 负责人、当前职责、服务与版本绑定；尚未接入全员登录或验证跨真实员工的 Agent 委托 |
 | 其他 Agent | 通用 CLI / MCP / 人工接单接入合同 | 注册名称不等于云端自动执行已验证；WorkBuddy、豆包等逐端核实 |
 | 模型设置 | 轻量、通用、编码三档与动态执行身份绑定已保存到私有原生文档 | 仅预备配置，不存 API Key；新模型请求固定关闭，尚无新模型网关 |
 | Cognee + Ladybug | 固定 1.6.6 SDK，真实图写入、读取与原版前端 | 当前为文档/字段结构投影，模型抽取和语义记忆关闭；不是商业 PostgreSQL 图能力 |
@@ -64,11 +67,14 @@ flowchart TB
 
 人从飞书或后台提出目标；协作助手在既有任务中归纳上下文、准备资料申请、列出缺口、制作工作稿和交接材料。低风险整理按委托推进；授权、知识采用、最终验收由人决定。执行端换手时沿用任务、已确认的输入、检查点和 GitHub 证据，Paperclip 管签出与运行，避免另开一套调度。
 
+个人 Agent 的服务身份与 Codex 等执行引擎分开。职责随当前工作版本化；变更后旧任务暂停沿用旧结果，负责人核对范围后继续。服务登记不会扩大资料权限。详见 [个人 Agent 服务网](AGENT-SERVICE-NETWORK.md) 和 [实际运行合同](AUTONOMOUS-COLLABORATION.md)。
+
 个人模型的三档配置记录提供商、模型标识、凭据环境变量名与输入输出预算，并绑定现有执行身份。保存预备策略不会修改既有运行、加载 Key 或向新的服务发送资料。真实成员与个人 Agent 的登录归属还未完成；当前不能宣称每位员工都有上线运行的轻量代理。
 
 ## 当前页面
 
 - 我的工作：人的待决事项、Agent 进展与最近沉淀。
+- 团队 Agent：直接找服务 Agent 提需求；负责人在折叠设置中维护当前职责与上岗状态。
 - 协作任务：目标、负责人、上下文、授权、工作稿、交接、版本证据与验收。
 - 知识库：动态空间；内容、图谱、知识字典三种视图；结构化字段与正文编辑、来源、版本、确认/撤回。
 - 授权申请：同一任务中的资料、接收身份、用途、期限和处理记录。
@@ -85,4 +91,4 @@ flowchart TB
 
 ## 实现指针
 
-`src/workspaces.ts` 管理任务授权、交接和人审；`src/context.ts` 管理执行上下文；`src/knowledge.ts` 管理原生内容与确认；`src/graph.ts` 和 `scripts/cognee-graph.py` 衔接 Cognee；`src/ontology.ts` 保存原生模型；`src/model-settings.ts` 保存预备模型策略；`plugins/knowledge-workspaces/src/ui` 是中文工作台；`scripts/build-chinese-shell.ts` 是宿主中文构建覆盖层。
+`src/agent-services.ts` 管服务与职责版本；`src/coordination.ts` 调用 Super-agent 原版策略；`src/assistant-runner.ts`、`src/runner.ts` 使用 Autoloop 原版 worker；`src/assistant-tools.ts` 暴露任务绑定工具；`src/workspaces.ts` 管任务授权、交接和人审；`src/context.ts` 管执行上下文；`src/knowledge.ts` 管原生内容与确认；`src/graph.ts` 和 `scripts/cognee-graph.py` 衔接 Cognee；`src/ontology.ts` 保存字典模型；`src/model-settings.ts` 保存预备模型策略；`plugins/knowledge-workspaces/src/ui` 是中文工作台。

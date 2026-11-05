@@ -1,15 +1,16 @@
-import { spawn } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 import { writeFile } from 'node:fs/promises';
-import { loadConfig, secrets, runtime } from './config.ts';
-import { adapterFor, type Reading } from './upstream.ts';
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { loadConfig, secrets, runtime, root } from './config.ts';
 import { Paperclip } from './paperclip.ts';
 import type { Task } from './store.ts';
+import { nativeWorkGate } from './native-worker.ts';
 
 const config = loadConfig(); const agentKey = process.argv[2]!; const agent = config.agents[agentKey];
 if (!agent?.enabled || agent.mode !== 'managed') throw new Error('Managed execution is not enabled for this agent');
-const runId = process.env.PAPERCLIP_RUN_ID;
-if (!runId || !process.env.PAPERCLIP_API_KEY) throw new Error('A Paperclip-owned run is required');
+const runId = process.env.PAPERCLIP_RUN_ID, runToken = process.env.PAPERCLIP_API_KEY;
+if (!runId || !runToken) throw new Error('A Paperclip-owned run is required');
 const pc = new Paperclip(config.paperclipUrl, process.env.PAPERCLIP_API_KEY, runId);
 const run = await pc.get(`/heartbeat-runs/${runId}`);
 const taskId = run.contextSnapshot?.issueId ?? run.contextSnapshot?.taskId ?? run.contextSnapshot?.payload?.issueId;
@@ -40,33 +41,52 @@ const prompt = `你正在为 SuitMe 协作台完成一个已经授权的开发�
   `若任务需要一个试点网页，将可独立打开的 HTML 写入 collab-pilot/index.html；使用内联样式和脚本，不依赖外部服务。\n` +
   `结束本轮时说明完成内容和验证。需要人时结束执行，不要阻塞等待；在最后消息末尾用 agent-autoloop 代码块返回 ask 数组，每项含 title、text、2到5个 options 和 about。\n` +
   `交接时保留代码和检查点。没有实际完成请明确说明，不能把草稿或预期结果当作已交付。`;
-const adapter = await adapterFor(agent.use);
-const args = adapter.command({ prompt, session: randomUUID(), resume: task.session ?? null, cwd: task.workspace,
-  access: agent.access, folder: runtime('tasks', task.id), contextFile, command: agent.command, model: agent.model, effort: agent.effort });
-const cleanEnv = { ...process.env };
-for (const name of Object.keys(cleanEnv)) if (name.startsWith('PAPERCLIP_') || name.startsWith('COLLAB_')) delete cleanEnv[name];
-const child = spawn(args[0]!, args.slice(1), { cwd: task.workspace, env: cleanEnv, detached: process.platform !== 'win32', stdio: ['ignore', 'pipe', 'pipe'] });
-let stdout = '', stderr = '';
+// The original Autoloop worker executes one Paperclip-owned round. The business
+// lease, repository, paths and publication checks remain in the control plane.
+process.env.AGENT_AUTOLOOP_HOME = runtime('autoloop-development', task.id);
+const { createWorker } = await import(pathToFileURL(path.join(root, 'upstream/autoloop/worker/worker.ts')).href);
+const { HubError } = await import(pathToFileURL(path.join(root, 'upstream/autoloop/protocol/client.ts')).href);
+for (const name of Object.keys(process.env)) if (name.startsWith('PAPERCLIP_') || name.startsWith('COLLAB_')) delete process.env[name];
+const round = parseInt(createHash('sha256').update(runId).digest('hex').slice(0, 12), 16);
 const processFile = runtime('tasks', task.id, `process-${runId}.json`);
-let persist: Promise<unknown> = writeFile(processFile, JSON.stringify({ pid: child.pid, runId, finished: false }), { mode: 0o600 });
-child.stdout.on('data', data => {
-  stdout += data; if (stdout.length > 16 * 1024 * 1024) stop('SIGTERM');
-  const partial = adapter.read(stdout, null, stderr);
-  persist = persist.then(() => writeFile(processFile, JSON.stringify({ pid: child.pid, runId, ...partial }), { mode: 0o600 }));
-});
-child.stderr.on('data', data => { stderr += data; if (stderr.length > 2 * 1024 * 1024) stderr = stderr.slice(-1024 * 1024); });
-function stop(signal: NodeJS.Signals) { try { if (child.pid && process.platform !== 'win32') process.kill(-child.pid, signal); else child.kill(signal); } catch {} }
-let cancelled = false;
-for (const signal of ['SIGTERM', 'SIGINT'] as const) process.on(signal, () => { cancelled = true; stop(signal); });
-const exitCode = await new Promise<number | null>((resolve, reject) => { child.on('error', reject); child.on('close', resolve); });
-const reading: Reading = adapter.read(stdout, exitCode, stderr);
-await persist;
-await writeFile(processFile, JSON.stringify({ pid: child.pid, runId, exitCode, cancelled, ...reading, finished: reading.finished ?? (exitCode === 0 && Boolean(reading.text)) }), { mode: 0o600 });
-await writeFile(runtime('tasks', task.id, `run-${runId}.json`), JSON.stringify({ runId, exitCode, cancelled, ...reading }, null, 2), { mode: 0o600 });
-if (cancelled || reading.error || !reading.text) {
-  throw new Error(cancelled ? 'Execution cancelled; reconcile checkpoint before replacement' : reading.error ?? 'Agent left no final result');
+let settled = false, cancelled = false, receipt: any, failure: string | undefined;
+const claim = nativeWorkGate(round);
+let journal: any = { runtime: 'autoloop-worker', runId, round, attempt: task.generation, finished: false };
+await writeFile(processFile, JSON.stringify(journal), { mode: 0o600 });
+const worker = createWorker({ name: agentKey + ':' + runId, capacity: 1, wait: 0, log: (line: string) => console.error(line), hub: {
+  async work(request: { running?: number[]; capacity?: boolean }) {
+    const action = claim(request, settled, cancelled);
+    if (action === 'cancel') return { cancel: [round] };
+    if (action !== 'offer') return {};
+    return { job: { run: round, token: lease, attempt: task.generation, session: task.session ?? null,
+      rule: { name: '当前已授权开发任务', cwd: task.workspace, prompt },
+      agent: { id: agentKey, name: agent.name, use: agent.use, access: agent.access, command: agent.command, model: agent.model, effort: agent.effort, timeout: 29 },
+      askFirst: ['改变任务目标', '扩大资料或代码范围', '合并', '发布'], context: { events: [], answers: [], timers: [], waiting: [], open: [], decided: [] } } };
+  },
+  async started(id: number, bound: string, info: any) {
+    if (id !== round || bound !== lease) throw new HubError(403, 'Stale native round');
+    journal.session = info.session; await writeFile(processFile, JSON.stringify(journal), { mode: 0o600 }); return {};
+  },
+  async result(id: number, bound: string, result: any) {
+    if (id !== round || bound !== lease) throw new HubError(403, 'Stale native round');
+    const { outcome, summary, error, session, usage, ...effects } = result;
+    const text = (outcome === 'failed' ? '没跑成：' + error : outcome === 'nothing' ? '没事可做：' + summary : summary ?? '本轮已结束')
+      + '\n```agent-autoloop\n' + JSON.stringify(effects) + '\n```';
+    journal = { ...journal, session: session ?? journal.session, text, finished: true, cancelled: cancelled || outcome === 'cancelled', usage };
+    await writeFile(processFile, JSON.stringify(journal), { mode: 0o600 });
+    await writeFile(runtime('tasks', task.id, `run-${runId}.json`), JSON.stringify({ ...journal, result }, null, 2), { mode: 0o600 });
+    if (cancelled || outcome === 'cancelled') { settled = true; return {}; }
+    receipt = await bridge(`/tasks/${task.id}/receipt`, { receiptId: runId, agent: agentKey, lease, text, session, runToken });
+    if (!receipt.ask?.length && receipt.outcome === 'done') await bridge(`/tasks/${task.id}/publish`, {});
+    if (outcome === 'failed') failure = error; settled = true; return {};
+  },
+}});
+for (const signal of ['SIGTERM', 'SIGINT'] as const) process.on(signal, () => { cancelled = true; });
+while (!settled) {
+  await worker.tick();
+  const entry = worker.entries().find((e: any) => e.run === round);
+  if (entry?.pid && journal.pid !== entry.pid) { journal.pid = entry.pid; await writeFile(processFile, JSON.stringify(journal), { mode: 0o600 }); }
+  if (!settled) await new Promise(resolve => setTimeout(resolve, 250));
 }
-const receipt = await bridge(`/tasks/${task.id}/receipt`, { receiptId: runId, agent: agentKey, lease, text: reading.text, session: reading.session,
-  runToken: process.env.PAPERCLIP_API_KEY });
-if (!receipt.ask?.length && receipt.outcome === 'done') await bridge(`/tasks/${task.id}/publish`, {});
-console.log(JSON.stringify({ taskId: task.id, session: reading.session, receipt, usage: reading.usage ?? reading.sessionUsage }));
+if (cancelled || failure) throw new Error(cancelled ? 'Execution stopped; reconcile retained workspace before replacement' : failure);
+console.log(JSON.stringify({ taskId: task.id, runtime: 'autoloop-worker', receipt }));

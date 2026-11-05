@@ -174,3 +174,7 @@ Commit: `525b1d1179c550cd5b5661bcbf8f00f57a676928` (1.6.6). Source: https://gith
 Reused without upstream source changes: Ladybug graph adapter, DataPoint and source provenance helpers; frontend graph renderer, graph schema reducer and JSON Schema serializer. SuitMe adds host identity/version checks, source-scoped graph storage and a React client-only compatibility boundary. Automatic extraction, embedding and remember/recall pipelines are not enabled.
 
 License: Apache License 2.0; retained verbatim at `upstream/cognee/LICENSE` and `licenses/cognee-APACHE-2.0.txt`. Research comparisons are documented in `docs/KNOWLEDGE-ENGINE.md`.
+
+## Additional direct source integration (2026-11-05)
+
+The existing pinned Super-agent MIT source also supplies `settingsPolicy` and `assessmentOutcome`. The existing pinned Agent Autoloop MIT source also supplies `createWorker` for native process execution and receipt recovery. Both submodule worktrees remain unmodified. SuitMe adds native Paperclip ports and scoped MCP tools; no second hub is started.

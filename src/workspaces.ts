@@ -22,20 +22,20 @@ export function collaborationOwnerMatches(issue: any, expected: string[], comple
       && stage.participants.some((p: any) => p.type === 'user' && p.userId === 'local-board')
       || completed && issue.status === 'done' && issue.executionPolicy.stages.some((s: any) => s.type === 'review' && s.participants.some((p: any) => p.type === 'user' && p.userId === 'local-board'))));
 }
-export type Catalog = { companyId: string; coordinationProject: string; vaultProject: string; participants?: string[]; modelRegistryIssueId?: string; ontologyIssues?: Record<string, string>;
+export type Catalog = { companyId: string; coordinationProject: string; vaultProject: string; participants?: string[]; modelRegistryIssueId?: string; ontologyIssues?: Record<string, string>; serviceRegistryIssueId?: string;
   feishuConnection?: Pick<FeishuReference, 'profile' | 'appId' | 'userOpenId'>;
   spaces: Record<string, { projectId: string; agent: string; name?: string; members?: string[]; description?: string }>;
   sources: { id: string; title: string; domain: string; ref: { taskId: string; key: string }; external?: FeishuReference }[] };
 export type State = { version: 1; sources: string[]; requests: string[]; snapshots: Snapshot[]; outcomes: Snapshot[]; history: { at: string; event: string; detail: unknown }[];
   imBinding?: { senderId: string; chatId: string };
-  delegation?: { enabled: boolean; mode: 'prepare' | 'advance'; jobId?: string; lastBasis?: string; instruction?: string; nonce?: string };
-  context?: { autoDiscover: boolean; linkedTasks: string[]; requirements: string[]; fullSources: string[]; excludedSources?: string[]; knowledgeSpace?: string };
+  delegation?: { enabled: boolean; mode: 'prepare' | 'advance'; jobId?: string; lastBasis?: string; instruction?: string; nonce?: string; eventCursor?: number; recheckCount?: number; recheck?: { at: string; reason: string; kind: 'context' | 'delivery' } };
+  context?: { service?: { id: string; version: string; ownerUserId: string; name: string; responsibilities: string; offer: string }; autoDiscover: boolean; linkedTasks: string[]; requirements: string[]; fullSources: string[]; excludedSources?: string[]; knowledgeSpace?: string };
   fence?: { agent: string; lease?: string; runId?: string; generation: number };
   pendingHandoff?: { previous: string; next: string; generation: number }; proof?: string };
 type Snapshot = { id: string; title: string; domain: Domain; sources: string[]; key: string; grants: { agent: string; id: string }[]; published?: boolean; publicationId?: string; receiptId?: string; inputManifest?: InputRef[] };
 type Access = { id: string; taskId: string; sourceId: string; agent: string; purpose: string; expiresAt: string;
   state: 'pending' | 'approved' | 'denied' | 'revoking' | 'revoked' | 'expired'; grantId?: string; approvalId?: string; requestedBy: string; reviewedBy?: string; reason?: string; revokeOutcome?: 'expired' | 'revoked'; remainingNativeAccess?: boolean; proof?: string };
-export type WorkspaceActor = { admin: boolean; agent?: string; automation?: string };
+export type WorkspaceActor = { userId?: string; admin: boolean; agent?: string; automation?: string };
 const requestSchema = z.object({ taskId: z.string(), sourceId: z.string(), agent: z.string().optional(),
   purpose: z.string().trim().min(1).max(1000), hours: z.number().min(1 / 60).max(168).default(8), requestKey: z.string().min(1).max(120) }).strict();
 const taskSchema = z.object({ title: z.string().trim().min(1).max(120), goal: z.string().trim().min(1).max(5000),

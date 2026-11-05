@@ -29,16 +29,32 @@ jobs:
           DELIVERY_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           node --input-type=module <<'NODE'
-          import { readFileSync, mkdirSync, copyFileSync, writeFileSync } from 'node:fs';
+          import { readFileSync, mkdirSync, copyFileSync, writeFileSync, existsSync, readdirSync, lstatSync } from 'node:fs';
+          import { createHash } from 'node:crypto';
           import assert from 'node:assert/strict';
-          const html = readFileSync('collab-pilot/index.html', 'utf8');
-          assert.match(html, /<!doctype html>/i, 'A complete HTML document is required');
-          assert.match(html, /<title>[^<]+<\/title>/i, 'A page title is required');
-          assert.match(html, /<html[^>]*lang=/i, 'A document language is required');
-          assert.ok(!/<script[^>]+src\s*=\s*["']https?:/i.test(html), 'Pilot must not depend on remote scripts');
+          const page = existsSync('collab-pilot/index.html');
+          const files = readdirSync('collab-pilot').filter(name => /\.(json|md|txt)$/.test(name) && lstatSync('collab-pilot/' + name).isFile() && !lstatSync('collab-pilot/' + name).isSymbolicLink());
+          assert.ok(page || files.length, 'A page or reviewable document is required');
           mkdirSync('preview-artifact', { recursive: true });
-          copyFileSync('collab-pilot/index.html', 'preview-artifact/index.html');
-          writeFileSync('preview-artifact/version.json', JSON.stringify({ commit: process.env.DELIVERY_SHA, environment: 'pr-preview', builtAt: new Date().toISOString() }));
+          const documents = files.map(name => {
+            const body = readFileSync('collab-pilot/' + name, 'utf8');
+            if (name.endsWith('.json')) JSON.parse(body);
+            copyFileSync('collab-pilot/' + name, 'preview-artifact/' + name);
+            return { name, body, sha256: createHash('sha256').update(body).digest('hex') };
+          });
+          if (page) {
+            const html = readFileSync('collab-pilot/index.html', 'utf8');
+            assert.match(html, /<!doctype html>/i, 'A complete HTML document is required');
+            assert.match(html, /<title>[^<]+<\/title>/i, 'A page title is required');
+            assert.match(html, /<html[^>]*lang=/i, 'A document language is required');
+            assert.ok(!/<script[^>]+src\s*=\s*["']https?:/i.test(html), 'Pilot must not depend on remote scripts');
+            copyFileSync('collab-pilot/index.html', 'preview-artifact/index.html');
+          } else {
+            const escape = text => String(text).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;');
+            const sections = documents.map(d => '<section><h2>' + escape(d.name) + '</h2><pre>' + escape(d.body) + '</pre></section>').join('');
+            writeFileSync('preview-artifact/index.html', '<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>交付文件预览</title><style>body{font:16px/1.7 system-ui;max-width:900px;margin:40px auto;padding:20px}pre{white-space:pre-wrap;overflow-wrap:anywhere;padding:20px;background:#f4f4f4}h2{margin-top:40px}</style><h1>交付文件预览</h1><p>提交：' + escape(process.env.DELIVERY_SHA) + '</p>' + sections + '</html>');
+          }
+          writeFileSync('preview-artifact/version.json', JSON.stringify({ commit: process.env.DELIVERY_SHA, environment: 'pr-preview', kind: page ? 'page' : 'files', files: documents.map(({name,sha256}) => ({name,sha256})), builtAt: new Date().toISOString() }));
           console.log('Pilot document checks passed');
           NODE
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

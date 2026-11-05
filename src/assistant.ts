@@ -5,6 +5,10 @@ import { Workspaces, contractProof, type WorkspaceActor } from './workspaces.ts'
 import type { Task } from './store.ts';
 import { verifyEvidenceQuotes, projectHistoricalEvidence } from './evidence.ts';
 import { TaskContext, type InputRef } from './context.ts';
+import { admitPreparation, assessPreparation, consumeDueRecheck, maxRuntimeTools, preparationRule, runtimeToolInput, subscribedEvents, type CoordinationEvent } from './coordination.ts';
+import { deliveryArtifactEvidence, platformTestEvidence } from './platform-evidence.ts';
+import { AgentServices } from './agent-services.ts';
+import { KnowledgeGraph } from './graph.ts';
 
 export const assistantOutput = z.object({
   summary: z.string().trim().min(1).max(2500),
@@ -19,7 +23,9 @@ export const assistantOutput = z.object({
 }).strict();
 export type AssistantOutput = z.infer<typeof assistantOutput>;
 export const assistantOutputSchema = z.toJSONSchema(assistantOutput);
-type Job = { version: 1; id: string; taskId: string; agent: string; basis: string; createdAt: string; mode: 'prepare' | 'advance'; evidenceSources?: { id: string; revision: string; title?: string }[]; inputManifest?: InputRef[]; inputCoverage?: unknown;
+export type Job = { recheck?: { at: string; reason: string; kind: 'context' | 'delivery' }; runtime?: 'autoloop-v1'; events?: CoordinationEvent[]; assessment?: any; receipt?: { ask?: unknown[]; later?: unknown[] };
+  toolCalls?: { id: string; name: string; hash: string; at: string; status: 'started' | 'completed' | 'failed'; error?: string }[];
+  version: 1; id: string; taskId: string; agent: string; basis: string; createdAt: string; mode: 'prepare' | 'advance'; evidenceSources?: { id: string; revision: string; title?: string }[]; inputManifest?: InputRef[]; inputCoverage?: unknown;
   status: 'queued' | 'running' | 'completed' | 'failed' | 'cancelled' | 'cancelling' | 'stale'; runId?: string;
   error?: string; output?: AssistantOutput; applied?: { checkpoint?: string; knowledge?: string }; usage?: unknown; inputRevision?: string; proof?: string };
 const terminal = new Set(['succeeded', 'failed', 'cancelled', 'timed_out']);
@@ -51,13 +57,17 @@ export class WorkspaceAssistant {
   async save(job: Job) { job.proof = contractProof('assistant', job.id, job, secrets().jwtSecret);
     await this.pc.document(job.id, 'assistant-job', 'Agent 整理记录', JSON.stringify(job, null, 2)); }
   async bundle(task: Task, job?: Pick<Job, 'id'>) {
-    const state = await this.workspaces.state(task), pack = await this.taskContext.collect(task, job ? 'assistant:' + job.id : undefined);
-    const { sources, checkpoints, missing, requests, decisions, goal } = pack.layers;
+    const state = await this.workspaces.state(task); await new AgentServices(this.workspaces).assertCurrent(state);
+    const pack = await this.taskContext.collect(task, job ? 'assistant:' + job.id : undefined);
+    const { sources: materials, checkpoints, missing, requests, decisions, goal } = pack.layers;
+    const goalRevision = pack.manifest.find(r => r.kind === 'goal')?.revision ?? hash(goal);
+    const sources = [...materials, { id: 'goal:' + task.id, nativeIssueId: task.id, title: '本次需求', kind: 'goal', revision: goalRevision,
+      body: goal.goal ?? '', facts: {}, totalChars: (goal.goal ?? '').length, truncated: false }];
     const basis = hash({ id: task.id, generation: task.generation, agent: task.agent, manifest: pack.manifest,
       selection: [...sources, ...checkpoints].map(s => ({ id: s.id, range: s.range })), missing, requests,
       delegation: { mode: state.delegation?.mode, nonce: state.delegation?.nonce, instruction: state.delegation?.instruction } });
     return { basis, manifest: pack.manifest, context: { task: { id: task.id, identifier: task.identifier, title: goal.title, goal: goal.goal,
-      requirements: goal.requirements, origin: goal.origin, participant: this.config.agents[task.agent]?.name ?? task.agent },
+      requirements: goal.requirements, origin: goal.origin, participant: this.config.agents[task.agent]?.name ?? task.agent, service: state.context?.service },
       instruction: state.delegation?.instruction ?? '', sources, missing, requests, checkpoints, decisions, coverage: pack.coverage } };
   }
   async delegate(taskId: string, enabled: boolean, mode: 'prepare' | 'advance', instruction: string, actor: WorkspaceActor, nonce?: string) {
@@ -66,6 +76,8 @@ export class WorkspaceAssistant {
     const task = this.store.get(taskId), state = await this.workspaces.state(task);
     if (task.phase === 'accepted') throw new Error('任务已完成，请新建协作任务');
     state.delegation = { ...state.delegation, enabled, mode, instruction: instruction.slice(0, 5000), nonce: nonce ?? state.delegation?.nonce };
+    if (enabled && nonce) state.delegation.recheckCount = 0;
+    if (!enabled) delete state.delegation.recheck;
     await this.workspaces.save(task, state, enabled ? 'assistant-delegated' : 'assistant-paused', { mode, enabled, delegatedBy: 'local-operator' });
     if (!enabled && state.delegation.jobId) await this.cancel(taskId, actor);
     return enabled ? this.advance(taskId) : { paused: true };
@@ -73,10 +85,11 @@ export class WorkspaceAssistant {
   async advance(taskId: string) {
     if (!this.available()) return;
     let task = this.store.get(taskId), state = await this.workspaces.state(task);
-    if (!state.delegation?.enabled || ['accepted', 'running', 'unknown', 'handoff_pending'].includes(task.phase)) return;
+    if (!admitPreparation(task.id, state.delegation?.enabled === true, task.phase).admissible) return;
+    if (!await new AgentServices(this.workspaces).current(state)) return;
     let previous: Job | undefined;
-    if (state.delegation.jobId) {
-      previous = await this.reconcile(state.delegation.jobId);
+    if (state.delegation!.jobId) {
+      previous = await this.reconcile(state.delegation!.jobId);
       if (['queued', 'running', 'cancelling'].includes(previous.status)) return previous;
     }
     await this.taskContext.enrich(task.id, { admin: false, agent: task.agent }, true);
@@ -94,17 +107,21 @@ export class WorkspaceAssistant {
       }
     }
     task = this.store.get(taskId); state = await this.workspaces.state(task);
+    const due = consumeDueRecheck(state.delegation!);
+    if (due) await this.workspaces.save(task, state, 'recheck-due', { kind: due.kind, reason: due.reason });
     if (previous && state.delegation?.lastBasis === (await this.bundle(task, previous)).basis) return;
     const bundle = await this.bundle(task);
     if (!previous && state.delegation?.lastBasis === bundle.basis) return;
     const issue = await this.pc.post('/companies/' + this.config.companyId + '/issues', { allowDuplicate: true,
       idempotencyKey: 'assistant:' + task.id + ':' + bundle.basis, projectId: this.config.assistant!.projectId, visibility: 'private',
       parentId: task.id, title: task.identifier + ' · Agent 整理', status: 'backlog', assigneeAgentId: this.config.agents[this.key]!.paperclipId });
-    const job: Job = { version: 1, id: issue.id, taskId, agent: task.agent, basis: bundle.basis, mode: state.delegation!.mode,
+    const events = subscribedEvents(this.store, task, state, state.delegation?.eventCursor ?? 0);
+    const job: Job = { runtime: 'autoloop-v1', events, version: 1, id: issue.id, taskId, agent: task.agent, basis: bundle.basis, mode: state.delegation!.mode,
       createdAt: new Date().toISOString(), status: 'queued', inputManifest: bundle.manifest, inputCoverage: bundle.context.coverage,
       evidenceSources: bundle.context.sources.map(s => ({ id: s.id, revision: s.revision, title: s.title })) };
     await this.save(job);
     state.delegation!.jobId = issue.id; state.delegation!.lastBasis = bundle.basis;
+    state.delegation!.eventCursor = Math.max(state.delegation!.eventCursor ?? 0, ...events.map(e => Number(e.id)));
     await this.workspaces.save(task, state, 'assistant-queued', { jobId: issue.id, engine: this.config.assistant!.engine });
     await this.pc.patch('/issues/' + issue.id, { status: 'todo' });
     await this.pc.post('/agents/' + this.config.agents[this.key]!.paperclipId + '/wakeup', { source: 'on_demand', triggerDetail: 'manual',
@@ -127,7 +144,82 @@ export class WorkspaceAssistant {
     if ((await this.bundle(task, job)).basis !== job.basis) throw new Error('装配期间上下文发生变化，停止本次整理');
     job.status = 'running'; job.runId = runId; await this.save(job);
     return { context: bundle.context, engine: this.config.assistant!.engine, model: this.config.assistant?.model,
-      effort: this.config.assistant?.effort, schema: assistantOutputSchema };
+      effort: this.config.assistant?.effort, schema: assistantOutputSchema, runtime: job.runtime, events: job.events ?? [], rule: preparationRule, toolBudget: maxRuntimeTools, recheck: job.recheck };
+  }
+  async tool(jobId: string, runId: string, callId: string, value: unknown, actor: WorkspaceActor) {
+    const input = runtimeToolInput.parse(value), job = await this.owned(jobId, runId, actor);
+    const task = this.store.get(job.taskId), state = await this.workspaces.state(task), before = await this.bundle(task, job);
+    if (job.runtime !== 'autoloop-v1' || job.status !== 'running' || !state.delegation?.enabled || state.delegation.jobId !== job.id
+      || before.basis !== job.basis || !admitPreparation(task.id, true, task.phase).admissible) throw new Error('上下文或委托已变化，停止工具调用');
+    if (!/^[a-f0-9-]{36}$/.test(callId)) throw new Error('工具调用需要固定的调用标识');
+    job.toolCalls ??= []; const previous = job.toolCalls.find(c => c.id === callId);
+    if (previous && previous.hash !== hash(input)) throw new Error('同一工具调用不能更换参数');
+    if (previous?.status === 'completed' && ['assess_scope', 'discover_context', 'expand_context', 'request_access', 'schedule_recheck'].includes(input.name)) return { replayed: true, context: before.context, assessment: job.assessment, recheck: job.recheck };
+    if (!previous && job.toolCalls.length >= maxRuntimeTools) throw new Error('本轮工具预算已用完，请保留成果并结束');
+    const action = previous ?? { id: callId, name: input.name, hash: hash(input), at: new Date().toISOString(), status: 'started' as const };
+    if (!previous) job.toolCalls.push(action); await this.save(job);
+    try {
+      const scoped = { admin: false, agent: task.agent };
+      const mutation = ['discover_context', 'expand_context', 'request_access', 'read_execution_evidence'].includes(input.name);
+      if (mutation && input.name !== 'read_execution_evidence' && job.assessment?.kind !== 'accept') throw new Error('先判断本轮工作范围，再推进准备步骤');
+      let result: unknown;
+      if (input.name === 'read_context') result = { context: before.context, events: job.events ?? [], rule: preparationRule, remainingTools: maxRuntimeTools - job.toolCalls.length };
+      else if (input.name === 'assess_scope') { job.assessment = assessPreparation(input.assessment); result = job.assessment; }
+      else if (input.name === 'discover_services') result = (await new AgentServices(this.workspaces).read()).profiles.filter(p => p.enabled).map(({id,name,kind,ownerUserId,responsibilities,offers})=>({id,name,kind,ownerUserId,responsibilities,offers}));
+      else if (input.name === 'read_execution_evidence') {
+        const history = [];
+        for (const id of [...new Set(state.history.filter(h=>h.event==='assistant-queued').map(h=>(h.detail as any).jobId))].filter(id=>id!==job.id).slice(-5)) {
+          const previousJob = await this.job(id); const run = previousJob.runId ? await this.pc.get('/heartbeat-runs/'+previousJob.runId) : undefined;
+          history.push({jobId:id,runId:previousJob.runId,status:previousJob.status,nativeStatus:run?.status,runtime:previousJob.runtime,
+            toolCalls:previousJob.toolCalls?.map(t=>({name:t.name,status:t.status})),workProductCount:previousJob.output?.workProducts.length ?? 0});
+        }
+        const deliveries = [];
+        for(const id of state.context?.linkedTasks??[]){await this.workspaces.reader(task.agent).get('/issues/'+id);const linked=this.store.get(id);deliveries.push({id,identifier:linked.identifier,phase:linked.phase,delivery:linked.delivery,artifact:deliveryArtifactEvidence(linked)});}
+        result = {preparationRuns:history,deliveries,platformTests:platformTestEvidence()};
+        if(job.mode==='advance'){
+          const text='后台实时执行证据；只记录运行与检查事实，不代表业务功能或最终验收通过。\n\n'+JSON.stringify(result,null,2);
+          const receiptId='runtime-evidence:'+job.id+':'+hash(result),fresh=await this.workspaces.state(task);
+          if(!fresh.snapshots.some(s=>s.receiptId===receiptId)){const snap=await this.workspaces.snapshot(task,'context-note','后台执行证据',text,[],receiptId);snap.receiptId=receiptId;fresh.snapshots.push(snap);await this.workspaces.save(task,fresh,'runtime-evidence-recorded',{jobId,id:snap.id,author:'system'});}
+        }
+      }
+      else if (input.name === 'search_context') result = await this.taskContext.search(task, input.query);
+      else if (input.name === 'read_record') result = await this.taskContext.readRecord(task.id, input.recordId, scoped);
+      else if (input.name === 'schedule_recheck') {
+        if (job.mode !== 'advance' || job.assessment?.kind !== 'accept' || (state.delegation.recheckCount ?? 0) >= 2) throw new Error('本任务暂不允许继续自动复查；需要新的明确委托');
+        if (before.context.missing.some(m => m.reason === 'permission')) throw new Error('等待人的授权时不定时重试');
+        if (input.kind === 'delivery' && !state.context?.linkedTasks.length) throw new Error('先明确关联需要核对的交付');
+        job.recheck = { at: new Date(Date.now() + input.afterSeconds * 1000).toISOString(), kind: input.kind, reason: input.reason }; result = job.recheck;
+      }
+      else if (input.name === 'read_graph') result = await new KnowledgeGraph(this.workspaces).run(input.sourceId, input.revision, false, scoped, task.id);
+      else if (input.name === 'discover_context') result = await this.taskContext.enrich(task.id, scoped, true);
+      else if (input.name === 'expand_context') result = await this.taskContext.expand(task.id, input.sourceId, scoped);
+      else {
+        if (job.mode !== 'advance' || !state.sources.includes(input.sourceId)) throw new Error('访问申请只针对已明确纳入当前任务的资料');
+        const requests = await Promise.all(state.requests.map(id => this.workspaces.access(id)));
+        const existing = requests.find(r => r.sourceId === input.sourceId && r.agent === task.agent);
+        result = existing ? { id: existing.id, state: existing.state, reused: true } : await this.workspaces.request({ taskId: task.id, sourceId: input.sourceId, purpose: input.purpose, hours: 8,
+          requestKey: 'runtime:' + job.id + ':' + input.sourceId }, scoped);
+      }
+      const after = await this.bundle(this.store.get(task.id), job);
+      if (JSON.stringify(after.context.task) !== JSON.stringify(before.context.task)
+        || before.manifest.some(r => r.kind !== 'goal' && !after.manifest.some(n => n.id === r.id && n.revision === r.revision && n.hash === r.hash))) throw new Error('工具执行期间目标、资料或授权已变化，结果不交付');
+      if (!mutation && after.basis !== before.basis) throw new Error('工具执行期间上下文已变化，结果不交付');
+      if (mutation) {
+        job.basis = after.basis; job.inputManifest = after.manifest; job.inputCoverage = after.context.coverage;
+        job.evidenceSources = after.context.sources.map(s => ({ id: s.id, revision: s.revision, title: s.title }));
+        await this.pc.document(job.id, 'assistant-input', '本轮实际上下文与覆盖范围', JSON.stringify({ promptVersion: 'autonomous-context-v1', manifest: after.manifest, context: after.context }, null, 2));
+        job.inputRevision = (await this.pc.get('/issues/' + job.id + '/documents/assistant-input')).latestRevisionId;
+        const fresh = await this.workspaces.state(this.store.get(task.id)); fresh.delegation!.lastBasis = after.basis;
+        await this.workspaces.save(this.store.get(task.id), fresh, 'assistant-context-refreshed', { jobId, tool: input.name });
+      }
+      action.status = 'completed'; await this.save(job);
+      this.store.audit('assistant.tool-completed', task.id, { jobId, name: input.name, callId });
+      return { result, ...(mutation ? { context: after.context } : {}) };
+    } catch (error) { action.status = 'failed'; action.error = String(error).slice(0, 300); await this.save(job); throw error; }
+  }
+  async receipt(jobId: string, runId: string, receipt: { ask?: unknown[]; later?: unknown[] }, actor: WorkspaceActor) {
+    const job = await this.owned(jobId, runId, actor); job.receipt = { ask: receipt.ask ?? [], later: receipt.later ?? [] }; await this.save(job);
+    return { recorded: true };
   }
   async result(jobId: string, runId: string, value: unknown, usage: unknown, actor: WorkspaceActor) {
     let job = await this.owned(jobId, runId, actor);
@@ -138,8 +230,11 @@ export class WorkspaceAssistant {
       if (job.status !== 'cancelling') job.status = 'stale'; delete job.output; await this.save(job); return { stale: true };
     }
     const output = validateAssistantOutput(value, [...bundle.context.sources, ...bundle.context.checkpoints, ...bundle.context.missing].map(s => s.id));
+    if (job.runtime && !job.assessment) throw new Error('本轮尚未记录范围判断');
+    if (job.runtime && job.assessment?.kind !== 'accept' && (output.workProducts.length || output.checkpoint.trim() || output.knowledge)) throw new Error('未通过工作范围判断，不能交付执行成果');
     verifyEvidenceQuotes(output.evidenceQuotes, [...bundle.context.sources, ...bundle.context.checkpoints]);
     if (output.knowledge && !output.evidenceQuotes.length) throw new Error('没有核验的资料引用，不能生成知识候选');
+    if (output.knowledge && output.evidenceQuotes.every(q => q.sourceId.startsWith('goal:'))) throw new Error('需求描述只能支持本任务评估，不能独自成为长期知识依据');
     const full = state.context?.fullSources ?? [];
     const expansion = output.contextGaps.filter(g => g.kind === 'coverage').flatMap(g => g.sourceIds)
       .filter(id => !full.includes(id) && [...bundle.context.sources, ...bundle.context.checkpoints].some(s => s.id === id && (s.truncated || s.truncatedMessages) && ['knowledge', 'note', 'conversation', 'checkpoint'].includes(s.kind)));
@@ -168,9 +263,11 @@ export class WorkspaceAssistant {
     }
     job.status = 'completed'; await this.save(job);
     await this.pc.patch('/issues/' + job.id, { status: 'done' });
-    await this.workspaces.save(this.store.get(task.id), await this.workspaces.state(this.store.get(task.id)), 'assistant-prepared', { jobId, preparedBy: this.key, mode: job.mode });
-    if (task.messageId.startsWith('om_')) this.store.notify('assistant-prepared:' + job.id, task.id,
-      `${task.identifier} 已准备 ${output.workProducts.length} 份待审阅工作稿。授权、知识采用和验收仍由你决定。\n${this.config.paperclipUrl}/SUI/knowledge-workspaces`);
+    const preparedState = await this.workspaces.state(this.store.get(task.id));
+    if (job.recheck && !output.nextSteps.some(s => s.owner === 'human' && ['clarify', 'authorize'].includes(s.kind))) preparedState.delegation!.recheck = job.recheck;
+    await this.workspaces.save(this.store.get(task.id), preparedState, 'assistant-prepared', { jobId, preparedBy: this.key, mode: job.mode });
+    if (task.messageId.startsWith('om_') && (output.workProducts.length || output.nextSteps.some(s => s.owner === 'human'))) this.store.notify('assistant-prepared:' + job.id, task.id,
+      `${task.identifier} ${output.workProducts.length ? '已准备 ' + output.workProducts.length + ' 份待审阅成果' : output.nextSteps.find(s => s.owner === 'human')!.text}。\n${this.config.paperclipUrl}/SUI/knowledge-workspaces`);
     return { completed: true, applied: job.applied };
   }
   async fail(jobId: string, runId: string, error: string, actor: WorkspaceActor) {
@@ -214,12 +311,21 @@ export class WorkspaceAssistant {
     const state = await this.workspaces.state(task);
     if (!actor.admin && actor.agent !== task.agent) throw new Error('Unauthorized');
     if (!state.delegation?.jobId) return { enabled: state.delegation?.enabled ?? false, mode: state.delegation?.mode ?? 'advance', status: 'idle', engine: this.config.assistant?.engine ?? 'codex' };
+    if (!await new AgentServices(this.workspaces).current(state)) {
+      const updated = (await new AgentServices(this.workspaces).read()).profiles.find(p => p.id === state.context?.service?.id);
+      return { enabled: state.delegation.enabled, status: 'scope_changed', service: state.context?.service,
+        updatedService: updated ? { ...updated, version: (await import('./agent-services.ts')).serviceVersion(updated) } : undefined,
+        error: 'Agent 当前职责已改变，请负责人核对本任务范围后继续' };
+    }
     const job = await this.job(state.delegation.jobId), bundle = await this.bundle(task, job);
     const current = bundle.basis === job.basis && !['accepted', 'unknown', 'handoff_pending'].includes(task.phase);
     // Even a local human sees the result only with its current source dependencies. Native archive remains auditable.
     return { enabled: state.delegation.enabled, mode: state.delegation.mode, status: !current && job.status === 'completed' ? 'stale' : job.status,
       engine: this.config.assistant?.engine ?? 'codex', jobId: job.id, runId: job.runId, createdAt: job.createdAt,
       output: current && job.status === 'completed' ? job.output : undefined, applied: job.applied, error: job.error,
+      runtime: job.runtime, assessment: current ? job.assessment : undefined, toolCalls: job.toolCalls?.map(({ hash, ...t }) => t),
+      events: job.events, nextCheckAt: state.delegation.recheck?.at, subscriptions: { sources: state.sources, deliveries: state.context?.linkedTasks ?? [], task: task.id },
+      attention: current && job.status === 'completed' ? job.receipt?.ask ?? [] : [],
       evidenceSources: projectHistoricalEvidence(job.evidenceSources ?? [], bundle.context.sources), inputManifest: job.inputManifest, inputCoverage: job.inputCoverage };
   }
   async tick() {
@@ -228,6 +334,7 @@ export class WorkspaceAssistant {
       try {
         const state = await this.workspaces.state(task);
         if (!state.delegation?.jobId && !state.delegation?.enabled) continue;
+        if (!await new AgentServices(this.workspaces).current(state)) { if (state.delegation?.jobId) await this.cancel(task.id, { admin: true }); continue; }
         if (state.delegation?.jobId) {
           const job = await this.reconcile(state.delegation.jobId);
           if (job.status === 'cancelling' || ['queued', 'running'].includes(job.status) && (['accepted', 'unknown', 'handoff_pending'].includes(task.phase) || (await this.bundle(task, job)).basis !== job.basis)) await this.cancel(task.id, { admin: true });

@@ -27,7 +27,7 @@
     "cli": "node --import tsx src/cli.ts",
     "mcp": "node --import tsx src/mcp.ts",
     "doctor": "node --import tsx scripts/doctor.ts",
-    "test": "node --import tsx --test tests/*.test.ts",
+    "test": "node --import tsx scripts/test.ts",
     "typecheck": "tsc --noEmit",
     "build": "tsc --noEmit"
   },

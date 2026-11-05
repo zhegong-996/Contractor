@@ -107,7 +107,7 @@ export class Github {
     const version = JSON.parse(await readFile(path.join(dir, 'version.json'), 'utf8'));
     if (version.commit !== delivery.headSha) throw new Error('CI artifact version does not match delivery commit');
     await readFile(path.join(dir, 'index.html'), 'utf8');
-    return { ...delivery, artifactRunId: selected.id, environment: 'local-pr-preview', deployedSha: version.commit,
+    return { ...delivery, artifactRunId: selected.id, environment: version.kind === 'files' ? 'local-artifact-preview' : 'local-pr-preview', artifactKind: version.kind ?? 'page', deployedSha: version.commit,
       previewUrl: `http://127.0.0.1:${this.config.bridgePort}/preview/${task.id}/${delivery.headSha}/index.html` };
   }
 }

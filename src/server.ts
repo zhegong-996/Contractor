@@ -19,6 +19,7 @@ import { withFeishuReads } from './feishu-sources.ts';
 import { CollaborationIntake } from './collaboration-intake.ts';
 import { ModelSettingsService } from './model-settings.ts';
 import { KnowledgeGraph, cogneeCommit } from './graph.ts';
+import { AgentServices } from './agent-services.ts';
 import { OntologyService } from './ontology.ts';
 
 const config = loadConfig(); const credentials = secrets();
@@ -26,7 +27,8 @@ const store = new Store(runtime('bridge.sqlite')); const control = new Controlle
 const knowledge = new KnowledgeService(config, store, control.pc, credentials.jwtSecret);
 const workspaces = new Workspaces(config, store);
 const assistant = new WorkspaceAssistant(workspaces);
-const collaborationIntake = new CollaborationIntake(workspaces, assistant);
+const agentServices = new AgentServices(workspaces);
+const collaborationIntake = new CollaborationIntake(workspaces, assistant, agentServices);
 const modelSettings = new ModelSettingsService(workspaces);
 const graph = new KnowledgeGraph(workspaces);
 const ontology = new OntologyService(workspaces);
@@ -73,6 +75,10 @@ const server = createServer(async (req, res) => {
       const payload = data.payload ?? data;
       const action = url.pathname.slice('/workspace/'.length);
       res.end(JSON.stringify(await serialize(async () => {
+        if (action === 'agent-services') return agentServices.view(workspaceActor);
+        if (action === 'save-agent-services') return agentServices.save(payload.profiles, payload.revision ?? null, workspaceActor);
+        if (action === 'invoke-agent-service') return agentServices.start(payload, workspaceActor, assistant);
+        if (action === 'rebind-agent-service') return agentServices.rebind(payload.taskId, payload.version, workspaceActor, assistant);
         if (action === 'model-settings') return modelSettings.read(workspaceActor);
         if (action === 'knowledge-graph') return graph.run(payload.sourceId, payload.revision, payload.project === true, workspaceActor, payload.taskId);
         if (action === 'ontology-view') return ontology.read(payload.space, workspaceActor);
@@ -92,6 +98,8 @@ const server = createServer(async (req, res) => {
             upstream: { name: 'Paperclip', version: health.version, commit: health.commit } };
         }
         if (action === 'enable-collaboration-im') return collaborationIntake.enable(payload.taskId, workspaceActor);
+        if (action === 'assistant-tool') return assistant.tool(payload.jobId, payload.runId, payload.callId, payload.input, workspaceActor);
+        if (action === 'assistant-receipt') return assistant.receipt(payload.jobId, payload.runId, payload.receipt, workspaceActor);
         if (action === 'assistant-context') return assistant.context(payload.jobId, payload.runId, workspaceActor);
         if (action === 'context-pack') return assistant.taskContext.inspect(payload.taskId, workspaceActor);
         if (action === 'context-record') return assistant.taskContext.readRecord(payload.taskId, payload.recordId, workspaceActor);
@@ -112,6 +120,11 @@ const server = createServer(async (req, res) => {
         if (action === 'assistant-failed') { await assistant.fail(payload.jobId, payload.runId, payload.error ?? '运行失败', workspaceActor); return { recorded: true }; }
         if (action === 'assistant-delegate') return (await assistant.delegate(payload.taskId, payload.enabled === true, z.enum(['prepare', 'advance']).parse(payload.mode),
           String(payload.instruction ?? ''), workspaceActor, payload.nonce)) ?? { unchanged: true };
+        if (action === 'start-development') {
+          workspaces.manager(workspaceActor);
+          const request = z.object({ text: z.string().min(1).max(5000), agent: z.string(), requestKey: z.string().min(1).max(120) }).strict().parse(payload);
+          return control.createTask({ triggerId: 'workspace-development:' + request.requestKey, chatId: 'local-workspace', messageId: 'local-workspace', senderId: 'local-operator', agent: request.agent, text: request.text });
+        }
         if (action === 'start-collaboration') {
           const task = await workspaces.createTask(payload.task, workspaceActor);
           if (payload.delegate && assistant.available()) await assistant.delegate(task.id, true, z.enum(['prepare', 'advance']).parse(payload.mode ?? 'advance'), '', workspaceActor, payload.task.requestKey);

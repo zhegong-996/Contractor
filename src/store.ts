@@ -7,7 +7,7 @@ export type Task = { id: string; identifier: string; triggerId: string; chatId: 
   agent: string; workspace: string; branch: string; context: string; generation: number;
   phase: string; session?: string; runId?: string; lastMessage?: string; delivery?: Delivery; lease?: string; knowledgeRefs?: KnowledgeRef[]; kind?: 'development' | 'collaboration' | 'knowledge' };
 export type Delivery = { pr: number; url: string; headSha: string; ci: 'pending' | 'passed' | 'failed'; merged: boolean;
-  mergeSha?: string; environment?: string; deployedSha?: string; previewUrl?: string; artifactRunId?: number };
+  mergeSha?: string; artifactKind?: 'page' | 'files'; environment?: string; deployedSha?: string; previewUrl?: string; artifactRunId?: number };
 
 export class Store {
   readonly db: DatabaseSync;

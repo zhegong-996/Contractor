@@ -36,3 +36,22 @@ test('pause does not create another task or treat IM text as permission approval
   const f = fixture(); try { await f.intake.ingest({ ...f.event, content: '/collab SUI-1 暂停' }); assert.deepEqual(f.calls, ['pause']); assert.equal(f.store.list().length, 1); }
   finally { f.close(); }
 });
+
+test('a natural follow-up resumes only the unique bound task and does not acknowledge every message',async()=>{
+ const f=fixture();try{await f.intake.ingest({...f.event,content:'刚补充了验收要求，请继续核对'});assert.deepEqual(f.calls,['note','resume']);assert.equal(f.store.list().length,1);assert.equal(f.store.db.prepare('SELECT COUNT(*) n FROM outbox').get()?.n,0);}finally{f.close();}
+});
+test('an ambiguous discussion is not attached to an arbitrary task',async()=>{
+ const f=fixture();try{f.store.save({...f.task,id:'task-two',identifier:'SUI-2',triggerId:'second'});const result=await f.intake.ingest({...f.event,content:'继续刚才的工作'});assert.equal(result?.needsTaskReference,true);assert.equal(f.calls.length,0);}finally{f.close();}
+});
+
+test('an IM service request preserves its real origin and delivery retries do not create another task',async()=>{
+ const f=fixture();let starts=0;
+ try{
+  const {serviceProfileInput}=await import('../src/agent-services.ts');const {randomUUID}=await import('node:crypto');
+  const p=serviceProfileInput.parse({id:randomUUID(),key:'my-agent',name:'我的协作 Agent',kind:'personal',ownerUserId:'local-board',actorKey:'executor',responsibilities:'评估与交接',offers:['feasibility'],enabled:true});
+  const services:any={profile:async(key:string)=>{assert.equal(key,'my-agent');return p;},start:async(request:any,_actor:any,_assistant:any,origin:any)=>{starts++;assert.equal(request.serviceId,p.id);assert.equal(request.goal,'请核对需求');assert.deepEqual(origin,{messageId:'om_resume',chatId:'oc_test',senderId:'ou_owner'});return f.task;}};
+  const intake=new CollaborationIntake(f.intake.w,f.intake.assistant,services),message={...f.event,content:'/agent my-agent 请核对需求'};
+  await intake.ingest(message);await intake.ingest(message);assert.equal(starts,1);assert.equal(f.store.db.prepare('SELECT COUNT(*) n FROM outbox').get()?.n,1);
+  await assert.rejects(intake.ingest({...message,message_id:'om_other',sender_id:'ou_stranger'}),/Unauthorized/);assert.equal(starts,1);
+ }finally{f.close();}
+});

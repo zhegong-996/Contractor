@@ -1,3 +1,4 @@
+import { AgentServicesPage } from './agent-services.js';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ButtonHTMLAttributes, type DetailsHTMLAttributes, type Dispatch, type SetStateAction } from 'react';
 import { usePluginAction, useHostNavigation, MarkdownBlock, MarkdownEditor, type PluginPageProps, type PluginSidebarProps } from '@paperclipai/plugin-sdk/ui';
 import { styles } from './styles.js';
@@ -6,7 +7,7 @@ import { GraphPanel, DictionaryPanel } from './knowledge-graph.js';
 const labels: Record<string, string> = { pending: '待授权', approved: '已授权', denied: '已拒绝', revoked: '已撤权', revoking: '撤权中', expired: '已过期',
   ready: '待推进', waiting: '待审阅', running: '执行中', handoff_pending: '正在恢复交接', access_blocked: '等待授权', unknown: '待核对执行', accepted: '已完成',
   candidate: '待审阅', confirmed: '已确认', withdrawn: '已撤回', queued: '等待执行', completed: '已整理', failed: '整理失败', idle: '待委托', stale: '上下文已更新',
-  cancelled: '已停止', cancelling: '正在停止', unavailable: '待恢复连接', source: '来源证据' };
+  cancelled: '已停止', cancelling: '正在停止', unavailable: '待恢复连接', scope_changed: '需核对新职责', source: '来源证据' };
 const events: Record<string, string> = { 'task-created': '创建协作任务', 'access-requested': '申请资料访问', 'access-approved': '负责人批准访问', 'access-denied': '拒绝访问申请',
   'access-revoked': '结束资料授权', 'access-expired': '资料授权到期', checkpoint: '保存工作检查点', handoff: '完成任务交接', 'handoff-started': '开始任务交接',
   'handoff-assigned': '更新执行身份', 'knowledge-proposed': '准备知识候选', 'knowledge-confirmed': '确认知识版本', 'knowledge-withdrawn': '撤回知识结论',
@@ -112,36 +113,51 @@ function RequestItem({ ui, task, request: r, compact = false }: { ui: UI; task: 
 function MyWork({ ui }: { ui: UI }) {
   const active = ui.data.tasks.filter((t: any) => t.phase !== 'accepted');
   const requests = active.flatMap((t: any) => t.requests.filter((r: any) => r.state === 'pending' && Date.parse(r.expiresAt) > Date.now()).map((r: any) => ({ task: t, request: r })));
-  const decisions = active.flatMap((t: any) => [...(t.phase === 'unknown' ? [{ type: 'unknown', title: '核对原执行已经停止', task: t }] : []),
+  const decisions = active.flatMap((t: any) => [...(t.assistant?.attention?.length ? [{ type: 'clarify', title: t.assistant.attention[0].title, task: t }] : []), ...(t.assistant?.status === 'scope_changed' ? [{ type: 'scope', title: '核对 Agent 的新职责', task: t }] : []), ...(t.phase === 'unknown' ? [{ type: 'unknown', title: '核对原执行已经停止', task: t }] : []),
     ...t.snapshots.filter((s: any) => s.key?.startsWith('knowledge-') && !s.publicationId && !s.restricted && s.knowledgeState !== 'withdrawn').map((s: any) => ({ type: 'knowledge', title: '采用知识：' + s.title, task: t })),
-    ...((t.snapshots.some((s: any) => s.publicationId) || t.snapshots.some((s: any) => s.key === 'checkpoint' && !s.restricted && s.contextState === 'current') && !['queued', 'running', 'cancelling'].includes(t.assistant?.status)) ? [{ type: 'accept', title: '审阅工作稿并验收', task: t }] : [])]);
+    ...((!t.assistant?.attention?.length && t.assistant?.status !== 'scope_changed' && (t.snapshots.some((s: any) => s.publicationId) || t.snapshots.some((s: any) => s.key === 'checkpoint' && !s.restricted && s.contextState === 'current')) && !['queued', 'running', 'cancelling'].includes(t.assistant?.status)) ? [{ type: 'accept', title: '审阅工作稿并验收', task: t }] : [])]);
   const count = requests.length + decisions.length;
   return <><section><div className="sm-section-head"><h2>需要你决定 <span className="sm-muted sm-small">{count ? count + ' 项' : ''}</span></h2></div>
     {!count && <div className="sm-empty"><strong>当前没有待决事项</strong>发起协作后，Agent 会整理进展；需要授权或验收时再交给你。</div>}
     {requests.map(({ task, request }: any) => <RequestItem key={request.id} ui={ui} task={task} request={request} compact />)}
-    <div className="sm-decisions">{decisions.map((d: any, i: number) => <article className="sm-decision" key={d.task.id + ':' + i}><Icon name={d.type === 'unknown' ? 'shield' : d.type === 'knowledge' ? 'book' : 'check'} />
+    <div className="sm-decisions">{decisions.map((d: any, i: number) => <article className="sm-decision" key={d.task.id + ':' + i}><Icon name={d.type === 'clarify' ? 'bot' : d.type === 'unknown' || d.type === 'scope' ? 'shield' : d.type === 'knowledge' ? 'book' : 'check'} />
       <div><h3>{d.title}</h3><div className="sm-inline-meta"><span>{d.task.identifier}</span><span>{d.task.title}</span><span>{actor(ui, d.task.agent)}</span></div></div>
       <div className="sm-actions"><Button onClick={() => ui.openTask(d.task.id, d.type === 'knowledge' || d.type === 'accept' ? 'knowledge' : 'progress')}>查看并决定</Button></div></article>)}</div>
   </section><div className="sm-work-grid sm-section"><section><div className="sm-section-head"><h2>Agent 与团队在推进</h2></div>
     {!active.length && <p className="sm-muted sm-small">暂无进行中的协作。</p>}
     {active.map((t: any) => <div className="sm-list-row" key={t.id}><Icon name={t.assistant?.enabled ? 'bot' : 'task'} /><div className="sm-grow"><button className="sm-link-button" onClick={() => ui.openTask(t.id)}>{t.title}</button>
-      <div className="sm-inline-meta"><span>{t.identifier}</span><span>{actor(ui, t.agent)}</span><span>{t.assistant?.output?.summary ? '已整理下一步' : labels[t.assistant?.status] ?? labels[t.phase]}</span></div></div><Badge state={t.phase} /></div>)}
+      <div className="sm-inline-meta"><span>{t.identifier}</span><span>{t.state.context?.service?.name ?? actor(ui, t.agent)}</span><span>{t.assistant?.attention?.length ? '等你补充' : t.assistant?.output?.summary ? '已整理下一步' : labels[t.assistant?.status] ?? labels[t.phase]}</span></div></div><Badge state={t.phase} /></div>)}
   </section><section><div className="sm-section-head"><h2>最近沉淀</h2></div>{ui.data.sources.filter((s: any) => !s.external && s.knowledgeState === 'confirmed').slice(-4).reverse().map((s: any) => <div className="sm-list-row" key={s.id}><Icon name="book" /><div className="sm-grow"><button className="sm-link-button" onClick={() => ui.useSource(s.id)}>{s.title}</button>
     <span className="sm-muted sm-small">{ui.data.spaces.find((v: any) => v.domain === s.domain)?.name} · {labels[s.knowledgeState] ?? '资料'}</span></div></div>)}</section></div></>;
+}
+function CoordinationTrace({ a, remember }: { a: any; remember: string }) {
+  const toolNames: Record<string, string> = { read_context: '核对当前上下文', read_execution_evidence: '核对真实执行证据', discover_services: '寻找协作 Agent', assess_scope: '判断本轮工作范围', search_context: '检索已有权限的知识', discover_context: '补齐相关资料', read_record: '读取任务背景与工作记录', expand_context: '扩展获准资料', request_access: '准备资料访问申请', read_graph: '读取知识关系', schedule_recheck: '约定后续复查' };
+  const decision = { accept: '推进准备工作', ignore: '本轮无需行动', unavailable: '需要补充条件' }[a.assessment?.kind as string];
+  if (!a.runtime) return null;
+  return <Details remember={remember}><summary>本轮判断与行动{a.toolCalls?.length ? ` · ${a.toolCalls.length} 项` : ''}</summary>
+    {decision && <p>{decision}：{typeof a.assessment.reason === 'string' ? a.assessment.reason : a.assessment.audit?.direction?.evidence}</p>}
+    {!a.toolCalls?.length ? <p className="sm-small sm-muted">正在读取事件与当前上下文。</p> : <ol className="sm-timeline">{a.toolCalls.map((t: any) => <li key={t.id}><span className="sm-muted sm-small">{{ started: '处理中', completed: '已完成', failed: '未完成' }[t.status as string]}</span><div><strong>{toolNames[t.name] ?? '处理任务'}</strong>{t.error && <p className="sm-small">{t.error}</p>}</div></li>)}</ol>}
+    {a.nextCheckAt && <p className="sm-small">下次复查：{date(a.nextCheckAt)}</p>}
+    <p className="sm-small sm-muted">持续跟进当前任务、{a.subscriptions?.sources?.length ?? 0} 份资料和 {a.subscriptions?.deliveries?.length ?? 0} 项关联交付。</p>
+  </Details>;
 }
 function AgentPanel({ ui, task, setPanel, editCheckpoint }: { ui: UI; task: any; setPanel: (s: string) => void; editCheckpoint: (s: string) => void }) {
   const a = task.assistant ?? {}, k = ui.prefix + 'agent:' + task.id;
   const [instruction, setInstruction] = useDraft(k + ':instruction', ''), [mode, setMode] = useDraft(k + ':mode', a.mode ?? 'advance');
+  const [answer, setAnswer] = useDraft(k + ':answer', '');
   const pending = task.sourceAccess?.some((s: any) => !s.allowed), running = ['queued', 'running', 'cancelling'].includes(a.status);
   const name = ui.data.assistantEngine === 'claude' ? 'Claude Code' : 'Codex';
-  const status = a.status === 'completed' && pending ? '等待授权' : !a.enabled && a.status !== 'idle' ? '已暂停自动准备' : labels[a.status] ?? '待委托';
-  return <section className="sm-agent" aria-label="协作 Agent"><div className="sm-agent-title"><Icon name="bot" /><h3>协作 Agent</h3><span className="sm-muted sm-small">{name}</span>
+  const status = a.status === 'completed' && a.attention?.length ? '等你补充' : a.status === 'completed' && pending ? '等待授权' : !a.enabled && a.status !== 'idle' ? '已暂停自动准备' : labels[a.status] ?? '待委托';
+  return <section className="sm-agent" aria-label="协作 Agent"><div className="sm-agent-title"><Icon name="bot" /><h3>{task.state.context?.service?.name ?? '协作 Agent'}</h3><span className="sm-muted sm-small">{name}</span>
     <span className="sm-badge">{running && <span className="sm-running-dot" />}{status}</span>
     {a.jobId && <a className="sm-muted sm-small" {...ui.nav.linkProps('/issues/' + a.jobId)}>运行记录</a>}</div>
     {!ui.data.assistantAvailable && <p>协作 Agent 未连接。可以先手动处理任务，连接恢复后继续。</p>}
     {a.error && <p className="sm-small" role="alert">{a.error}</p>}
     {a.status === 'stale' && <p className="sm-small">资料、授权或执行身份已经变化，旧整理结果已隐藏。{a.enabled ? 'Agent 会按新上下文重新准备。' : '重新委托后，会使用当前上下文准备。'}</p>}
-    {a.output ? <><p className="sm-agent-copy">{a.output.summary}</p>{a.output.contextGaps?.length > 0 && <div className="sm-notice"><h3>还缺少的上下文</h3><ul>{a.output.contextGaps.map((g: any, i: number) => <li key={i}>{g.question}</li>)}</ul><Button onClick={() => setPanel('access')}>补充或获取上下文</Button></div>}<div>{a.output.nextSteps.map((s: any, i: number) => <div className="sm-agent-work" key={i}>
+    <CoordinationTrace a={a} remember={k + ':coordination'} />
+    {a.status === 'scope_changed' && <div className="sm-notice"><p>原职责：{a.service?.responsibilities}</p><p>当前职责：{a.updatedService?.responsibilities ?? '服务已暂停或移除'}</p>{a.updatedService?.enabled && <Button disabled={ui.busy} onClick={() => ui.run('rebind-agent-service', { taskId: task.id, version: a.updatedService.version })}>确认新职责并继续</Button>}</div>}
+    {a.enabled && a.attention?.length > 0 && task.phase !== 'accepted' && <form className="sm-form" onSubmit={e => { e.preventDefault(); void ui.invoke('context-note', { taskId: task.id, text: answer }).then(() => setAnswer('')).catch(() => {}); }}><p>{a.attention[0].text}</p><label className="sm-field">补充说明<textarea className="sm-input" value={answer} onChange={e => setAnswer(e.target.value)} required /></label><div><Button disabled={ui.busy || !answer.trim()}>补充并继续</Button></div></form>}
+    {a.output ? <><p className="sm-agent-copy">{a.output.summary}</p>{!a.attention?.length && a.output.contextGaps?.length > 0 && <div className="sm-notice"><h3>还缺少的上下文</h3><ul>{a.output.contextGaps.map((g: any, i: number) => <li key={i}>{g.question}</li>)}</ul><Button onClick={() => setPanel('access')}>补充或获取上下文</Button></div>}<div>{a.output.nextSteps.filter((s: any) => !(a.attention?.length && s.owner === 'human' && s.kind === 'clarify')).map((s: any, i: number) => <div className="sm-agent-work" key={i}>
       <span className="sm-owner">{s.owner === 'human' ? '你决定' : 'Agent'}</span><div>{s.text}{s.owner === 'human' && ['authorize', 'handoff', 'adopt', 'accept'].includes(s.kind) &&
         <button className="sm-link-button sm-small" style={{ marginLeft: 8 }} onClick={() => setPanel(s.kind === 'authorize' ? 'access' : s.kind === 'handoff' ? 'handoff' : 'knowledge')}>前往处理</button>}</div></div>)}</div>
       {a.output.evidenceQuotes?.length > 0 && <Details remember={k + ':evidence'}><summary>查看依据 · {a.output.evidenceQuotes.length} 处原文</summary><div className="sm-tight">{a.output.evidenceQuotes.map((q: any, i: number) => <div key={i}><span className="sm-muted sm-small">{source(ui, q.sourceId)?.title ?? a.evidenceSources?.find((s: any) => s.id === q.sourceId)?.title ?? '任务上下文'}</span><blockquote style={{ margin: '4px 0 12px', fontSize: 13 }}>{q.quote}</blockquote></div>)}</div></Details>}
@@ -181,7 +197,7 @@ function TaskDetail({ ui, task, panel, setPanel }: { ui: UI; task: any; panel: s
   const acceptance = task.state.history.findLast((h: any) => h.event === 'completed')?.detail?.review;
   const acceptedDraft = snapshots.find((s: any) => s.id === acceptance?.checkpoint?.id && s.revision === acceptance.checkpoint.revision && !s.restricted);
   const nextReady = task.state.sources.every((id: string) => (!source(ui, id)?.external && ui.data.spaces.find((d: any) => d.domain === source(ui, id)?.domain)?.members?.includes(next)) || task.requests.some((r: any) => r.sourceId === id && r.agent === next && isLive(r)));
-  return <article className="sm-task-detail"><div className="sm-row sm-spread sm-wrap"><div className="sm-inline-meta"><a {...ui.nav.linkProps('/issues/' + task.id)}>{task.identifier}</a><span>{actor(ui, task.agent)}负责</span></div><Badge state={task.phase} /></div>
+  return <article className="sm-task-detail"><div className="sm-row sm-spread sm-wrap"><div className="sm-inline-meta"><a {...ui.nav.linkProps('/issues/' + task.id)}>{task.identifier}</a><span>{task.state.context?.service?.name ?? actor(ui, task.agent)}负责</span></div><Badge state={task.phase} /></div>
     <h2 className="sm-task-heading">{task.title}</h2><p className="sm-goal">{task.goal}</p>
     {task.error && <p className="sm-error" role="alert">{task.error}</p>}
     <nav className="sm-task-stage" aria-label="任务工作区">{[['progress', '进展'], ['access', '上下文'], ['handoff', '任务交接'], ['knowledge', '知识沉淀']].map(([id, name]) => <button key={id} aria-pressed={panel === id} onClick={() => setPanel(id!)}>{name}{id === 'access' && task.requests.some((r: any) => r.state === 'pending') ? ' · 待授权' : ''}</button>)}</nav>
@@ -232,7 +248,7 @@ function TaskWorkspace({ ui, selected, setSelected, panel, setPanel }: { ui: UI;
   const task = ui.data.tasks.find((t: any) => t.id === selected) ?? filtered[0] ?? ui.data.tasks[ui.data.tasks.length - 1];
   return <div className="sm-workspace-grid"><aside className="sm-task-list" aria-label="协作任务列表"><header><input className="sm-input" type="search" aria-label="搜索协作任务" placeholder="搜索任务" value={query} onChange={e => setQuery(e.target.value)} />
     <label className="sm-check"><input type="checkbox" checked={all} onChange={e => setAll(e.target.checked)} />包括已完成</label></header>
-    {filtered.map((t: any) => <button className="sm-task-item" key={t.id} aria-current={t.id === task?.id} onClick={() => setSelected(t.id)}><span className="sm-row sm-spread"><span className="sm-muted sm-small">{t.identifier}</span><Badge state={t.phase} /></span><strong>{t.title}</strong><span className="sm-muted sm-small">{actor(ui, t.agent)} · {t.assistant?.enabled ? 'Agent 协作中' : '团队协作'}</span></button>)}
+    {filtered.map((t: any) => <button className="sm-task-item" key={t.id} aria-current={t.id === task?.id} onClick={() => setSelected(t.id)}><span className="sm-row sm-spread"><span className="sm-muted sm-small">{t.identifier}</span><Badge state={t.phase} /></span><strong>{t.title}</strong><span className="sm-muted sm-small">{t.state.context?.service?.name ?? actor(ui, t.agent)} · {t.assistant?.enabled ? 'Agent 协作中' : '团队协作'}</span></button>)}
     {!filtered.length && <p className="sm-muted sm-small">没有匹配任务。</p>}</aside>
     <div className="sm-mobile-select"><label className="sm-field">协作任务<select className="sm-input" value={task?.id ?? ''} onChange={e => setSelected(e.target.value)}>{ui.data.tasks.map((t: any) => <option key={t.id} value={t.id}>{t.identifier} · {t.title}</option>)}</select></label></div>
     {task ? <TaskDetail key={task.id} ui={ui} task={task} panel={panel} setPanel={setPanel} /> : <div className="sm-empty"><strong>还没有协作任务</strong>点击“发起协作”，写下要完成的目标。</div>}
@@ -360,13 +376,14 @@ export function WorkspacePage({ context }: PluginPageProps) {
   if (!data) return <main className="suitme-workbench"><style>{styles}</style>{error ? <div className="sm-error" role="alert"><span>{error}</span><Button onClick={() => { setError(''); void refresh().catch(e => setError(String(e.message ?? e))); }}>重试</Button></div> : <div className="sm-spinner-skeleton" role="status" aria-label="正在读取协作台"><div /><div /><div /><div /></div>}</main>;
   const pending = data.tasks.reduce((n: number, t: any) => n + t.requests.filter((r: any) => r.state === 'pending' && Date.parse(r.expiresAt) > Date.now()).length, 0);
   return <main className="suitme-workbench" ref={ref}><style>{styles}</style><header className="sm-top"><div className="sm-row"><h1>SuitMe 协作台</h1></div><div className="sm-actions"><Button className="sm-icon-button" aria-label="刷新工作台" title="刷新" disabled={busy} onClick={() => { void refresh().catch(e => setError(String(e.message ?? e))); }}><Icon name="refresh" /></Button><Button variant="primary" icon="plus" onClick={() => setCompose(!compose)}>发起协作</Button></div></header>
-    <nav className="sm-navigation" aria-label="协作台导航">{[['work', '我的工作', 'work'], ['tasks', '协作任务', 'task'], ['spaces', '知识库', 'book'], ['access', '授权申请', 'shield'], ['settings', '设置', 'bot']].map(([id, name, icon]) => <button key={id} aria-pressed={view === id} onClick={() => setView(id!)}><Icon name={icon!} />{name}{id === 'access' && pending > 0 && <span className="sm-count">{pending}</span>}</button>)}</nav>
+    <nav className="sm-navigation" aria-label="协作台导航">{[['work', '我的工作', 'work'], ['tasks', '协作任务', 'task'], ['spaces', '知识库', 'book'], ['services', '团队 Agent', 'bot'], ['access', '授权申请', 'shield'], ['settings', '设置', 'bot']].map(([id, name, icon]) => <button key={id} aria-pressed={view === id} onClick={() => setView(id!)}><Icon name={icon!} />{name}{id === 'access' && pending > 0 && <span className="sm-count">{pending}</span>}</button>)}</nav>
     {error && <div className="sm-error" role="alert"><span>{error}</span><Button variant="quiet" onClick={() => setError('')}>关闭提示</Button></div>}
     {compose && <Compose ui={ui} initialSources={chosenSources} close={() => { setCompose(false); setChosenSources([]); }} />}
     {view === 'work' && <MyWork ui={ui} />}
     {view === 'tasks' && <TaskWorkspace ui={ui} selected={selected} setSelected={setSelected} panel={panel} setPanel={setPanel} />}
     {view === 'spaces' && <Spaces ui={ui} chosen={chosenSource} choose={setChosenSource} domain={domain} setDomain={setDomain} composeWith={id => { setChosenSources([id]); setCompose(true); }} />}
     {view === 'access' && <AccessInbox ui={ui} />}
+    {view === 'services' && <AgentServicesPage ui={ui} />}
     {view === 'settings' && <Settings ui={ui} />}
   </main>;
 }

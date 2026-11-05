@@ -14,7 +14,7 @@ export class Paperclip {
   patch<T = any>(route: string, body: unknown) { return this.request<T>('PATCH', route, body); }
   async document(issueId: string, key: string, title: string, body: string) {
     let revision: string | null = null;
-    try { const existing = await this.get(`/issues/${issueId}/documents/${key}`); revision = existing.latestRevisionId ?? existing.currentRevisionId ?? existing.document?.latestRevisionId ?? existing.document?.currentRevisionId ?? null; }
+    try { const existing = await this.get(`/issues/${issueId}/documents/${key}`); if (existing.body === body && existing.title === title) return existing; revision = existing.latestRevisionId ?? existing.currentRevisionId ?? existing.document?.latestRevisionId ?? existing.document?.currentRevisionId ?? null; }
     catch (error) { if (!String(error).includes(': 404 ')) throw error; }
     return this.request('PUT', `/issues/${issueId}/documents/${key}`, { title, format: 'markdown', body, baseRevisionId: revision });
   }
