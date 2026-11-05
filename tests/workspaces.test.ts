@@ -209,8 +209,28 @@ test('human draft acceptance can defer knowledge adoption, but requires an exact
     await assert.rejects(f.service.complete(f.task.id, { admin: true }), /验收依据/);
     await assert.rejects(f.service.complete(f.task.id, { admin: true }, { reason: '只验收资料整理', noKnowledge: true, checkpoint: { id: 'reviewed-draft', revision: 'old' } }), /版本已变化/);
     await assert.rejects(f.service.complete(f.task.id, { admin: false, agent: 'role-growth' }, { noKnowledge: true, reason: 'self accept' }), /Unauthorized/);
+    const decisions: any[] = [];
+    f.service.pc.patch = async (_route, body) => {
+      assert.notEqual(f.store.get(f.task.id).phase, 'accepted'); decisions.push(body);
+      return decisions.length === 1 ? { status: 'in_review', assigneeUserId: 'local-board', assigneeAgentId: null, reviewPolicy: 'human_only',
+        executionPolicy: { stages: [{ id: 'human-review', type: 'review', participants: [{ type: 'user', userId: 'local-board' }] }] },
+        executionState: { status: 'pending', currentStageId: 'human-review', currentStageType: 'review', currentParticipant: { type: 'user', userId: 'local-board' }, returnAssignee: { type: 'agent', agentId: 'growth-id' } } } : { status: 'done' } as any;
+    };
     const result = await f.service.complete(f.task.id, { admin: true }, { reason: '已审阅资料工作稿；不表示功能已实现，暂不采用知识', noKnowledge: true, checkpoint: { id: 'reviewed-draft', revision: 'current-revision' } });
     assert.equal(result.phase, 'accepted'); assert.equal(f.state.outcomes.length, 0);
     assert.equal(f.state.history.at(-1).detail.review.noKnowledge, true);
+    assert.equal(decisions.length, 2); assert.equal(decisions[0].comment, decisions[1].comment); assert.match(decisions[1].comment, /不表示功能已实现/);
+  } finally { f.close(); }
+});
+test('completion waits for a different native reviewer and can recover a prior local completion', async () => {
+  const f = fixture(); try {
+    f.state.requests = []; f.state.snapshots = []; f.state.outcomes = [{ publicationId: 'confirmed-knowledge', grants: [] }];
+    let calls = 0; f.service.pc.patch = async () => { calls++; return { status: 'in_review', executionState: { status: 'pending', currentParticipant: { type: 'user', userId: 'another-reviewer' } } } as any; };
+    await assert.rejects(f.service.complete(f.task.id, { admin: true }), /原生人工审阅尚未完成/);
+    assert.equal(calls, 1); assert.notEqual(f.store.get(f.task.id).phase, 'accepted');
+    const previous = f.store.get(f.task.id); previous.phase = 'accepted'; f.store.save(previous);
+    f.service.pc.patch = async () => { calls++; return { status: 'done' } as any; };
+    await f.service.complete(f.task.id, { admin: true }, { reason: '恢复已获人确认的验收' });
+    assert.equal(calls, 2); assert.equal(f.store.get(f.task.id).phase, 'accepted');
   } finally { f.close(); }
 });

@@ -511,7 +511,7 @@ export class Workspaces {
     this.manager(actor); const task = this.store.get(taskId), state = await this.state(task), issue = await this.issue(taskId);
     const review = z.object({ reason: z.string().trim().max(2000).optional(), noKnowledge: z.boolean().default(false),
       checkpoint: z.object({ id: z.string(), revision: z.string() }).strict().optional() }).strict().parse(input);
-    if (task.phase === 'accepted') return task;
+    if (task.phase === 'accepted' && issue.status === 'done') return task;
     if (task.phase === 'running' || task.phase === 'unknown' || issue.executionRunId || issue.checkoutRunId || task.lease) throw new Error('先核对执行已经结束');
     if (review.checkpoint) {
       const snapshot = state.snapshots.find(s => s.id === review.checkpoint!.id && s.key === 'checkpoint');
@@ -531,7 +531,15 @@ export class Workspaces {
       for (const grant of snap.grants) await this.revokeGrant(snap.id, grant.id);
       snap.grants = [];
     }
-    current.phase = 'accepted'; await this.pc.patch('/issues/' + taskId, { status: 'done' });
+    const decision = { status: 'done', comment: review.reason || '负责人已审阅并验收本任务交付与采用记录，结束临时访问。' };
+    let native = await this.pc.patch('/issues/' + taskId, decision);
+    // Native completion can first enter the configured human review stage.
+    // Apply this same human decision there; never advance a different reviewer.
+    if (native.status === 'in_review' && native.executionState?.status === 'pending'
+      && native.executionState.currentParticipant?.type === 'user' && native.executionState.currentParticipant.userId === 'local-board'
+      && collaborationOwnerMatches(native, [this.agent(current.agent).paperclipId!])) native = await this.pc.patch('/issues/' + taskId, decision);
+    if (native.status !== 'done') throw new Error('原生人工审阅尚未完成；临时访问已结束，不能提前记录验收完成');
+    current.phase = 'accepted';
     await this.save(current, currentState, 'completed', { adoptedKnowledge: currentState.outcomes.map(s => s.publicationId).filter(Boolean), review, temporaryAccessEnded: true });
     return current;
   }
