@@ -204,6 +204,7 @@ test('a collaboration coordinator has a human review path and does not wake the 
 });
 test('human draft acceptance can defer knowledge adoption, but requires an exact reviewed checkpoint and a reason', async () => {
   const f = fixture(); try {
+    f.task.messageId = 'om_test'; f.store.save(f.task);
     f.state.requests = []; f.state.snapshots = [{ id: 'reviewed-draft', key: 'checkpoint', sources: [], grants: [] }];
     f.service.pc.get = async () => ({ latestRevisionId: 'current-revision' }) as any;
     await assert.rejects(f.service.complete(f.task.id, { admin: true }), /验收依据/);
@@ -220,6 +221,9 @@ test('human draft acceptance can defer knowledge adoption, but requires an exact
     assert.equal(result.phase, 'accepted'); assert.equal(f.state.outcomes.length, 0);
     assert.equal(f.state.history.at(-1).detail.review.noKnowledge, true);
     assert.equal(decisions.length, 2); assert.equal(decisions[0].comment, decisions[1].comment); assert.match(decisions[1].comment, /不表示功能已实现/);
+    f.service.issue = async () => ({ id: f.task.id, companyId: 'company', status: 'done' });
+    await f.service.complete(f.task.id, { admin: true });
+    assert.equal(f.store.db.prepare('SELECT COUNT(*) n FROM outbox WHERE issue_id=?').get(f.task.id)?.n, 1);
   } finally { f.close(); }
 });
 test('completion waits for a different native reviewer and can recover a prior local completion', async () => {

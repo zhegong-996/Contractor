@@ -511,7 +511,11 @@ export class Workspaces {
     this.manager(actor); const task = this.store.get(taskId), state = await this.state(task), issue = await this.issue(taskId);
     const review = z.object({ reason: z.string().trim().max(2000).optional(), noKnowledge: z.boolean().default(false),
       checkpoint: z.object({ id: z.string(), revision: z.string() }).strict().optional() }).strict().parse(input);
-    if (task.phase === 'accepted' && issue.status === 'done') return task;
+    const notify = () => {
+      if (task.messageId.startsWith('om_')) this.store.notify('workspace-completed:' + taskId, taskId,
+        `${task.identifier} 的交付记录已由负责人确认，本任务临时访问已全部结束。具体验收范围与工作稿见协作台。\n${this.config.paperclipUrl}/SUI/knowledge-workspaces`);
+    };
+    if (task.phase === 'accepted' && issue.status === 'done') { notify(); return task; }
     if (task.phase === 'running' || task.phase === 'unknown' || issue.executionRunId || issue.checkoutRunId || task.lease) throw new Error('先核对执行已经结束');
     if (review.checkpoint) {
       const snapshot = state.snapshots.find(s => s.id === review.checkpoint!.id && s.key === 'checkpoint');
@@ -541,6 +545,7 @@ export class Workspaces {
     if (native.status !== 'done') throw new Error('原生人工审阅尚未完成；临时访问已结束，不能提前记录验收完成');
     current.phase = 'accepted';
     await this.save(current, currentState, 'completed', { adoptedKnowledge: currentState.outcomes.map(s => s.publicationId).filter(Boolean), review, temporaryAccessEnded: true });
+    notify();
     return current;
   }
   async prepareHandoff(taskId: string, agent: string, actor: WorkspaceActor) {
