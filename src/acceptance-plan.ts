@@ -29,6 +29,9 @@ export interface AcceptancePlan {
   items: AcceptanceItem[];
   reviewer: ReviewerSpec;
   producerModel?: string;
+  /** FR-12 standard externalisation: drafted by the TARGET function owner.
+   *  A grantee must never draft the criteria used to judge their own work. */
+  draftedBy?: string;
   hash: string;
 }
 
@@ -47,6 +50,7 @@ function canonical(plan: Omit<AcceptancePlan, 'hash'>): string {
     items: plan.items,
     reviewer: plan.reviewer,
     producerModel: plan.producerModel ?? null,
+    draftedBy: plan.draftedBy ?? null,
   });
 }
 
@@ -64,6 +68,7 @@ export function createPlan(input: {
   criteria?: Record<string, string>;
   evidenceKind?: EvidenceKind;
   lockedAt?: string;
+  draftedBy?: string;
 }): AcceptancePlan {
   const names = [...new Set(input.names.map(name => String(name).trim()).filter(Boolean))].slice(0, 12);
   if (!names.length) throw new Error('验收清单不能为空');
@@ -88,8 +93,23 @@ export function createPlan(input: {
     }),
     reviewer: { model: reviewerModel, differsFromProducer: true, requiresVision: true },
     ...(producerModel ? { producerModel } : {}),
+    ...(input.draftedBy ? { draftedBy: input.draftedBy } : {}),
   };
   return { ...base, hash: planHash(base) };
+}
+
+/**
+ * FR-12: with a cross-function Transfer, the criteria must be drafted by the
+ * target function owner. Callers pass the transfer's grantee to reject
+ * "the doer graded themselves".
+ */
+export function assertStandardExternalised(plan: AcceptancePlan, input: {
+  targetRoleOwner: string; granteeUserId: string; standardDraftedBy: string;
+}): void {
+  if (!input.standardDraftedBy) throw new Error('跨职能派单必须记录验收标准起草方');
+  if (input.standardDraftedBy === input.granteeUserId) throw new Error('承接人不得起草验收标准');
+  if (input.standardDraftedBy !== input.targetRoleOwner) throw new Error('验收标准必须由目标职能 owner 起草');
+  if (plan.draftedBy && plan.draftedBy !== input.standardDraftedBy) throw new Error('验收清单起草方与 Transfer 记录不一致');
 }
 
 export function verifyPlan(plan: AcceptancePlan): void {
@@ -136,7 +156,7 @@ export async function readPlan(pc: PlanDocumentStore, taskId: string): Promise<{
 
 /** Derive the plan from the business acceptance lines already stored in task.context. */
 export function planForTask(task: { id: string; context: string }, lockedBy: string, opts: {
-  level?: VerificationLevel; producerModel?: string; reviewerModel?: string;
+  level?: VerificationLevel; producerModel?: string; reviewerModel?: string; draftedBy?: string;
 } = {}): AcceptancePlan {
   let names: string[] = [];
   try {

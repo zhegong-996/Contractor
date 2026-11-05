@@ -4,15 +4,46 @@
 > 对象仓库：`/Users/gong.zhe/Developer/ai-native-collab`（`github.com/zhegong-996/suitme-collab`）
 > 依据：`docs/ARCHITECTURE-v0.6.md`（产品架构定稿）、`docs/PRD-v0.6.md`、Codex 会话「研究 AI Native 协作平台融合」、本仓库 `README.md` / `docs/*` / `sources.lock.json` / `src/*` / `git status`
 > 立场：**以 PRD v0.6 为准绳，代码适配产品**。已有实现尽量保留，以「补层」为主，不推倒重来；工程红线见 `PRD-v0.6.md` 第 2.2 节。
-> 状态：改造方案，未执行；本文档只新增文档，未修改任何业务代码。
+> 状态：**方案已执行两轮**（底座 `f27a0e1` 已提交；功能补全见 0.000 节）。文档随实施进度更新，边界声明以 0.000 节为准。
 
 ---
 
-## 0.00 本轮实施进度（2026-11-06 · 底座先行）
+## 0.000 功能补全（2026-11-06 · 第二轮）
+
+在底座提交 `f27a0e1` 之后，按 PRD 第 5 节把功能补齐到可调用、可测试、可留痕。**前端仍一行未改**；所有新能力经现有 `/workspace/v06-*` action 走「IM 会话 + 插件式工作台」形态，语义对象统一由 `channels.renderForChannel` 渲染，不另起界面。
+
+| FR | 能力 | 落地文件 | 接入方式 |
+|---|---|---|---|
+| FR-01/02/03/28 | 职能注册表、三层能力模型、粒度自检、配置版本与审计 | `src/roles.ts`、`src/v06-store.ts` | 组织级配置（本地配置层），SQLite 只写审计；变更版本化、历史存职能快照不回溯 |
+| FR-11/12/13 | Transfer 授权卡片、双段责任链、标准外置、高风险联签、L0→L2 放宽与自动收紧 | `src/transfer.ts` | 任务级事实写 Paperclip 原生文档；卡片文本经现有 outbox 推送到会话 |
+| FR-16/18 | Acceptance Plan 增加 `draftedBy`，可插拔独立评审者 | `src/acceptance-plan.ts`、`src/independent-review.ts` | `Controller.sealAcceptancePlan` 在跨职能任务上强制由目标职能 owner 起草标准；`/accept` 前增加 Transfer 一致性校验 |
+| FR-06/07/09/14/26 | 图谱边状态、Context Pack 投影、标签 × 能力双向校验、复用影响面 | `src/knowledge-edges.ts` | L2 组织图层；**L1 按 `sha256(sourceId@revision)` 物理隔离的证据图完全未动** |
+| FR-10 | 跨空间申请授权（目标空间 owner 审批、最小可见子集、只读、可撤销） | `src/context-grant.ts` | 复用现有 `access-contract` 思路，补 owner 与期限字段 |
+| FR-05/20 | 汇报拓扑开关、验证等级 L1–L4 与不可下调底线 | `src/workspace-policy.ts` | Workspace owner 只能加严；对外 / 资金 / 客户可见强制 L4；事件订阅直通在工程层不可关 |
+| FR-21 | 组织状态信号面（只读、只预警、不排名）与次日复测闭环 | `src/organization-signals.ts` | 只读信号 + 聚类 + 建 Task + 复测记录，不产生考核视图 |
+| FR-08 | 默认组织本体：16 类节点、五类边、三类查询 | `src/org-ontology.ts` | **L2 组织图**，与 `src/ontology.ts`（Cognee 字典校验）职责分离；节点/边级可达性供 FR-10/26 使用 |
+| FR-22/23/24 | 介入叫停、两级注意力过滤、Watchdog | `src/runtime-guard.ts` | 把仓库既有零散规则（自身进度排除、每轮 ≤12 次工具、每委托 ≤2 次复查、ask 释放执行）显式化、可配置、可测；**未替换现有运行时**，无检查点禁止自动重放 |
+| 编排 | 统一分派、权限分级、渠道渲染、会话通知 | `src/v06.ts`、`src/server.ts`、`src/members.ts` | 50+ 个 `v06-*` action；组织级配置写操作要求组织 owner；审批以**认证身份**为准 |
+
+**验证**：`npm test` 179 个用例、`tsc --noEmit` 通过。新增 6 个测试文件覆盖规则与端到端链路，含「无职能注册表时不改变原有扁平派单」「Transfer 卡片在纯文本渠道不丢字段」「无 Transfer 时 `/accept` 沿用原发起人核可」「本体边规则与可达性」「Watchdog 无检查点不自动重放」。
+
+**仍未做（不要宣称已实现）**：
+- **前端**：现有 5 tab 工作台未新增视图，只能在 API 层调用；P3 才补界面。
+- **独立视觉评审模型**：当前注册的是 `TraceEvidenceReviewer`，只做证据绑定、明确声明 `vision: false` / `externalModelEnabled: false`，`review-readiness` 会如实返回「FR-18 未就绪」；接入视觉模型前**不开启** `config.acceptance.sealPlanOnCreate`。
+- **Acceptance submodule 引入**：未引入，仅自研同等契约；引入前按 `OPEN-SOURCE-COMPLIANCE.md` 第 4 节补齐协议材料。
+- **图谱接入真实 Cognee 语料图**：边状态目前是产品层 L2 记录，未与 Cognee 的自动抽取管线连通（LLM/embedding 仍关闭）。
+- **完整真实 journey**：单测覆盖契约与编排，尚未在真实飞书会话 + Paperclip + GitHub 链路上跑通跨职能一单。
+- **接入现有执行链路**：注意力策略 / Watchdog 目前是独立契约与 API，尚未自动挂到 `Assistant` / `Autoloop` 的每轮执行上（保留现有实现不动，避免回归）；介入叫停复用现有 `stopped` / `reconcile` 能力，未替换。
+
+---
+
+## 0.00 底座先行（2026-11-06 · 第一轮，已提交 `f27a0e1`）
 
 用户本轮确认：动的是代码；**先优化底座，再把功能全部补上**；现有已跑通的功能复用、不重写；**现有「IM 会话 + 插件式工作台」就是产品形态本身**，PRD 语义要嫁接到它上面；所有讨论过的开源项目都可作为复用对象，但**协议各不相同，必须逐一说明**。
 
-**已完成**（均为未提交改动，可整体回退；上一轮那批 27 个已修改文件一个没碰、没替用户提交）：
+> 本节是第一轮历史记录，已于 `f27a0e1` 整体提交。第二轮进展见 0.000 节，两处描述以 0.000 节为准。
+
+**已完成**（当时为未提交改动，现已提交）：
 
 | 项 | 文件 | 说明 |
 |---|---|---|
@@ -23,9 +54,9 @@
 | 协议合规 | `docs/OPEN-SOURCE-COMPLIANCE.md`、`THIRD_PARTY_NOTICES.md`、`sources.lock.json` | 三类项目逐项协议与复用边界；补齐 Prime Agent / DeepSeek Harness 的 lock 条目；补 LobeHub Community License 说明 |
 | 形态校准 | `docs/PRD-v0.6.md` 第 10A 节 | S1–S6 形态约束 + FR-29~31 |
 
-**仍未做（不要宣称已实现）**：独立评审模型与视觉输入、Acceptance submodule 引入、Role Registry / Transfer、图谱边状态、汇报拓扑开关、组织信号闭环、**前端任何改动**。新验收流程仍**默认关闭**（`config.acceptance.sealPlanOnCreate = false`），因为独立评审服务未接上，贸然开启会堵死现有发起人 `/accept`。
+**当时的仍未做**（现已在 0.000 节补齐大部分）：独立评审模型与视觉输入、Acceptance submodule 引入、Role Registry / Transfer、图谱边状态、汇报拓扑开关、组织信号闭环、**前端任何改动**。新验收流程仍**默认关闭**（`config.acceptance.sealPlanOnCreate = false`），因为独立评审服务未接上，贸然开启会堵死现有发起人 `/accept`。
 
-**顺序不变**：底座（本轮）→ 功能补全 → 前端增补 → 最后整理上游代码。第 6 节执行清单第 1 步「先收口上一轮 27 个未提交改动」仍未执行。
+**顺序不变**：底座（第一轮）→ 功能补全（第二轮）→ 前端增补 → 最后整理上游代码。第 6 节执行清单第 1 步「先收口上一轮 27 个未提交改动」已于 `f27a0e1` 执行完毕。
 
 ---
 

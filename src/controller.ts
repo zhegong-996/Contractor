@@ -12,6 +12,7 @@ import{planForTask,lockPlan,readPlan,type VerificationLevel}from'./acceptance-pl
 import{verifyAcceptanceGate,evaluateRound,writeRound,type ItemEvidence}from'./acceptance-round.ts';
 import{fromWorkerJournal,fromDelivery,capture}from'./event-stream.ts';
 import{TraceBridge,type TraceInput}from'./trace-bridge.ts';
+import type { V06Services } from './v06.ts';
 
 export function validateAcceptance(task: Task, sha: string, cases: { name: string; passed: boolean }[]) {
   const d = task.delivery;
@@ -26,6 +27,8 @@ export class Controller {
   readonly pc: Paperclip;
   readonly github: Github;
   readonly trace: TraceBridge;
+  /** v0.6 functional layer, injected by the server after construction. */
+  v06?: V06Services;
   constructor(readonly config: Config, readonly store: Store) {
     this.pc = new Paperclip(config.paperclipUrl); this.github = new Github(config);
     this.trace = new TraceBridge(this.pc, config, store);
@@ -250,7 +253,12 @@ export class Controller {
     return task.delivery;
   }
   async accept(id: string, sha: string, cases: { name: string; passed: boolean }[], actor: string, eventId: string) {
-    const task = this.store.get(id);if(JSON.parse(task.context).requesterUserId&&JSON.parse(task.context).requesterUserId!==actor)throw new Error('Unauthorized: only the real requester can accept this delivery'); await this.sync(id); const current = this.store.get(id);
+    const task = this.store.get(id);if(JSON.parse(task.context).requesterUserId&&JSON.parse(task.context).requesterUserId!==actor)throw new Error('Unauthorized: only the real requester can accept this delivery');
+    // v0.6: only tasks carrying a cross-function Transfer get the extra check;
+    // the previously verified originator-only journeys are untouched.
+    const consistency = await this.v06?.acceptanceConsistency(id);
+    if (consistency?.checked) this.store.audit('v06.acceptance-consistency-passed', id, consistency);
+    await this.sync(id); const current = this.store.get(id);
     validateAcceptance(current, sha, cases);
     const gate = await verifyAcceptanceGate({ pc: this.pc, taskId: id, cases });
     const receipt = { acceptedAt: new Date().toISOString(), actor, commit: sha, environment: current.delivery!.environment, cases,
@@ -273,13 +281,19 @@ export class Controller {
   /** v0.6: seal the acceptance criteria before execution starts. */
   async sealAcceptancePlan(id: string, lockedBy: string, level?: VerificationLevel) {
     const task = this.store.get(id);
+    // FR-12: when a cross-function Transfer exists, the criteria must be
+    // drafted by the target function owner, never by the grantee.
+    const transfer = await this.v06?.transferView(id);
     const plan = planForTask(task, lockedBy, {
       level: level ?? this.config.acceptance?.level ?? 'L3',
       producerModel: this.config.agents[task.agent]?.model,
       reviewerModel: this.config.acceptance?.reviewerModel,
+      ...(transfer && !transfer.consultationOnly ? { draftedBy: transfer.standardDraftedBy } : {}),
     });
     const revision = await lockPlan(this.pc, plan);
-    this.store.audit('acceptance.plan-locked', task.id, { hash: plan.hash, level: plan.level, items: plan.items.length, revision });
+    if (transfer && !transfer.consultationOnly) await this.v06?.lockStandardForTransfer(id, plan);
+    this.store.audit('acceptance.plan-locked', task.id, { hash: plan.hash, level: plan.level, items: plan.items.length, revision,
+      ...(transfer ? { standardDraftedBy: transfer.standardDraftedBy } : {}) });
     return { plan, revision };
   }
   /** v0.6: an independent per-item review. Evidence for the originator, never an approval. */

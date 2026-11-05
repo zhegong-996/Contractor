@@ -26,6 +26,7 @@ import { TeamMemory } from './team-memory.ts';
 import { TeamMembers } from './members.ts';
 import { AgentServices } from './agent-services.ts';
 import { OntologyService } from './ontology.ts';
+import { V06Services } from './v06.ts';
 
 const config = loadConfig(); const credentials = secrets();
 const store = new Store(runtime('bridge.sqlite')); const control = new Controller(config, store);
@@ -41,6 +42,10 @@ const collaborationIntake = new CollaborationIntake(workspaces, assistant, agent
 const modelSettings = new ModelSettingsService(workspaces);
 const graph = new KnowledgeGraph(workspaces);
 const ontology = new OntologyService(workspaces);
+// v0.6 functional layer: Paperclip native documents for task facts, local
+// config for organisation policy, SQLite for audit only.
+const v06 = new V06Services(store, workspaces.pc);
+control.v06 = v06;
 const ingest = async (input: unknown) => (await collaborationIntake.ingest(input)) ?? control.ingest(input);
 let feishuState = config.feishu.enabled ? 'connecting' : 'disabled';
 let tail: Promise<unknown> = Promise.resolve();
@@ -86,11 +91,15 @@ const server = createServer(async (req, res) => {
       const action = url.pathname.slice('/workspace/'.length);
       // Reads recheck their own scope and revisions. They need not wait behind
       // indexing or native process reconciliation; mutations keep the single lane.
-      const readOnly=['view','team-members','agent-services','agent-build','development-view','network-view','memory-status','memory-search','memory-annotations','context-pack','context-record','context-search','ontology-view','model-settings','system-status','trace-view'].includes(action)||action==='knowledge-graph'&&payload.project!==true;
+      const v06Reads=['roles-view','role-route','role-hints','role-snapshot','transfer-view','transfer-policy','dispatch-guard','grant-widen','grant-check','edges-view','edge-impact','label-check','policy-view','verification-level','topology-advice','inflight-policy','signals','review-readiness','ontology-meta','ontology-view','ontology-query','attention-policy','attention-filter','watchdog-policy','watchdog-inspect'];
+      const readOnly=['view','team-members','agent-services','agent-build','development-view','network-view','memory-status','memory-search','memory-annotations','context-pack','context-record','context-search','ontology-view','model-settings','system-status','trace-view'].includes(action)||action==='knowledge-graph'&&payload.project!==true||action.startsWith('v06-')&&v06Reads.includes(action.slice(4));
       const runWorkspace=readOnly?<T>(job:()=>Promise<T>)=>withFeishuReads(job):serialize;
       res.end(JSON.stringify(await runWorkspace(async () => {
         workspaceActor = await teamMembers.gate(action, payload, workspaceActor);
         if(workspaceActor.userId&&action!=='view')store.audit('member.action',payload.taskId??config.companyId!,{userId:workspaceActor.userId,action});
+        // v0.6: all new semantic objects reach the human through the same
+        // channel renderer (conversation text + workbench link + optional card).
+        if(action.startsWith('v06-'))return v06.dispatch(action.slice(4),payload,workspaceActor,{workbenchUrl:config.paperclipUrl,channel:'workspace',actorUserId:workspaceActor.userId??'local-operator'});
         if(action==='development-view')return development.view(payload.taskId,workspaceActor);
         if(action==='development-start')return development.start(payload,workspaceActor);
         if(action==='development-accept')return development.accept(payload,workspaceActor);

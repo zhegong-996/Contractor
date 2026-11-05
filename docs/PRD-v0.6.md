@@ -341,7 +341,17 @@
 
 每补一个 v0.6 功能，都要回答三问：**会话里怎么表达？工作台哪个 tab 留痕？签字人是谁？** 任一问答不上就不算完成。尤其 FR-11 Transfer 授权卡片、FR-16~19 验收报告、FR-21 组织信号，必须统一走 `renderForChannel`，不得各写一套消息拼接。
 
-> 协议约束同步见 `OPEN-SOURCE-COMPLIANCE.md`：LobeHub 主仓库为 Community License（只借思想、不复制源码）、Acceptance 为独立 Apache-2.0、Outline 为 BSL 1.1（禁止引入代码）。
+**2026-11-06 第二轮补全结果**（实现与边界详见 `ADAPTATION-v0.6.md` 0.000 节）：
+
+| 三问 | 本轮答案 |
+|---|---|
+| 会话里怎么表达 | `V06Services` 统一调 `renderForChannel`；Transfer 卡片与跨空间授权申请**已写入现有 outbox**，由已接通的会话渠道（当前飞书）以纯文本推送，字段不降级丢失 |
+| 工作台哪里留痕 | 组织级配置落本地配置层 + SQLite 审计；任务级事实（Transfer / Grant / 边状态）落 **Paperclip 原生任务文档修订**；全部经 `/workspace/v06-*` action 调用，未新建第二业务库 |
+| 签字人是谁 | Transfer 双段责任链：承接人负执行责任、目标职能 owner 负兜底责任并起草验收标准；对外 / 资金 / 客户可见等动作强制 owner 联签；最终业务验收仍是**原发起人在原会话 `/accept`** |
+
+**FR 覆盖状态**：FR-01/02/03/05/06/07/08/09/10/11/12/13/14/20/21/22/23/24/26/28 已具备契约与 API 实现；FR-16/17/19 契约层已落地且 `draftedBy` 已接入主链路；**FR-18（视觉评审）仍为未完成**——注册的 `TraceEvidenceReviewer` 明确声明 `vision: false` / `externalModelEnabled: false`，`review-readiness` 会如实返回未就绪，禁止宣称已满足。另有两项「契约完成但未自动挂到执行循环」：注意力策略 / Watchdog 保留现有运行时不动（见 `ADAPTATION-v0.6.md` 0.000 节）；前端视图（FR-22 报告的在线可查界面、FR-31 ③）仍待 P3。
+
+> 协议约束同步见 `OPEN-SOURCE-COMPLIANCE.md`：LobeHub 主仓库为 Community License（只借思想、不复制源码）、Acceptance 为独立 Apache-2.0、Outline 为 BSL 1.1（禁止引入代码）。本轮**未新增任何开源依赖或 submodule**，全部为自研契约层，无需补充协议材料。
 
 ---
 

@@ -87,6 +87,17 @@ export class TeamMembers {
     if (actor.admin || !actor.userId) return actor;
     const reads = ['view', 'agent-services', 'agent-build', 'development-view', 'team-members', 'member-pair-code', 'network-view', 'memory-search', 'memory-status', 'memory-annotations', 'context-pack', 'context-record', 'context-search', 'knowledge-graph'];
     if (reads.includes(action)) return actor;
+    // v0.6: owner-level permissions are enforced inside V06Services (org owner /
+    // workspace owner / function owner). Keep the original admin flag intact so
+    // the org-only config guard cannot be bypassed by an elevated actor here.
+    if (action.startsWith('v06-')) {
+      const v06Reads = ['roles-view', 'role-route', 'role-hints', 'role-snapshot', 'transfer-view', 'transfer-policy',
+        'dispatch-guard', 'grant-widen', 'grant-check', 'edges-view', 'edge-impact', 'label-check',
+        'policy-view', 'verification-level', 'topology-advice', 'inflight-policy', 'signals', 'review-readiness',
+        'ontology-meta', 'ontology-view', 'ontology-query', 'attention-policy', 'attention-filter', 'watchdog-policy', 'watchdog-inspect'];
+      if (actor.humanRole === 'viewer' && !v06Reads.includes(action.slice(4))) throw new Error('只读成员不能修改职能、授权或策略');
+      return actor;
+    }
     if(actor.humanRole==='viewer')throw new Error('只读成员不能修改任务、权限或知识');
     if(action==='request')return actor;
     if(['decide','revoke'].includes(action)){const r=await this.w.access(payload.id),source=this.w.source(r.sourceId);if(action==='revoke'&&this.w.store.get(r.taskId).agent===actor.agent)return {...actor,admin:true,scopedHuman:true};if(!this.w.members(source.domain).includes(actor.agent!))throw new Error('资料授权只能由该空间负责人处理');await this.w.reader(actor.agent!).get('/issues/'+source.ref.taskId);return {...actor,admin:true,scopedHuman:true};}
