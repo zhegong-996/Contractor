@@ -7,7 +7,7 @@ export function chineseShell(source: string, file: string) {
   if (!/\/ui\/src\/.*\.tsx$/.test(file.replaceAll('\\', '/')) || /\.test\.tsx$/.test(file)) return source;
   const tree = parse(source, { sourceType: 'module', plugins: ['typescript', 'jsx'] });
   const edits: { start: number; end: number; text: string }[] = [], dictionary = messages as Record<string, string>;
-  const displayProperties = /^(label|title|description|placeholder|aria-label|alt|emptyText|heading|buttonLabel|actionLabel|defaultValue)$/;
+  const displayProperties = /^(label|title|description|placeholder|aria-label|ariaLabel|alt|emptyText|heading|buttonLabel|actionLabel|defaultValue)$/;
   function visit(node: any, parents: any[] = []) {
     const parent = parents.at(-1);
     if (node.type === 'JSXText') {
@@ -22,8 +22,8 @@ export function chineseShell(source: string, file: string) {
       const jsxDisplay = !!container && (attribute?.type !== 'JSXAttribute' || displayProperties.test(attribute.name.name));
       const displayValue = parent.type === 'JSXAttribute' && displayProperties.test(parent.name.name)
         || parent.type === 'ObjectProperty' && displayProperties.test(parent.key.name ?? parent.key.value)
-        || parent.type === 'AssignmentPattern' && /^(title|label|description|placeholder|heading)$/.test(parent.left.name)
-        || parent.type === 'VariableDeclarator' && /^(title|label|heading|pageTitle|headerTitle|sectionTitle)$/.test(parent.id.name)
+        || parent.type === 'AssignmentPattern' && (/^(title|label|description|placeholder|heading)$|(?:Label|Title)$/.test(parent.left.name))
+        || parent.type === 'VariableDeclarator' && (/^(title|label|heading)$|(?:Label|Title)$/.test(parent.id.name))
         || parent.type === 'CallExpression' && /^(useDocumentTitle|usePageTitle)$/.test(parent.callee.name)
         || parent.type === 'JSXExpressionContainer' && jsxDisplay
         || parent.type === 'ConditionalExpression' && parent.test !== node && jsxDisplay
@@ -31,7 +31,8 @@ export function chineseShell(source: string, file: string) {
       if (!protectedValue && displayValue) edits.push({ start: node.start, end: node.end, text: JSON.stringify(dictionary[node.value]) });
     } else if (node.type === 'TemplateElement' && dictionary[node.value.raw]) {
       const attribute = parents.findLast(p => p.type === 'JSXAttribute');
-      if (attribute && displayProperties.test(attribute.name.name)) edits.push({ start: node.start, end: node.end, text: dictionary[node.value.raw]! });
+      const property = parents.findLast(p => p.type === 'ObjectProperty' && displayProperties.test(p.key.name ?? p.key.value));
+      if (attribute && displayProperties.test(attribute.name.name) || property) edits.push({ start: node.start, end: node.end, text: dictionary[node.value.raw]! });
     }
     for (const value of Object.values(node)) {
       if (Array.isArray(value)) for (const child of value) { if (child && typeof child === 'object' && typeof child.type === 'string') visit(child, [...parents, node]); }
