@@ -167,6 +167,8 @@ function TaskDetail({ ui, task, panel, setPanel }: { ui: UI; task: any; panel: s
   const [requestAgent, setRequestAgent] = useDraft(k + ':request-agent', task.agent), [acceptanceNote, setAcceptanceNote] = useDraft(k + ':acceptance', ''), [skipKnowledge, setSkipKnowledge] = useDraft(k + ':no-knowledge', false), [stopped, setStopped] = useState(false), [stopNote, setStopNote] = useDraft(k + ':stop-note', '');
   useEffect(() => { if (next === task.agent) setNext(ui.data.actors.find((a: any) => a.key !== task.agent)?.key ?? ''); }, [task.agent, next]);
   const closed = task.phase === 'accepted', snapshots = task.snapshots.filter((s: any) => s.key === 'checkpoint'), candidates = task.snapshots.filter((s: any) => s.key?.startsWith('knowledge-'));
+  const acceptance = task.state.history.findLast((h: any) => h.event === 'completed')?.detail?.review;
+  const acceptedDraft = snapshots.find((s: any) => s.id === acceptance?.checkpoint?.id && s.revision === acceptance.checkpoint.revision && !s.restricted);
   const nextReady = task.state.sources.every((id: string) => (!source(ui, id)?.external && ui.data.spaces.find((d: any) => d.domain === source(ui, id)?.domain)?.members?.includes(next)) || task.requests.some((r: any) => r.sourceId === id && r.agent === next && isLive(r)));
   return <article className="sm-task-detail"><div className="sm-row sm-spread sm-wrap"><div className="sm-inline-meta"><a {...ui.nav.linkProps('/issues/' + task.id)}>{task.identifier}</a><span>{actor(ui, task.agent)}负责</span></div><Badge state={task.phase} /></div>
     <h2 className="sm-task-heading">{task.title}</h2><p className="sm-goal">{task.goal}</p>
@@ -200,12 +202,16 @@ function TaskDetail({ ui, task, panel, setPanel }: { ui: UI; task: any; panel: s
       {!nextReady && <p className="sm-small sm-muted">下一参与者尚未获准全部资料，先处理下面的访问申请。</p>}
       {task.requests.filter((r: any) => r.agent === next).map((r: any) => <RequestItem key={r.id} ui={ui} task={task} request={r} />)}
     </section>}
-    {panel === 'knowledge' && <section><div className="sm-section-head"><h3>从本次工作留下可复用知识</h3></div>
-      {!candidates.length && <div className="sm-empty"><strong>还没有知识候选</strong>Agent 根据获准资料整理后会准备候选，也可以手动补充。</div>}
+    {panel === 'knowledge' && <section><div className="sm-section-head"><h3>{closed ? '交付与验收记录' : '从本次工作留下可复用知识'}</h3></div>
+      {!closed && !candidates.length && <div className="sm-empty"><strong>还没有知识候选</strong>Agent 根据获准资料整理后会准备候选，也可以手动补充。</div>}
       {candidates.map((s: any) => <Candidate key={s.id} ui={ui} task={task} item={s} />)}
       {!closed && <><Details remember={k + ':manual-knowledge'}><summary>手动补充知识候选</summary><KnowledgeForm ui={ui} draftKey={k + ':knowledge'} compact submit={async record => { await ui.invoke('propose', { taskId: task.id, record: { ...record, domains: [task.state.context?.knowledgeSpace ?? ui.data.spaces[0]?.domain] } }); }} /></Details>
         <div className="sm-section sm-stack"><h3>最终验收</h3>{snapshots.at(-1) && <Details remember={k + ':review-draft:' + snapshots.at(-1).revision}><summary>本次工作稿 · {snapshots.at(-1).revision?.slice(0, 8)}</summary><RecordBody body={snapshots.at(-1).body} /><a className="sm-button" {...ui.nav.linkProps('/issues/' + snapshots.at(-1).id)}>原生文档与修订</a></Details>}<p className="sm-muted sm-small">按本次实际交付范围验收，并结束临时访问。工作稿交付与业务功能已实现分别记录。</p>{!candidates.some((s: any) => s.publicationId) && <label className="sm-check"><input type="checkbox" checked={skipKnowledge} onChange={e => setSkipKnowledge(e.target.checked)} />本次只验收工作稿，暂不采用为可复用知识</label>}<label className="sm-field">验收范围与依据<input className="sm-input" value={acceptanceNote} onChange={e => setAcceptanceNote(e.target.value)} placeholder="说明已审阅的交付、未覆盖范围和结论" /></label><div><Button variant="primary" disabled={ui.busy || !acceptanceNote.trim() || (!candidates.some((s: any) => s.publicationId) && (!skipKnowledge || !snapshots.at(-1)?.revision)) || ['unknown', 'running'].includes(task.phase)} onClick={() => ui.run('complete', { taskId: task.id, reason: acceptanceNote, noKnowledge: skipKnowledge, checkpoint: snapshots.at(-1)?.revision ? { id: snapshots.at(-1).id, revision: snapshots.at(-1).revision } : undefined })}>验收完成并结束临时授权</Button></div></div></>}
-      {closed && <div className="sm-notice sm-section"><Icon name="check" /> 已验收，临时授权已结束。已采用知识按专业空间的受众继续保留。</div>}
+      {closed && <div className="sm-stack"><div className="sm-notice"><Icon name="check" /> {acceptance?.noKnowledge ? '工作稿交付已验收，暂不采用为可复用知识。临时授权已结束。' : '已验收，临时授权已结束。'}</div>
+        {acceptance?.reason && <p>{acceptance.reason}</p>}
+        {acceptance?.checkpoint && <Details remember={k + ':accepted-draft:' + acceptance.checkpoint.revision}><summary>已验收工作稿 · {acceptance.checkpoint.revision.slice(0, 8)}</summary>
+          {acceptedDraft ? <RecordBody body={acceptedDraft.body} /> : <p className="sm-muted sm-small">已验收版本保存在原生修订记录中，内容仍按当前访问权限显示。</p>}
+          <a className="sm-button" {...ui.nav.linkProps('/issues/' + acceptance.checkpoint.id)}>原生文档与修订</a></Details>}</div>}
     </section>}
   </article>;
 }
