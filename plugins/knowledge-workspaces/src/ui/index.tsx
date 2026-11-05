@@ -5,13 +5,15 @@ import { styles } from './styles.js';
 const labels: Record<string, string> = { pending: '待授权', approved: '已授权', denied: '已拒绝', revoked: '已撤权', revoking: '撤权中', expired: '已过期',
   ready: '待推进', waiting: '待审阅', running: '执行中', handoff_pending: '正在恢复交接', access_blocked: '等待授权', unknown: '待核对执行', accepted: '已完成',
   candidate: '待审阅', confirmed: '已确认', withdrawn: '已撤回', queued: '等待执行', completed: '已整理', failed: '整理失败', idle: '待委托', stale: '上下文已更新',
-  cancelled: '已停止', cancelling: '正在停止', unavailable: '待恢复连接' };
+  cancelled: '已停止', cancelling: '正在停止', unavailable: '待恢复连接', source: '来源证据' };
 const events: Record<string, string> = { 'task-created': '创建协作任务', 'access-requested': '申请资料访问', 'access-approved': '负责人批准访问', 'access-denied': '拒绝访问申请',
   'access-revoked': '结束资料授权', 'access-expired': '资料授权到期', checkpoint: '保存工作检查点', handoff: '完成任务交接', 'handoff-started': '开始任务交接',
   'handoff-assigned': '更新执行身份', 'knowledge-proposed': '准备知识候选', 'knowledge-confirmed': '确认知识版本', 'knowledge-withdrawn': '撤回知识结论',
   'knowledge-published': '采用到专业空间', completed: '验收完成，结束临时授权', 'execution-stop-confirmed': '核对原执行已停止', 'contract-migrated': '升级协作记录',
   'assistant-delegated': '委托 Agent 准备工作', 'assistant-paused': '暂停 Agent 自动准备', 'assistant-queued': 'Agent 已接单', 'assistant-prepared': 'Agent 已提交整理结果',
-  'assistant-configuration-repaired': '恢复 Agent 运行配置' };
+  'assistant-configuration-repaired': '恢复 Agent 运行配置', 'im-enabled': '启用飞书接续', 'im-resumed': '飞书接续任务',
+  'context-note': '补充任务背景', 'context-expanded': '扩展已授权来源', 'context-linked': '关联研发交付',
+  'context-included': '引用资料', 'context-excluded': '移出资料', 'context-discovered': '找到相关知识' };
 const retained = new Map<string, unknown>();
 function useDraft<T,>(key: string, initial: T): [T, Dispatch<SetStateAction<T>>] {
   const [stored, update] = useState(() => ({ key, value: retained.has(key) ? retained.get(key) as T : initial }));
