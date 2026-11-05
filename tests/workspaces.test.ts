@@ -9,6 +9,7 @@ process.env.COLLAB_STATE_DIR = temp;
 writeFileSync(path.join(temp, 'secrets.json'), JSON.stringify({ jwtSecret: 'test-key', adminToken: 'operator', agentTokens: {},
   paperclipTokens: { 'role-growth': 'fake-growth-native-identity', 'role-product': 'fake-product-native-identity' } }));
 const { Workspaces, requestIsCurrent, contractProof } = await import('../src/workspaces.ts');
+const { collaborationOwnerMatches } = await import('../src/workspaces.ts');
 const { configSchema } = await import('../src/config.ts');
 const config = configSchema.parse({ companyId: 'company', projectId: 'project', paperclipUrl: 'http://127.0.0.1:3100', repository: 'test/repo',
   checkout: temp, allowedPaths: ['pilot/'], defaultAgent: 'role-growth',
@@ -36,6 +37,14 @@ test('approval and expiry are both required; pending, revoking and exact deadlin
   assert.equal(requestIsCurrent({ state: 'approved', expiresAt: '2026-11-04T00:00:01Z' }, now), true);
   for (const state of ['pending', 'revoking', 'revoked', 'denied'] as const) assert.equal(requestIsCurrent({ state, expiresAt: '2099-01-01T00:00:00Z' }, now), false);
   assert.equal(requestIsCurrent({ state: 'approved', expiresAt: '2026-11-04T00:00:00Z' }, now), false);
+});
+test('native human review may temporarily own the coordinator only when the signed executor remains its return assignee', () => {
+  const issue: any = { assigneeAgentId: null, assigneeUserId: 'local-board', reviewPolicy: 'human_only', executionPolicy: { stages: [{ id: 'review', type: 'review', participants: [{ type: 'user', userId: 'local-board' }] }] },
+    executionState: { currentStageId: 'review', currentStageType: 'review', currentParticipant: { type: 'user', userId: 'local-board' }, returnAssignee: { type: 'agent', agentId: 'expected' } } };
+  assert.equal(collaborationOwnerMatches(issue, ['expected']), true);
+  assert.equal(collaborationOwnerMatches(issue, ['foreign']), false);
+  assert.equal(collaborationOwnerMatches({ ...issue, assigneeUserId: 'another-person' }, ['expected']), false);
+  assert.equal(collaborationOwnerMatches({ ...issue, executionState: { ...issue.executionState, currentStageId: 'unrelated' } }, ['expected']), false);
 });
 test('workflow attestations bind sources and the owning task, so direct document edits cannot widen a handoff', () => {
   const state = { sources: ['private-sales'], requests: ['approved-one'], snapshots: [{ id: 'private-checkpoint', sources: ['private-sales'] }] };

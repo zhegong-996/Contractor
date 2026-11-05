@@ -91,3 +91,9 @@ test('a historical draft cannot reintroduce changed source evidence into a fresh
   assert.equal(pack.layers.checkpoints.length, 0); assert.equal(pack.layers.excludedCheckpoints[0].id, 'old-draft');
   assert.ok(!pack.manifest.some(r => r.id === 'old-draft')); assert.equal(pack.layers.missing.length, 0);
 });
+test('provenance validation follows draft dependencies instead of only checking the latest draft text', async () => {
+  const f = fixture(); f.w.readMaterial = async () => f.w.knowledge.read();
+  f.state.snapshots.push({ id: 'prior-draft', key: 'checkpoint', inputManifest: [{ kind: 'knowledge', id: 'source', revision: 'old', hash: 'old' }] });
+  f.w.pc = f.w.reader(); f.w.assertManifest = (...args: any[]) => Workspaces.prototype.assertManifest.call(f.w, ...args as [any, any]);
+  await assert.rejects(f.w.assertManifest(f.task, [{ kind: 'checkpoint', id: 'prior-draft', key: 'checkpoint', revision: 'note-v1', hash: contextHash('人工新约束') }]), /上下文已经变化/);
+});

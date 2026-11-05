@@ -13,6 +13,15 @@ export type Domain = string;
 export const domainNames: Record<Domain, string> = { product: '产研', growth: '增长', sales: '销售', operations: '职能' };
 // These four names are legacy seed examples, never an organization or permission enum.
 export const collaborationReviewPolicy = { reviewPolicy: 'human_only', executionPolicy: { stages: [{ type: 'review', participants: [{ type: 'user', userId: 'local-board' }] }] } };
+export function collaborationOwnerMatches(issue: any, expected: string[], completed = false) {
+  if (expected.includes(issue.assigneeAgentId)) return true;
+  const run = issue.executionState, stage = issue.executionPolicy?.stages?.find((s: any) => s.id === run?.currentStageId);
+  return Boolean(issue.reviewPolicy === 'human_only' && !issue.assigneeAgentId && issue.assigneeUserId === 'local-board'
+    && run?.returnAssignee?.type === 'agent' && expected.includes(run.returnAssignee.agentId)
+    && (stage?.type === 'review' && run.currentStageType === 'review' && run.currentParticipant?.type === 'user' && run.currentParticipant.userId === 'local-board'
+      && stage.participants.some((p: any) => p.type === 'user' && p.userId === 'local-board')
+      || completed && issue.status === 'done' && issue.executionPolicy.stages.some((s: any) => s.type === 'review' && s.participants.some((p: any) => p.type === 'user' && p.userId === 'local-board'))));
+}
 export type Catalog = { companyId: string; coordinationProject: string; vaultProject: string; participants?: string[];
   feishuConnection?: Pick<FeishuReference, 'profile' | 'appId' | 'userOpenId'>;
   spaces: Record<string, { projectId: string; agent: string; name?: string; members?: string[]; description?: string }>;
@@ -88,7 +97,7 @@ export class Workspaces {
     const value: State = JSON.parse((await this.pc.get('/issues/' + task.id + '/documents/collaboration')).body);
     if (value.proof !== contractProof('task', task.id, value, secrets().jwtSecret)) throw new Error('协作合同被外部修改，先核对修订；不能据此变更权限');
     const expected = value.pendingHandoff ? [value.pendingHandoff.previous, value.pendingHandoff.next] : [task.agent];
-    if (!expected.some(key => this.config.agents[key]?.paperclipId === issue.assigneeAgentId)) throw new Error('原生负责人已改变，请先核对协作合同');
+    if (!collaborationOwnerMatches(issue, expected.map(key => this.config.agents[key]?.paperclipId).filter((id): id is string => Boolean(id)), task.phase === 'accepted' && value.history.some(h => h.event === 'completed'))) throw new Error('原生负责人已改变，请先核对协作合同');
     return value;
   }
   async save(task: Task, state: State, event: string, detail: unknown) {
@@ -552,7 +561,7 @@ export class Workspaces {
     }
     return this.publish(taskId, outcomeId, record.revision, reason, actor);
   }
-  async assertManifest(task: Task, manifest: InputRef[]) {
+  async assertManifest(task: Task, manifest: InputRef[], seen = new Set<string>()) {
     const state = await this.state(task);
     for (const ref of manifest) {
       let revision: string, hash: string;
@@ -568,7 +577,12 @@ export class Workspaces {
         if (!state.context?.linkedTasks.includes(ref.id)) throw new Error('研发上下文关联已变化');
         const other = this.store.get(ref.id), value = contextHash(deliveryEvidence(other, await this.issue(other.id))); revision = hash = value;
       } else {
-        if (!state.snapshots.some(s => s.id === ref.id && s.key === ref.key)) throw new Error('上下文记录不属于此任务');
+        const snapshot = state.snapshots.find(s => s.id === ref.id && s.key === ref.key);
+        if (!snapshot) throw new Error('上下文记录不属于此任务');
+        if (snapshot.inputManifest) {
+          if (seen.has(snapshot.id)) throw new Error('上下文依赖出现循环，请重新整理来源');
+          const next = new Set(seen); next.add(snapshot.id); await this.assertManifest(task, snapshot.inputManifest, next);
+        }
         const doc = await this.pc.get('/issues/' + ref.id + '/documents/' + ref.key); revision = doc.latestRevisionId; hash = contextHash(doc.body);
       }
       if (revision !== ref.revision || hash !== ref.hash) throw new Error('生成所用上下文已经变化，请重新整理并审阅当前版本');
