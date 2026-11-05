@@ -7,6 +7,8 @@ import { verifyEvidenceQuotes, projectHistoricalEvidence } from './evidence.ts';
 import { TaskContext, type InputRef } from './context.ts';
 import { admitPreparation, assessPreparation, consumeDueRecheck, maxRuntimeTools, preparationRule, runtimeToolInput, subscribedEvents, type CoordinationEvent } from './coordination.ts';
 import { deliveryArtifactEvidence, platformTestEvidence } from './platform-evidence.ts';
+import { ServiceNetwork } from './service-network.ts';
+import { TeamMemory } from './team-memory.ts';
 import { AgentServices } from './agent-services.ts';
 import { KnowledgeGraph } from './graph.ts';
 
@@ -67,7 +69,7 @@ export class WorkspaceAssistant {
       selection: [...sources, ...checkpoints].map(s => ({ id: s.id, range: s.range })), missing, requests,
       delegation: { mode: state.delegation?.mode, nonce: state.delegation?.nonce, instruction: state.delegation?.instruction } });
     return { basis, manifest: pack.manifest, context: { task: { id: task.id, identifier: task.identifier, title: goal.title, goal: goal.goal,
-      requirements: goal.requirements, origin: goal.origin, participant: this.config.agents[task.agent]?.name ?? task.agent, service: state.context?.service },
+      requirements: goal.requirements, origin: goal.origin, participant: this.config.agents[task.agent]?.name ?? task.agent, service: state.context?.service, serviceRoutes: state.context?.serviceRoutes, networkParent: state.context?.networkParent },
       instruction: state.delegation?.instruction ?? '', sources, missing, requests, checkpoints, decisions, coverage: pack.coverage } };
   }
   async delegate(taskId: string, enabled: boolean, mode: 'prepare' | 'advance', instruction: string, actor: WorkspaceActor, nonce?: string) {
@@ -78,7 +80,7 @@ export class WorkspaceAssistant {
     state.delegation = { ...state.delegation, enabled, mode, instruction: instruction.slice(0, 5000), nonce: nonce ?? state.delegation?.nonce };
     if (enabled && nonce) state.delegation.recheckCount = 0;
     if (!enabled) delete state.delegation.recheck;
-    await this.workspaces.save(task, state, enabled ? 'assistant-delegated' : 'assistant-paused', { mode, enabled, delegatedBy: 'local-operator' });
+    await this.workspaces.save(task, state, enabled ? 'assistant-delegated' : 'assistant-paused', { mode, enabled, delegatedBy: actor.userId??'local-operator' });
     if (!enabled && state.delegation.jobId) await this.cancel(taskId, actor);
     return enabled ? this.advance(taskId) : { paused: true };
   }
@@ -160,10 +162,15 @@ export class WorkspaceAssistant {
     if (!previous) job.toolCalls.push(action); await this.save(job);
     try {
       const scoped = { admin: false, agent: task.agent };
-      const mutation = ['discover_context', 'expand_context', 'request_access', 'read_execution_evidence'].includes(input.name);
+      const mutation = ['discover_context', 'expand_context', 'request_access', 'read_execution_evidence', 'delegate_service', 'reply_service', 'propose_memory'].includes(input.name);
       if (mutation && input.name !== 'read_execution_evidence' && job.assessment?.kind !== 'accept') throw new Error('先判断本轮工作范围，再推进准备步骤');
       let result: unknown;
-      if (input.name === 'read_context') result = { context: before.context, events: job.events ?? [], rule: preparationRule, remainingTools: maxRuntimeTools - job.toolCalls.length };
+      if(input.name==='delegate_service') result=await new ServiceNetwork(this.workspaces,this).start(task.id,input.serviceId,scoped);
+      else if(input.name==='reply_service') result=await new ServiceNetwork(this.workspaces,this).replyFromSource(task.id,input.childId,input.sourceId,input.quote,scoped);
+      else if(input.name==='read_service_network') result=await new ServiceNetwork(this.workspaces,this).view(task.id,scoped);
+      else if(input.name==='read_memory_dictionary'){if(!state.sources.includes(input.sourceId)||!await this.workspaces.allowed(task,input.sourceId,task.agent,state))throw new Error('资料不在当前可用范围');const {OntologyService}=await import('./ontology.ts');result=await new OntologyService(this.workspaces).read(this.workspaces.source(input.sourceId).domain,{admin:true});}
+      else if(input.name==='propose_memory') result=await new TeamMemory(this.workspaces).propose(input.annotation,scoped,task.id);
+      else if (input.name === 'read_context') result = { context: before.context, events: job.events ?? [], rule: preparationRule, remainingTools: maxRuntimeTools - job.toolCalls.length };
       else if (input.name === 'assess_scope') { job.assessment = assessPreparation(input.assessment); result = job.assessment; }
       else if (input.name === 'discover_services') result = (await new AgentServices(this.workspaces).read()).profiles.filter(p => p.enabled).map(({id,name,kind,ownerUserId,responsibilities,offers})=>({id,name,kind,ownerUserId,responsibilities,offers}));
       else if (input.name === 'read_execution_evidence') {

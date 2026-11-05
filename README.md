@@ -129,3 +129,5 @@ npm run doctor
 运行 npm run setup:assistant、npm run restart:bridge、npm run install:workspaces 启用，当前使用已登录 Codex。详见 [Agent 与上下文说明](docs/ASSISTANT-CONTEXT.md) 和 [第三方声明](THIRD_PARTY_NOTICES.md)。
 
 真实飞书 Docx 与选定历史讨论现已按任务读取，支持从 IM 接续同一协作任务。空间与参与者可配置，不将部门名称写成权限枚举。见 [飞书来源与动态协作](docs/FEISHU-SOURCES.md)。
+
+多人身份、A2A 服务委托、飞书成员配对、持续知识索引和新版界面的实际边界见[团队协作与记忆](docs/TEAM-NETWORK-MEMORY.md)。

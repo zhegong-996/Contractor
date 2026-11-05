@@ -13,29 +13,30 @@ export type Domain = string;
 export const domainNames: Record<Domain, string> = { product: '产研', growth: '增长', sales: '销售', operations: '职能' };
 // These four names are legacy seed examples, never an organization or permission enum.
 export const collaborationReviewPolicy = { reviewPolicy: 'human_only', executionPolicy: { stages: [{ type: 'review', participants: [{ type: 'user', userId: 'local-board' }] }] } };
-export function collaborationOwnerMatches(issue: any, expected: string[], completed = false) {
+export function collaborationReviewPolicyFor(userId='local-board'){return {reviewPolicy:'human_only',executionPolicy:{stages:[{type:'review',participants:[{type:'user',userId}]}]}};}
+export function collaborationOwnerMatches(issue: any, expected: string[], completed = false, reviewer='local-board') {
   if (expected.includes(issue.assigneeAgentId)) return true;
   const run = issue.executionState, stage = issue.executionPolicy?.stages?.find((s: any) => s.id === run?.currentStageId);
-  return Boolean(issue.reviewPolicy === 'human_only' && !issue.assigneeAgentId && issue.assigneeUserId === 'local-board'
+  return Boolean(issue.reviewPolicy === 'human_only' && !issue.assigneeAgentId && issue.assigneeUserId === reviewer
     && run?.returnAssignee?.type === 'agent' && expected.includes(run.returnAssignee.agentId)
-    && (stage?.type === 'review' && run.currentStageType === 'review' && run.currentParticipant?.type === 'user' && run.currentParticipant.userId === 'local-board'
-      && stage.participants.some((p: any) => p.type === 'user' && p.userId === 'local-board')
-      || completed && issue.status === 'done' && issue.executionPolicy.stages.some((s: any) => s.type === 'review' && s.participants.some((p: any) => p.type === 'user' && p.userId === 'local-board'))));
+    && (stage?.type === 'review' && run.currentStageType === 'review' && run.currentParticipant?.type === 'user' && run.currentParticipant.userId === reviewer
+      && stage.participants.some((p: any) => p.type === 'user' && p.userId === reviewer)
+      || completed && issue.status === 'done' && issue.executionPolicy.stages.some((s: any) => s.type === 'review' && s.participants.some((p: any) => p.type === 'user' && p.userId === reviewer))));
 }
-export type Catalog = { companyId: string; coordinationProject: string; vaultProject: string; participants?: string[]; modelRegistryIssueId?: string; ontologyIssues?: Record<string, string>; serviceRegistryIssueId?: string;
+export type Catalog = { companyId: string; coordinationProject: string; vaultProject: string; participants?: string[]; modelRegistryIssueId?: string; ontologyIssues?: Record<string, string>; serviceRegistryIssueId?: string; memberAgents?: Record<string, string>; memberAgentOwners?: Record<string,string>; imMembers?: Record<string,{userId:string;chatId:string}>;
   feishuConnection?: Pick<FeishuReference, 'profile' | 'appId' | 'userOpenId'>;
   spaces: Record<string, { projectId: string; agent: string; name?: string; members?: string[]; description?: string }>;
   sources: { id: string; title: string; domain: string; ref: { taskId: string; key: string }; external?: FeishuReference }[] };
 export type State = { version: 1; sources: string[]; requests: string[]; snapshots: Snapshot[]; outcomes: Snapshot[]; history: { at: string; event: string; detail: unknown }[];
   imBinding?: { senderId: string; chatId: string };
   delegation?: { enabled: boolean; mode: 'prepare' | 'advance'; jobId?: string; lastBasis?: string; instruction?: string; nonce?: string; eventCursor?: number; recheckCount?: number; recheck?: { at: string; reason: string; kind: 'context' | 'delivery' } };
-  context?: { service?: { id: string; version: string; ownerUserId: string; name: string; responsibilities: string; offer: string }; autoDiscover: boolean; linkedTasks: string[]; requirements: string[]; fullSources: string[]; excludedSources?: string[]; knowledgeSpace?: string };
+  context?: { requesterUserId?: string; networkParent?: string; serviceRoutes?: { serviceId: string; serviceVersion: string; goal: string; sourceIds: string[] }[]; service?: { id: string; version: string; ownerUserId: string; name: string; responsibilities: string; offer: string }; autoDiscover: boolean; linkedTasks: string[]; requirements: string[]; fullSources: string[]; excludedSources?: string[]; knowledgeSpace?: string };
   fence?: { agent: string; lease?: string; runId?: string; generation: number };
   pendingHandoff?: { previous: string; next: string; generation: number }; proof?: string };
 type Snapshot = { id: string; title: string; domain: Domain; sources: string[]; key: string; grants: { agent: string; id: string }[]; published?: boolean; publicationId?: string; receiptId?: string; systemEvidence?: boolean; inputManifest?: InputRef[] };
 type Access = { id: string; taskId: string; sourceId: string; agent: string; purpose: string; expiresAt: string;
   state: 'pending' | 'approved' | 'denied' | 'revoking' | 'revoked' | 'expired'; grantId?: string; approvalId?: string; requestedBy: string; reviewedBy?: string; reason?: string; revokeOutcome?: 'expired' | 'revoked'; remainingNativeAccess?: boolean; proof?: string };
-export type WorkspaceActor = { userId?: string; admin: boolean; agent?: string; automation?: string };
+export type WorkspaceActor = { userId?: string; scopedHuman?: boolean; humanRole?: string; admin: boolean; agent?: string; automation?: string };
 const requestSchema = z.object({ taskId: z.string(), sourceId: z.string(), agent: z.string().optional(),
   purpose: z.string().trim().min(1).max(1000), hours: z.number().min(1 / 60).max(168).default(8), requestKey: z.string().min(1).max(120) }).strict();
 const taskSchema = z.object({ title: z.string().trim().min(1).max(120), goal: z.string().trim().min(1).max(5000),
@@ -97,7 +98,7 @@ export class Workspaces {
     const value: State = JSON.parse((await this.pc.get('/issues/' + task.id + '/documents/collaboration')).body);
     if (value.proof !== contractProof('task', task.id, value, secrets().jwtSecret)) throw new Error('协作合同被外部修改，先核对修订；不能据此变更权限');
     const expected = value.pendingHandoff ? [value.pendingHandoff.previous, value.pendingHandoff.next] : [task.agent];
-    if (!collaborationOwnerMatches(issue, expected.map(key => this.config.agents[key]?.paperclipId).filter((id): id is string => Boolean(id)), task.phase === 'accepted' && value.history.some(h => h.event === 'completed'))) throw new Error('原生负责人已改变，请先核对协作合同');
+    if (!collaborationOwnerMatches(issue, expected.map(key => this.config.agents[key]?.paperclipId).filter((id): id is string => Boolean(id)), task.phase === 'accepted' && value.history.some(h => h.event === 'completed'),value.context?.requesterUserId??'local-board')) throw new Error('原生负责人已改变，请先核对协作合同');
     return value;
   }
   async save(task: Task, state: State, event: string, detail: unknown) {
@@ -189,13 +190,13 @@ export class Workspaces {
       projectId: c.spaces[domain].projectId, visibility: 'private', title: data.title, status: 'backlog' });
     const sourceTask: Task = { id: issue.id, identifier: issue.identifier, triggerId: 'source:' + issue.id, chatId: 'local-workspace', messageId: 'local-workspace',
       senderId: 'local-operator', agent: c.spaces[domain].agent, workspace: '', branch: '', context: '{}', generation: 1, phase: 'knowledge', kind: 'knowledge' };
-    this.store.save(sourceTask); const record = await this.knowledge.propose(sourceTask, data, 'local-operator');
+    this.store.save(sourceTask); const record = await this.knowledge.propose(sourceTask, data, actor.userId??'local-operator');
     const source = { id: issue.id, title: data.title, domain, ref: { taskId: issue.id, key: data.key } };
     c.sources.push(source); this.saveCatalog(c); return { source, record };
   }
   async reviewSource(id: string, state: 'confirmed' | 'withdrawn', revision: string, actor: WorkspaceActor) {
     if (this.source(id).external) throw new Error('飞书原始证据不能直接确认成知识，请在任务内提出并审阅结论');
-    this.manager(actor); return this.knowledge.review(this.source(id).ref, state, revision, 'local-operator');
+    this.manager(actor); return this.knowledge.review(this.source(id).ref, state, revision, actor.userId??'local-operator');
   }
   async updateSource(id: string, input: unknown, revision: string, actor: WorkspaceActor) {
     this.manager(actor); const source = this.source(id);
@@ -204,7 +205,7 @@ export class Workspaces {
     if (!revision || current.revision !== revision) throw new Error('内容已变化，请重新读取当前版本');
     if (data.key !== source.ref.key || JSON.stringify(data.domains) !== JSON.stringify(current.value.domains)) throw new Error('编辑内容不能改变资料身份或共享范围');
     const { confirmedBy, confirmedAt, confirmation, expiresAt, ...previous } = current.value;
-    const value = { ...previous, ...data, state: 'candidate' as const, proposedBy: 'local-operator', updatedAt: new Date().toISOString() };
+    const value = { ...previous, ...data, state: 'candidate' as const, proposedBy: actor.userId??'local-operator', updatedAt: new Date().toISOString() };
     await this.pc.request('PUT', '/issues/' + source.ref.taskId + '/documents/' + source.ref.key,
       { title: value.title, format: 'markdown', body: renderKnowledge(value), baseRevisionId: revision });
     await this.pc.patch('/issues/' + id, { title: value.title });
@@ -260,12 +261,12 @@ export class Workspaces {
     const prior = this.store.byTrigger(trigger); if (prior) return prior;
     const issue = await this.pc.post('/companies/' + this.config.companyId + '/issues', { idempotencyKey: trigger, allowDuplicate: true,
       projectId: this.catalog().coordinationProject, visibility: 'private', title: data.title, description: data.goal,
-      assigneeAgentId: this.agent(data.agent).paperclipId, status: 'backlog', ...collaborationReviewPolicy });
+      assigneeAgentId: this.agent(data.agent).paperclipId, status: 'backlog', ...collaborationReviewPolicyFor(actor.userId??'local-board') });
     const task: Task = { id: issue.id, identifier: issue.identifier, triggerId: trigger, chatId: 'local-workspace', messageId: 'local-workspace',
       senderId: 'local-operator', agent: data.agent, workspace: '', branch: '', context: JSON.stringify({ request: data.goal, source: 'workspace-ui' }),
       generation: 1, phase: 'ready', kind: 'collaboration' };
     const state: State = { version: 1, sources: [...new Set(data.sources)], requests: [], snapshots: [], outcomes: [], history: [],
-      context: { autoDiscover: data.autoDiscover, requirements: data.requirements, linkedTasks: [], fullSources: [], knowledgeSpace: data.knowledgeSpace } };
+      context: { requesterUserId: actor.userId ?? 'local-board', autoDiscover: data.autoDiscover, requirements: data.requirements, linkedTasks: [], fullSources: [], knowledgeSpace: data.knowledgeSpace } };
     await this.save(task, state, 'task-created', { agent: data.agent });
     return task;
   }
@@ -282,7 +283,7 @@ export class Workspaces {
       projectId: this.catalog().coordinationProject, visibility: 'private', title: this.spaceName(source.domain) + '资料访问申请',
       description: '用途：' + data.purpose, status: 'backlog', assigneeAgentId: this.agent(this.catalog().spaces[source.domain].agent).paperclipId });
     const r = { id: issue.id, taskId: task.id, sourceId: source.id, agent, key, purpose: data.purpose,
-      expiresAt: new Date(Date.now() + data.hours * 3600000).toISOString(), state: 'pending' as const, requestedBy: actor.admin ? 'local-operator' : agent };
+      expiresAt: new Date(Date.now() + data.hours * 3600000).toISOString(), state: 'pending' as const, requestedBy: actor.userId??(actor.admin ? 'local-operator' : agent) };
     await this.saveAccess(r); await this.nativeGrant(issue.id, agent);
     state.requests.push(issue.id); await this.save(task, state, 'access-requested', { id: issue.id, sourceId: source.id, agent });
     return this.ensureApproval(r);
@@ -313,7 +314,7 @@ export class Workspaces {
     }
     if (approval.status !== wanted) throw new Error('原生审批状态不允许这次操作');
     if (decision === 'approved') r.grantId = (await this.nativeGrant(this.source(r.sourceId).ref.taskId, r.agent)).id;
-    r.state = decision; r.reviewedBy = 'local-operator'; r.reason = reason;
+    r.state = decision; r.reviewedBy = actor.userId??'local-operator'; r.reason = reason;
     await this.saveAccess(r); await this.pc.patch('/issues/' + r.id, { status: 'done' });
     const task = this.store.get(r.taskId), state = await this.state(task);
     if (decision === 'approved' && task.phase === 'access_blocked') {
@@ -450,7 +451,7 @@ export class Workspaces {
     this.manager(actor); const task = this.store.get(taskId), state = await this.state(task);
     const snap = state.outcomes.find(s => s.id === outcomeId); if (!snap) throw new Error('结论不属于此任务');
     if (stateName === 'confirmed' && snap.inputManifest) await this.assertManifest(task, snap.inputManifest);
-    await this.knowledge.review({ taskId: snap.id, key: snap.key }, stateName, revision, 'local-operator');
+    await this.knowledge.review({ taskId: snap.id, key: snap.key }, stateName, revision, actor.userId??'local-operator');
     await this.save(task, state, 'knowledge-' + stateName, { id: outcomeId }); return snap;
   }
   async publish(taskId: string, outcomeId: string, revision: string, reason: string, actor: WorkspaceActor) {
@@ -467,10 +468,10 @@ export class Workspaces {
     const sourceTask: Task = { ...task, id: issue.id, identifier: issue.identifier, triggerId: 'published:' + issue.id, phase: 'knowledge', kind: 'knowledge', knowledgeRefs: [] };
     this.store.save(sourceTask);
     const data = knowledgeInput.parse(Object.fromEntries(Object.entries(record.value).filter(([key]) => key in knowledgeInput.shape)));
-    const proposed = await this.knowledge.propose(sourceTask, data, 'local-operator');
-    await this.knowledge.review(proposed.ref, 'confirmed', proposed.revision, 'local-operator');
+    const proposed = await this.knowledge.propose(sourceTask, data, actor.userId??'local-operator');
+    await this.knowledge.review(proposed.ref, 'confirmed', proposed.revision, actor.userId??'local-operator');
     await this.pc.document(issue.id, 'provenance', '知识采用记录', JSON.stringify({ sourceTask: task.id, sourceOutcome: outcomeId,
-      sourceRevision: revision, sources: snap.sources, releasedBy: 'local-operator', reason, releasedAt: new Date().toISOString(),
+      sourceRevision: revision, sources: snap.sources, releasedBy: actor.userId??'local-operator', reason, releasedAt: new Date().toISOString(),
       audience: this.spaceName(snap.domain) + '知识空间成员', facts: record.value.facts }, null, 2));
     // The released document is separately scoped, never a public Wiki copy.
     snap.publicationId = issue.id;
@@ -482,12 +483,13 @@ export class Workspaces {
     return { id: issue.id, domain: snap.domain, title: record.value.title };
   }
   async view(actor: WorkspaceActor) {
-    const c = this.catalog(), tasks = [];
-    for (const task of this.store.list().filter(t => t.kind === 'collaboration' && (actor.admin || t.agent === actor.agent))) {
+    const c = this.catalog();
+    const tasks = await Promise.all(this.store.list().filter(t => t.kind === 'collaboration' && (actor.admin || t.agent === actor.agent)).map(async task => {
       try {
       const state = await this.state(task), requests = [];
       for (const id of state.requests) { const r = await this.access(id); if (actor.admin || r.agent === actor.agent) requests.push(r); }
       const snapshots = [];
+      const validated=new Set<string>();
       for (const snap of [...state.snapshots, ...state.outcomes]) {
         try {
           if (!actor.admin) for (const source of snap.sources) if (!await this.allowed(task, source, actor.agent!, state)) throw new Error('denied');
@@ -495,32 +497,32 @@ export class Workspaces {
           const value = snap.key.startsWith('knowledge-') ? parseKnowledge(doc.body) : undefined;
           const knowledgeState = !value ? undefined : value.state === 'confirmed' && !reusable(value, this.config, secrets().jwtSecret) ? 'candidate' : value.state;
           let contextState = snap.inputManifest ? 'current' : 'legacy';
-          if (snap.inputManifest) try { await this.assertManifest(task, snap.inputManifest); } catch { contextState = 'historical'; }
+          if (snap.inputManifest) try { await this.assertManifest(task, snap.inputManifest,new Set(),validated); } catch { contextState = 'historical'; }
           snapshots.push({ ...snap, body: value?.body ?? doc.body, record: value, revision: doc.latestRevisionId, knowledgeState, contextState });
         } catch { snapshots.push({ id: snap.id, title: '受限资料', restricted: true }); }
       }
       const issue = await this.issue(task.id);
       const sourceAccess = [];
       for (const sourceId of state.sources) sourceAccess.push(await this.sourceStatus(task, sourceId, task.agent, state));
-      tasks.push({ id: task.id, identifier: task.identifier, title: issue.title, goal: issue.description, agent: task.agent, phase: task.phase, sourceAccess,
-        generation: task.generation, state, requests, snapshots });
+      return { id: task.id, identifier: task.identifier, title: issue.title, goal: issue.description, agent: task.agent, phase: task.phase, sourceAccess,
+        generation: task.generation, state, requests, snapshots };
       } catch (error) {
-        tasks.push({ id: task.id, identifier: task.identifier, title: '协作记录待核对', agent: task.agent, phase: 'unknown', generation: task.generation,
+        return { id: task.id, identifier: task.identifier, title: '协作记录待核对', agent: task.agent, phase: 'unknown', generation: task.generation,
           state: { version: 1, sources: [], requests: [], snapshots: [], outcomes: [], history: [] } as State,
-          requests: [], snapshots: [], error: String(error).slice(0, 300) });
+          requests: [], snapshots: [], error: String(error).slice(0, 300) };
       }
-    }
+    }));
     const sources = [];
     for (const source of c.sources) {
       if (!actor.admin && !this.members(source.domain).includes(actor.agent!) && !tasks.some(t => t.state.sources.includes(source.id))) continue;
       let record;
       try { if (!source.external && (actor.admin || this.members(source.domain).includes(actor.agent!))) record = await this.knowledge.read(source.ref, actor.admin ? this.pc : this.reader(actor.agent!)); } catch {}
       const knowledgeState = source.external ? 'source' : record?.value.state === 'confirmed' && !reusable(record.value, this.config, secrets().jwtSecret) ? 'candidate' : record?.value.state;
-      sources.push({ ...source, ref: undefined, external: source.external ? { kind: source.external.kind, url: source.external.url } : undefined, record, restricted: !record, knowledgeState });
+      sources.push({ ...source, ref: undefined, external: source.external ? { kind: source.external.kind, url: source.external.url } : undefined, record, restricted: !record, knowledgeState,canMaintain:Boolean(actor.admin||actor.userId&&actor.humanRole!=='viewer'&&this.members(source.domain).includes(actor.agent!)) });
     }
     return { spaces: Object.entries(c.spaces).map(([id, s]) => ({ ...s, domain: id, name: this.spaceName(id), members: this.members(id) })), sources, tasks,
       feishuConnected: actor.admin && Boolean(c.feishuConnection), configurableAgents: actor.admin ? Object.entries(this.config.agents).filter(([key, a]) => a.enabled && key !== this.config.assistant?.agentKey && secrets().paperclipTokens?.[key]).map(([key, a]) => ({ key, name: a.name })) : [],
-      actors: this.participantKeys().filter(key => this.config.agents[key]?.enabled).map(key => ({ key, name: this.config.agents[key]!.name })), operator: actor.admin ? '本机管理员' : actor.agent };
+      actors: this.participantKeys().filter(key => this.config.agents[key]?.enabled).map(key => ({ key, name: this.config.agents[key]!.name })), currentUserId:actor.userId??'local-board',currentAgent:actor.agent,canManageWorkspace:actor.admin&&!actor.scopedHuman,operator: actor.admin ? '本机管理员' : actor.agent };
   }
   async complete(taskId: string, actor: WorkspaceActor, input: unknown = {}) {
     this.manager(actor); const task = this.store.get(taskId), state = await this.state(task), issue = await this.issue(taskId);
@@ -555,8 +557,8 @@ export class Workspaces {
     // Native completion can first enter the configured human review stage.
     // Apply this same human decision there; never advance a different reviewer.
     if (native.status === 'in_review' && native.executionState?.status === 'pending'
-      && native.executionState.currentParticipant?.type === 'user' && native.executionState.currentParticipant.userId === 'local-board'
-      && collaborationOwnerMatches(native, [this.agent(current.agent).paperclipId!])) native = await this.pc.patch('/issues/' + taskId, decision);
+      && native.executionState.currentParticipant?.type === 'user' && native.executionState.currentParticipant.userId === (currentState.context?.requesterUserId??'local-board')
+      && collaborationOwnerMatches(native, [this.agent(current.agent).paperclipId!],false,currentState.context?.requesterUserId??'local-board')) native = await this.pc.patch('/issues/' + taskId, decision);
     if (native.status !== 'done') throw new Error('原生人工审阅尚未完成；临时访问已结束，不能提前记录验收完成');
     current.phase = 'accepted';
     await this.save(current, currentState, 'completed', { adoptedKnowledge: currentState.outcomes.map(s => s.publicationId).filter(Boolean), review, temporaryAccessEnded: true });
@@ -589,9 +591,11 @@ export class Workspaces {
     }
     return this.publish(taskId, outcomeId, record.revision, reason, actor);
   }
-  async assertManifest(task: Task, manifest: InputRef[], seen = new Set<string>()) {
+  async assertManifest(task: Task, manifest: InputRef[], seen = new Set<string>(), validated=new Set<string>()) {
     const state = await this.state(task);
     for (const ref of manifest) {
+      if(['service','note','checkpoint'].includes(ref.kind)&&seen.has(ref.id))throw new Error('上下文依赖出现循环，请重新整理来源');
+      const validationKey=task.id+':'+JSON.stringify(ref);if(validated.has(validationKey))continue;
       let revision: string, hash: string;
       if (ref.kind === 'goal') { const value = contextHash(goalEvidence(await this.issue(task.id), state)); revision = hash = value; }
       else if (ref.kind === 'knowledge') {
@@ -604,16 +608,28 @@ export class Workspaces {
       } else if (ref.kind === 'delivery') {
         if (!state.context?.linkedTasks.includes(ref.id)) throw new Error('研发上下文关联已变化');
         const other = this.store.get(ref.id), value = contextHash(deliveryEvidence(other, await this.reader(task.agent).get('/issues/' + other.id))); revision = hash = value;
+      } else if (ref.kind === 'service') {
+        const links=JSON.parse((await this.pc.get('/issues/'+task.id+'/documents/service-network')).body);
+        const link=links.find((l:any)=>l.childId===ref.id&&!l.cancelled);
+        if(!link||link.proof!==contractProof('service-link',ref.id,link,secrets().jwtSecret))throw new Error('服务委托已取消或变化');
+        const child=this.store.get(ref.id), childState=await this.state(child);
+        if(childState.context?.networkParent!==task.id||childState.delegation?.jobId!==ref.revision)throw new Error('服务回传版本已经变化');
+        const {AgentServices}=await import('./agent-services.ts');await new AgentServices(this).assertCurrent(childState);
+        const job=JSON.parse((await this.pc.get('/issues/'+ref.revision+'/documents/assistant-job')).body);
+        if(job.proof!==contractProof('assistant',job.id,job,secrets().jwtSecret)||job.status!=='completed')throw new Error('服务成果不可用');
+        if(job.inputManifest)await this.assertManifest(child,job.inputManifest,new Set([...seen,ref.id]),validated);
+        revision=job.id;hash=contextHash(job.output);
       } else {
         const snapshot = state.snapshots.find(s => s.id === ref.id && s.key === ref.key);
         if (!snapshot) throw new Error('上下文记录不属于此任务');
         if (snapshot.inputManifest) {
           if (seen.has(snapshot.id)) throw new Error('上下文依赖出现循环，请重新整理来源');
-          const next = new Set(seen); next.add(snapshot.id); await this.assertManifest(task, snapshot.inputManifest, next);
+          const next = new Set(seen); next.add(snapshot.id); await this.assertManifest(task, snapshot.inputManifest, next,validated);
         }
         const doc = await this.pc.get('/issues/' + ref.id + '/documents/' + ref.key); revision = doc.latestRevisionId; hash = contextHash(doc.body);
       }
       if (revision !== ref.revision || hash !== ref.hash) throw new Error('生成所用上下文已经变化，请重新整理并审阅当前版本');
+      validated.add(validationKey);
     }
   }
   async stopped(taskId: string, lease: string | undefined, note: string, confirmed: boolean, actor: WorkspaceActor) {

@@ -1,5 +1,5 @@
 export class Paperclip {
-  constructor(readonly url: string, readonly token?: string, readonly runId?: string) {}
+  constructor(readonly url: string, readonly token: string | undefined = process.env.COLLAB_PAPERCLIP_BOARD_TOKEN, readonly runId?: string) {}
   async request<T = any>(method: string, route: string, body?: unknown): Promise<T> {
     const response = await fetch(`${this.url}/api${route}`, { method, signal: AbortSignal.timeout(30000),
       headers: { 'Content-Type': 'application/json', ...(this.token ? { Authorization: `Bearer ${this.token}` } : {}),

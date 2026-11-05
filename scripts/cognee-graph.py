@@ -26,6 +26,22 @@ class SourceDocument(DataPoint):
     state: str
 
 
+class MemoryChunk(DataPoint):
+    name: str
+    text: str
+    source_id: str
+    source_revision: str
+    chunk_index: int
+
+
+class KnowledgeConcept(DataPoint):
+    name: str
+    concept_type: str
+    evidence: str
+    source_id: str
+    source_revision: str
+
+
 class KnowledgeField(DataPoint):
     name: str
     value_json: str
@@ -54,6 +70,26 @@ async def main():
                 nodes.append(KnowledgeField(id=node_id, name=name, value_json=json.dumps(value, ensure_ascii=False),
                     data_type=data_type, source_id=source_id, source_revision=revision))
                 edges.append((str(root_id), str(node_id), "has_field", {"source_revision": revision}))
+            # Bounded content formatting only; Cognee stores the chunks and owns
+            # BM25 ranking. Identity is the original content-derived chunk helper.
+            from cognee.modules.chunking.chunk_id import chunk_content_hash, content_chunk_id
+            text = source["title"] + "\n" + source["body"] + "\n" + json.dumps(source["facts"], ensure_ascii=False)
+            for offset in range(0, len(text), 1400):
+                part = text[offset:offset + 1400]
+                chunk_id = content_chunk_id(str(root_id), chunk_content_hash(part), offset // 1400)
+                nodes.append(MemoryChunk(id=chunk_id, name=source["title"], text=part,
+                    source_id=source_id, source_revision=revision, chunk_index=offset // 1400))
+                edges.append((str(root_id), str(chunk_id), "has_chunk", {"source_revision": revision}))
+            concepts = {}
+            for item in source.get("annotations", {}).get("concepts", []):
+                node_id = uuid5(root_id, "concept:" + item["key"])
+                concepts[item["key"]] = str(node_id)
+                nodes.append(KnowledgeConcept(id=node_id, name=item["name"], concept_type=item["type"],
+                    evidence=item["quote"], source_id=source_id, source_revision=revision))
+                edges.append((str(root_id), str(node_id), "mentions", {"evidence": item["quote"]}))
+            for item in source.get("annotations", {}).get("relations", []):
+                edges.append((concepts[item["from"]], concepts[item["to"]], item["predicate"],
+                    {"evidence": item["quote"], "source_revision": revision}))
             provenance = make_source_ref_key(root_id, UUID(source_id))
             await db.add_nodes(nodes, source_ref_key=provenance)
             await db.add_edges(edges, source_ref_key=provenance)

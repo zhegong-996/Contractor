@@ -19,6 +19,9 @@ import { withFeishuReads } from './feishu-sources.ts';
 import { CollaborationIntake } from './collaboration-intake.ts';
 import { ModelSettingsService } from './model-settings.ts';
 import { KnowledgeGraph, cogneeCommit } from './graph.ts';
+import { ServiceNetwork } from './service-network.ts';
+import { TeamMemory } from './team-memory.ts';
+import { TeamMembers } from './members.ts';
 import { AgentServices } from './agent-services.ts';
 import { OntologyService } from './ontology.ts';
 
@@ -28,6 +31,9 @@ const knowledge = new KnowledgeService(config, store, control.pc, credentials.jw
 const workspaces = new Workspaces(config, store);
 const assistant = new WorkspaceAssistant(workspaces);
 const agentServices = new AgentServices(workspaces);
+const teamMembers = new TeamMembers(workspaces);
+const serviceNetwork = new ServiceNetwork(workspaces, assistant);
+const teamMemory = new TeamMemory(workspaces);
 const collaborationIntake = new CollaborationIntake(workspaces, assistant, agentServices);
 const modelSettings = new ModelSettingsService(workspaces);
 const graph = new KnowledgeGraph(workspaces);
@@ -38,6 +44,7 @@ let tail: Promise<unknown> = Promise.resolve();
 const serialize = <T>(job: () => Promise<T>): Promise<T> => { const work = () => withFeishuReads(job); const next = tail.then(work, work); tail = next.catch(() => {}); return next; };
 function equal(a: string, b: string) { const x = Buffer.from(a), y = Buffer.from(b); return x.length === y.length && timingSafeEqual(x, y); }
 function identity(req: IncomingMessage): { admin: boolean; agent?: string } {
+  const credentials=secrets();
   const token = req.headers.authorization?.replace(/^Bearer /, '') ?? '';
   if (equal(token, credentials.adminToken)) return { admin: true };
   const agent = Object.entries(credentials.agentTokens).find(([, value]) => equal(token, value))?.[0];
@@ -62,11 +69,11 @@ const server = createServer(async (req, res) => {
     if (req.headers.origin) throw new Error('Browser mutations are not accepted by this local bridge');
     if (req.method === 'POST' && url.pathname.startsWith('/workspace/')) {
       const data = await body(req), token = req.headers.authorization?.replace(/^Bearer /, '') ?? '';
-      let workspaceActor;
+      let workspaceActor: import('./workspaces.ts').WorkspaceActor;
       if (credentials.workspacePluginToken && equal(token, credentials.workspacePluginToken)) {
         const host = data.hostActor;
         if (host?.companyId !== config.companyId) throw new Error('Unauthorized: company boundary');
-        if (host.type === 'user' && host.userId === 'local-board') workspaceActor = { admin: true };
+        if (host.type === 'user') workspaceActor = await teamMembers.resolve(host.userId);
         else if (host.type === 'agent') {
           const key = Object.entries(config.agents).find(([, value]) => value.enabled && value.paperclipId === host.agentId)?.[0];
           if (!key) throw new Error('Unauthorized'); workspaceActor = { admin: false, agent: key };
@@ -74,7 +81,28 @@ const server = createServer(async (req, res) => {
       } else workspaceActor = identity(req);
       const payload = data.payload ?? data;
       const action = url.pathname.slice('/workspace/'.length);
-      res.end(JSON.stringify(await serialize(async () => {
+      // Reads recheck their own scope and revisions. They need not wait behind
+      // indexing or native process reconciliation; mutations keep the single lane.
+      const readOnly=['view','team-members','agent-services','network-view','memory-status','memory-search','memory-annotations','context-pack','context-record','context-search','ontology-view','model-settings','system-status'].includes(action)||action==='knowledge-graph'&&payload.project!==true;
+      const runWorkspace=readOnly?<T>(job:()=>Promise<T>)=>withFeishuReads(job):serialize;
+      res.end(JSON.stringify(await runWorkspace(async () => {
+        workspaceActor = await teamMembers.gate(action, payload, workspaceActor);
+        if(workspaceActor.userId&&action!=='view')store.audit('member.action',payload.taskId??config.companyId!,{userId:workspaceActor.userId,action});
+        if (action === 'network-route') return serviceNetwork.route(payload, workspaceActor);
+        if (action === 'network-delegate') return serviceNetwork.start(payload.taskId,payload.serviceId,workspaceActor);
+        if (action === 'network-view') return serviceNetwork.view(payload.taskId,workspaceActor);
+        if (action === 'network-answer') return serviceNetwork.answer(payload.taskId,payload.childId,payload.text,workspaceActor);
+        if (action === 'network-cancel') return serviceNetwork.cancel(payload.taskId,payload.childId,workspaceActor);
+        if (action === 'memory-annotations') return teamMemory.inspect(payload.sourceId,workspaceActor,payload.taskId);
+        if (action === 'memory-status') return teamMemory.status(workspaceActor);
+        if (action === 'memory-search') return teamMemory.search(payload.taskId,payload.query,workspaceActor);
+        if (action === 'memory-propose') return teamMemory.propose(payload.annotation,workspaceActor,payload.taskId);
+        if (action === 'memory-review') return teamMemory.review(payload.sourceId,payload.revision,payload.documentRevision,payload.confirmed===true,workspaceActor);
+        if (action === 'memory-index') return teamMemory.index(payload.sourceId,workspaceActor);
+        if (action === 'member-pair-code') return teamMembers.pairCode(workspaceActor);
+        if (action === 'team-members') return teamMembers.view(workspaceActor);
+        if (action === 'bind-member-agent') return teamMembers.bind(payload, workspaceActor);
+        if (action === 'provision-member-agent') return teamMembers.provision(payload, workspaceActor);
         if (action === 'agent-services') return agentServices.view(workspaceActor);
         if (action === 'save-agent-services') return agentServices.save(payload.profiles, payload.revision ?? null, workspaceActor);
         if (action === 'invoke-agent-service') return agentServices.start(payload, workspaceActor, assistant);
@@ -94,7 +122,7 @@ const server = createServer(async (req, res) => {
             integrations: { modelApi: false, embedding: false, vectorSearch: false, objectStorage: false, multiUserSso: false },
             knowledgeEngine: { name: 'Cognee', commit: cogneeCommit, storage: 'Ladybug', installed: existsSync(runtime('cognee-venv', 'bin', 'python')),
               sourceRevisionGraphs: existsSync(runtime('knowledge-graph')) ? readdirSync(runtime('knowledge-graph')).filter(name => /^[a-f0-9]{64}$/.test(name) && existsSync(runtime('knowledge-graph', name, 'ready.json'))).length : 0,
-              automaticExtraction: false, semanticRecall: false },
+              automaticExtraction: false, semanticRecall: false, lexicalRecall: true, reviewedConceptRelations: true, automaticConfirmedKnowledgeIndexing:true },
             upstream: { name: 'Paperclip', version: health.version, commit: health.commit } };
         }
         if (action === 'enable-collaboration-im') return collaborationIntake.enable(payload.taskId, workspaceActor);
@@ -114,7 +142,7 @@ const server = createServer(async (req, res) => {
             : action === 'context-include' ? await assistant.taskContext.include(payload.taskId, payload.sourceId, workspaceActor)
             : action === 'context-exclude' ? await assistant.taskContext.exclude(payload.taskId, payload.sourceId, workspaceActor)
             : await assistant.taskContext.expand(payload.taskId, payload.sourceId, workspaceActor);
-          await assistant.tick(); return result;
+          await serviceNetwork.tick(); await assistant.tick(); return result;
         }
         if (action === 'assistant-result') return assistant.result(payload.jobId, payload.runId, payload.output, payload.usage, workspaceActor);
         if (action === 'assistant-failed') { await assistant.fail(payload.jobId, payload.runId, payload.error ?? '运行失败', workspaceActor); return { recorded: true }; }
@@ -133,17 +161,22 @@ const server = createServer(async (req, res) => {
         const result = await workspaces.dispatch(action, payload, workspaceActor);
         if (action === 'view') {
           const view = result as Awaited<ReturnType<Workspaces['view']>>;
-          return { ...view, assistantAvailable: assistant.available(), assistantEngine: config.assistant?.engine ?? 'codex',
+          return { ...view,sourceRequests:await teamMembers.inbox(workspaceActor), assistantAvailable: assistant.available(), assistantEngine: config.assistant?.engine ?? 'codex',
             tasks: await Promise.all(view.tasks.map(async t => {
-              try { return { ...t, assistant: await assistant.view(store.get(t.id), workspaceActor) }; }
+              try {const network=await serviceNetwork.view(t.id,workspaceActor).catch(()=>[{status:{state:0},metadata:{blockedBy:'unknown'}}]);return { ...t,requests:t.requests.map(r=>({...r,canReview:workspaceActor.admin||!!workspaceActor.userId&&workspaceActor.humanRole!=='viewer'&&workspaces.members(workspaces.source(r.sourceId).domain).includes(workspaceActor.agent!)})),networkCount:network.length,networkAttention:network.some(n=>[0,4,7,8].includes(n.status?.state??0)),networkPending:network.some(n=>![3,4,5,7].includes(n.status?.state??0)), assistant: await assistant.view(store.get(t.id), workspaceActor) }; }
               catch { return { ...t, assistant: { status: 'unavailable', error: 'Agent 记录待核对' } }; }
             })) };
         }
-        await assistant.tick();
+        await serviceNetwork.tick(); await assistant.tick();
         return result;
       }))); return;
     }
     const actor = identity(req);
+    if(actor.agent)await teamMembers.checkAgentOwner(actor.agent);
+    if(req.method==='POST'&&url.pathname.startsWith('/a2a/')){
+      const match=/^\/a2a\/([a-f0-9-]{36})\/([a-f0-9-]{36})$/.exec(url.pathname);if(!match)throw new Error('Invalid A2A task path');const request=await body(req);
+      res.end(JSON.stringify(await serialize(()=>serviceNetwork.rpc(match[1]!,match[2]!,request,actor))));return;
+    }
     const reader = actor.agent ? new Paperclip(config.paperclipUrl, credentials.paperclipTokens?.[actor.agent] ?? 'unconfigured-identity') : control.pc;
     if (url.pathname === '/knowledge') {
       if (!actor.admin || req.method !== 'GET') throw new Error('Unauthorized');
@@ -243,7 +276,8 @@ async function tick() {
       }
       await deliver();
       await workspaces.tick();
-      await assistant.tick();
+      await teamMemory.tick();
+      await serviceNetwork.tick(); await assistant.tick();
     });
   } catch (error) { console.error('Background check:', String(error).slice(0, 500)); }
   if (!stopping) setTimeout(tick, config.pollMs).unref();

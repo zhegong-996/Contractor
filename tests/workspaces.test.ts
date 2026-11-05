@@ -254,3 +254,5 @@ test('completion waits for a different native reviewer and can recover a prior l
     assert.equal(calls, 2); assert.equal(f.store.get(f.task.id).phase, 'accepted');
   } finally { f.close(); }
 });
+
+test('native human review follows the real requester instead of a fixed local operator',async()=>{const{collaborationReviewPolicyFor,collaborationOwnerMatches}=await import('../src/workspaces.ts');const policy=collaborationReviewPolicyFor('alice');const issue:any={...policy,assigneeAgentId:null,assigneeUserId:'alice',executionState:{status:'pending',currentStageId:'review',currentStageType:'review',currentParticipant:{type:'user',userId:'alice'},returnAssignee:{type:'agent',agentId:'executor'}}};issue.executionPolicy.stages[0].id='review';assert.equal(collaborationOwnerMatches(issue,['executor'],false,'alice'),true);assert.equal(collaborationOwnerMatches(issue,['executor'],false,'bob'),false);});

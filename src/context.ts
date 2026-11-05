@@ -6,7 +6,7 @@ import { secrets } from './config.ts';
 import { primeQueryTerms, primeDigestQueryTerms } from './vendor/prime-query.ts';
 import { TextRetainer, ItemRetainer } from '../upstream/deepseek-harness/packages/util/output-retention/src/index.ts';
 export const contextHash = (value: unknown) => createHash('sha256').update(typeof value === 'string' ? value : JSON.stringify(value)).digest('hex');
-export type InputRef = { kind: 'goal' | 'knowledge' | 'checkpoint' | 'note' | 'delivery' | 'conversation'; id: string; key?: string; revision: string; hash: string };
+export type InputRef = { kind: 'goal' | 'knowledge' | 'checkpoint' | 'note' | 'delivery' | 'conversation' | 'service'; id: string; key?: string; revision: string; hash: string };
 const ignored = new Set(['联调','整理','方案','资料','目标','任务','知识','授权','交接','验收','流程','测试','岗位','候选','准备','需要','专业','数据','当前','仅供','仅用','以及','并且','其中','可以','结果']);
 export function contextTerms(text: string) {
   return primeQueryTerms(text).filter(w => !ignored.has(w)).slice(0, 160);
@@ -40,21 +40,22 @@ export function deliveryEvidence(task: Task, issue: any) {
   return { title: issue.title, description: issue.description ?? '', status: task.phase, delivery: task.delivery ?? null,
     origin: task.messageId.startsWith('om_') ? 'feishu' : 'local', messageId: task.messageId.startsWith('om_') ? task.messageId : undefined };
 }
-export function goalEvidence(issue: any, state: any) { return { title: issue.title, goal: issue.description, service: state.context?.service, requirements: state.context?.requirements ?? [],
+export function goalEvidence(issue: any, state: any) { return { title: issue.title, goal: issue.description, service: state.context?.service, serviceRoutes: state.context?.serviceRoutes, requirements: state.context?.requirements ?? [],
   sourceIds: state.sources, knowledgeSpace: state.context?.knowledgeSpace, notes: state.snapshots.filter((s: any) => s.key === 'context-note' && !s.systemEvidence).map((s: any) => s.id), linkedTasks: state.context?.linkedTasks ?? [] }; }
 export function discussionEvidence(comments: any[]) { return comments.filter(c => c.authorUserId && !c.authorAgentId).map(c => ({ id: c.id, body: c.body, createdAt: c.createdAt, updatedAt: c.updatedAt })); }
 export class TaskContext {
   constructor(readonly w: Workspaces) {}
   authorize(task: Task, actor: WorkspaceActor) { if (!actor.admin && actor.agent !== task.agent) throw new Error('Unauthorized: task context'); }
   async search(task: Task, query: string) {
-    const state = await this.w.state(task), matches = [], recent = [];
+    const state = await this.w.state(task), matches: any[] = [], recent = [];
     for (const note of state.snapshots.filter(s => s.key === 'context-note').slice(-4).reverse()) {
       try { recent.push((await this.w.reader(task.agent).get('/issues/' + note.id + '/documents/' + note.key)).body); } catch {}
     }
     const weighted = primeDigestQueryTerms(query, recent);
+    if(this.w.config?.companyId){try{const {TeamMemory}=await import('./team-memory.ts');const recalled=await new TeamMemory(this.w).search(task.id,query,{admin:false,agent:task.agent});for(const hit of recalled.hits){const s=this.w.source(hit.sourceId);if(!matches.some(m=>m.id===s.id))matches.push({id:s.id,title:s.title,domain:s.domain,revision:hit.revision,score:hit.score+6,selected:state.sources.includes(s.id),reason:'Cognee BM25 持久记忆检索；当前版本与权限已复查'});}}catch(error){this.w.store.audit?.('memory.recall-unavailable',task.id,{error:String(error).slice(0,160)});}}
     // Discovery uses the executor's original professional membership. Other departments
     // enter through an explicit task reference + normal access application, never admin RAG.
-    for (const source of this.w.catalog().sources.filter(s => (s.external ? state.sources.includes(s.id) : (this.w.members?.(s.domain) ?? [this.w.catalog().spaces[s.domain].agent]).includes(task.agent)) && !state.outcomes.some(o => o.publicationId === s.id))) {
+    for (const source of this.w.catalog().sources.filter(s => (!state.context?.networkParent || state.sources.includes(s.id)) && (s.external ? state.sources.includes(s.id) : (this.w.members?.(s.domain) ?? [this.w.catalog().spaces[s.domain].agent]).includes(task.agent)) && !state.outcomes.some(o => o.publicationId === s.id))) {
       try {
         if (source.external && !await this.w.allowed(task, source.id, task.agent, state)) continue;
         const record = this.w.readMaterial ? await this.w.readMaterial(source.id, task.agent) : await this.w.knowledge.read(source.ref, this.w.reader(task.agent));
@@ -94,11 +95,12 @@ export class TaskContext {
         ...passage, selectionReason: passage.truncated ? '按任务目标选取相关片段；其余内容未载入本轮' : source.external ? '飞书当前可读原文；历史讨论不等于当前决定' : '当前已确认版本的完整正文' });
       manifest.push({ kind: 'knowledge', id, revision: record.revision, hash: record.hash });
     }
+    const validated=new Set<string>();
     for (const snap of state.snapshots.filter(s => !omitReceipt || s.receiptId !== omitReceipt)) {
       if (snap.sources.some(id => !state.sources.includes(id) || missing.some(m => m.id === id))) continue;
       try {
         if (snap.inputManifest && this.w.assertManifest) {
-          try { await this.w.assertManifest(task, snap.inputManifest); }
+          try { await this.w.assertManifest(task, snap.inputManifest,new Set(),validated); }
           catch { excludedCheckpoints.push({ id: snap.id, title: snap.title, reason: '生成所用来源已变化；保留审计，不作为当前输入' }); continue; }
         }
         const doc = await this.w.reader(task.agent).get('/issues/' + snap.id + '/documents/' + snap.key), kind = snap.key === 'context-note' ? 'note' : 'checkpoint';

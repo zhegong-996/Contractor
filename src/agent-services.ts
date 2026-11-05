@@ -8,7 +8,7 @@ export const serviceProfileInput = z.object({
  responsibilities:z.string().trim().min(1).max(3000),offers:z.array(z.enum(['feasibility','draft','review'])).min(1).max(3),enabled:z.boolean(),
 }).strict();
 export type AgentServiceProfile=z.infer<typeof serviceProfileInput>;
-export const serviceVersion=(p:AgentServiceProfile)=>createHash('sha256').update(JSON.stringify(p)).digest('hex');
+export const serviceVersion=(p:AgentServiceProfile)=>createHash('sha256').update(JSON.stringify(serviceProfileInput.parse(p))).digest('hex');
 const offerInstructions={feasibility:'先评估需求是否清楚、现有证据和实现可行性。缺少关键条件时提出一个具体问题并结束本轮，补充后接续同一任务；条件齐备再准备开发交接和验收范围。',draft:'直接完成当前资料足以支持的可审阅工作稿，标明依据和缺口。',review:'核对当前成果、约束和执行证据，给出待负责人决定的审阅意见；不代替最终验收。'};
 export class AgentServices{
  constructor(readonly w:Workspaces){}
@@ -19,17 +19,19 @@ export class AgentServices{
   const doc=await this.w.pc.get('/issues/'+id+'/documents/agent-services');
   return{profiles:z.array(serviceProfileInput).max(40).parse(JSON.parse(doc.body).profiles),revision:doc.latestRevisionId as string,issueId:id};
  }
- async view(actor:WorkspaceActor){this.w.manager(actor);const value=await this.read();return{...value,ownerUserId:actor.userId??'local-board',profiles:value.profiles.map(p=>({...p,version:serviceVersion(p)}))};}
+ async view(actor:WorkspaceActor){if(!actor.admin&&!actor.userId)throw new Error('Unauthorized');const value=await this.read();return{...value,ownerUserId:actor.userId??'local-board',currentAgent:actor.agent??'manual',profiles:value.profiles.map(p=>({...p,version:serviceVersion(p),editable:actor.admin&&!actor.scopedHuman||p.ownerUserId===(actor.userId??'local-board')}))};}
  async save(input:unknown,revision:string|null,actor:WorkspaceActor){
   this.w.manager(actor);const profiles=z.array(serviceProfileInput).max(40).parse(input),current=await this.read(),owner=actor.userId??'local-board';
   if(current.revision!==revision)throw new Error('Agent 职责配置已变化，请重新载入');
   if(new Set(profiles.map(p=>p.id)).size!==profiles.length||new Set(profiles.map(p=>p.key)).size!==profiles.length)throw new Error('Agent 标识不能重复');
-  for(const p of profiles){if(p.ownerUserId!==owner)throw new Error('只能登记当前已登录负责人的 Agent，不能虚构员工归属');this.w.participant(p.actorKey);}
+  for(const p of profiles){if(p.ownerUserId!==owner){const old=current.profiles.find(v=>v.id===p.id);if(!old||JSON.stringify(old)!==JSON.stringify(p))throw new Error('只能修改自己的 Agent，不能虚构员工归属');}else if(actor.scopedHuman&&p.actorKey!==actor.agent)throw new Error('Agent 必须使用本人的资料权限身份');this.w.participant(p.actorKey);}if(current.profiles.some(p=>p.ownerUserId!==owner&&!profiles.some(n=>n.id===p.id)))throw new Error('不能移除其他成员的 Agent');
   const c=this.w.catalog();if(!current.issueId){const issue=await this.w.pc.post('/companies/'+this.w.config.companyId+'/issues',{projectId:this.w.config.assistant!.projectId,title:'团队 Agent 服务目录',visibility:'private',status:'backlog',allowDuplicate:true,idempotencyKey:'agent-service-registry'});c.serviceRegistryIssueId=issue.id;this.w.saveCatalog(c);}
   await this.w.pc.request('PUT','/issues/'+c.serviceRegistryIssueId+'/documents/agent-services',{title:'个人与公共 Agent 服务',format:'markdown',body:JSON.stringify({version:1,profiles},null,2),baseRevisionId:revision});
   this.w.store.audit('agent-services.updated',c.serviceRegistryIssueId!,{profiles:profiles.length});return this.view(actor);
  }
- async profile(id:string){const p=(await this.read()).profiles.find(p=>p.id===id||p.key===id);if(!p?.enabled)throw new Error('Agent 服务未上岗或已暂停');return p;}
+ async profile(id:string){const p=(await this.read()).profiles.find(p=>p.id===id||p.key===id);if(!p?.enabled)throw new Error('Agent 服务未上岗或已暂停');
+  if(p.ownerUserId!=='local-board'){const value=await this.w.pc.get('/companies/'+this.w.config.companyId+'/members');if(!value.members.some((m:any)=>m.principalId===p.ownerUserId&&m.status==='active'&&m.user?.id===p.ownerUserId))throw new Error('Agent 负责人不是有效成员');if(p.kind==='personal'&&this.w.catalog().memberAgents?.[p.ownerUserId]!==p.actorKey)throw new Error('个人 Agent 归属绑定已变化');}
+  return p;}
  async current(state:State){const bound=state.context?.service;if(!bound)return true;try{return serviceVersion(await this.profile(bound.id))===bound.version;}catch{return false;}}
  async assertCurrent(state:State){if(!await this.current(state))throw new Error('Agent 当前职责已改变，须负责人核对本任务范围后继续');}
  async start(input:unknown,actor:WorkspaceActor,assistant:WorkspaceAssistant,origin?:{messageId:string;chatId:string;senderId:string}){

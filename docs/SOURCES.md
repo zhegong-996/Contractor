@@ -36,3 +36,9 @@ Paperclip、Super-agent、Autoloop 的主许可证为 MIT，Cognee 为 Apache-2.
 - 用户自有本体论产品原型 ai_bridge.py 与 knowledge.py：引用核验、快照与撤回投影逻辑迁移为 src/evidence.ts 并重新测试。未迁移原型数据库、模型环境或业务数据；未复制 Alice 原包恢复代码。
 
 接线、边界和验证见 docs/ASSISTANT-CONTEXT.md。
+
+## 多人服务与持久记忆补充
+
+- `@a2a-js/sdk` 固定 1.3.0 / gitHead `29417a5bb4038f804f310ce4fffd267a9375aa90`：实际 DefaultRequestHandler、JsonRpcTransportHandler、ServerCallContext 和原生 TaskStore 端口。Apache-2.0 原文保留。
+- Cognee 同一固定提交新增直接调用 BM25ChunksRetriever 原版统计、评分及 chunk identity；原版 Ladybug 存放来源修订、人审概念与关系。适配不启用新的 LLM/embedding。
+- Paperclip 同一固定提交的成员目录、membership、邀请、公司角色和人工审阅负责人的 API；没有自己编写认证系统。

@@ -1,3 +1,4 @@
+import {memoryAnnotation} from './memory-contract.ts';
 import { z } from 'zod';
 import { pathToFileURL } from 'node:url';
 import path from 'node:path';
@@ -27,7 +28,7 @@ export function admitPreparation(taskId: string, enabled: boolean, phase: string
   return gate.gate({ id: taskId, source: 'task', actor: { source: 'task', id: '' }, human: false, meta: { taskId } }, { subscriptions: [taskId] }, []);
 }
 export type CoordinationEvent = { id: string; kind: string; at: string; subject: string };
-const relevant = /^(workspace\.(task-created|im-resumed|assistant-delegated|recheck-due|context-(note|linked|included|excluded|expanded|discovered)|access-(approved|denied|revoked|expired)|handoff)|knowledge\.(content-updated|reviewed)|delivery\.changed|task\.(handoff|accepted))$/;
+const relevant = /^(workspace\.(task-created|im-resumed|assistant-delegated|service-response|service-state-changed|service-route-configured|service-answer|recheck-due|context-(note|linked|included|excluded|expanded|discovered)|access-(approved|denied|revoked|expired)|handoff)|knowledge\.(content-updated|reviewed)|delivery\.changed|task\.(handoff|accepted))$/;
 export function subscribedEvents(store: Store, task: Task, state: State, since = 0): CoordinationEvent[] {
   const scope = new Set([task.id, ...state.sources, ...(state.context?.linkedTasks ?? [])]);
   const rows = store.db.prepare('SELECT id,at,action,issue_id FROM audit WHERE id>? ORDER BY id').all(since) as { id: number; at: string; action: string; issue_id: string }[];
@@ -39,6 +40,11 @@ export const runtimeToolInput = z.discriminatedUnion('name', [
   z.object({ name: z.literal('read_context') }).strict(),
   z.object({ name: z.literal('read_execution_evidence') }).strict(),
   z.object({ name: z.literal('discover_services') }).strict(),
+  z.object({ name:z.literal('delegate_service'),serviceId:z.string() }).strict(),
+  z.object({ name:z.literal('read_service_network') }).strict(),
+  z.object({name:z.literal('reply_service'),childId:z.string(),sourceId:z.string(),quote:z.string().min(4).max(1800)}).strict(),
+  z.object({ name:z.literal('propose_memory'),annotation:memoryAnnotation }).strict(),
+  z.object({name:z.literal('read_memory_dictionary'),sourceId:z.string()}).strict(),
   z.object({ name: z.literal('assess_scope'), assessment: assessmentInput }).strict(),
   z.object({ name: z.literal('search_context'), query: z.string().trim().min(1).max(1000) }).strict(),
   z.object({ name: z.literal('discover_context') }).strict(),

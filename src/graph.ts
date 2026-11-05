@@ -10,9 +10,12 @@ export const cogneeCommit = '525b1d1179c550cd5b5661bcbf8f00f57a676928';
 export class KnowledgeGraph {
   constructor(readonly w: Workspaces) {}
   async source(id: string, actor: WorkspaceActor, taskId?: string) {
+    if(actor.userId&&actor.userId!=='local-board'){const {TeamMembers}=await import('./members.ts');const current=await new TeamMembers(this.w).resolve(actor.userId);if(current.agent!==actor.agent||current.admin!==(actor.admin&&!actor.scopedHuman))throw new Error('成员身份或权限已经变化');}
+    actor={...actor,admin:actor.admin&&!actor.scopedHuman};
     const source = this.w.source(id);
     if (source.external) throw new Error('飞书原文尚未授权给图谱处理；不会自动复制来源');
-    if (!actor.admin) {
+    if (!actor.admin&&actor.userId&&!taskId){if(!this.w.members(source.domain).includes(actor.agent!))throw new Error('Unauthorized: library membership');}
+    else if (!actor.admin) {
       if (!taskId) throw new Error('Unauthorized: graph task scope');
       const task = this.w.store.get(taskId), state = await this.w.state(task);
       if (task.phase === 'accepted' || task.agent !== actor.agent || !state.sources.includes(id)
@@ -26,13 +29,14 @@ export class KnowledgeGraph {
     if (project) this.w.manager(actor);
     const before = await this.source(id, actor, taskId);
     if (before.record.revision !== revision) throw new Error('来源版本已变化，请核对当前版本后生成图谱');
-    const folder = runtime('knowledge-graph', createHash('sha256').update(id + '@' + revision).digest('hex'));
+    const { TeamMemory } = await import('./team-memory.ts');
+    const memory = new TeamMemory(this.w), annotation = await memory.annotations(id,revision), folder = await memory.folder(id,revision);
     const python = runtime('cognee-venv', 'bin', 'python');
     if (!existsSync(python)) throw new Error('Cognee 尚未安装，请运行 npm run setup:graph');
     if (!project && !existsSync(path.join(folder, 'ready.json'))) throw new Error('此版本尚未生成图谱');
     mkdirSync(folder, { recursive: true, mode: 0o700 });
     const input = { op: project ? 'project' : 'read', ...(project ? { source: { id, revision, title: before.record.value.title,
-      body: before.record.value.body, state: before.record.value.state, facts: before.record.value.facts } } : {}) };
+      body: before.record.value.body, state: before.record.value.state, facts: before.record.value.facts, annotations: annotation } } : {}) };
     const result = await new Promise<any>((resolve, reject) => {
       const child = spawn(python, [path.join(root, 'scripts/cognee-graph.py')], { cwd: root, stdio: ['pipe', 'pipe', 'pipe'],
         env: { PATH: process.env.PATH ?? '', HOME: process.env.HOME ?? '', PYTHONPATH: path.join(root, 'upstream/cognee'),
@@ -46,6 +50,7 @@ export class KnowledgeGraph {
       });
     });
     const after = await this.source(id, actor, taskId);
+    if ((await memory.annotations(id,revision))?.proof !== annotation?.proof) throw new Error('图谱处理期间概念关系已变化，结果不交付');
     if (after.record.revision !== before.record.revision || after.record.hash !== before.record.hash) throw new Error('图谱处理期间资料或权限已变化，结果不交付');
     if (project) { writeFileSync(path.join(folder, 'ready.json'), JSON.stringify({ sourceId: id, revision, commit: cogneeCommit }), { mode: 0o600 });
       this.w.store.audit('knowledge.graph-projected', id, { revision, engine: 'cognee', nodes: result.nodes.length, edges: result.edges.length, modelCalls: 0 }); }

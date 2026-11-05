@@ -5,7 +5,7 @@ import {AgentServices,serviceProfileInput,serviceVersion}from'../src/agent-servi
 const profile={id:randomUUID(),key:'my-agent',name:'我的研发 Agent',kind:'personal' as const,ownerUserId:'owner-a',actorKey:'executor',responsibilities:'本阶段负责移动端需求评估',offers:['feasibility'] as const,enabled:true};
 test('personal service roles are versioned independently from execution tools and organization names',async()=>{
  const p=serviceProfileInput.parse(profile);assert.equal(p.actorKey,'executor');assert.notEqual(serviceVersion(p),serviceVersion({...p,responsibilities:'本阶段负责支付'}));
- const service=new AgentServices({}as any);service.read=async()=>({profiles:[p],revision:'r',issueId:'i'});
+ const service=new AgentServices({config:{companyId:'c'},catalog:()=>({memberAgents:{'owner-a':'executor'}}),pc:{get:async()=>({members:[{principalId:'owner-a',status:'active',user:{id:'owner-a'}}]})}}as any);service.read=async()=>({profiles:[p],revision:'r',issueId:'i'});
  assert.equal(await service.current({context:{service:{id:p.id,version:serviceVersion(p)}}}as any),true);
  assert.equal(await service.current({context:{service:{id:p.id,version:'old'}}}as any),false);
 });
@@ -36,3 +36,4 @@ test('a lost service response resumes the same task and binds the IM origin befo
   await assert.rejects(services.start({...request,goal:'different'},{admin:true},assistant),/不能更换需求/);
  }finally{store.close();rmSync(dir,{recursive:true,force:true});}
 });
+test('service version is independent of JSON field insertion order',()=>{const p=serviceProfileInput.parse(profile);assert.equal(serviceVersion(p),serviceVersion(Object.fromEntries(Object.entries(p).reverse())as any));});
