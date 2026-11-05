@@ -14,6 +14,7 @@
     "install:workspaces": "node --import tsx scripts/install-workspace-plugin.ts",
     "build:workspaces": "node --import tsx scripts/install-workspace-plugin.ts --build-only && tsc --noEmit -p plugins/knowledge-workspaces/tsconfig.json",
     "build:chinese-shell": "node --import tsx scripts/build-chinese-shell.ts",
+    "setup:graph": "node --import tsx scripts/setup-graph.ts",
     "test:cross-role": "node --import tsx scripts/smoke-cross-role.ts --run",
     "install:upstream": "node --import tsx scripts/install-upstream.ts",
     "install:wiki": "node --import tsx scripts/install-wiki.ts",
@@ -32,7 +33,12 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.31.0",
+    "classnames": "2.5.1",
+    "culori": "4.0.2",
+    "d3-force-3d": "3.0.6",
+    "react-force-graph-2d": "1.29.2",
     "tsx": "4.23.15",
+    "uuid": "13.0.0",
     "zod": "4.4.3"
   },
   "devDependencies": {

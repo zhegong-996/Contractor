@@ -2,6 +2,7 @@ import { createServer, type IncomingMessage } from 'node:http';
 import { spawn } from 'node:child_process';
 import { timingSafeEqual, randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
+import { existsSync, readdirSync } from 'node:fs';
 import readline from 'node:readline';
 import path from 'node:path';
 import { loadConfig, runtime, secrets } from './config.ts';
@@ -17,6 +18,8 @@ import { z } from 'zod';
 import { withFeishuReads } from './feishu-sources.ts';
 import { CollaborationIntake } from './collaboration-intake.ts';
 import { ModelSettingsService } from './model-settings.ts';
+import { KnowledgeGraph, cogneeCommit } from './graph.ts';
+import { OntologyService } from './ontology.ts';
 
 const config = loadConfig(); const credentials = secrets();
 const store = new Store(runtime('bridge.sqlite')); const control = new Controller(config, store);
@@ -25,6 +28,8 @@ const workspaces = new Workspaces(config, store);
 const assistant = new WorkspaceAssistant(workspaces);
 const collaborationIntake = new CollaborationIntake(workspaces, assistant);
 const modelSettings = new ModelSettingsService(workspaces);
+const graph = new KnowledgeGraph(workspaces);
+const ontology = new OntologyService(workspaces);
 const ingest = async (input: unknown) => (await collaborationIntake.ingest(input)) ?? control.ingest(input);
 let feishuState = config.feishu.enabled ? 'connecting' : 'disabled';
 let tail: Promise<unknown> = Promise.resolve();
@@ -69,6 +74,9 @@ const server = createServer(async (req, res) => {
       const action = url.pathname.slice('/workspace/'.length);
       res.end(JSON.stringify(await serialize(async () => {
         if (action === 'model-settings') return modelSettings.read(workspaceActor);
+        if (action === 'knowledge-graph') return graph.run(payload.sourceId, payload.revision, payload.project === true, workspaceActor, payload.taskId);
+        if (action === 'ontology-view') return ontology.read(payload.space, workspaceActor);
+        if (action === 'ontology-save') return ontology.save(payload.space, payload.schema, payload.revision ?? null, workspaceActor);
         if (action === 'save-model-settings') return modelSettings.save(payload.settings, payload.revision ?? null, workspaceActor);
         if (action === 'system-status') {
           workspaces.manager(workspaceActor);
@@ -78,6 +86,9 @@ const server = createServer(async (req, res) => {
               databaseBackup: health.databaseBackup?.status ?? 'unknown', offsiteRestoreVerified: false },
             records: Object.fromEntries(['tasks', 'events', 'outbox', 'audit'].map(table => [table, store.db.prepare('SELECT COUNT(*) n FROM ' + table).get()!.n])),
             integrations: { modelApi: false, embedding: false, vectorSearch: false, objectStorage: false, multiUserSso: false },
+            knowledgeEngine: { name: 'Cognee', commit: cogneeCommit, storage: 'Ladybug', installed: existsSync(runtime('cognee-venv', 'bin', 'python')),
+              sourceRevisionGraphs: existsSync(runtime('knowledge-graph')) ? readdirSync(runtime('knowledge-graph')).filter(name => /^[a-f0-9]{64}$/.test(name) && existsSync(runtime('knowledge-graph', name, 'ready.json'))).length : 0,
+              automaticExtraction: false, semanticRecall: false },
             upstream: { name: 'Paperclip', version: health.version, commit: health.commit } };
         }
         if (action === 'enable-collaboration-im') return collaborationIntake.enable(payload.taskId, workspaceActor);

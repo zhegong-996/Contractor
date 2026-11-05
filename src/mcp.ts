@@ -27,6 +27,8 @@ server.registerTool('read_task_context', { description: '读取当前任务的�
   data => output(api('/workspace/context-pack', data, agent)));
 server.registerTool('read_context_record', { description: '按需读取本任务背景或检查点全文；重查当前来源权限，不从旧摘要绕过撤权', inputSchema: { taskId: z.string(), recordId: z.string() } },
   data => output(api('/workspace/context-record', data, agent)));
+server.registerTool('read_knowledge_graph', { description: '读取本任务获准且已确认的知识版本图谱；每次重新核对原生授权、版本和任务状态', inputSchema: { taskId: z.string(), sourceId: z.string(), revision: z.string() } },
+  data => output(api('/workspace/knowledge-graph', data, agent)));
 server.registerTool('search_task_context', { description: '在当前执行身份本来可读且已确认的知识中检索；不使用管理员权限搜索其他参与者私有正文', inputSchema: { taskId: z.string(), query: z.string().max(5000) } },
   data => output(api('/workspace/context-search', data, agent)));
 server.registerTool('expand_authorized_context', { description: '扩展已获准长资料的读取范围；不改变资料授权，受本任务上下文预算限制', inputSchema: { taskId: z.string(), sourceId: z.string() } },

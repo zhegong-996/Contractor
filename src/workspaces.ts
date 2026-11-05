@@ -22,7 +22,7 @@ export function collaborationOwnerMatches(issue: any, expected: string[], comple
       && stage.participants.some((p: any) => p.type === 'user' && p.userId === 'local-board')
       || completed && issue.status === 'done' && issue.executionPolicy.stages.some((s: any) => s.type === 'review' && s.participants.some((p: any) => p.type === 'user' && p.userId === 'local-board'))));
 }
-export type Catalog = { companyId: string; coordinationProject: string; vaultProject: string; participants?: string[]; modelRegistryIssueId?: string;
+export type Catalog = { companyId: string; coordinationProject: string; vaultProject: string; participants?: string[]; modelRegistryIssueId?: string; ontologyIssues?: Record<string, string>;
   feishuConnection?: Pick<FeishuReference, 'profile' | 'appId' | 'userOpenId'>;
   spaces: Record<string, { projectId: string; agent: string; name?: string; members?: string[]; description?: string }>;
   sources: { id: string; title: string; domain: string; ref: { taskId: string; key: string }; external?: FeishuReference }[] };

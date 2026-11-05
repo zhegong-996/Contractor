@@ -12,7 +12,15 @@ const fromWiki = createRequire(path.join(root, 'upstream/paperclip/packages/plug
 const esbuild = fromWiki('esbuild');
 const { createPluginBundlerPresets } = await import(pathToFileURL(path.join(sdk, 'dist/bundlers.js')).href);
 const presets = createPluginBundlerPresets({ uiEntry: 'src/ui/index.tsx' });
+const fromHost = createRequire(path.join(root, 'upstream/paperclip/ui/package.json'));
+const cogneeFiles: Record<string, string> = {
+  'suitme/cognee-graph': path.join(root, 'upstream/cognee/cognee-frontend/src/app/(graph)/GraphVisualization.tsx'),
+  'suitme/cognee-schema': path.join(root, 'upstream/cognee/cognee-frontend/src/modules/graphModels/schemaReducer.ts'),
+  'next/dynamic': path.join(folder, 'src/ui/cognee-dynamic.tsx'),
+  'tailwindcss/colors': fromHost.resolve('tailwindcss/colors'),
+};
 for (const [kind, options] of Object.entries(presets.esbuild)) await esbuild.build({ ...(options as object), absWorkingDir: folder,
+  plugins: [...((options as any).plugins ?? []), { name: 'pinned-cognee-components', setup(build: any) { build.onResolve({ filter: /^(suitme\/cognee-(graph|schema)|next\/dynamic|tailwindcss\/colors)$/ }, (args: any) => ({ path: cogneeFiles[args.path] })); } }],
   define: kind === 'worker' ? { SUITME_STATE_DIR: JSON.stringify(runtime()) } : {}, jsx: 'automatic' });
 if (process.argv.includes('--build-only')) { console.log('Workspace worker, manifest and UI built from the pinned SDK'); process.exit(0); }
 const pc = new Paperclip(loadConfig().paperclipUrl), plugins = await pc.get<any[]>('/plugins');
