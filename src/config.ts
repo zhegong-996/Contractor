@@ -30,12 +30,32 @@ export const configSchema = z.object({
     sealPlanOnCreate: z.boolean().default(false),
     level: z.enum(['L1', 'L2', 'L3', 'L4']).default('L3'),
     reviewerModel: z.string().min(1).default('independent-reviewer'),
+    // 'legacy' keeps the original originator-only /accept. 'independent'
+    // turns on the FR-16~19 chain: seal plan on create, run an independent
+    // (vision-capable) review before accept. Both are explicit configuration.
+    mode: z.enum(['legacy', 'independent']).default('legacy'),
+    visualReviewer: z.object({
+      // 'structural' is deterministic and needs NO model service (it verifies
+      // visual evidence binding, not semantic image content). 'model' wires an
+      // OpenAI-compatible LOCAL endpoint when a vision model is available.
+      mode: z.enum(['structural', 'model']).default('structural'),
+      model: z.string().min(1).default('structural-vision-reviewer'),
+      endpoint: z.string().url().optional(),
+      timeoutMs: z.number().int().min(1000).max(60000).default(15000),
+    }).default(() => ({ mode: 'structural' as const, model: 'structural-vision-reviewer', timeoutMs: 15000 })),
   }).optional(),
   // v0.6 P3: observe every assistant turn and worker receipt through the
   // attention-budget / Watchdog contracts. Enforcement (suppressing low-value
   // notifications) stays off until a real journey proves it cannot stall a
   // task that is waiting for a human answer.
   runtimeGuard: z.object({ enforce: z.boolean().default(false) }).optional(),
+  // L2 organisation-graph extraction. The default adapter is deterministic:
+  // no model service is started and Cognee L1 stays read-only and isolated.
+  orgExtraction: z.object({
+    enabled: z.boolean().default(true),
+    autoRunOnIndex: z.boolean().default(true),
+    mode: z.enum(['deterministic', 'model']).default('deterministic'),
+  }).default(() => ({ enabled: true, autoRunOnIndex: true, mode: 'deterministic' as const })),
 });
 export type Config = z.infer<typeof configSchema>;
 export type Agent = Config['agents'][string];

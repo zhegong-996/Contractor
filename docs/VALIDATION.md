@@ -76,3 +76,12 @@ Wiki 原生 `bootstrap-root` 在这个固定版本会创建带不兼容设置的
 
 - 桌面 1280 与窄屏 425 浏览器走查：服务回传稿可展开；任务直接进入关系候选审阅，保留原搜索；检索返回正文/结构化字段/来源修订；Cognee 当前来源图可读；Agent 需求草稿切换成员页再返回保持。窄屏文档宽度与视口均为425，无横向溢出。
 - SUI-123 图谱读取曾超时；恢复后沿用同一任务补查，Codex 实际读取当前图谱并完成8个概念、6条关系的重复核对。图中只有文档/字段/片段及结构连接，没有已采用概念关系；没有重写候选或自动采用。
+
+## 2026-11-06：L2 抽取、窄屏走查、上游边界与独立评审链（第四轮）
+
+- `npm test` **204/204**、`tsc --noEmit`、`npm run build:workspaces`、`git diff --check` 通过。新增 16 个用例：L2 抽取 6（跨版本泄漏拒绝、逐字证据、幂等不重置人审状态、模型适配器幻觉证据被拒、全局图与任务镜像、reader 只读调用）、独立评审链 6（能力声明、结构式判定/受阻/自撰/哈希、完整闸门、评审者≠产出模型、Controller 自动写报告链路、本机端点限制）、响应式与上游静态守卫 4。
+- `npm run test:responsive`：本机 Google Chrome headless，iframe 定宽得到精确 **1280 / 425** 视口。两档 `scrollWidth == clientWidth`、越界元素 0、表格只在自身容器滚动；425 按钮最小高度 44px（修复前 41px）。结果 `.runtime/responsive-audit.json`、截图 `.runtime/responsive-425.png`。这是插件样式与 v0.6 面板骨架的**布局走查**，不是宿主实例的完整流程验收。
+- `npm run audit:upstream`：6 个 submodule 的 gitlink 与 `sources.lock.json` 一致、工作树干净、LICENSE/NOTICE 与 `THIRD_PARTY_NOTICES.md` 齐全、无强传染协议文本、`src/org-extraction.ts` 无 Cognee 写入/模型调用；结果 `.runtime/upstream-audit.json`，`clean: true`。
+- L2 抽取链路用注入的 L1 投影做契约验证（零模型调用、草稿边带逐字原文证据、重复抽取不新增、不重置已验收边）；**尚未**在本机真实 Cognee 投影与真实已确认资料上跑一次端到端 journey，不把它冒充生产验证。
+- 独立视觉评审用结构式适配器验证：截图绑定、自撰材料拒绝、哈希不匹配、缺证据受阻、缺截图时如实降级；`verifyAcceptanceGate` 完整放行。**未接入真实视觉模型**，不做图像内容语义判定；本机 `.runtime/config.json` 已切 `acceptance.mode=independent`，需重启 bridge 生效，旧流程可用 `legacy` 一行回退。
+- 私有运行证据（harness HTML、审计 JSON、截图）只保留忽略提交的 `.runtime`；真实业务正文、密钥与回执不提交。

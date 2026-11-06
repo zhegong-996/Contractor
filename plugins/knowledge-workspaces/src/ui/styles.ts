@@ -47,4 +47,32 @@ export const styles = `
 .suitme-workbench .sm-relation-review{padding:12px 0;border-bottom:1px solid var(--border)}.suitme-workbench .sm-relation-review blockquote{margin:6px 0;color:var(--muted-foreground);font-size:13px;line-height:1.7}
 
 .suitme-workbench .sm-builder-code{font-family:inherit;white-space:pre-wrap;overflow-wrap:anywhere;font-size:13px;max-width:76ch;line-height:1.7}.suitme-workbench .sm-agent-builder fieldset{min-width:0}.suitme-workbench .sm-agent-builder legend{font-weight:600;margin-bottom:8px}
+
+/* v0.6 panels (P3 narrow-screen walkthrough). Scoped to .sm-v06 so existing
+   upstream-derived pages keep their verified layout. Long JSON summaries,
+   six-column tables and button rows must never create page-level horizontal
+   overflow at 425px; tables scroll INSIDE their own wrapper. */
+.suitme-workbench .sm-v06{min-width:0;max-width:100%}
+.suitme-workbench .sm-v06 .sm-stack,.suitme-workbench .sm-v06 .sm-section,.suitme-workbench .sm-v06 .sm-tight{grid-template-columns:minmax(0,1fr);min-width:0}
+.suitme-workbench .sm-v06 .sm-table-scroll{max-width:100%;min-width:0;overflow-x:auto;-webkit-overflow-scrolling:touch}
+.suitme-workbench .sm-v06 .sm-table{min-width:620px}
+.suitme-workbench .sm-v06 .sm-table th,.suitme-workbench .sm-v06 .sm-table td{overflow-wrap:anywhere;min-width:0}
+.suitme-workbench .sm-v06 .sm-document{max-width:100%;overflow-wrap:anywhere}
+.suitme-workbench .sm-v06 .sm-document dd,.suitme-workbench .sm-v06 .sm-document dt{overflow-wrap:anywhere;min-width:0}
+.suitme-workbench .sm-v06 .sm-notice,.suitme-workbench .sm-v06 .sm-empty,.suitme-workbench .sm-v06 .sm-error,.suitme-workbench .sm-v06 .sm-details{overflow-wrap:anywhere;max-width:100%;min-width:0}
+.suitme-workbench .sm-v06 .sm-section-head{flex-wrap:wrap;gap:8px;min-width:0}
+.suitme-workbench .sm-v06 .sm-actions{flex-wrap:wrap;min-width:0}
+.suitme-workbench .sm-v06 .sm-button{white-space:normal}
+.suitme-workbench .sm-v06 summary{overflow-wrap:anywhere}
+@media(max-width:720px){
+  .suitme-workbench .sm-v06 .sm-navigation,.suitme-workbench .sm-v06 .sm-task-stage{overflow-x:auto;max-width:100%;min-width:0}
+  .suitme-workbench .sm-v06 .sm-table{min-width:620px}
+  .suitme-workbench .sm-v06 .sm-table th,.suitme-workbench .sm-v06 .sm-table td{padding:8px 6px}
+  .suitme-workbench .sm-v06 .sm-field{min-width:0;max-width:100%}
+  .suitme-workbench .sm-v06 .sm-input{font-size:16px;min-width:0;max-width:100%}
+  .suitme-workbench .sm-v06 button{min-height:44px}
+  .suitme-workbench .sm-v06 .sm-button{min-height:44px}
+  .suitme-workbench .sm-v06 .sm-document dl div{grid-template-columns:1fr;gap:2px}
+  .suitme-workbench .sm-v06 .sm-inline-meta{overflow-wrap:anywhere}
+}
 `;

@@ -5,6 +5,8 @@ import path from 'node:path';
 import { root, runtime, secrets } from './config.ts';
 import { reusable } from './knowledge.ts';
 import type { Workspaces, WorkspaceActor } from './workspaces.ts';
+import type { L1Projection, L1Reader } from './org-extraction.ts';
+import { assertL1Isolated } from './org-extraction.ts';
 
 export const cogneeCommit = '525b1d1179c550cd5b5661bcbf8f00f57a676928';
 export class KnowledgeGraph {
@@ -55,5 +57,36 @@ export class KnowledgeGraph {
     if (project) { writeFileSync(path.join(folder, 'ready.json'), JSON.stringify({ sourceId: id, revision, commit: cogneeCommit }), { mode: 0o600 });
       this.w.store.audit('knowledge.graph-projected', id, { revision, engine: 'cognee', nodes: result.nodes.length, edges: result.edges.length, modelCalls: 0 }); }
     return { ...result, sourceId: id, revision, knowledgeState: after.record.value.state, commit: cogneeCommit, sourceHash: after.record.hash };
+  }
+
+  /**
+   * L2 extraction input. READ-ONLY: reuse the existing `op=read` projection of
+   * exactly one source revision. No `project`, no cognify, no embedding, no
+   * model call. The isolation assertion is repeated here because a downstream
+   * consumer must never receive a mixed-revision graph.
+   */
+  async readProjection(id: string, revision: string, actor: WorkspaceActor = { admin: true }): Promise<L1Projection> {
+    const result = await this.run(id, revision, false, actor);
+    if ((result as any)?.error) throw new Error('Cognee 读取失败，L2 抽取已中止');
+    const nodes = Array.isArray(result.nodes) ? result.nodes : [];
+    const edges = Array.isArray(result.edges) ? result.edges : [];
+    const sourceDoc: any = nodes.find((n: any) => n.type === 'SourceDocument');
+    const projection: L1Projection = {
+      sourceId: id, revision, title: String(sourceDoc?.name ?? id), body: String(sourceDoc?.body ?? ''),
+      modelCalls: Number(result.modelCalls ?? 0),
+      nodes: nodes.map((n: any) => ({ id: String(n.id), ...n })),
+      edges: edges.map((e: any) => ({ source: String(e.source), target: String(e.target), relation: String(e.relation), ...e })),
+    };
+    assertL1Isolated(projection, id, revision);
+    return projection;
+  }
+}
+
+/** Adapter boundary for the L2 pipeline: the control plane injects this reader. */
+export class CogneeL1Reader implements L1Reader {
+  readonly id = 'cognee-l1-read';
+  constructor(readonly graph: KnowledgeGraph) {}
+  async read(input: { sourceId: string; revision: string }): Promise<L1Projection> {
+    return this.graph.readProjection(input.sourceId, input.revision);
   }
 }

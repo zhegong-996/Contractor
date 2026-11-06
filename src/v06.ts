@@ -19,7 +19,8 @@ import { buildContextPack, eligibleForContextPack, acceptEdge, markReusable, inv
   type KnowledgeEdge, type ContextPack } from './knowledge-edges.ts';
 import { evaluateSignals, clusterSignals, openFixLoop, retest, toSignalCard, type Signal, type SignalMetric } from './organization-signals.ts';
 import { TraceEvidenceReviewer, assertReviewerCapable, acceptanceChainReady, type IndependentReviewer } from './independent-review.ts';
-import { validateOrgGraph, responsibilityOf, evidenceOf, influencedBy, reachableFrom, NODE_KINDS, EDGE_RULES, EDGE_FAMILIES, type OrgGraph } from './org-ontology.ts';
+import { validateOrgGraph, responsibilityOf, evidenceOf, influencedBy, reachableFrom, NODE_KINDS, EDGE_RULES, EDGE_FAMILIES, type OrgGraph, type OrgEdge, type OrgNode } from './org-ontology.ts';
+import { runOrgExtraction, DeterministicExtractionAdapter, type L1Reader, type ExtractionAdapter } from './org-extraction.ts';
 import { defaultAttentionPolicy, defaultWatchdogPolicy, filterEvent, assertIntervention, inspectRun, recoveryFrom,
   type AttentionPolicy, type WatchdogPolicy } from './runtime-guard.ts';
 import { assertStandardExternalised, readPlan } from './acceptance-plan.ts';
@@ -38,7 +39,8 @@ export class V06Services {
   readonly reviewer: IndependentReviewer;
   constructor(readonly localStore: Store,
     readonly pc?: { get: (route: string) => Promise<any>; document: (a: string, b: string, c: string, d: string) => Promise<any> },
-    injected?: V06Store, reviewer?: IndependentReviewer) {
+    injected?: V06Store, reviewer?: IndependentReviewer,
+    readonly l1Reader?: L1Reader, readonly extractionAdapter?: ExtractionAdapter) {
     this.store = injected ?? (pc ? new RuntimeV06Store(pc) : new MemoryV06Store());
     const audit = (action: string, detail: unknown) => this.localStore.audit(action, this.scopeOf(detail), detail);
     this.roles = new RoleRegistryService(this.store, audit);
@@ -324,6 +326,69 @@ export class V06Services {
   ontologyMeta() { return { nodeKinds: NODE_KINDS, edgeFamilies: EDGE_FAMILIES, rules: EDGE_RULES,
     note: 'L2 组织图；L1 Cognee 证据图按 sourceId@revision 物理隔离，未改动' }; }
 
+  // --- L2 auto-extraction: pinned Cognee L1 projection -> drafted edges -----
+  // The canonical L2 graph is organisation-level config (one global graph).
+  // Task documents are only a mirror so the existing five-tab workbench can
+  // show the same edges; human acceptance always happens on the task record.
+  async l2EdgesGlobal(): Promise<KnowledgeEdge[]> {
+    return (await this.store.readConfig<KnowledgeEdge[]>('org-edges:global'))?.value ?? [];
+  }
+  async l2GraphGlobal(): Promise<OrgGraph> {
+    return (await this.store.readConfig<OrgGraph>('org-graph:global'))?.value ?? { schemaVersion: 1, nodes: [], edges: [] };
+  }
+  async l2Status() {
+    const stored = await this.store.readConfig<Record<string, unknown>>('l2-extraction:last');
+    return { connected: Boolean(this.l1Reader),
+      adapter: (this.extractionAdapter ?? new DeterministicExtractionAdapter()).id,
+      mode: this.extractionAdapter?.modelCalls ? 'model' : 'deterministic',
+      l1Isolation: 'sha256(sourceId@revision) 物理隔离；只读 op=read，不启用 cognify/embedding',
+      lastRun: stored?.value ?? null, revision: stored?.revision ?? null };
+  }
+  async l2Extract(input: { sourceId: string; revision: string; taskId?: string; space?: string;
+    classification?: 'public' | 'internal' | 'confidential' | 'restricted'; actor: string; at?: string }) {
+    if (!this.l1Reader) throw new Error('L2 抽取未连接 Cognee L1 读取器；先完成 setup:graph 并装配 reader');
+    const projection = await this.l1Reader.read({ sourceId: input.sourceId, revision: input.revision });
+    const taskId = input.taskId ?? '';
+    const globalEdges = await this.l2EdgesGlobal(), globalGraph = await this.l2GraphGlobal();
+    const result = await runOrgExtraction({
+      projection, sourceId: input.sourceId, revision: input.revision,
+      taskId: taskId || 'organization', space: input.space ?? 'default',
+      classification: input.classification, actor: input.actor, at: input.at,
+      adapter: this.extractionAdapter ?? new DeterministicExtractionAdapter(),
+      existingEdges: globalEdges, existingGraph: globalGraph,
+    });
+    if (result.edges.length || result.orgEdges.length) {
+      const edgesRevision = (await this.store.readConfig<KnowledgeEdge[]>('org-edges:global'))?.revision ?? null;
+      await this.store.writeConfig('org-edges:global', [...globalEdges, ...result.edges], edgesRevision);
+      const graphRevision = (await this.store.readConfig<OrgGraph>('org-graph:global'))?.revision ?? null;
+      const merged: OrgGraph = { schemaVersion: 1,
+        nodes: [...globalGraph.nodes, ...result.orgNodes], edges: [...globalGraph.edges, ...result.orgEdges] };
+      validateOrgGraph(merged);
+      await this.store.writeConfig('org-graph:global', merged, graphRevision);
+      if (taskId) {
+        const taskEdges = await this.edgesView(taskId);
+        const freshEdges = result.edges.filter(e => !taskEdges.some(x => x.id === e.id));
+        if (freshEdges.length) await this.edgesSave(taskId, [...taskEdges, ...freshEdges], input.actor);
+        const taskGraph = await this.ontologyView(taskId);
+        const knownNodes = new Set(taskGraph.nodes.map((n: OrgNode) => n.id));
+        const knownEdges = new Set(taskGraph.edges.map((e: OrgEdge) => e.id));
+        const mirror: OrgGraph = { schemaVersion: 1,
+          nodes: [...taskGraph.nodes, ...result.orgNodes.filter((n: OrgNode) => !knownNodes.has(n.id))],
+          edges: [...taskGraph.edges, ...result.orgEdges.filter((e: OrgEdge) => !knownEdges.has(e.id))] };
+        validateOrgGraph(mirror);
+        await this.store.writeTaskDoc(taskId, 'org-graph', mirror);
+      }
+    }
+    const summary = { sourceId: input.sourceId, revision: input.revision, taskId: taskId || null,
+      isolationKey: result.isolationKey, adapterId: result.adapterId, modelCalls: result.modelCalls,
+      at: result.at, drafted: result.edges.length, skippedExisting: result.skippedExisting,
+      rejected: result.rejected.map(r => r.reason), l1: result.l1, actor: input.actor };
+    const lastRevision = (await this.store.readConfig('l2-extraction:last'))?.revision ?? null;
+    await this.store.writeConfig('l2-extraction:last', summary, lastRevision);
+    this.localStore.audit('v06.l2-extracted', taskId || 'organization', summary);
+    return { ...summary, edges: result.edges, orgEdges: result.orgEdges, orgNodes: result.orgNodes };
+  }
+
   // --- F. Read-only projections for the existing workbench -------------------
   /** Plan sealed before work started. null means the legacy /accept flow is in use. */
   async acceptancePlanView(taskId: string) {
@@ -350,6 +415,7 @@ export class V06Services {
       safe('watchdog', () => this.watchdogPolicy(space)),
       safe('reviewer', () => this.reviewReadiness(false, true)),
       safe('ontology', () => this.ontologyMeta()),
+      safe('extraction', () => this.l2Status()),
       safe('signals', () => this.signalsView({})),
     ]);
     return { space, sections, generatedAt: new Date().toISOString() };
@@ -393,7 +459,7 @@ export class V06Services {
   /** All /workspace/v06-* actions land here. Config writes require the org-level owner. */
   async dispatch(action: string, p: any, actor: { admin: boolean; userId?: string }, opts: V06Options): Promise<unknown> {
     const orgOnly = ['roles-save', 'roles-derive', 'transfer-policy-save', 'grant-tighten', 'policy-save', 'edges-save',
-      'attention-policy-save', 'ontology-save'];
+      'attention-policy-save', 'ontology-save', 'l2-extract'];
     if (orgOnly.includes(action) && !actor.admin) throw new Error('Unauthorized: 该配置只能由组织级 owner 修改');
     // The authenticated identity wins. opts.actorUserId is only a display hint
     // for channel rendering and must never be usable to impersonate an owner.
@@ -455,6 +521,12 @@ export class V06Services {
       case 'ontology-view': return this.ontologyView(p.taskId);
       case 'ontology-save': return this.ontologySave(p.taskId, p.graph, who);
       case 'ontology-query': return this.ontologyQuery(p.taskId, p.query, p.params);
+      // L2 auto-extraction from the pinned Cognee L1 projection
+      case 'l2-status': return this.l2Status();
+      case 'l2-edges-view': return this.l2EdgesGlobal();
+      case 'l2-graph-view': return this.l2GraphGlobal();
+      case 'l2-extract': return this.l2Extract({ sourceId: p.sourceId, revision: p.revision, taskId: p.taskId,
+        space: p.space, classification: p.classification, actor: who, at: p.at });
       // FR-22/23/24 runtime guard
       case 'attention-policy': return this.attentionPolicy(p.space);
       case 'attention-policy-save': return this.attentionPolicySave(p.space, p.policy, p.revision ?? null, who);

@@ -56,6 +56,8 @@ npm run install:workspaces
 
 **未启用**：`remember / recall / cognify / improve / forget` 业务管线、LLM 实体抽取、embedding、向量检索、自动跨来源消歧合并、长期记忆整理、OWL 导入接口。Cognee 的无 API Key 路径仍会下载并执行 GLiNER 与本地 embedding 模型；用户选择暂不启用新服务，因此本轮也不以“无 Key”为由启动这些模型。
 
+**已启用但不同层**：L2 组织图的自动抽取（`src/org-extraction.ts`）。它只调用 `KnowledgeGraph.readProjection()` 的 `op=read` 路径读**单个** `sourceId@revision` 的既有 Cognee 投影，按确定性规则把结构化字段、人审概念与显式谓词字典映射成带逐字原文引用的 **L2 草稿边**；不写入 L1、不调用 cognify/embedding、模型调用 0、草稿必须人验收才能作依据。经 `Workspaces.onSourceIndexed` 在已确认资料索引完成后自动触发，best-effort 且失败只写审计。这是产品层的组织语义投影，不是 Cognee 的语义实体抽取，因此不违背上一段的关闭边界。
+
 目前图谱是**真实内容的结构投影**，不是自动语义知识图谱，也没有完成跨会话语义记忆服务。后续启用原生管线前，应绑定用户选择的处理服务与资料许可，再验证引用准确性、冲突、撤权、派生内容失效及成本。
 
 ## 实际验证依据

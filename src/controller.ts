@@ -9,9 +9,11 @@ import { Github, parsePr } from './github.ts';
 import { feishuTrigger, readMessage, resultFrom } from './upstream.ts';
 import{collaborationReviewPolicyFor}from'./workspaces.ts';
 import{planForTask,lockPlan,readPlan,type VerificationLevel}from'./acceptance-plan.ts';
-import{verifyAcceptanceGate,evaluateRound,writeRound,type ItemEvidence}from'./acceptance-round.ts';
+import{verifyAcceptanceGate,evaluateRound,writeRound,readRound,type ItemEvidence}from'./acceptance-round.ts';
 import{fromWorkerJournal,fromDelivery,capture}from'./event-stream.ts';
 import{TraceBridge,type TraceInput}from'./trace-bridge.ts';
+import{acceptanceChainEnabled,reviewerIdFor,type VisualArtifact}from'./visual-review.ts';
+import{assertReviewerCapable}from'./independent-review.ts';
 import type { V06Services } from './v06.ts';
 
 export function validateAcceptance(task: Task, sha: string, cases: { name: string; passed: boolean }[]) {
@@ -93,9 +95,11 @@ export class Controller {
       generation: 1, phase: 'ready', context };
     this.store.save(task);
     await this.pc.document(task.id, 'handoff', '任务交接包', `版本：1\n\n\`\`\`json\n${context}\n\`\`\``);
-    // v0.6 P0: opt-in. Without an independent reviewer wired in, sealing a plan
-    // here would make the originator's /accept impossible to satisfy.
-    if (this.config.acceptance?.sealPlanOnCreate) {
+    // v0.6 P3: the FR-16~19 chain is opt-in via acceptance.mode=independent
+    // (or the old sealPlanOnCreate switch). An independent vision-capable
+    // reviewer is registered in that mode, and /accept auto-runs the review,
+    // so sealing a plan never leaves the originator with an impossible /accept.
+    if (acceptanceChainEnabled(this.config)) {
       try { await this.sealAcceptancePlan(task.id, input.requesterUserId ?? input.senderId ?? 'local-board'); }
       catch (error) { this.store.audit('acceptance.plan-lock-failed', task.id, { reason: String(error) }); }
     }
@@ -260,6 +264,17 @@ export class Controller {
     if (consistency?.checked) this.store.audit('v06.acceptance-consistency-passed', id, consistency);
     await this.sync(id); const current = this.store.get(id);
     validateAcceptance(current, sha, cases);
+    // v0.6: when the independent chain is on, produce the per-item review
+    // automatically if it is missing. It is evidence for the human, never an
+    // approval; a blocked round still stops /accept with a concrete reason.
+    if (acceptanceChainEnabled(this.config)) {
+      let existing: unknown = null;
+      try { existing = await readRound(this.pc, id); } catch { existing = null; }
+      if (!existing) {
+        try { await this.runIndependentReview(id); }
+        catch (error) { this.store.audit('acceptance.auto-review-failed', id, { reason: String(error).slice(0, 300) }); }
+      }
+    }
     const gate = await verifyAcceptanceGate({ pc: this.pc, taskId: id, cases });
     const receipt = { acceptedAt: new Date().toISOString(), actor, commit: sha, environment: current.delivery!.environment, cases,
       evidenceReview: gate.status === 'verified'
@@ -287,7 +302,7 @@ export class Controller {
     const plan = planForTask(task, lockedBy, {
       level: level ?? this.config.acceptance?.level ?? 'L3',
       producerModel: this.config.agents[task.agent]?.model,
-      reviewerModel: this.config.acceptance?.reviewerModel,
+      reviewerModel: reviewerIdFor(this.config),
       ...(transfer && !transfer.consultationOnly ? { draftedBy: transfer.standardDraftedBy } : {}),
     });
     const revision = await lockPlan(this.pc, plan);
@@ -310,6 +325,32 @@ export class Controller {
     this.store.audit('acceptance.round-recorded', task.id, { round: report.round, overall: report.overall,
       unresolved: report.judgements.filter(item => item.status !== 'passed').length });
     return report;
+  }
+  /**
+   * v0.6 FR-16~19: run the registered independent reviewer against the sealed
+   * plan and the real trace, then write the per-item round. The round is
+   * evidence for the originator; only /accept closes the task.
+   */
+  async runIndependentReview(id: string, visualArtifacts: VisualArtifact[] = []) {
+    const sealed = await readPlan(this.pc, id);
+    if (!sealed) throw new Error('先锁定开工前验收清单，才能进行独立评审');
+    const reviewer = this.v06?.reviewer;
+    if (!reviewer) throw new Error('未注册独立评审者，不能生成逐项评审报告');
+    const producerModel = sealed.plan.producerModel ?? '';
+    assertReviewerCapable(reviewer, { producerModel, visualEvidenceRequired: true });
+    if (reviewer.id !== sealed.plan.reviewer.model)
+      throw new Error('注册的评审者与开工前锁定的清单不一致，本轮评审作废');
+    const { events } = await this.trace.view(id);
+    const result = await reviewer.review({ plan: sealed.plan, producerModel, events,
+      visualArtifacts, visualEvidenceRequired: true });
+    const report = evaluateRound({ plan: sealed.plan, reviewerModel: reviewer.id, producerModel,
+      evidence: result.evidence, events, planRevision: sealed.revision });
+    await writeRound(this.pc, report);
+    this.store.audit('acceptance.independent-review', id, { reviewer: reviewer.id,
+      semanticJudgement: reviewer.capabilities.semanticJudgement ?? false,
+      round: report.round, overall: report.overall, limitations: result.limitations });
+    return { report, reviewer: reviewer.id, capabilities: result.capabilities, limitations: result.limitations,
+      note: '报告只提供证据与逐项判定；最终核可仍是原发起人在原会话的 /accept' };
   }
   /** v0.6: best-effort append to the read-only trace projection. */
   async recordTraceEvent(id: string, event: TraceInput) { return this.trace.append(id, event); }

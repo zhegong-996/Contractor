@@ -58,6 +58,8 @@ export class Workspaces {
   readonly pc: Paperclip;
   readonly knowledge: KnowledgeService;
   readonly feishu = new FeishuSources();
+  /** Best-effort L2 extraction hook, wired by the server; never changes indexing. */
+  onSourceIndexed?: (sourceId: string, revision: string) => Promise<void>;
   constructor(readonly config: Config, readonly store: Store) {
     this.pc = new Paperclip(config.paperclipUrl);
     this.knowledge = new KnowledgeService(config, store, this.pc, secrets().jwtSecret);

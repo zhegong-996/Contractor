@@ -28,6 +28,8 @@
     "mcp": "node --import tsx src/mcp.ts",
     "doctor": "node --import tsx scripts/doctor.ts",
     "test": "node --import tsx scripts/test.ts",
+    "test:responsive": "node --import tsx scripts/responsive-audit.ts",
+    "audit:upstream": "node --import tsx scripts/audit-upstream.ts",
     "typecheck": "tsc --noEmit",
     "build": "tsc --noEmit"
   },

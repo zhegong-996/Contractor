@@ -20,7 +20,8 @@ import { z } from 'zod';
 import { withFeishuReads } from './feishu-sources.ts';
 import { CollaborationIntake } from './collaboration-intake.ts';
 import { ModelSettingsService } from './model-settings.ts';
-import { KnowledgeGraph, cogneeCommit } from './graph.ts';
+import { KnowledgeGraph, CogneeL1Reader, cogneeCommit } from './graph.ts';
+import { createIndependentReviewer } from './visual-review.ts';
 import { ServiceNetwork } from './service-network.ts';
 import { TeamMemory } from './team-memory.ts';
 import { TeamMembers } from './members.ts';
@@ -45,8 +46,15 @@ const graph = new KnowledgeGraph(workspaces);
 const ontology = new OntologyService(workspaces);
 // v0.6 functional layer: Paperclip native documents for task facts, local
 // config for organisation policy, SQLite for audit only.
-const v06 = new V06Services(store, workspaces.pc);
+const v06 = new V06Services(store, workspaces.pc, undefined,
+  createIndependentReviewer(config), new CogneeL1Reader(graph));
 control.v06 = v06;
+// Auto-extraction hook: after a verified L1 projection is indexed, read that
+// exact revision and draft L2 organisation edges. Best-effort, audited.
+workspaces.onSourceIndexed = async (sourceId, revision) => {
+  if (config.orgExtraction.enabled === false) return;
+  await v06.l2Extract({ sourceId, revision, actor: 'l2-auto-index', space: 'default' });
+};
 // Observation-only by default: see config.runtimeGuard and runtime-bridge.ts.
 const guard = new RuntimeGuardBridge(store, async space => {
   const [attention, watchdog] = await Promise.all([v06.attentionPolicy(space), v06.watchdogPolicy(space)]);
@@ -97,7 +105,7 @@ const server = createServer(async (req, res) => {
       const action = url.pathname.slice('/workspace/'.length);
       // Reads recheck their own scope and revisions. They need not wait behind
       // indexing or native process reconciliation; mutations keep the single lane.
-      const v06Reads=['roles-view','role-route','role-hints','role-snapshot','transfer-view','transfer-policy','dispatch-guard','grant-widen','grant-check','edges-view','edge-impact','label-check','policy-view','verification-level','topology-advice','inflight-policy','signals','review-readiness','ontology-meta','ontology-view','ontology-query','attention-policy','attention-filter','watchdog-policy','watchdog-inspect','plan-view','round-view','org-overview','context-pack'];
+      const v06Reads=['roles-view','role-route','role-hints','role-snapshot','transfer-view','transfer-policy','dispatch-guard','grant-widen','grant-check','edges-view','edge-impact','label-check','policy-view','verification-level','topology-advice','inflight-policy','signals','review-readiness','ontology-meta','ontology-view','ontology-query','attention-policy','attention-filter','watchdog-policy','watchdog-inspect','plan-view','round-view','org-overview','context-pack','l2-status','l2-edges-view','l2-graph-view'];
       const readOnly=['view','team-members','agent-services','agent-build','development-view','network-view','memory-status','memory-search','memory-annotations','context-pack','context-record','context-search','ontology-view','model-settings','system-status','trace-view'].includes(action)||action==='knowledge-graph'&&payload.project!==true||action.startsWith('v06-')&&v06Reads.includes(action.slice(4));
       const runWorkspace=readOnly?<T>(job:()=>Promise<T>)=>withFeishuReads(job):serialize;
       res.end(JSON.stringify(await runWorkspace(async () => {
@@ -144,7 +152,9 @@ const server = createServer(async (req, res) => {
             integrations: { modelApi: false, embedding: false, vectorSearch: false, objectStorage: false, multiUserSso: false },
             knowledgeEngine: { name: 'Cognee', commit: cogneeCommit, storage: 'Ladybug', installed: existsSync(runtime('cognee-venv', 'bin', 'python')),
               sourceRevisionGraphs: existsSync(runtime('knowledge-graph')) ? readdirSync(runtime('knowledge-graph')).filter(name => /^[a-f0-9]{64}$/.test(name) && existsSync(runtime('knowledge-graph', name, 'ready.json'))).length : 0,
-              automaticExtraction: false, semanticRecall: false, lexicalRecall: true, reviewedConceptRelations: true, automaticConfirmedKnowledgeIndexing:true },
+              automaticExtraction: false, semanticRecall: false, lexicalRecall: true, reviewedConceptRelations: true, automaticConfirmedKnowledgeIndexing:true,
+              l2OrganisationExtraction: { enabled: config.orgExtraction.enabled, mode: config.orgExtraction.mode,
+                autoRunOnIndex: config.orgExtraction.autoRunOnIndex, modelCalls: 0 } },
             upstream: { name: 'Paperclip', version: health.version, commit: health.commit } };
         }
         if (action === 'enable-collaboration-im') return collaborationIntake.enable(payload.taskId, workspaceActor);
@@ -159,6 +169,7 @@ const server = createServer(async (req, res) => {
           return result;
         }
         if (action === 'assistant-context') return assistant.context(payload.jobId, payload.runId, workspaceActor);
+        if (action === 'acceptance-review') return control.runIndependentReview(payload.taskId, payload.visualArtifacts ?? []);
         if (action === 'trace-view') {
           const task = store.get(payload.taskId);
           assistant.taskContext.authorize(task, workspaceActor);

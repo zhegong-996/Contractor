@@ -14,7 +14,7 @@
 - **Super-agent 原版模块**：飞书消息归一化、幂等回复，以及原版策略门控和需求范围判断。
 - **DeepSeek Harness 原版模块**：Agent 身份与工作方法的作用域装配、提示词与工具限制、原生工具执行管线；[构建与执行边界](docs/AGENT-BUILDING.md)。
 - **Autoloop 原版模块**：原版 worker、Codex/Claude/通用命令/ACP 适配器、进程与结果日志、会话接续和回执恢复。
-- **Cognee 原版模块**：Ladybug 图存储、DataPoint、来源追踪、图谱渲染与知识字典模型；自动抽取和语义记忆管线暂不启用。
+- **Cognee 原版模块**：Ladybug 图存储、DataPoint、来源追踪、图谱渲染与知识字典模型；**L2 组织图只读自动抽取**（确定性、0 模型调用）已接入，Cognee 原生 LLM 实体抽取、embedding 与语义记忆管线暂不启用。详见 [上游适配清单](docs/UPSTREAM-ADAPTERS.md)。
 - **本仓库接入层**：原系统之间的身份和任务映射、交接包、限定范围的 GitHub 交付、版本证据和业务验收。
 
 上游作为 Git submodule 固定到提交，不复制整套调度器。实际复用文件和版本见 [来源记录](docs/SOURCES.md)。
@@ -100,7 +100,7 @@ lark-cli config init --new --name ai-native-collab --lang zh_cn
 
 ## 知识与跨职能协作
 
-采用集成成熟方案与个性化界面的方式。知识引擎直接接入固定版本 Cognee，当前可生成确切来源修订的文档/字段图谱，使用原版图谱前端，按空间配置知识字典、属性、枚举与关系。安装：`npm run setup:graph`（需要 uv），再重启 bridge 并安装工作台插件。真实图持久化已验证；实体抽取、embedding 与 Agent 语义记忆仍未启用。详见 [方案比较及复用边界](docs/KNOWLEDGE-ENGINE.md)。
+采用集成成熟方案与个性化界面的方式。知识引擎直接接入固定版本 Cognee，当前可生成确切来源修订的文档/字段图谱，使用原版图谱前端，按空间配置知识字典、属性、枚举与关系。安装：`npm run setup:graph`（需要 uv），再重启 bridge 并安装工作台插件。真实图持久化已验证；L2 组织图可从该投影确定性生成带原文证据的草稿边（`src/org-extraction.ts`，0 模型调用），Cognee 原生实体抽取、embedding 与 Agent 语义记忆仍未启用。详见 [方案比较及复用边界](docs/KNOWLEDGE-ENGINE.md)。
 
 复用 Paperclip 自带的 **LLM Wiki 插件**作为知识浏览、来源、Markdown 页面、版本及维护入口，不另写编辑器和检索引擎。安装脚本使用同一固定提交的插件，通过其原生配置 API 绑定专用本地目录和现有接单身份。自动摄取默认关闭；插件的团队空间字段尚不能视为已经验证的保密边界，私有业务资料不进入这个共享 Wiki。
 

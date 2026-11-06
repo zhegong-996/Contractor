@@ -4,7 +4,42 @@
 > 对象仓库：`/Users/gong.zhe/Developer/ai-native-collab`（`github.com/zhegong-996/suitme-collab`）
 > 依据：`docs/ARCHITECTURE-v0.6.md`（产品架构定稿）、`docs/PRD-v0.6.md`、Codex 会话「研究 AI Native 协作平台融合」、本仓库 `README.md` / `docs/*` / `sources.lock.json` / `src/*` / `git status`
 > 立场：**以 PRD v0.6 为准绳，代码适配产品**。已有实现尽量保留，以「补层」为主，不推倒重来；工程红线见 `PRD-v0.6.md` 第 2.2 节。
-> 状态：**方案已执行三轮**（底座 `f27a0e1`、功能补全 `7791c7b` 已提交；P3 前端增补见 0.0000 节）。文档随实施进度更新，边界声明以 0.0000 / 0.000 节为准。
+> 状态：**方案已执行四轮**（底座 `f27a0e1`、功能补全 `7791c7b`、P3 前端增补 `c512c7b`；第四轮 L2 抽取 / P3 后半段 / 独立评审链见 0.00000 节）。文档随实施进度更新，**最新边界声明以 0.00000 节为准**。
+
+---
+
+## 0.00000 L2 抽取闭环、P3 后半段与独立评审链（2026-11-06 · 第四轮）
+
+用户澄清：**L2 组织图连 Cognee 自动抽取并不是「不做」，当时只是没有模型可测**。本轮在不启用任何新模型服务的前提下把管线做完整，并按之前给出的两个方向依次完成。
+
+### 1. L2 组织图连 Cognee 自动抽取（FR-06/08/09）
+
+- `src/graph.ts` 新增 `KnowledgeGraph.readProjection()` 与 `CogneeL1Reader`：只走既有 `op=read` 路径读**一个** `sourceId@revision` 的 Cognee 投影，不调用 `project`、cognify、embedding，`modelCalls = 0`；读取前再跑一次跨版本泄漏检查。
+- `src/org-extraction.ts` 是完整的抽取管线：`L1Reader → ExtractionAdapter（提案）→ 逐字证据校验 → 本体规则校验 → 稳定 ID 去重 → L2 草稿边`。默认 `DeterministicExtractionAdapter` 从 Cognee 结构化字段、已人审概念与谓词按显式字典生成边，**模型调用 0、无需模型即可测**；`ModelExtractionAdapter` 预留同一提案形状，将来接视觉/语言模型无需改管线。
+- 每条草稿边带 `{ sourceId, revision, excerpt }`，摘录必须逐字出现在该 L1 投影里；状态恒为 `draft`，`assertUsable` / `eligibleForContextPack` 仍拒绝它作为依据，**人验收才生效**。重复抽取幂等，绝不重置已验收状态。
+- 全局 L2 图存组织级配置（`org-graph:global` / `org-edges:global`），任务文档只是给现有 5 tab 工作台看的镜像；`v06-l2-status` / `l2-edges-view` / `l2-graph-view` / `l2-extract` 已登记，`org-overview` 由 8 段扩到 9 段，「关系与状态」页新增抽取状态块。
+- `TeamMemory.index` 投影成功后经 `Workspaces.onSourceIndexed` 自动触发抽取（best-effort、失败只写审计，绝不回滚已验证的 L1 索引）；`config.orgExtraction.autoRunOnIndex` 可关。**L1 按 `sha256(sourceId@revision)` 物理隔离的边界完全未动**。
+
+### 2. P3 后半段：窄屏走查 + 上游适配代码整理
+
+- `scripts/responsive-audit.ts`（`npm run test:responsive`）用本机 Google Chrome headless 渲染**真实插件样式 + v0.6 面板骨架**；因 Chrome headless 最小窗口 500px，改用定宽 iframe `srcdoc` 得到精确 1280 / 425 视口。结果写 `.runtime/responsive-audit.json`。
+- 走查实测发现并修复：子导航按钮在 425 只有 41px → 补 `.sm-v06 button{min-height:44px}`；长 JSON 摘要与 6 列表格可能撑出页面 → 补 `min-width:0` / `overflow-wrap:anywhere`，表格改为**在自身容器内横向滚动**（`min-width:620px`）。最终两档均 `scrollWidth == clientWidth`、0 个越界元素、425 按钮 ≥44px，截图存 `.runtime/responsive-425.png`。**这是布局走查，不是宿主实例的全流程浏览器验收**。
+- `docs/UPSTREAM-ADAPTERS.md` 把 6 个上游分别对应到「运行时 / 知识引擎 / 业务编排 / 前端插件 / 安装锁定 / 声明审计」六组适配文件；`scripts/audit-upstream.ts`（`npm run audit:upstream`）机器化校验 gitlink vs `sources.lock.json`、上游工作树干净、LICENSE/NOTICE 齐全、声明包含各上游、无强传染协议文本、L2 抽取不含 Cognee 写入调用。结果 `.runtime/upstream-audit.json` 全绿。**未搬迁/删除上游文件、未升级 submodule、未改上游源码**，避免打断已验证构建路径。
+
+### 3. 独立视觉评审 + 开启新验收流程（FR-16~19 / FR-25）
+
+- `src/visual-review.ts` 提供可插拔 `VisualReviewAdapter`：`structural`（默认，确定性、可接收截图/录屏、核对哈希/来源/事件绑定，如实声明 `semanticJudgement: false`）与 `model`（OpenAI 兼容**本机**端点，端点非 localhost 直接拒绝构造，密钥只从环境变量读）。`VisionReviewer` 实现 `IndependentReviewer`，能力为 `vision: true / independent: true`，评审者 ID 与产出模型不同。
+- 缺少截图/录屏时**不假装看过图**：降级为「仅依据统一事件流中捕获/导入证据判定」，并把「视觉内容未核验」写进 `limitations`；没有任何可回放证据则逐项 `blocked`，闸门不放行。
+- `Controller.runIndependentReview()` 把「锁定清单 → 独立评审 → 逐项报告 → `verifyAcceptanceGate`」串成完整链路；`accept()` 在新流程下缺报告时自动跑一轮（报告只是证据，**最终核可仍是原发起人 `/accept`**）。`/workspace/acceptance-review` 可显式重跑。
+- `config.acceptance.mode`：`legacy`（仓库默认，原流程零回归）/ `independent`（开启新流程：`mode` 或旧 `sealPlanOnCreate` 任一打开即生效）。**本机 `.runtime/config.json` 已切到 `independent` + `structural`，重启 bridge 后生效**；把 `mode` 改回 `legacy` 即恢复旧 `/accept`。接真实视觉模型只需把 `visualReviewer.mode` 设为 `model` 并填本机端点。
+
+### 验证
+
+`npm test` **204/204 通过**（新增 16 例：L2 抽取 6、独立评审链 6、响应式/上游静态守卫 4）；`tsc --noEmit`、`npm run build:workspaces`、`npm run test:responsive`、`npm run audit:upstream`、`git diff --check` 全绿。
+
+### 仍未做 / 不得宣称
+
+真实视觉模型的语义判定（本机无模型，结构式评审只核验证据绑定）；`lobehub/acceptance` submodule 引入；真实「飞书 + Paperclip + GitHub」跨职能一单；上游冗余适配代码的实际重构/替换（本轮只做清单与边界审计）；`runtimeGuard.enforce` 开启；宿主实例的完整浏览器流程走查。Cognee 原生 LLM/embedding/cognify 与向量语义检索**仍全部关闭**——L2 抽取是确定性投影，不是语义抽取。
 
 ---
 
@@ -27,7 +62,7 @@
 
 **验证**：`npm test` **188/188 通过**（新增 9 个用例，含只读 action 登记与三个视图接线断言）、`tsc --noEmit` 通过、`npm run build:workspaces`（esbuild 打包 + 插件 `tsc --noEmit`）通过。
 
-**仍未做（不要宣称已实现）**：前端未在真实浏览器做 1280 / 425 走查；独立视觉评审模型、Acceptance submodule 引入、真实跨职能 journey 仍未完成；L2 组织图未连 Cognee 自动抽取管线（按用户选择不启用 LLM/embedding，此项不做）；`runtimeGuard.enforce` 未开启；上游复用代码整理（P3 后半段）未开始；`config.acceptance.sealPlanOnCreate` 仍默认关闭。
+**当时的仍未做（已在 0.00000 节更新，勿再按本条对外表述）**：前端未在真实浏览器做 1280 / 425 走查；独立视觉评审模型、Acceptance submodule 引入、真实跨职能 journey 仍未完成；L2 组织图未连 Cognee 自动抽取管线（当时误判为「不做」，用户澄清只是没有模型可测，第四轮已补齐）；`runtimeGuard.enforce` 未开启；上游复用代码整理（P3 后半段）未开始；`config.acceptance.sealPlanOnCreate` 仍默认关闭。
 
 ---
 

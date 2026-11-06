@@ -38,7 +38,11 @@ const keyNames: Record<string, string> = {
   standardLocked: '标准已锁定', validUntil: '有效期至', consultationOnly: '仅咨询',
   edges: '关系', revision: '版本', generatedAt: '读取时间', wake: '唤醒注意力',
   traceReady: '证据链完整', visualEvidenceRequired: '需要视觉证据', ready: '就绪',
-  missing: '缺口', limitations: '限制', nodeKinds: '节点类型', edgeRules: '边规则',
+  missing: '缺口', limitations: '限制', reasons: '未就绪原因', reasonsNote: '未就绪原因', nodeKinds: '节点类型', edgeRules: '边规则',
+  connected: '已连接 L1 读取器', adapter: '抽取适配器', mode: '抽取模式', lastRun: '最近一次抽取',
+  drafted: '新增草稿边', skippedExisting: '已存在跳过', rejected: '被拒绝的提案', modelCalls: '模型调用次数',
+  l1: 'L1 投影规模', isolationKey: '隔离键', semanticJudgement: '图像语义判定', vision: '支持视觉输入',
+  independent: '独立于产出模型', externalModelEnabled: '启用外部模型', inputModes: '可接收证据类型',
   signals: '组织信号', policy: '策略', registry: '职能注册表', attention: '注意力策略',
   watchdog: '运行时巡检', ontology: '默认本体', transferPolicy: '授权策略',
 };
@@ -90,7 +94,7 @@ export function GovernancePanel({ ui, task }: { ui: V06UI; task: any }): any {
   const grant = useRead(ui, 'v06-grant-check', extra);
   const trace = useRead(ui, 'trace-view', extra);
   const refresh = () => setReload(value => value + 1);
-  return <section className="sm-stack"><div className="sm-section-head"><h2>验收与责任</h2><Refresh onClick={refresh} busy={ui.busy} /></div>
+  return <section className="sm-stack sm-v06"><div className="sm-section-head"><h2>验收与责任</h2><Refresh onClick={refresh} busy={ui.busy} /></div>
     <p className="sm-small sm-muted">这里只显示依据与责任记录，最终核可仍是原发起人在原会话的 /accept。签字人不变。</p>
     <nav className="sm-task-stage" aria-label="验收与责任视图">{[['acceptance', '验收'], ['responsibility', '责任'], ['trace', '过程流水']].map(([id, name]) =>
       <button key={id} aria-pressed={tab === id} onClick={() => setTab(id)}>{name}</button>)}</nav>
@@ -113,7 +117,11 @@ export function GovernancePanel({ ui, task }: { ui: V06UI; task: any }): any {
       </Load></Box>
       <Box title="独立评审就绪状态"><Load state={readiness} empty="尚未评估">
         {(value: any) => <><Summary value={value} />
-          <div className="sm-notice"><p className="sm-small">视觉评审模型尚未接入，新验收流程默认关闭；此处如实显示未就绪原因，不宣称已满足。</p></div></>}
+          <div className="sm-notice"><p className="sm-small">{value?.ready
+            ? '独立视觉评审链路已就绪：结构式评审核对截图/录屏的来源、哈希与事件绑定，逐项报告只作为证据，最终核可仍由发起人在原会话 /accept。'
+            : `尚未就绪：${(value?.reasons ?? []).join('；') || '等待事件流水与评审者注册'}`}</p>
+            {(value?.limitations ?? []).length > 0 && <p className="sm-small sm-muted">{value.limitations.join('；')}</p>}
+          </div></>}
       </Load></Box>
     </div>}
     {tab === 'responsibility' && <div className="sm-stack">
@@ -150,8 +158,9 @@ export function OrganizationPanel({ ui }: { ui: V06UI }): any {
   const [reload, setReload] = useState(0), [space, setSpace] = useState('default');
   const overview = useRead(ui, 'v06-org-overview', { space, reload });
   const titles: Record<string, string> = { registry: '职能注册表', transferPolicy: 'Transfer 授权策略', policy: 'Workspace 政策',
-    attention: '注意力预算', watchdog: '运行时巡检', reviewer: '独立评审就绪度', ontology: '默认组织本体', signals: '组织状态信号' };
-  return <section className="sm-stack"><div className="sm-section-head"><h2>组织规则</h2><Refresh onClick={() => setReload(v => v + 1)} busy={ui.busy} /></div>
+    attention: '注意力预算', watchdog: '运行时巡检', reviewer: '独立评审就绪度', ontology: '默认组织本体',
+    extraction: 'L2 自动抽取状态', signals: '组织状态信号' };
+  return <section className="sm-stack sm-v06"><div className="sm-section-head"><h2>组织规则</h2><Refresh onClick={() => setReload(v => v + 1)} busy={ui.busy} /></div>
     <div className="sm-notice"><p className="sm-small">本页只读。职能划分、验证等级、汇报拓扑与授权档位都是配置，组织级修改需组织 owner；组织信号只提示、不拦截、不排名，也不用于考核。</p></div>
     <label className="sm-field">Workspace 标识<input className="sm-input" value={space} onChange={e => setSpace(e.target.value)} placeholder="default" /></label>
     <Load state={overview} empty="尚未读取到组织规则">
@@ -171,9 +180,18 @@ export function KnowledgeStatePanel({ ui, domain }: { ui: V06UI; domain?: string
   const [taskId, setTaskId] = useState(tasks[0]?.id ?? ''), [reload, setReload] = useState(0);
   const edges = useRead(ui, 'v06-edges-view', { taskId, reload });
   const pack = useRead(ui, 'v06-context-pack', { taskId, registryVersion: 0, reload });
+  const extraction = useRead(ui, 'v06-l2-status', { reload });
+  const globalEdges = useRead(ui, 'v06-l2-edges-view', { reload });
   const stateNames: Record<string, string> = { draft: '草稿', accepted: '已验收', reusable: '可复用' };
-  return <section className="sm-stack"><div className="sm-section-head"><h2>关系与状态</h2><Refresh onClick={() => setReload(v => v + 1)} busy={ui.busy} /></div>
+  return <section className="sm-stack sm-v06"><div className="sm-section-head"><h2>关系与状态</h2><Refresh onClick={() => setReload(v => v + 1)} busy={ui.busy} /></div>
     <p className="sm-small sm-muted">空间：{show(domain ?? '全部')}。关系本身带状态与有效期；只有已验收的关系能被 Agent 当作依据，来源变版时旧关系自动失效。L1 证据图按来源修订隔离，不受此页影响。</p>
+    <Box title="L2 自动抽取" hint="读 Cognee L1 → 生成带原文证据的草稿边"><Load state={extraction} empty="尚未读取抽取状态">
+      {(value: any) => <><Summary value={value?.lastRun ?? value} />
+        <p className="sm-small sm-muted">{value?.connected ? '已连接 Cognee L1 只读投影' : '未连接 L1 读取器'}；当前为{value?.mode === 'model' ? '模型' : '确定性'}抽取，模型调用 {show(value?.lastRun?.modelCalls ?? 0)}。L1 按 sha256(sourceId@revision) 物理隔离，抽取只生成草稿，仍要人验收。</p>
+        <Load state={globalEdges} empty="全局组织图暂无关系">
+          {(list: any) => <p className="sm-small sm-muted">全局组织图已有 {Array.isArray(list) ? list.length : 0} 条带状态关系。</p>}
+        </Load></>}
+    </Load></Box>
     <label className="sm-field">按任务查看<select className="sm-input" value={taskId} onChange={e => setTaskId(e.target.value)}>
       <option value="">选择协作任务</option>{tasks.map(t => <option key={t.id} value={t.id}>{t.identifier} · {t.title}</option>)}</select></label>
     {!taskId ? <div className="sm-empty"><strong>还没有协作任务</strong>先在「协作」里发起一单，关系会随任务沉淀。</div> : <>

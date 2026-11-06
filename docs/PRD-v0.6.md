@@ -153,7 +153,7 @@
 |---|---|---|---|---|
 | FR-06 | **三态统一**：结构化到行/列、非结构化到文档片段、图谱到节点/边，共享一套 ID 与标签体系 | ① 同一份资料在三态中可互相引用；② 标签维度至少含 空间 × 密级 × 职能 × 时效 × 状态；③ 权限校验在三态粒度上都生效 | P0 | 部分：Paperclip 存结构化/正文，Cognee 存图；标签体系未统一 |
 | FR-07 | **Context Pack 与知识库分离**：Context Pack 是按 Task 裁剪的一次性投影，带版本与过期 | ① 用完即弃、不写回知识库；② 只纳入已验收的边；③ 权限变更或来源变版后旧 Pack 立即失效 | P0 | 部分：现有交接包/输入范围/动态上下文组装，未独立命名与持久化 |
-| FR-08 | **图谱默认本体**：16 类节点、五类边（归属职责 / 参与派生 / 验收证据 / 责任链 / 复用影响） | ① 能回答「谁对什么负过责」「这份制品依据哪条证据」「这个错判影响了哪些任务」三类查询；② 抽取出的关系保留原文片段引用 | P1 | 部分：Cognee GraphSchema 字典 + 文档/字段/`has_field` 关系 |
+| FR-08 | **图谱默认本体**：16 类节点、五类边（归属职责 / 参与派生 / 验收证据 / 责任链 / 复用影响） | ① 能回答「谁对什么负过责」「这份制品依据哪条证据」「这个错判影响了哪些任务」三类查询；② 抽取出的关系保留原文片段引用 | P1 | 契约完成 + **已连 Cognee L1 自动抽取**（第四轮）：确定性投影生成带逐字原文引用的 L2 草稿边，模型调用 0；语义实体抽取仍关闭 |
 | FR-09 | **图谱边状态与失效**：边带状态 + 证据引用 + 有效期；未验收推断标注「不可作依据」 | ① 只有已验收边能进 Context Pack；② 撤权/来源变版/验收打回后，旧边不再被引用且可追溯 `invalid_at`；③ 图谱不取代原文 | P0 | 冲突：现有靠「按来源修订物理隔离图文件」近似，非边级状态（见适配方案 C1） |
 | FR-10 | **跨空间申请授权（D3）**：默认隔离，申请 → 目标 Workspace owner 审批 → 最小可见子集 | ① 默认读写双向隔离；② 授权默认只读、脱敏摘要优先、有期限、可撤销、全量 Trace；③ 写权与跨空间回流需单独审批；④ 授权占比进信号面只提示不拦截 | P0 | 近似：`access-contract` / 资料负责人批准 / 撤权已跑通（SUI-10/19/25），缺显式空间 owner 与子图粒度 |
 
@@ -178,7 +178,7 @@
 |---|---|---|---|---|
 | FR-16 | **Acceptance Plan 开工前锁定** | ① 执行开始前锁定 3–5 项可观察检查项，每项注明什么算证据；② 锁定后任何修改产生新版本并作废原计划；③ 事后无法追加或捏造标准 | P0 | **缺失**：现有是发起人最后 `/accept` |
 | FR-17 | **证据来源分类** | ① 区分捕获 / 导入 与自撰，只有前两者能作数；② 终端输出附只读回放、录屏附章节标记；③ 证据与检查项一一对应 | P0 | 部分：CI/截图/代码指纹/`read_execution_evidence`，无来源分类与逐项绑定 |
-| FR-18 | **独立评审者** | ① 评审模型不得是产出模型；② 必须支持视觉输入；③ 评审者与产出者的身份在报告中可见 | P0 | **缺失** |
+| FR-18 | **独立评审者** | ① 评审模型不得是产出模型；② 必须支持视觉输入；③ 评审者与产出者的身份在报告中可见 | P0 | **已具备可插拔实现**（第四轮）：`vision: true` 的 `VisionReviewer` + `IndependentReviewer` 隔离校验；默认结构式评审核验证据绑定并声明 `semanticJudgement: false`，真实视觉语义模型需配置本机端点；仓库默认 `legacy`，本机实例已开启 `independent` |
 | FR-19 | **逐项判定 + 部分打回 + 人核可** | ① 每项通过 / 未通过 / 受阻，不设总分；② 打回只退未通过项、通过项保留、冻结反馈避免需求漂移；③ 打回原因沉淀为下次自查标准；④ 最终核可必须由人完成 | P0 | 部分：逐项验收记录、发起人身份校验、`review`；无部分打回与沉淀 |
 | FR-20 | **验证等级策略（D9）** | ① Workspace owner 按 Task 类型/风险动作/是否对外配 L1–L4；② 对外发布、资金、客户可见强制 L4 且**不可下调**；③ owner 只能加严 | P1 | **缺失** |
 
@@ -284,7 +284,7 @@
 | **Agent Autoloop** `ba8cf6d` / MIT | `createWorker`、Codex/Claude/command/ACP 适配器、进程与回执、会话接续 | J 执行适配层、等待时释放执行 | 保留；回执补 Trace 字段（FR-25） |
 | **DeepSeek Harness** `fcc0ad4` / MIT | output-retention、session-reference、Cordis Context/scope、system-prompt、ToolsService、tool-executor-native、persona | J 运行时、Agent 身份与工具限制、FR-25 事件流来源 | 保留；**评估启用完整 AgentLoop / checkpoint** 作为 B2 准入，不启第二调度器 |
 | **Prime Agent** `74591cd` / MIT | `harness.py` query runs/terms、`harness_digest.rs` 目标/近期上下文权重 → `src/vendor/prime-query.ts` | C 上下文裁剪的权重策略 | 保留；不启 daemon / 全局 refinement |
-| **Cognee** `525b1d1` (1.6.6) / Apache-2.0 | LadybugAdapter、DataPoint、provenance、GraphVisualization、GraphSchema reducer / JSON Schema、BM25ChunksRetriever | **K 知识底座的文档/语料图谱引擎**、FR-06/08 | 保留；**新增边状态与有效期适配层**（FR-09）；LLM/embedding 管线继续关闭 |
+| **Cognee** `525b1d1` (1.6.6) / Apache-2.0 | LadybugAdapter、DataPoint、provenance、GraphVisualization、GraphSchema reducer / JSON Schema、BM25ChunksRetriever | **K 知识底座的文档/语料图谱引擎**、FR-06/08 | 保留；**新增边状态与有效期适配层**（FR-09）与 **L2 只读自动抽取管线**（`src/org-extraction.ts`，确定性、0 模型调用）；LLM/embedding/cognify 管线继续关闭 |
 | **Graphiti (Zep)** / Apache-2.0 | 会话中已作为对照核读：Episode、类型化实体、**边的 valid_at / invalid_at 双时间有效性**、增量图谱 | 借鉴 **supersession 语义**，解决「撤权/来源变版/验收打回后旧事实失效」 | **不部署整套**（需 Neo4j/FalkorDB）；只借时间边模型；Cognee 官方有 `GraphitiSource` 适配器，未来可平滑导入 |
 | **LightRAG** / MIT、**KAG / OpenSPG** / Apache-2.0 | 会话中已对照：GraphRAG 编辑与合并、概念/Schema/约束/词典 | 知识字典与图谱编辑的参考 | 仅参考，不叠加第二套索引与运行服务 |
 | **@a2a-js/sdk** 1.3.0 / Apache-2.0 | `DefaultRequestHandler`、`JsonRpcTransportHandler`、`TaskStore`、`ServerCallContext`；`delegate_service` 已跑通 SUI-103/106 | D 交织与 A2A 委派 | 保留；补 Transfer 生成与联签路由（FR-11/12） |
@@ -349,7 +349,7 @@
 | 工作台哪里留痕 | 组织级配置落本地配置层 + SQLite 审计；任务级事实（Transfer / Grant / 边状态）落 **Paperclip 原生任务文档修订**；全部经 `/workspace/v06-*` action 调用，未新建第二业务库 |
 | 签字人是谁 | Transfer 双段责任链：承接人负执行责任、目标职能 owner 负兜底责任并起草验收标准；对外 / 资金 / 客户可见等动作强制 owner 联签；最终业务验收仍是**原发起人在原会话 `/accept`** |
 
-**FR 覆盖状态**：FR-01/02/03/05/06/07/08/09/10/11/12/13/14/20/21/22/23/24/26/28 已具备契约与 API 实现；FR-16/17/19 契约层已落地且 `draftedBy` 已接入主链路；**FR-18（视觉评审）仍为未完成**——注册的 `TraceEvidenceReviewer` 明确声明 `vision: false` / `externalModelEnabled: false`，`review-readiness` 会如实返回未就绪，禁止宣称已满足。P3 已完成（详见 `ADAPTATION-v0.6.md` 0.0000 节）：**前端三个视图**长在现有 5 tab 内（协作任务的「验收与责任」、知识的「关系与状态」、设置的「组织规则」），FR-22 报告的在线可查界面与 FR-31 ③ 已可访问；**注意力策略 / Watchdog 已接入真实执行链路**（每轮模型调用与执行回执产生 `v06.runtime-observed` 审计），但默认只观测、不拦截，`config.runtimeGuard.enforce` 仍为 `false`。**FR-18 视觉评审、真实跨职能 journey、前端窄屏走查与上游代码整理仍未完成**，不因 P3 完成而宣称已满足。
+**FR 覆盖状态（第四轮更新，详见 `ADAPTATION-v0.6.md` 0.00000 节）**：FR-01/02/03/05/06/07/08/09/10/11/12/13/14/20/21/22/23/24/26/28 已具备契约与 API 实现；FR-16/17/19 已串成可运行链路（`sealPlanOnCreate → 独立评审 → 逐项报告 → /accept 闸门`）；**FR-18 已具备可插拔的视觉可用独立评审者**，但默认结构式评审明确声明不做图像语义判定，仓库默认仍是 `legacy`、本机实例已开启 `independent`。**L2 组织图已连 Cognee L1 只读自动抽取**（确定性、0 模型调用），前端三个视图长在现有 5 tab 内，1280 / 425 浏览器布局走查与上游适配边界审计已完成。**仍未完成**：真实视觉语义模型接入、`lobehub/acceptance` submodule 引入、真实「飞书 + Paperclip + GitHub」跨职能一单、宿主实例全流程浏览器验收、`runtimeGuard.enforce` 开启；Cognee 原生 LLM/embedding 与向量语义检索仍全部关闭。
 
 > 协议约束同步见 `OPEN-SOURCE-COMPLIANCE.md`：LobeHub 主仓库为 Community License（只借思想、不复制源码）、Acceptance 为独立 Apache-2.0、Outline 为 BSL 1.1（禁止引入代码）。本轮**未新增任何开源依赖或 submodule**，全部为自研契约层，无需补充协议材料。
 
@@ -362,5 +362,5 @@
 | Q1 | 职能具体分几摊 | 由 Role Registry 配置，产品不预设（D11 已定） |
 | Q2 | Transfer 授权是否放宽 | 默认 L0 仅本 Task，跑一段后按数据放宽（D12 已定） |
 | Q3 | 图谱全局一份 vs 每空间一份 | 建议「证据图按来源修订物理隔离 + 上层全局组织图带边级标签」双层，见适配方案 C1 |
-| Q4 | 是否启用新模型服务 / LLM 抽取 / 向量检索 | 保留配置入口，暂不启用；启用前需绑定用户选定服务与资料许可 |
+| Q4 | 是否启用新模型服务 / LLM 抽取 / 向量检索 | **L2 抽取不依赖模型**（第四轮已用确定性投影闭环）；Cognee 原生 LLM/embedding/向量检索与视觉语义模型仍保留配置入口、暂不启用；启用前需绑定用户选定服务与资料许可 |
 | Q5 | 是否引入 Acceptance 作为新 submodule | 建议引入（Apache-2.0）；若不引入，FR-16~19 需自研同等契约并说明不复用理由 |

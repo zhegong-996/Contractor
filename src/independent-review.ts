@@ -19,6 +19,11 @@ export interface ReviewerCapabilities {
   independent: boolean;
   /** External network model calls are disabled in this installation. */
   externalModelEnabled: boolean;
+  /** Optional: can the reviewer judge the CONTENT of an image (vs. only
+   *  verifying that a visual artifact exists and is trace-bound)? */
+  semanticJudgement?: boolean;
+  /** Optional: which visual input kinds the reviewer accepts. */
+  inputModes?: ('screenshot' | 'recording' | 'log')[];
 }
 
 export interface ReviewInput {
@@ -28,6 +33,8 @@ export interface ReviewInput {
   /** Evidence supplied by the execution side, keyed by plan item id. */
   supplied?: Record<string, ItemEvidence>;
   visualEvidenceRequired?: boolean;
+  /** Optional visual artifacts; the vision-capable reviewer validates them. */
+  visualArtifacts?: unknown[];
 }
 
 export interface ReviewResult {
@@ -47,7 +54,8 @@ export interface IndependentReviewer {
 /** Deterministic evidence binder. No model call, no vision, no judgement. */
 export class TraceEvidenceReviewer implements IndependentReviewer {
   readonly id = 'trace-evidence-binder';
-  readonly capabilities: ReviewerCapabilities = { vision: false, independent: true, externalModelEnabled: false };
+  readonly capabilities: ReviewerCapabilities = { vision: false, independent: true, externalModelEnabled: false,
+    semanticJudgement: false, inputModes: [] };
   async review(input: ReviewInput): Promise<ReviewResult> {
     const traceIds = new Set(input.events.map(eventId));
     const evidence: Record<string, ItemEvidence> = {};
@@ -97,11 +105,14 @@ export function assertReviewerCapable(reviewer: IndependentReviewer, input: {
 /** Whether the FR-16~19 chain may be enabled at all. */
 export function acceptanceChainReady(input: {
   traceReady: boolean; reviewer: IndependentReviewer | null; visualEvidenceRequired: boolean;
-}): { ready: boolean; reasons: string[] } {
+}): { ready: boolean; reasons: string[]; limitations: string[] } {
   const reasons: string[] = [];
+  const limitations: string[] = [];
   if (!input.traceReady) reasons.push('统一事件流水字段不完整（FR-25）');
   if (!input.reviewer) reasons.push('未注册独立评审者（FR-18）');
   if (input.reviewer && input.visualEvidenceRequired && !input.reviewer.capabilities.vision)
     reasons.push('评审者不支持视觉输入，视觉证据无法判定');
-  return { ready: reasons.length === 0, reasons };
+  if (input.reviewer?.capabilities.vision && input.reviewer.capabilities.semanticJudgement === false)
+    limitations.push('评审者可接收截图/录屏并核对绑定与来源，但未做图像内容语义判定；最终核可仍由人完成');
+  return { ready: reasons.length === 0, reasons, limitations };
 }

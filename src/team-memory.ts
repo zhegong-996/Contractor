@@ -53,7 +53,11 @@ export class TeamMemory {
     this.w.manager(actor);const {record}=await this.graph.source(id,actor);
     if(!reusable(record.value,this.w.config,secrets().jwtSecret))throw new Error('只有已确认知识才能进入团队记忆');
     const result=await this.graph.run(id,record.revision,true,actor),file=path.join(await this.folder(id,record.revision),'ready.json');
-    const marker=JSON.parse(readFileSync(file,'utf8'));marker.memoryVersion=2;writeFileSync(path.join(await this.folder(id,record.revision),'chunk-tokens.json'),JSON.stringify(Object.fromEntries(result.nodes.filter((n:any)=>n.type==='MemoryChunk'||n.type==='KnowledgeConcept').map((n:any)=>[n.id,primeQueryTerms(n.type==='MemoryChunk'?n.text:n.name+' '+n.concept_type+' '+n.evidence)]))),{mode:0o600});writeFileSync(file,JSON.stringify(marker),{mode:0o600});return{sourceId:id,revision:record.revision,chunks:result.nodes.filter((n:any)=>n.type==='MemoryChunk').length,concepts:result.nodes.filter((n:any)=>n.type==='KnowledgeConcept').length};
+    const marker=JSON.parse(readFileSync(file,'utf8'));marker.memoryVersion=2;writeFileSync(path.join(await this.folder(id,record.revision),'chunk-tokens.json'),JSON.stringify(Object.fromEntries(result.nodes.filter((n:any)=>n.type==='MemoryChunk'||n.type==='KnowledgeConcept').map((n:any)=>[n.id,primeQueryTerms(n.type==='MemoryChunk'?n.text:n.name+' '+n.concept_type+' '+n.evidence)]))),{mode:0o600});writeFileSync(file,JSON.stringify(marker),{mode:0o600});
+    // L2 organisation-graph extraction is best-effort: a failure is audited
+    // and must never roll back a verified L1 projection or knowledge indexing.
+    if(this.w.config.orgExtraction?.autoRunOnIndex!==false&&this.w.onSourceIndexed)try{await this.w.onSourceIndexed(id,record.revision);}catch(error){this.w.store.audit('v06.l2-auto-extract-failed',id,{revision:record.revision,reason:String(error).slice(0,300)});}
+    return{sourceId:id,revision:record.revision,chunks:result.nodes.filter((n:any)=>n.type==='MemoryChunk').length,concepts:result.nodes.filter((n:any)=>n.type==='KnowledgeConcept').length};
   }
   async status(actor:WorkspaceActor){
     const records=[];for(const s of this.w.catalog().sources.filter(s=>!s.external&&(actor.admin||this.w.members(s.domain).includes(actor.agent!)))){
