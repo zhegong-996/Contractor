@@ -136,6 +136,8 @@ npm run org:preview                           # 读取当前授权范围可见�
 npm run org:apply -- <org-table.json>         # 组织 owner 人工确认后导入职能注册表
 ```
 
+启动后打开 `http://127.0.0.1:4192/overview` 可看到本机成果总览：实时探测 Paperclip `3100`、Bridge `4180`、Apple Vision `4190`、报告服务 `4192`，并展示当前验收链配置、中文指令清单（与 `USER_HELP` 同源）、按清单确认验收的四步、脱敏的飞书组织草案摘要与归档报告入口。总览页只读、只绑 loopback，不展示真实姓名与 `open_id`。本机实例的 `acceptance.mode=independent` 依赖 `4190` 视觉端点，需先运行 `npm run vision:start`；端点停机时独立评审链会失败而不是自动降级。
+
 报告与自查标准只提供证据，不代替原发起人在原会话「确认验收」；`lobehub/acceptance` 的云端报告服务与 CLI 未启动。组织草案不参与派单、不等于真人登录，真实姓名与 `open_id` 只写 `.runtime/`（不入库）；导入需组织 owner 并携带职能注册表当前修订号。
 
 

@@ -110,3 +110,7 @@ flowchart TD
 ## 三成员隔离实例
 
 新增模拟实例使用原版 Paperclip authenticated 模式、独立 PostgreSQL 与独立状态目录，工作台 3110、桥接 4181。它不修改主实例的成员、飞书白名单或真实项目资料。三个业务角色均非管理员；正向申请、授权、委托、知识采用与验收通过前端操作，原生 API 权限矩阵另行验证。运行方式及复用边界见 [Agent 构建](AGENT-BUILDING.md)。
+
+## 本机只读总览（第七轮）
+
+`scripts/acceptance-report.ts serve` 在 `127.0.0.1:4192` 额外提供 `/overview`：`src/acceptance-report.ts` 的 `renderOverviewHtml` 只渲染纯数据，脚本侧用 `node:http` 直连探测 3100 / 4180 / 4190 / 4192 的实时状态，读取 `.runtime/config.json` 的验收配置与 `.runtime/org-mapping-draft.json` 的**成员计数与布尔值**（成员明细不进页面），中文指令清单直接引用 `USER_HELP` 避免文档漂移。该页不写任何状态、不调用业务写接口，也不依赖 bridge 的身份令牌；`4190` 视觉端点停机时只显示离线，不会伪装成结构式评审通过。

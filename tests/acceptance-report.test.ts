@@ -8,7 +8,7 @@ import path from 'node:path';
 import { readFileSync as read } from 'node:fs';
 import { root } from '../src/config.ts';
 import { listBundles, readBundle, renderAcceptanceHtml, renderIndexHtml,
-  writeReportHtml, recordSelfCheck, readSelfCheck } from '../src/acceptance-report.ts';
+  renderOverviewHtml, writeReportHtml, recordSelfCheck, readSelfCheck } from '../src/acceptance-report.ts';
 import type { AcceptanceReport } from '../src/acceptance-interop.ts';
 import type { AcceptanceRound } from '../src/acceptance-round.ts';
 
@@ -78,12 +78,51 @@ test('打回原因沉淀为自查标准，同一轮重复记录不新增', () =>
   rmSync(dir, { recursive: true, force: true });
 });
 
-test('报告服务已接入工作台、编排与评审链，且只监听本机', () => {
+test('本机总览页展示实时状态、中文指令与边界，且不渲染任何真实身份信息', () => {
+  const html = renderOverviewHtml({
+    generatedAt: '2026-11-06T12:00:00.000Z',
+    services: [
+      { name: 'Paperclip 工作台<script>', port: 3100, ok: true, detail: '宿主界面 <b>', latencyMs: 3,
+        href: 'http://127.0.0.1:3100/SUI/knowledge-workspaces', linkLabel: '打开工作台' },
+      { name: 'Apple Vision 端点', port: 4190, ok: false, detail: '本机端口未响应', latencyMs: null },
+    ],
+    acceptance: { mode: 'independent', level: 'L3', reviewerModel: 'apple-vision-local',
+      visualEndpoint: 'http://127.0.0.1:4190/v1/chat/completions', multiUserSso: false },
+    help: ['发起协作：任务 要办的事', '按清单确认验收：确认验收 任务编号'],
+    // 即使调用方误把成员明细传进来，总览页也只渲染计数与布尔值。
+    org: { draftAvailable: true, generatedAt: '2026-11-06T11:00:00.000Z', memberCount: 5,
+      departmentScopeMissing: true, applied: null,
+      members: [{ name: '张三', openId: 'ou_secret_123' }] } as any,
+    standardsCount: 1, bundles: [],
+  });
+  assert.match(html, /成果总览/);
+  assert.match(html, /Paperclip 工作台&lt;script&gt;/);
+  assert.match(html, /宿主界面 &lt;b&gt;/);
+  assert.doesNotMatch(html, /<script>|张三|ou_secret_123/);
+  assert.match(html, /在线/);
+  assert.match(html, /离线/);
+  assert.match(html, /independent/);
+  assert.match(html, /apple-vision-local/);
+  assert.match(html, /可见成员 <b>5<\/b> 名/);
+  assert.match(html, /姓名与标识不在本页展示/);
+  assert.match(html, /按清单确认验收：确认验收 任务编号/);
+  assert.match(html, /不代替原发起人在原会话「确认验收」/);
+  assert.match(html, /尚未由真人在真实业务单上执行/);
+  assert.doesNotMatch(html, /\/accept/);
+  assert.match(renderIndexHtml([]), /href="\/overview"/);
+});
+
+test('报告服务已接入工作台、编排与评审链，新增总览页也只监听本机', () => {
   assert.match(source('src/v06.ts'), /case 'acceptance-report-view'/);
   assert.match(source('src/server.ts'), /'acceptance-report-view'/);
   assert.match(source('plugins/knowledge-workspaces/src/ui/v06-panels.tsx'), /验收报告与自查标准/);
   assert.match(source('src/controller.ts'), /recordSelfCheck\(runtime\('v06'\), report, id\)/);
   assert.match(source('scripts/acceptance-report.ts'), /server\.listen\(port, '127\.0\.0\.1'/);
+  assert.match(source('scripts/acceptance-report.ts'), /url\.pathname === '\/overview'/);
+  // 状态探测走 node:http 直连，不经代理；组织草案不把成员明细带进页面。
+  assert.match(source('scripts/acceptance-report.ts'), /request as httpRequest/);
+  assert.doesNotMatch(source('scripts/acceptance-report.ts'), /draft\.members\.map/);
+  assert.match(source('src/acceptance-report.ts'), /姓名与标识不在本页展示/);
   assert.doesNotMatch(source('scripts/acceptance-report.ts'), /0\.0\.0\.0/);
   const pkg = JSON.parse(source('package.json'));
   for (const key of ['acceptance:list', 'acceptance:report', 'acceptance:serve', 'acceptance:self-check']) {

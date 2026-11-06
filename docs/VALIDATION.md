@@ -141,3 +141,22 @@ Wiki 原生 `bootstrap-root` 在这个固定版本会创建带不兼容设置的
 - 飞书组织草案未导入，成员映射不等于真人登录或真实员工多租户，仍无第二位真人登录证据；真实姓名与 open_id 不入库。
 - 本机报告服务只读取已归档结果、只绑 loopback；`lobehub/acceptance` 的 CLI 与云端报告服务仍未启动，报告与自查标准都只是证据，不代替人签字。
 - Cognee 原生 LLM / embedding / cognify、L2 自动抽取在真实新确认资料上的端到端触发（`lastRun` 仍为空）、生产发布与真实 PR / CI 交付仍未发生；`.runtime` 证据不入库。
+
+## 2026-11-06：本机 independent 链路恢复、视觉评审复验与成果总览（第七轮）
+
+### 1. 发现并修复的断点
+
+- 本机实例 `.runtime/config.json` 已是 `acceptance.mode=independent`，`visualReviewer.endpoint` 指向 `http://127.0.0.1:4190/v1/chat/completions`，但 4190 端点已停机（`/health` 无响应）——**这条验收链当时是断的**，停机状态下发起独立评审会直接失败而不是自动降级。以干净的本机连接环境常驻重启 `npm run vision:start` 后，`/health` 返回 `apple-vision-on-device`、`networkEgress: false`、`swiftAvailable: true`。
+- 用项目里真实的 `LocalModelVisionAdapter.review()` 对工作台截图 `.runtime/walkthrough/collaboration-1280.png` 跑了一次端到端判定：设备端 OCR 识别到 **80 段文字**，按锁定标准判定「协作、任务」`passed`，并如实返回 3 条限制（含「主观视觉质量仍由原发起人在原会话确认验收」）。评审者身份 `local-vision:apple-vision-local`、`semanticJudgement: true`，与产出模型不同。这是真实模型调用，不是单测夹具。
+
+### 2. 本机成果总览页
+
+- `npm run acceptance:serve` 新增只读 `/overview`：`node:http` 直连 loopback 实时探测 3100 / 4180 / 4190 / 4192，展示当前实例验收配置、中文指令、按清单确认验收四步、脱敏的飞书组织草案摘要、归档报告入口与严格边界；报告索引页增加入口链接。组织草案只读取成员计数与布尔值，**成员明细不进页面**。
+- 实测 `/overview` 返回 200、四个服务全部「在线」、页面约 8KB；Chrome headless **1280 / 425 两档截图**无横向溢出、卡片不重叠。页面不含真实姓名、`open_id`、`appId` 或密钥。
+- 新增 1 个单测（含「调用方误传成员明细也不渲染」的脱敏断言）与 4 条静态断言；`npm test` **253/253**、`tsc --noEmit` 通过。
+
+### 3. 本轮边界（不得越过）
+
+- 总览页是**状态展示**，不是验收动作：没有替任何真人「确认验收」，没有导入组织表，没有创建新的真实业务任务，没有向飞书发消息。
+- 4190 视觉评审只提供证据与逐项判定；`confirmAcceptance` 仍未由真人在真实业务单上执行，第五轮 SUI-129 仍保持未最终核可；仓库默认仍是 `legacy` 可一行回退。
+- 所有服务只绑 `127.0.0.1`；`lobehub/acceptance` 的 CLI 与云端报告服务、生产发布与真实 PR / CI、真实员工多租户、Cognee 原生模型管线、L2 在真实新资料上的端到端触发仍未发生。
