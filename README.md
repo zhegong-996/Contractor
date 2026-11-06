@@ -4,7 +4,7 @@
 
 当前系统的数据库、服务、模型和知识管理状态见[架构与接入核验](docs/SYSTEM-ARCHITECTURE.md)。后台主入口包含知识库和设置；轻量模型配置按用户选择保留为预备策略，暂不启用新服务。
 
-基于 Paperclip 的团队协作工作台。飞书发起开发任务，人在自己使用的 Agent 中接单，或由后台调用已配置的 CLI；成果进入 GitHub，再按具体提交和环境验收。知识空间按项目、主题或组织需要配置，在同一任务中申请资料、授权、交接、撤权并采用专业结论。
+基于 Paperclip 的团队协作工作台。飞书发起开发任务，人在自己使用的 Agent 中接单，或由后台调用已配置的 CLI；成果默认进入本机 Git 代码交付台，按确切提交与本机 CI 结果验收（可显式回退到 GitHub 适配器）。知识空间按项目、主题或组织需要配置，在同一任务中申请资料、授权、交接、撤权并采用专业结论。
 
 本仓库是协作平台代码。`zhegong-996/desktop-tutorial` 是当前获准的流程联调仓库，SuitMe 业务仓库不在本轮写入范围。
 
@@ -21,7 +21,7 @@
 
 ## 本地运行
 
-需要 Node.js 24.11+、Corepack、Git、已登录的 GitHub CLI。飞书使用官方 `lark-cli` 的专用命名 profile。
+需要 Node.js 24.11+、Corepack、Git。默认本机 Git 交付不需要 GitHub 账号、token 或 `gh` CLI；只有显式设置 `delivery.provider=github` 回退时才需要 GitHub CLI。飞书使用官方 `lark-cli` 的专用命名 profile。
 
 ```sh
 git clone --recurse-submodules https://github.com/zhegong-996/suitme-collab.git
@@ -93,9 +93,9 @@ lark-cli config init --new --name ai-native-collab --lang zh_cn
 
 ## 交付和验收
 
-试点执行器只在独立工作树内修改配置允许的路径。固定交付模块检查差异、推送任务分支并创建或更新同一个 PR，Agent 不负责合并和发布。
+试点执行器只在独立工作树内修改配置允许的路径。默认交付模块检查差异、把任务分支推送到本机裸仓库并登记一条交付请求，Agent 不负责合并和发布。
 
-试点 CI 产出带提交 SHA 的静态页面产物。接入层只从同一提交成功的 Actions 下载匹配产物，校验 `version.json` 后提供本地 PR 预览。这个环境明确标记为 `local-pr-preview`，不代表生产部署，也不代表 PR 已合并。
+本机 CI 校验提交存在、允许路径与无冲突，通过后把静态预览固定到确切提交（写 `version.json` 与 `index.html`）。预览只绑 loopback，不代表生产部署，也不代表已合并。
 
 任务的 `handoff`、`checkpoint`、`delivery`、`deployment`、`acceptance`、`decisions` 使用 Paperclip 已有的任务文档保存。SQLite 只存来源映射、消息去重、执行接入状态和发件箱，不替代 Paperclip 的任务库。
 
@@ -109,7 +109,7 @@ lark-cli config init --new --name ai-native-collab --lang zh_cn
 
 跨专业共享和授权方案、开源对照见 [知识与授权架构](docs/KNOWLEDGE-AND-ACCESS.md)。可配置知识空间与授权协作已经接入后台页面，当前实现、复用范围、验证和运行边界见 [功能说明](docs/WORKSPACES.md)。当前为本机管理员与专业 Agent 身份模式，多人身份和飞书组织映射尚未部署。
 
-平台保留“作者自行合并、Actions 发布”的现有协作约定。试点代码不会自动合入业务仓库。
+平台保留“人工审批后合并、发布另行决定”的约定。本机交付台的合并审批不等于业务验收，也不会自动合入业务仓库。
 
 ## 验证
 
@@ -119,7 +119,7 @@ npm run typecheck
 npm run doctor
 ```
 
-自动测试使用临时状态和模拟接口，覆盖去重、并发签出、过期回执、部分失败重试、交付范围、版本验收及真实 stdio MCP 协议。真实飞书消息、模型执行、GitHub CI、预览与人工验收应分别记录；通过单元测试不等于真实全流程通过。
+自动测试使用临时状态和模拟接口，覆盖去重、并发签出、过期回执、部分失败重试、交付范围、版本验收及真实 stdio MCP 协议。真实飞书消息、模型执行、本机 CI、预览与人工验收应分别记录；通过单元测试不等于真实全流程通过。
 
 本机已跑通的真实流程与尚未启用的能力见 [验证记录](docs/VALIDATION.md)。CLI 用量保存在回执中，费用尚未完整回填 Paperclip 成本账本，界面的零费用不代表没有发生模型调用。
 
@@ -153,16 +153,18 @@ git push git://127.0.0.1:9418/suitme-collab.git HEAD:refs/heads/你的分支
 
 ### 前端国内适配
 
-`npm run install:upstream` 与 `npm run up` 都会保证中文壳生效（上游重新构建覆盖后自动重建一次）。构建期收敛 Paperclip 侧栏的技能库 / 连接服务入口，运行时用同源静态资源过滤页面里**未连接**的海外集成卡片；两者都不改上游源码。设置里的「国内服务」只给已实测接通的服务入口（例如交付台通过 `delivery-status` 探测成功才显示链接），**未接通的服务只做文字说明，不放可点空壳**。
+`npm run install:upstream` 与 `npm run up` 都会保证中文壳生效（上游重新构建覆盖后自动重建一次）；`npm run build:chinese-shell` 可重复执行（构建前恢复上游 `sw.js` 的原始占位符）。构建期收敛 Paperclip 侧栏的技能库 / 连接服务入口，运行时用同源静态资源过滤页面里**未连接**的海外集成卡片；两者都不改上游源码。
 
-启动后打开 `http://127.0.0.1:4192/overview` 可看到本机成果总览：实时探测 Paperclip `3100`、Bridge `4180`、Apple Vision `4190`、报告服务 `4192`，并展示当前验收链配置、中文指令清单（与 `USER_HELP` 同源）、按清单确认验收的四步、脱敏的飞书组织草案摘要与归档报告入口。总览页只读、只绑 loopback，不展示真实姓名与 `open_id`。本机实例的 `acceptance.mode=independent` 依赖 `4190` 视觉端点，需先运行 `npm run vision:start`；端点停机时独立评审链会失败而不是自动降级。
+设置里的「国内服务」由只读 `service-status` 统一提供数据：并发实时探测 3100 / 4190 / 4192 / 4194，逐项标注状态来源（实时探测、进程内判定或监听器事件推断），页面每 15 秒自动刷新，也可手动刷新，探测失败与「未启动」分开显示。**只有状态为已接通且 URL 通过 loopback 校验的条目才渲染链接**；未接通项给出原因与可照做的接通步骤，不放任何可点空壳。交付台健康响应还要校验 `scope=loopback-only` / `provider=local-git` / 端口，避免端口被别的服务占用时误判为已接通。
+
+启动后打开 `http://127.0.0.1:4192/overview` 可看到本机成果总览：实时探测 Paperclip `3100`、Bridge `4180`、Apple Vision `4190`、报告服务 `4192`，并展示当前验收链配置、中文指令清单（与 `USER_HELP` 同源）、按清单确认验收的四步、脱敏的飞书组织草案摘要与归档报告入口。总览页只读、只绑 loopback，不展示真实姓名与 `open_id`。本机实例的 `acceptance.mode=independent` 依赖 `4190` 视觉端点，需先运行 `npm run vision:start`；端点停机时独立评审链会失败而不是自动降级。（4190 与 4192 当前在本机未启动；服务是否在线可直接在设置 →「国内服务」页查看，不必依赖总览页。）
 
 报告与自查标准只提供证据，不代替原发起人在原会话「确认验收」；`lobehub/acceptance` 的云端报告服务与 CLI 未启动。组织草案不参与派单、不等于真人登录，真实姓名与 `open_id` 只写 `.runtime/`（不入库）；导入需组织 owner 并携带职能注册表当前修订号。
 
 
 ### 协作 Agent 与上下文工作区
 
-入口仍为 /SUI/knowledge-workspaces，按“我的工作、协作任务、知识空间、授权申请”组织。用户给出目标后，Agent 在已配置的资源权限和任务委托内查找上下文、准备访问申请、归纳待办、制作工作稿、保存检查点与知识候选；关键授权、知识采用和验收由人决定。支持补充背景、关联已有飞书/GitHub交付、查看输入来源与版本，内容或权限变化后停用旧结果。
+入口仍为 /SUI/knowledge-workspaces，按“我的工作、协作任务、知识空间、授权申请”组织。用户给出目标后，Agent 在已配置的资源权限和任务委托内查找上下文、准备访问申请、归纳待办、制作工作稿、保存检查点与知识候选；关键授权、知识采用和验收由人决定。支持补充背景、关联已有飞书来源与本机代码交付、查看输入来源与版本，内容或权限变化后停用旧结果。
 
 运行 npm run setup:assistant、npm run restart:bridge、npm run install:workspaces 启用，当前使用已登录 Codex。详见 [Agent 与上下文说明](docs/ASSISTANT-CONTEXT.md) 和 [第三方声明](THIRD_PARTY_NOTICES.md)。
 

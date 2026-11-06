@@ -53,7 +53,7 @@ export function DictionaryPanel({ ui, space }: { ui: any; space: string }) {
             {fieldType === 'relation' && <div className="sm-form-grid"><label className="sm-field">目标概念<select className="sm-input" value={target} onChange={e => setTarget(e.target.value)} required><option value="">选择概念</option>{schema.entities.map((e: any) => <option key={e._id} value={e.name}>{e.name}</option>)}</select></label><label className="sm-check"><input type="checkbox" checked={multiple} onChange={e => setMultiple(e.target.checked)} />可关联多个</label></div>}
             <div><button className="sm-button" disabled={!fieldName.trim() || fieldType === 'relation' && !target}>添加属性／关系</button></div></form></>}
       </div></div>}
-      <div className="sm-actions"><button className="sm-button" data-variant="primary" disabled={ui.busy} onClick={() => void save()}>保存知识字典</button>{draft?.issueId && <a className="sm-button" {...ui.nav.linkProps('/issues/' + draft.issueId)}>版本记录</a>}{saved && <span role="status">已保存；未启用自动抽取。</span>}</div><p className="sm-small sm-muted">复用 Cognee 的概念模型、关系约束和 JSON Schema 转换。保存字典不修改已有事实，也不启动模型。</p>
+      <div className="sm-actions"><button className="sm-button" data-variant="primary" disabled={ui.busy} onClick={() => void save()}>保存知识字典</button>{draft?.issueId && <a className="sm-button" {...ui.nav.linkProps('/issues/' + draft.issueId)}>版本记录</a>}{saved && <span role="status">已保存；知识字典的实体自动抽取仍关闭（资料入库时的 L2 组织图谱抽取另按配置执行）。</span>}</div><p className="sm-small sm-muted">复用 Cognee 的概念模型、关系约束和 JSON Schema 转换。保存字典不修改已有事实，也不启动模型。</p>
     </>}
   </section>;
 }

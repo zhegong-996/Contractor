@@ -10,7 +10,9 @@ import { createPlan } from '../src/acceptance-plan.ts';
 import { capture } from '../src/event-stream.ts';
 import { registrySchema } from '../src/roles.ts';
 
-const at = '2026-11-06T08:00:00.000Z';
+// 授权审批用真实当前时间判断过期；把 at 写成固定日期会让「at + 8h」在某个
+// 时间点之后永久失效，端到端用例会随日历变成时间炸弹。
+const at = new Date(Date.now() - 60_000).toISOString();
 const opts = { workbenchUrl: 'http://127.0.0.1:4180', channel: 'workspace' as const, actorUserId: 'pd-owner' };
 const admin = { admin: true, userId: 'pd-owner' };
 const member = { admin: false, userId: 'li' };

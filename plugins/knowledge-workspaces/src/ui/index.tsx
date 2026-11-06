@@ -43,6 +43,22 @@ function Button({ variant, icon, children, ...props }: ButtonHTMLAttributes<HTML
 function Badge({ state, children }: { state?: string; children?: any }) { return <span className="sm-badge" data-tone={state === 'accepted' || state === 'confirmed' ? 'success' : ['pending', 'candidate'].includes(state ?? '') ? 'attention' : state === 'failed' ? 'error' : undefined}>{children ?? labels[state ?? ''] ?? state}</span>; }
 const date = (value: string) => new Date(value).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Shanghai' });
 const isLive = (r: any) => r.state === 'approved' && Date.parse(r.expiresAt) > Date.now();
+/** 普通外链只放行 http/https，挡掉 javascript: 等可执行协议。 */
+function safeHttpUrl(value: unknown): string | null {
+  if (typeof value !== 'string' || !value) return null;
+  try { const url = new URL(value); return ['http:', 'https:'].includes(url.protocol) ? url.toString() : null; }
+  catch { return null; }
+}
+/** 只放行本机 loopback 的 http 链接；服务端 service-status 使用同一套规则。 */
+function safeLoopbackUrl(value: unknown): string | null {
+  if (typeof value !== 'string' || !value) return null;
+  try {
+    const url = new URL(value);
+    if (url.protocol !== 'http:' || !['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname)) return null;
+    if (url.username || url.password) return null;
+    return url.toString();
+  } catch { return null; }
+}
 export function WorkspaceSidebar(_props: PluginSidebarProps) { const nav = useHostNavigation(); return <a {...nav.linkProps('/knowledge-workspaces')} className="flex items-center px-3 py-2 text-sm">协作台</a>; }
 
 type UI = { data: any; busy: boolean; prefix: string; nav: ReturnType<typeof useHostNavigation>; invoke: (name: string, payload: any) => Promise<any>;
@@ -318,37 +334,73 @@ function WorkspaceConfiguration({ ui }: { ui: UI }) {
   </div></Details>;
 }
 function DomesticServices({ ui }: { ui: UI }) {
-  const [delivery, setDelivery] = useState<any>(), [system, setSystem] = useState<any>();
+  const [report, setReport] = useState<any>(), [error, setError] = useState(''), [loading, setLoading] = useState(true);
+  async function load() {
+    setLoading(true);
+    try { const value = await ui.read('service-status', {}); setReport(value); setError(''); }
+    catch (e: any) { setError(String(e?.message ?? e)); }
+    finally { setLoading(false); }
+  }
   useEffect(() => {
-    void ui.read('delivery-status', {}).then(setDelivery).catch(() => setDelivery({ ok: false }));
-    void ui.read('system-status', {}).then(setSystem).catch(() => {});
+    void load();
+    // 服务是外部进程，随时可能启动或停止；页面可见时自动刷新，避免「启动了却要重载页面」。
+    const timer = setInterval(() => { if (!document.hidden) void load(); }, 15000);
+    return () => clearInterval(timer);
   }, []);
-  const feishuReady = system?.services?.feishu === 'ready';
-  const deliveryReady = delivery?.ok === true;
-  return <section className="sm-stack"><div className="sm-section-head"><h2>国内可用服务</h2><Badge>未接通不放入口</Badge></div>
-    <p className="sm-small sm-muted">只列出本机已经接通的服务并给出入口；未接通的服务仅作文字说明，不显示可点按钮或链接，避免出现点了没反应的空壳入口。宿主侧栏的技能库、连接服务入口已收敛，页面里未连接的海外集成卡片由本机适配层过滤。</p>
-    <div className="sm-table-scroll"><table className="sm-table"><thead><tr><th>服务</th><th>当前状态</th><th>入口</th></tr></thead><tbody>
-      <tr><th>飞书消息与组织</th><td>{feishuReady ? '已接通 · 仅 allowlist 本人单聊' : '未接通'}</td><td className="sm-small sm-muted">在飞书原会话操作，工作台不代发</td></tr>
-      <tr><th>本机代码交付台</th><td>{deliveryReady ? '已接通 · 本机 Git 服务' : '未启动'}</td><td>{deliveryReady ? <a href={delivery.url} target="_blank" rel="noreferrer">打开交付台</a> : <span className="sm-small sm-muted">运行 npm run delivery:serve 后才显示入口</span>}</td></tr>
-      <tr><th>中文协作台</th><td>已接通 · 当前页面</td><td className="sm-small sm-muted">任务、知识、验收与组织视图</td></tr>
-    </tbody></table></div>
-    <h3>尚未接通，不提供入口</h3>
-    <p className="sm-small sm-muted">企业微信 · 腾讯文档 / 腾讯问卷 · 钉钉 · Gitee / CNB / 工蜂 · 公有云 CI · Slack / GitHub / Linear / Notion / Vercel / Zapier。以上服务在本机没有授权凭据，也不默认出现在界面里；需要时由管理员先配置并实测接通，再新增入口。</p>
+  const groups: [string, string][] = [['local', '本机服务'], ['domestic', '国内服务'], ['overseas', '海外服务']];
+  const entries: any[] = report?.services ?? [];
+  return <section className="sm-stack"><div className="sm-section-head"><h2>国内可用服务</h2><Badge>未接通不放入口</Badge>
+    <Button icon="refresh" disabled={loading} onClick={() => void load()}>刷新状态</Button></div>
+    <p className="sm-small sm-muted">每项状态由本机实时探测得出。只有探测成功且通过服务身份校验的条目才出现链接；未接通项给出状态、原因与可照做的接通步骤，不放任何点了没反应的空壳按钮。页面每 15 秒自动刷新，也可手动刷新。</p>
+    {error && <div className="sm-error" role="alert">状态探测失败：{error}<Button onClick={() => void load()}>重试</Button></div>}
+    {loading && !report && <p role="status" className="sm-small sm-muted">正在探测本机服务…</p>}
+    {!loading && !report && !error && <p role="status" className="sm-small sm-muted">尚未取得服务状态，请点「刷新状态」重试。</p>}
+    {report && <>
+      <p className="sm-small sm-muted" role="status">最近探测：{report.checkedAt ? date(report.checkedAt) : '—'} · 已接通 {report.connected} 项 · 未接通 {report.unavailable} 项{loading ? ' · 正在刷新…' : ''}。状态来源逐项列在表内，监听器推断与实时探测已区分。</p>
+      {groups.map(([key, title]) => {
+        const rows = entries.filter(s => s.category === key);
+        if (!rows.length) return null;
+        return <div key={key}><h3>{title}</h3><div className="sm-table-scroll"><table className="sm-table">
+          <thead><tr><th>服务</th><th>当前状态</th><th>入口 / 接通说明</th><th>状态来源</th></tr></thead><tbody>
+          {rows.map((s: any) => {
+            // 唯一能生成链接的地方：必须同时满足「已接通」与「loopback URL 校验通过」。
+            const href = s.state === 'connected' ? safeLoopbackUrl(s.url) : null;
+            return <tr key={s.id}><th>{s.name}</th>
+              <td><Badge state={s.state === 'connected' ? 'confirmed' : s.state === 'degraded' ? 'pending' : undefined}>{s.state === 'connected' ? '已接通' : s.state === 'degraded' ? '部分可用' : '未接通'}</Badge> <span className="sm-small sm-muted">{s.detail}</span></td>
+              <td>{href ? <a href={href} target="_blank" rel="noreferrer">打开</a> : <span className="sm-small sm-muted">{s.setup ?? (s.state === 'connected' ? '已接通，无需单独入口' : '暂不提供入口')}</span>}</td>
+              <td className="sm-small sm-muted">{s.source}</td></tr>;
+          })}
+          </tbody></table></div></div>;
+      })}
+    </>}
     <p className="sm-small sm-muted">本机 Git 交付只固定确切提交、记录合并审批与通知，<strong>不等于业务验收</strong>；业务验收仍由原发起人在原会话「确认验收」。</p>
   </section>;
 }
 function Settings({ ui }: { ui: UI }) {
   const [tab, setTab] = useDraft(ui.prefix + 'settings-tab', 'models'), [modelData, setModelData] = useDraft<any>(ui.prefix + 'model-data', null), [draft, setDraft] = useDraft<any>(ui.prefix + 'model-draft', null);
   const [system, setSystem] = useState<any>(), [loadError, setLoadError] = useState(''), [saved, setSaved] = useState(false);
-  async function load() { setLoadError(''); try { const [m, s] = await Promise.all([ui.read('model-settings', {}), ui.read('system-status', {})]); setModelData(m); if (!draft) setDraft(m.settings); setSystem(s); } catch (e: any) { setLoadError(e.message ?? String(e)); } }
-  useEffect(() => { void load(); }, []);
+  const [loaded, setLoaded] = useState(false), [saveError, setSaveError] = useState('');
+  async function load() {
+    setLoadError(''); setLoaded(false);
+    // 两个读分别降级：管理员级视图被拒时，不要让另一块也停在永久「正在读取」。
+    const [m, s] = await Promise.all([
+      ui.read('model-settings', {}).catch((e: any) => ({ __error: String(e?.message ?? e) })),
+      ui.read('system-status', {}).catch((e: any) => ({ __error: String(e?.message ?? e) })),
+    ]);
+    if (!m.__error) { setModelData(m); if (!draft) setDraft(m.settings); }
+    if (!s.__error) setSystem(s);
+    const errors = [m.__error, s.__error].filter(Boolean);
+    if (errors.length) setLoadError(errors.join('；'));
+    setLoaded(true);
+  }
+  useEffect(() => { void load().catch((e: any) => { setLoadError(String(e?.message ?? e)); setLoaded(true); }); }, []);
   const tiers: Record<string, string> = { fast: '轻量事务', standard: '复杂分析', code: '开发执行' }, providers: Record<string, string> = { unconfigured: '待选择', gemini: 'Gemini', ark: '火山方舟', 'codex-cli': 'Codex CLI', 'claude-cli': 'Claude Code CLI', other: '其他服务' };
   function profileChange(id: string, key: string, value: any) { setSaved(false); setDraft({ ...draft, profiles: draft.profiles.map((p: any) => p.id === id ? { ...p, [key]: value } : p) }); }
   return <section className="sm-stack"><nav className="sm-task-stage" aria-label="系统设置"><button aria-pressed={tab === 'models'} onClick={() => setTab('models')}>模型与代理</button><button aria-pressed={tab === 'system'} onClick={() => setTab('system')}>服务与架构</button><button aria-pressed={tab === 'workspace'} onClick={() => setTab('workspace')}>空间与权限</button><button aria-pressed={tab === 'organization'} onClick={() => setTab('organization')}>组织规则</button><button aria-pressed={tab === 'domestic'} onClick={() => setTab('domestic')}>国内服务</button></nav>{tab==='workspace'&&<WorkspaceConfiguration ui={ui}/>}{tab==='organization'&&<OrganizationPanel ui={ui}/>}{tab==='domestic'&&<DomesticServices ui={ui}/>}
     {loadError && <div className="sm-error" role="alert">{loadError}<Button onClick={() => void load()}>重试</Button></div>}
-    {tab === 'models' && (!draft || !modelData ? <p role="status">正在读取模型配置…</p> : <><div className="sm-section-head"><h2>模型与代理</h2><Badge>新模型服务未启用</Badge></div>
+    {tab === 'models' && (!draft || !modelData ? (loaded ? <p role="alert" className="sm-error">模型配置未读取{loadError ? '：' + loadError : ''}</p> : <p role="status">正在读取模型配置…</p>) : <><div className="sm-section-head"><h2>模型与代理</h2><Badge>新模型服务未启用</Badge></div>
       <p className="sm-small sm-muted">当前协作助手：{modelData.currentAssistant.engine === 'claude' ? 'Claude Code' : 'Codex'} CLI · {modelData.currentAssistant.model ?? '未显式指定型号'}。以下保存为预备策略，不切换既有任务，也不发送资料到新服务。</p>
-      <form className="sm-form" onSubmit={e => { e.preventDefault(); void ui.invoke('save-model-settings', { settings: draft, revision: modelData.revision }).then(m => { setModelData(m); setDraft(m.settings); setSaved(true); }).catch(() => {}); }}>
+      <form className="sm-form" onSubmit={e => { e.preventDefault(); setSaveError(''); setSaved(false); void ui.invoke('save-model-settings', { settings: draft, revision: modelData.revision }).then(m => { setModelData(m); setDraft(m.settings); setSaved(true); }).catch((err: any) => setSaveError(String(err?.message ?? err))); }}>
         {draft.profiles.map((p: any) => <fieldset className="sm-model-profile" key={p.id}><legend>{tiers[p.tier]}</legend><p className="sm-small sm-muted">{p.tier === 'fast' ? '摘要、分类、待办提取、交接整理。' : p.tier === 'standard' ? '多来源分析、方案推理与复杂决策准备。' : '交给 Codex、Claude Code 等开发工具执行。'}</p>
           <div className="sm-form-grid"><label className="sm-field">服务<select className="sm-input" value={p.provider} onChange={e => profileChange(p.id, 'provider', e.target.value)}>{Object.entries(providers).map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select></label><label className="sm-field">模型标识<input className="sm-input" value={p.model} placeholder={p.tier === 'fast' ? '填写 Flash／Lite 级模型或接入点 ID' : '填写明确的模型 ID'} onChange={e => profileChange(p.id, 'model', e.target.value)} /></label></div>
           {!p.provider.endsWith('-cli') && <label className="sm-field">凭据环境变量名<input className="sm-input" value={p.credentialEnv} placeholder="仅填写变量名，不填写密钥" pattern="[A-Z][A-Z0-9_]{0,79}|^$" onChange={e => profileChange(p.id, 'credentialEnv', e.target.value)} /></label>}
@@ -356,14 +408,21 @@ function Settings({ ui }: { ui: UI }) {
         </fieldset>)}
         <h3>执行身份的模型绑定</h3><p className="sm-small sm-muted">执行引擎可共享；成员的资料身份、任务上下文与授权独立。新模型服务仅保存预备配置。</p>
         <div className="sm-table-scroll"><table className="sm-table"><thead><tr><th>执行身份</th>{Object.values(tiers).map(t => <th key={t}>{t}</th>)}</tr></thead><tbody>{draft.bindings.map((b: any) => <tr key={b.agent}><th>{modelData.identities.find((a: any) => a.key === b.agent)?.name ?? b.agent}</th>{Object.keys(tiers).map(tier => <td key={tier}><select className="sm-input" aria-label={(modelData.identities.find((a: any) => a.key === b.agent)?.name ?? b.agent) + '的' + tiers[tier]} value={b[tier]} onChange={e => { setSaved(false); setDraft({ ...draft, bindings: draft.bindings.map((v: any) => v.agent === b.agent ? { ...v, [tier]: e.target.value } : v) }); }}><option value="">不绑定</option>{draft.profiles.filter((p: any) => p.tier === tier).map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></td>)}</tr>)}</tbody></table></div>
-        <div className="sm-actions"><Button variant="primary" disabled={ui.busy}>保存预备配置</Button>{saved && <span role="status">已保存到私有数据库记录，尚未启用。</span>}</div>
+        <div className="sm-actions"><Button variant="primary" disabled={ui.busy || !ui.data.canManageWorkspace}>保存预备配置</Button>{saved && <span role="status">已保存到私有数据库记录，尚未启用。</span>}</div>
+        {saveError && <p className="sm-error" role="alert">保存失败：{saveError}</p>}
+        {!ui.data.canManageWorkspace && <p className="sm-small sm-muted">当前为成员视图：模型预备配置仅本机操作员可保存。</p>}
       </form></>)}
-    {tab === 'system' && (!system ? <p role="status">正在核对服务…</p> : <><h2>服务与架构</h2><div className="sm-table-scroll"><table className="sm-table"><thead><tr><th>组件</th><th>当前状态</th></tr></thead><tbody>
+    {tab === 'system' && (!system ? (loaded ? <p role="alert" className="sm-error">服务状态未读取{loadError ? '：' + loadError : ''}</p> : <p role="status">正在核对服务…</p>) : <><h2>服务与架构</h2><div className="sm-table-scroll"><table className="sm-table"><thead><tr><th>组件</th><th>当前状态</th></tr></thead><tbody>
       <tr><th>Paperclip / 协作服务</th><td>{system.services.paperclip === 'ok' && system.services.bridge === 'ok' ? '运行中' : '待恢复'}</td></tr><tr><th>飞书事件通道</th><td>{system.services.feishu === 'ready' ? '已连接' : '未连接'}</td></tr>
       <tr><th>业务数据</th><td>{system.storage.primary}</td></tr><tr><th>事件、去重与回执</th><td>SQLite（本机持久化）</td></tr><tr><th>数据库备份</th><td>{system.storage.databaseBackup === 'ok' ? '本机备份正常；异机恢复尚未验证' : '待核对'}</td></tr>
-      <tr><th>知识引擎</th><td>{system.knowledgeEngine?.installed ? `Cognee · Ladybug；${system.knowledgeEngine.sourceRevisionGraphs} 个来源版本图谱` : 'Cognee 尚未安装'}</td></tr><tr><th>自动知识处理</th><td>已有 Agent 可整理有据概念关系；人审后建立记忆索引</td></tr><tr><th>模型 API / 向量检索 / 对象存储</th><td>尚未接入</td></tr><tr><th>团队登录</th><td>当前单机受信任模式；已适配原生成员登录与个人 Agent 绑定</td></tr></tbody></table></div>
+      <tr><th>知识引擎</th><td>{system.knowledgeEngine?.installed ? `Cognee · Ladybug；${system.knowledgeEngine.sourceRevisionGraphs} 个来源版本图谱` : 'Cognee 尚未安装'}</td></tr>
+      <tr><th>自动知识处理</th><td>{system.knowledgeEngine?.automaticExtraction ? '资料入库时确定性抽取 L2 组织图谱（不调用外部模型）；知识字典实体自动抽取仍关闭' : '未启用自动抽取；已有 Agent 可整理有据概念关系，人审后建立记忆索引'}</td></tr>
+      <tr><th>模型 API / 对象存储</th><td>未接入（不调用任何外部或云端模型网关）</td></tr>
+      <tr><th>本机向量检索</th><td>{system.integrations?.vectorSearch ? '已启用 · 设备端词向量 + Cognee BM25 混合' : '未启用'}{system.integrations?.vectorSearchNote ? ' · ' + system.integrations.vectorSearchNote : ''}</td></tr>
+      <tr><th>独立视觉评审</th><td>{system.integrations?.visionReviewer ?? '未挂接'}</td></tr>
+      <tr><th>团队登录</th><td>当前单机受信任模式；已适配原生成员登录与个人 Agent 绑定</td></tr></tbody></table></div>
       <h3>运行关系</h3><ol className="sm-architecture"><li><strong>入口</strong><span>飞书 · 中文协作台 · MCP</span></li><li><strong>协作与上下文</strong><span>任务 · 资料授权 · 版本 · 交接 · 人工验收</span></li><li><strong>原生运行</strong><span>Paperclip 调度与锁 → 当前 Codex CLI；轻量模型待启用</span></li><li><strong>知识与存储</strong><span>字段 + 正文 → 私有文档与修订 → PostgreSQL；确切修订 → Cognee / Ladybug 图谱</span></li></ol>
-      <p className="sm-small sm-muted">Wiki 另存于本机 Markdown 目录，自动摄取关闭。当前知识库沿用原生私有文档权限，未把私有资料复制进共享 Wiki。目录配置和部分事件仍在本机文件与 SQLite 中。</p>
+      <p className="sm-small sm-muted">Wiki 另存于本机 Markdown 目录，自动摄取关闭（指不自动把私有资料复制进共享 Wiki）。当前知识库沿用原生私有文档权限。目录配置和部分事件仍在本机文件与 SQLite 中。</p>
       <Details remember={ui.prefix + 'system-counts'}><summary>存储记录（包含联调数据）</summary><dl className="sm-document">{Object.entries(system.records).map(([key, value]) => <div key={key}><dt>{{ tasks: '任务映射', events: '接入事件', outbox: '出站回执', audit: '审计事件' }[key]}</dt><dd>{String(value)}</dd></div>)}</dl></Details>
     </>)}
   </section>;
@@ -440,7 +499,7 @@ function ContextPanel({ ui, task }: { ui: UI; task: any }) {
       <div>{pack.layers.sources.map((s: any) => <Details remember={k + ':source:' + s.id} key={s.id}><summary>{s.title} <span className="sm-muted sm-small">· {s.external ? '来源证据' : s.kind === 'note' ? '人工背景' : s.kind === 'delivery' ? '真实交付' : s.kind === 'conversation' ? '讨论补充' : '专业知识'}</span></summary>
         <div className="sm-stack"><div className="sm-muted sm-small">{s.truncated ? `本轮载入 ${s.range.start}–${s.range.end} / ${s.totalChars} 字符，仍有未读内容` : '已载入当前正文'} · 版本 {s.revision.slice(0, 8)}</div>
           {s.facts && Object.keys(s.facts).length > 0 && <RecordBody record={{ facts: s.facts, body: '' }} />}{s.factsTruncated && <p className="sm-muted sm-small">事实字段也使用了预算内片段，完整信息见来源。</p>}
-          {s.external && <p className="sm-small"><a href={s.external.url} target="_blank" rel="noreferrer">飞书原始来源</a> · {s.external.kind === 'messages' ? '历史讨论证据' : '原文当前版本'}，每轮重新核对可读状态</p>}{s.kind === 'delivery' && s.delivery ? <div className="sm-document"><dl><div><dt>需求来源</dt><dd>{s.origin === 'feishu' ? '飞书发起' : '后台发起'}</dd></div><div><dt>GitHub 交付</dt><dd><a href={s.delivery.url} target="_blank" rel="noreferrer">PR #{s.delivery.pr}</a></dd></div><div><dt>代码检查</dt><dd>{s.delivery.ci === 'passed' ? '已通过' : s.delivery.ci === 'failed' ? '未通过' : '待完成'}</dd></div><div><dt>交付版本</dt><dd>{s.delivery.headSha?.slice(0, 12)}</dd></div><div><dt>预览版本</dt><dd>{s.delivery.deployedSha?.slice(0, 12) ?? '未部署预览'}</dd></div><div><dt>验收</dt><dd>{s.taskStatus === 'accepted' ? '已按指定版本验收' : '尚未验收'}</dd></div></dl></div> : <RecordBody body={s.body} />}
+          {s.external && <p className="sm-small">{safeHttpUrl(s.external.url) ? <a href={safeHttpUrl(s.external.url)!} target="_blank" rel="noreferrer">飞书原始来源</a> : <span className="sm-muted">飞书原始来源（链接不可用）</span>} · {s.external.kind === 'messages' ? '历史讨论证据' : '原文当前版本'}，每轮重新核对可读状态</p>}{s.kind === 'delivery' && s.delivery ? <div className="sm-document"><dl><div><dt>需求来源</dt><dd>{s.origin === 'feishu' ? '飞书发起' : '后台发起'}</dd></div><div><dt>代码交付（本机 Git）</dt><dd>{safeHttpUrl(s.delivery.url) ? <a href={safeHttpUrl(s.delivery.url)!} target="_blank" rel="noreferrer">交付 #{s.delivery.pr}</a> : <span>交付 #{s.delivery.pr}（链接不可用）</span>}</dd></div><div><dt>本机代码检查</dt><dd>{s.delivery.ci === 'passed' ? '已通过' : s.delivery.ci === 'failed' ? '未通过' : '待完成'}</dd></div><div><dt>交付版本</dt><dd>{s.delivery.headSha?.slice(0, 12)}</dd></div><div><dt>预览版本</dt><dd>{s.delivery.deployedSha?.slice(0, 12) ?? '未部署预览'}</dd></div><div><dt>验收</dt><dd>{s.taskStatus === 'accepted' ? '已按指定版本验收' : '尚未验收'}</dd></div></dl></div> : <RecordBody body={s.body} />}
           {s.truncatedMessages && <p className="sm-muted sm-small">本轮载入最近 {s.includedMessages} / {s.totalMessages} 条可见讨论，较早内容未载入。</p>}
           <div className="sm-actions"><a className="sm-button" {...ui.nav.linkProps('/issues/' + (s.nativeIssueId ?? s.id))}>来源与版本</a>{(s.truncated || s.truncatedMessages) && ['knowledge', 'note', 'conversation'].includes(s.kind) && <Button disabled={ui.busy || closed || pack.fullSources.includes(s.id)} onClick={() => ui.run('context-expand', { taskId: task.id, sourceId: s.id })}>扩展读取范围</Button>}
             {s.kind === 'knowledge' && !closed && <Button variant="quiet" disabled={ui.busy} aria-label={'将' + s.title + '移出任务并结束临时授权'} onClick={() => ui.run('context-exclude', { taskId: task.id, sourceId: s.id })}>移出并结束临时授权</Button>}</div>
@@ -448,7 +507,7 @@ function ContextPanel({ ui, task }: { ui: UI; task: any }) {
       </Details>)}</div>
       {pack.layers.checkpoints.length > 0 && <Details remember={k + ':records'}><summary>已纳入的工作记录</summary><div className="sm-tight">{pack.layers.checkpoints.map((c: any) => <div key={c.id} className="sm-row sm-spread sm-wrap"><a {...ui.nav.linkProps('/issues/' + c.id)}>{c.title}</a><span className="sm-muted sm-small">版本 {c.revision.slice(0, 8)}{c.truncated ? ' · 使用片段' : ''}</span></div>)}</div></Details>}
       {pack.matches.some((m: any) => !m.selected) && <div className="sm-notice sm-stack"><h3>可用知识中还有相关内容</h3>{pack.matches.filter((m: any) => !m.selected).map((m: any) => <div key={m.id}><strong>{m.title}</strong><p className="sm-small">{m.reason}</p></div>)}<div><Button disabled={ui.busy || closed} onClick={() => ui.run('context-discover', { taskId: task.id })}>引用相关知识</Button></div></div>}
-      {pack.availableDeliveries.length > 0 && <Details remember={k + ':delivery'}><summary>关联已有研发交付</summary><div className="sm-form"><label className="sm-field">已有任务<select className="sm-input" value={linked} onChange={e => setLinked(e.target.value)}><option value="">选择研发任务</option>{pack.availableDeliveries.map((t: any) => <option key={t.id} value={t.id} disabled={t.linked}>{t.identifier} · {t.title}{t.linked ? '（已关联）' : ''}</option>)}</select></label><div><Button disabled={ui.busy || closed || !linked} onClick={() => { void ui.invoke('context-link', { taskId: task.id, linkedId: linked }).then(() => setLinked('')).catch(() => {}); }}>关联需求、PR、CI 与验收记录</Button></div></div></Details>}
+      {pack.availableDeliveries.length > 0 && <Details remember={k + ':delivery'}><summary>关联已有研发交付</summary><div className="sm-form"><label className="sm-field">已有任务<select className="sm-input" value={linked} onChange={e => setLinked(e.target.value)}><option value="">选择研发任务</option>{pack.availableDeliveries.map((t: any) => <option key={t.id} value={t.id} disabled={t.linked}>{t.identifier} · {t.title}{t.linked ? '（已关联）' : ''}</option>)}</select></label><div><Button disabled={ui.busy || closed || !linked} onClick={() => { void ui.invoke('context-link', { taskId: task.id, linkedId: linked }).then(() => setLinked('')).catch(() => {}); }}>关联需求、代码交付、本机 CI 与验收记录</Button></div></div></Details>}
       {!closed && <Details remember={k + ':include'}><summary>指定其他参考知识</summary><div className="sm-form"><label className="sm-field">知识条目<select className="sm-input" value={addSource} onChange={e => setAddSource(e.target.value)}><option value="">选择要引用的资料</option>{ui.data.sources.filter((s: any) => !task.state.sources.includes(s.id)).map((s: any) => <option key={s.id} value={s.id}>{s.title}</option>)}</select></label><p className="sm-muted sm-small">引用不授予权限；其他岗位的资料仍需按用途申请。</p><div><Button disabled={ui.busy || !addSource} onClick={() => { void ui.invoke('context-include', { taskId: task.id, sourceId: addSource }).then(() => setAddSource('')).catch(() => {}); }}>引用到本任务</Button></div></div></Details>}
     </>}
     {!closed && <form className="sm-form" onSubmit={e => { e.preventDefault(); void ui.invoke('context-note', { taskId: task.id, text: note }).then(() => setNote('')).catch(() => {}); }}>

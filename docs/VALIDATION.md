@@ -191,3 +191,41 @@ Wiki 原生 `bootstrap-root` 在这个固定版本会创建带不兼容设置的
 - `npm test` **266/266**、`tsc --noEmit`、`build:workspaces`、`build:chinese-shell`（4 条规则全命中）、`test:walkthrough` **10/10**（425px `393/393`、按钮 44px、溢出 0）、`test:responsive`、`audit:upstream`（7 submodules clean）、`git diff --check` 全绿。新增 `tests/shell-domestic.test.ts`（6 例）与 `tests/local-delivery.test.ts`（5 例）。
 - **严格边界**：合并审批 ≠ 业务验收，`confirmAcceptance` 仍未由真人在真实业务单执行，SUI-129 仍未最终核可；部门 scope 授权仍需本人在飞书确认（脚本不代替）；本机交付台只登记合并，不自动改写业务验收状态；未接通的国内/海外服务没有伪造入口；`lobehub/acceptance` CLI 与云端服务、生产发布、真实 PR / CI、真人多租户、Cognee 原生管线仍未发生。
 - 4190 视觉端点与 4192 报告服务在本轮被用户主动取消，未重启；4194 交付台与 3100/4180 正常。
+
+---
+
+## 第九轮：全量功能体检与「国内服务」深度改造（2026-11-07）
+
+用户要求充分检查「国内服务」清单、完整测试最新代码里每个功能是否有 bug 或未完成项，并修复同步。本轮先跑全套回归暴露硬故障，再做状态真实性审查，最后逐项修复并复验。
+
+### 1. 回归暴露的两个真实硬故障
+
+- `npm test` 从 266/266 变成 **265/266**：`tests/v06-services.test.ts:13` 把 `at` 写死为 `2026-11-06T08:00:00.000Z`，而 `requestGrant` 的有效期是 `at + 8h`；`approveGrant` 用真实当前时间判断，UTC 过 16:00 后端到端用例必然报「申请已过期」。这是随日历失效的时间炸弹，已改为 `new Date(Date.now() - 60_000)`，并补静态断言防止复发。其余 20 个含固定日期的测试均显式传入时间做纯逻辑比较，不受影响。
+- `npm run build:chinese-shell` 报 `service worker offline styles or placeholder are missing`（上游 `paperclip-sw-build-id` 的 `closeBundle`）：该插件会就地改写 `dist/sw.js` 的占位符，重复构建时占位符已消失。`public/sw.js` 含占位符、`dist/sw.js` 不含，正好印证。构建前从 `public/sw.js` 恢复原始副本后，**连续两次构建均成功**，`hiddenEntries` 4 条、`missed: []`。
+
+### 2. 「国内服务」清单从硬编码文字改为真实数据驱动
+
+- 原实现只探测 `delivery-status`，飞书状态取一次性快照，其余服务是一整段写死的灰字；`useEffect([])` 只加载一次，`system-status` 的 `.catch(() => {})` 完全静默，探测失败被显示成「未接通」。用户按提示启动服务后不刷新页面就永远看不到入口。
+- 新增 `src/service-status.ts`：`collectServiceStatus()` 并并发直连 loopback 探测 3100 / 4190 / 4192 / 4194，`buildServiceStatus()` 纯函数组装逐项 `state / detail / url / setup / source`。**只有已接通且 URL 通过 loopback 校验的条目才带 `url`**；未接通项没有 `url` 字段。逐项标注状态来源，区分实时探测、进程内判定与飞书监听器事件推断。
+- 交付台健康响应增加服务身份校验（`scope=loopback-only`、`provider=local-git`、端口一致），端口被别的服务占用时不再误判为已接通。Paperclip `/health` 实测返回 SPA HTML 而非 JSON，探测改为「200 + `<html`」判定在线，任意其他 200 不算接通。
+- 前端「国内服务」页重写：按本机 / 国内 / 海外分组；每 15 秒自动刷新 + 手动刷新；独立加载态与错误态；唯一生成链接的位置是 `connected && safeLoopbackUrl(url)`。未接通项给出状态、原因与可照做的接通步骤（例如 `npm run delivery:serve`），**没有任何假链接或假按钮**。
+- 新增 `service-status` 只读 action，同步进 `server.ts` 的 `readOnly` 与 `members.ts` 的 `reads`；`members.reads` 另补 `trace-view`（其内部已有任务 owner 校验）。
+
+### 3. 全量体检中修掉的其它真实问题
+
+- `system-status` 里 `vectorSearch: true`、`automaticExtraction: false`、`lexicalRecall` 等是写死常量，且 `automaticExtraction:false` 与同对象的 `l2OrganisationExtraction.autoRunOnIndex` 直接矛盾；`visionReviewer` 只看 `visualReviewer.mode`，legacy 模式下仍宣称「Apple Vision 本机端点」。现改为从 `config` 派生，并明确「已配置」与「端点在线」的区别（端点是否在线交给 `service-status` 实时探测）。`ontology.ts` 里写死的 `automaticExtraction:false` 保留并在返回中加说明：它指知识字典实体抽取，与 L2 组织图谱抽取不是同一件事。
+- 设置页「服务与架构」原写死「向量检索尚未接入」「自动摄取关闭」，与后端和 `.runtime/config.json` 矛盾；改为消费 `system.integrations` / `knowledgeEngine` 的真实字段。模型配置与系统状态两个读请求改为分别降级，任一失败不会让另一块永久停在「正在读取」；保存失败新增就地 `role="alert"`，成员视图禁用仅操作员可用的保存按钮。
+- 修掉界面里与实际配置矛盾的文案：协作网络页「向量语义检索与新模型服务仍未启用」、知识字典「已保存；未启用自动抽取」、独立评审就绪页夸大「本机视觉模型核对截图内容」。
+- 清掉本轮发现的海外/旧链路残留：`index.tsx` 任务上下文里的「GitHub 交付 / PR # / 代码检查」改为「代码交付（本机 Git）/ 交付 # / 本机代码检查」，`development.tsx` 的「交付 PR 与预览」改为「交付代码与固定版本预览」；普通外链统一经 `safeHttpUrl()` 挡掉 `javascript:` 等协议，服务链接经 `safeLoopbackUrl()` 只放行本机。
+- README 中与默认 `delivery.provider=local` 矛盾的「成果进入 GitHub」「已登录的 GitHub CLI」「Actions 产物」「作者自行合并、Actions 发布」「GitHub CI」等一并更新。
+
+### 4. 复验结果
+
+- `npm test` **278/278**（新增 `tests/service-status.test.ts` 12 例：全接通 / 全停机 / 冒名服务 / legacy 降级 / URL 白名单 / 并发失败隔离 / 三处白名单一致 / 健康响应身份校验 / 状态字段来源 / 构建幂等 / 时间炸弹 / Paperclip HTML 回退）。
+- `npx tsc --noEmit`、`npm run build:workspaces`（含插件 UI 类型检查）、`npm run build:chinese-shell` 连续两次、`npm run test:responsive`（425px 无溢出、按钮 44px）、`npm run audit:upstream`（7 submodules clean）、`git diff --check` 全绿。
+- `npm run test:walkthrough` **11/11**（新增 `domestic-services-1280` 步骤）：真实浏览器测得国内服务页 **12 行状态、仅 2 个链接**（`http://127.0.0.1:3100/`、`http://127.0.0.1:4194/`）、`badLinks: []`、有刷新按钮、未接通项有接通步骤；425px `393/393`、溢出 0。
+- 真实 HTTP 冒烟：重启 Bridge 后 `service-status` / `delivery-status` / `system-status` 均 200；`service-status` 返回的 `paperclip / bridge / delivery` 为 connected，4190 / 4192 与外部服务如实为 unavailable；重启瞬间飞书监听器为 `connecting` 时页面显示「未接通」而非假「已连接」，证明状态是实时的。
+
+### 5. 严格边界（未发生，不是 bug）
+
+合并审批 ≠ 业务验收；真人仍未在真实业务单上执行中文「确认验收」，SUI-129 未最终核可；部门 scope 授权仍需本人在飞书确认；企业微信 / 腾讯文档 / 钉钉 / 国内代码托管 / 公有云 CI 及海外 SaaS 均未接通，按约定没有入口；4190 与 4192 保持用户取消时的停机状态，未重启；生产发布、真实外部 PR / CI、真人多租户、Cognee 原生模型管线、`lobehub/acceptance` CLI 与云端报告仍未发生。`system-status` 里的 `modelApi / objectStorage / multiUserSso: false` 与 `offsiteRestoreVerified: false` 是如实标注未完成，不是伪装成已启用。

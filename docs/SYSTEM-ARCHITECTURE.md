@@ -119,4 +119,12 @@ flowchart TD
 
 `config.delivery.provider` 默认 `local`：`src/github.ts` 导出 `DeliveryAdapter`（`prepare / publish / inspect / preview`），`src/local-git.ts` 以本机裸仓库 + 本机合并请求记录 + 本机 CI（提交存在、允许路径、与 main 无冲突）+ 确切提交预览实现同一契约，`src/server.ts` 按配置注入 `Controller`，`github` 适配器保留供已有部署回退，业务验收红线未动。`scripts/delivery-server.ts` 只绑 `127.0.0.1:4194` 提供中文交付台，并在 `127.0.0.1:9418` 起 `git daemon` 供 clone / pull / push；合并审批与通知记录落 `.runtime/git/deliveries/`，不改写业务任务状态。
 
-前端适配分两层：`src/shell-domestic.ts` 在构建期精确收敛上游侧栏的技能库 / 连接服务入口，运行时通过同源 `suitme-domestic.js` 过滤**数据驱动且未连接**的海外集成卡片；`scripts/build-chinese-shell.ts` 先收敛再翻译，`install-upstream.ts` 与 `up.ts` 保证中文壳默认生效。插件设置的「国内服务」通过只读 `delivery-status` 探测交付台，**只有实测接通才渲染链接**，未接通项只做文字说明，不留空壳入口。
+前端适配分两层：`src/shell-domestic.ts` 在构建期精确收敛上游侧栏的技能库 / 连接服务入口，运行时通过同源 `suitme-domestic.js` 过滤**数据驱动且未连接**的海外集成卡片；`scripts/build-chinese-shell.ts` 先收敛再翻译，`install-upstream.ts` 与 `up.ts` 保证中文壳默认生效。插件设置的「国内服务」由只读 `service-status` 统一提供数据（见下节），**只有实测接通才渲染链接**，未接通项只做文字说明，不留空壳入口。
+
+## 服务状态真实性与前端体验修复（第九轮）
+
+`src/service-status.ts` 是国内服务清单的唯一数据来源。`collectServiceStatus()` 用 `node:http` 并发直连 loopback 探测 3100 / 4190 / 4192 / 4194，绕过可能失效的环境代理；`buildServiceStatus()` 是纯函数，负责把结果组装成逐项 `state / detail / url / setup / source`。只有 `state==='connected'` **且** `safeLoopbackUrl()` 校验通过的条目才带 `url`；未接通项只有原因与可照做的步骤，没有 `url` 字段，因此前端不可能渲染出空壳链接。交付台还额外校验 `scope=loopback-only`、`provider=local-git` 与端口，防止端口被别的服务占用时误判。Paperclip 的 `/health` 是 SPA HTML 回退而非 JSON，探测按「200 + `<html`」判定在线，其他任意 200 不算接通。
+
+前端「国内服务」页改为完全数据驱动：按本机 / 国内 / 海外分组，显示状态来源（区分实时探测、进程内判定与飞书监听器事件推断），每 15 秒在页面可见时自动刷新，提供手动刷新、加载态与独立的错误态；探测失败不再被静默显示成「未接通」。设置页的两个读请求改为分别降级，任一失败不会让另一块永久停在「正在读取」，模型配置保存失败有就地提示，成员视图禁用仅操作员可用的保存按钮。`system-status` 里写死的 `vectorSearch: true`、`automaticExtraction: false` 与只看 `visualReviewer.mode` 的评审者文案，改为从 `config` 派生并明确区分「已配置」与「端点在线」；`service-status` 同步补进服务端只读白名单与成员只读白名单。
+
+`scripts/build-chinese-shell.ts` 在每次构建前从 `public/sw.js` 恢复 `dist/sw.js` 的原始占位符，修复上游 `closeBundle` 就地 stamp 后重复构建必失败的幂等问题；`tests/v06-services.test.ts` 的 `at` 改为相对当前时间，去掉固定日期导致的「过 8 小时就必然失败」的时间炸弹。

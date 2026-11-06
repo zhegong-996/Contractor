@@ -84,15 +84,20 @@ test('中文壳构建顺序与安装/启动链路：先收敛再翻译，默认�
   assert.match(read('locales/shell.zh-CN.json'), /"Integrations": "集成"/);
 });
 
-test('国内服务清单：只有真正接通才给入口，未接通项不放空壳链接', () => {
+test('国内服务清单：状态来自实时探测，未接通项不放空壳链接', () => {
   const ui = read('plugins/knowledge-workspaces/src/ui/index.tsx');
   assert.match(ui, /国内可用服务/);
   assert.match(ui, /未接通不放入口/);
-  assert.match(ui, /deliveryReady \? <a href=\{delivery\.url\}/);
-  assert.match(ui, /运行 npm run delivery:serve 后才显示入口/);
-  assert.match(ui, /尚未接通，不提供入口/);
+  assert.match(ui, /ui\.read\('service-status', \{\}\)/);
+  // 唯一生成链接的条件：已接通 + loopback URL 校验通过。
+  assert.match(ui, /const href = s\.state === 'connected' \? safeLoopbackUrl\(s\.url\) : null/);
+  assert.equal((ui.match(/href=\{href\}/g) ?? []).length, 1);
+  assert.match(ui, /刷新状态/);
+  assert.match(ui, /状态来源/);
+  assert.match(ui, /状态探测失败/);
   assert.doesNotMatch(ui, /<a[^>]*>企业微信<\/a>/);
   assert.doesNotMatch(ui, /<a[^>]*>腾讯文档<\/a>/);
-  // 交付面板不再出现 GitHub 字样。
+  // 交付面板与任务上下文都不再出现 GitHub / PR 字样。
   assert.doesNotMatch(read('plugins/knowledge-workspaces/src/ui/development.tsx'), /GitHub/);
+  assert.doesNotMatch(ui, /GitHub 交付|PR #/);
 });

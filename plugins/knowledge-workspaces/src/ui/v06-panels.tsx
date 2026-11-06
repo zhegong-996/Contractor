@@ -122,7 +122,7 @@ export function GovernancePanel({ ui, task }: { ui: V06UI; task: any }): any {
       <Box title="独立评审就绪状态"><Load state={readiness} empty="尚未评估">
         {(value: any) => <><Summary value={value} />
           <div className="sm-notice"><p className="sm-small">{value?.ready
-            ? '独立视觉评审链路已就绪：本机视觉模型核对截图内容与事件绑定，逐项报告只作为证据；请原发起人在原会话回复「确认验收 任务编号」完成最终核可。'
+            ? '独立评审链路已就绪：按已注册评审者的实际能力核对证据绑定（是否判断图像内容取决于评审者配置，不默认宣称视觉语义判定）；逐项报告只作为证据；请原发起人在原会话回复「确认验收 任务编号」完成最终核可。'
             : `尚未就绪：${(value?.reasons ?? []).join('；') || '等待事件流水与评审者注册'}`}</p>
             {!!trace.value?.gaps?.length && <p className="sm-small sm-muted">事件流水缺口：{trace.value.gaps.join('；')}</p>}
             {(value?.limitations ?? []).length > 0 && <p className="sm-small sm-muted">{value.limitations.join('；')}</p>}

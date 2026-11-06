@@ -31,6 +31,7 @@ import { AgentServices } from './agent-services.ts';
 import { OntologyService } from './ontology.ts';
 import { V06Services } from './v06.ts';
 import { RuntimeGuardBridge } from './runtime-bridge.ts';
+import { collectServiceStatus, type ServiceStatusReport } from './service-status.ts';
 
 const config = loadConfig(); const credentials = secrets();
 
@@ -42,14 +43,39 @@ function deliveryStatus(): Promise<{ ok: boolean; url: string; git: string | nul
       let body = ''; res.setEncoding('utf8');
       res.on('data', chunk => { body += chunk; });
       res.on('end', () => {
-        try { const health = JSON.parse(body); resolve({ ok: health.ok === true, url,
-          git: String(health.git ?? '') || null, provider: String(health.provider ?? 'local-git') }); }
+        try {
+          const health = JSON.parse(body);
+          // 只认本机交付台自己的健康响应：端口被别的服务占用时不能误判为「已接通」，
+          // 否则前端会渲染一个指向错误服务的可点入口。
+          const ok = health.ok === true && health.scope === 'loopback-only'
+            && health.provider === 'local-git' && health.port === port;
+          resolve({ ok, url, git: ok ? (String(health.git ?? '') || null) : null,
+            provider: String(health.provider ?? 'local-git') });
+        }
         catch { resolve({ ok: false, url, git: null, provider: 'local-git' }); }
       });
     });
     req.on('timeout', () => req.destroy(new Error('timeout')));
     req.on('error', () => resolve({ ok: false, url, git: null, provider: 'local-git' }));
     req.end();
+  });
+}
+
+/**
+ * 「国内服务」清单的唯一数据源：并发实时探测本机服务，未接通项由
+ * service-status 模块统一给出原因与可照做的步骤，绝不带可点入口。
+ */
+function serviceStatus(feishuState: string): Promise<ServiceStatusReport> {
+  let paperclipPort = 3100;
+  try { paperclipPort = Number(new URL(config.paperclipUrl).port) || 3100; } catch { /* 保持默认 */ }
+  return collectServiceStatus({
+    paperclipPort,
+    deliveryPort: config.delivery.port,
+    gitPort: config.delivery.gitPort,
+    visionPort: 4190, reportPort: 4192, // 与 vision-server / acceptance-report 的固定 loopback 端口一致
+    acceptanceMode: config.acceptance?.mode ?? 'legacy',
+    visualReviewerMode: config.acceptance?.visualReviewer?.mode ?? 'structural',
+    feishuState,
   });
 }
 const store = new Store(runtime('bridge.sqlite'));
@@ -130,7 +156,7 @@ const server = createServer(async (req, res) => {
       // Reads recheck their own scope and revisions. They need not wait behind
       // indexing or native process reconciliation; mutations keep the single lane.
       const v06Reads=['roles-view','role-route','role-hints','role-snapshot','transfer-view','transfer-policy','dispatch-guard','grant-widen','grant-check','edges-view','edge-impact','label-check','policy-view','verification-level','topology-advice','inflight-policy','signals','review-readiness','ontology-meta','ontology-view','ontology-query','attention-policy','attention-filter','watchdog-policy','watchdog-inspect','plan-view','round-view','acceptance-export','acceptance-report-view','org-overview','org-mapping-view','context-pack','l2-status','l2-edges-view','l2-graph-view'];
-      const readOnly=['view','team-members','agent-services','agent-build','development-view','delivery-status','network-view','memory-status','memory-search','memory-annotations','context-pack','context-record','context-search','ontology-view','model-settings','system-status','trace-view'].includes(action)||action==='knowledge-graph'&&payload.project!==true||action.startsWith('v06-')&&v06Reads.includes(action.slice(4));
+      const readOnly=['view','team-members','agent-services','agent-build','development-view','delivery-status','service-status','network-view','memory-status','memory-search','memory-annotations','context-pack','context-record','context-search','ontology-view','model-settings','system-status','trace-view'].includes(action)||action==='knowledge-graph'&&payload.project!==true||action.startsWith('v06-')&&v06Reads.includes(action.slice(4));
       const runWorkspace=readOnly?<T>(job:()=>Promise<T>)=>withFeishuReads(job):serialize;
       res.end(JSON.stringify(await runWorkspace(async () => {
         workspaceActor = await teamMembers.gate(action, payload, workspaceActor);
@@ -140,6 +166,7 @@ const server = createServer(async (req, res) => {
         if(action.startsWith('v06-'))return v06.dispatch(action.slice(4),payload,workspaceActor,{workbenchUrl:config.paperclipUrl,channel:'workspace',actorUserId:workspaceActor.userId??'local-operator'});
         if(action==='development-view')return development.view(payload.taskId,workspaceActor);
         if(action==='delivery-status')return deliveryStatus();
+        if(action==='service-status')return serviceStatus(feishuState);
         if(action==='development-start')return development.start(payload,workspaceActor);
         if(action==='development-accept')return development.accept(payload,workspaceActor);
         if (action === 'network-route') return serviceNetwork.route(payload, workspaceActor);
@@ -174,12 +201,19 @@ const server = createServer(async (req, res) => {
             storage: { primary: 'PostgreSQL（本机持久化）', events: 'SQLite', configuration: '本机配置文件', wiki: '本机 Markdown 目录',
               databaseBackup: health.databaseBackup?.status ?? 'unknown', offsiteRestoreVerified: false },
             records: Object.fromEntries(['tasks', 'events', 'outbox', 'audit'].map(table => [table, store.db.prepare('SELECT COUNT(*) n FROM ' + table).get()!.n])),
-            integrations: { modelApi: false, embedding: 'Apple NL 设备端词向量（本机）', vectorSearch: true,
-              visionReviewer: config.acceptance?.visualReviewer?.mode === 'model' ? 'Apple Vision 本机端点' : '结构式',
+            integrations: { modelApi: false, embedding: 'Apple NL 设备端词向量（本机）',
+              vectorSearch: config.knowledge.semanticRecall.enabled,
+              vectorSearchNote: '设备端词向量 + 本机 BM25；降级与否取决于运行时，此值来自配置而非实时探测',
+              visionReviewer: config.acceptance?.mode === 'independent'
+                ? (config.acceptance?.visualReviewer?.mode === 'model' ? '已配置 Apple Vision 本机端点（独立评审链；端点是否在线见实时探测）' : '结构式证据核对（独立评审链，不判断图像内容）')
+                : '未挂接（当前为 legacy 验收链）',
+              visionEndpointNote: '端点是否在线见「国内服务」清单的实时探测',
               objectStorage: false, multiUserSso: false },
             knowledgeEngine: { name: 'Cognee', commit: cogneeCommit, storage: 'Ladybug', installed: existsSync(runtime('cognee-venv', 'bin', 'python')),
               sourceRevisionGraphs: existsSync(runtime('knowledge-graph')) ? readdirSync(runtime('knowledge-graph')).filter(name => /^[a-f0-9]{64}$/.test(name) && existsSync(runtime('knowledge-graph', name, 'ready.json'))).length : 0,
-              automaticExtraction: false, semanticRecall: config.knowledge.semanticRecall.enabled,
+              automaticExtraction: config.orgExtraction.enabled && config.orgExtraction.autoRunOnIndex,
+              automaticExtractionNote: '指资料入库时的 L2 组织图谱确定性抽取；知识字典的实体自动抽取仍为关闭，两者不是同一件事',
+              semanticRecall: config.knowledge.semanticRecall.enabled,
               semanticEngine: 'Apple NaturalLanguage 设备端中英文词向量 + Cognee BM25 混合（降级：本地字符二元组哈希向量）',
               externalLlmCalls: 0,
               lexicalRecall: true, reviewedConceptRelations: true, automaticConfirmedKnowledgeIndexing:true,

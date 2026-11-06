@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { createRequire } from 'node:module';
-import { writeFileSync } from 'node:fs';
+import { writeFileSync, copyFileSync, existsSync, mkdirSync } from 'node:fs';
 import { root } from '../src/config.ts';
 import { chineseShell } from '../src/shell-locale.ts';
 import { domesticShell, domesticIndexHtml, RUNTIME_FILTER_SCRIPT, RUNTIME_FILTER_CSS,
@@ -10,6 +10,12 @@ const ui = path.join(root, 'upstream/paperclip/ui'), require = createRequire(pat
 const { build } = await import(require.resolve('vite'));
 const hidden = new Set<string>();
 const dist = path.join(ui, 'dist');
+
+// 上游 serviceWorkerBuildIdPlugin 在 closeBundle 里就地改写 dist/sw.js 的占位符。
+// 重复构建时若沿用上一次已 stamp 的文件，插件会因找不到占位符直接抛错，
+// 因此每次构建前都从 public/sw.js 恢复原始副本，保证中文壳构建可重复执行。
+const swSource = path.join(ui, 'public', 'sw.js'), swTarget = path.join(dist, 'sw.js');
+if (existsSync(swSource)) { mkdirSync(dist, { recursive: true }); copyFileSync(swSource, swTarget); }
 
 await build({ root: ui, configFile: path.join(ui, 'vite.config.ts'), plugins: [{
   name: 'suitme-china-domestic-shell', enforce: 'pre',

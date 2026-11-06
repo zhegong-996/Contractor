@@ -83,6 +83,8 @@ const sequence = [
   { name: 'agent-1280', tab: 'Agent', sub: null, expect: ['Agent'] },
   { name: 'settings-1280', tab: '设置', sub: null, expect: ['组织规则'] },
   { name: 'organization-1280', tab: '设置', sub: '组织规则', expect: ['组织规则', '职能注册表'] },
+  { name: 'domestic-services-1280', tab: '设置', sub: '国内服务',
+    expect: ['国内可用服务', '未接通不放入口', '状态来源'], domestic: true },
 ];
 const steps = [];
 for (const step of sequence) {
@@ -97,8 +99,20 @@ for (const step of sequence) {
   const unavailableContext = unavailable
     ? body.slice(Math.max(0, body.indexOf('暂不可用') - 120), body.indexOf('暂不可用') + 200) : null;
   const hits = step.expect.filter(text => body.includes(text));
+  // 「国内服务」页额外做真实 DOM 校验：状态表必须有行、必须可刷新，
+  // 且渲染出来的每一个链接都只能是本机 loopback 地址（未接通项不能偷偷带 href）。
+  const domesticCheck = step.domestic ? await evaluate(`(() => {
+    const head = [...document.querySelectorAll('h2')].find(h => h.textContent.trim() === '国内可用服务');
+    const section = head?.closest('section');
+    if (!section) return { found: false, rows: 0, links: [], badLinks: [], hasRefresh: false, hasUnconnectedStep: false };
+    const links = [...section.querySelectorAll('a')].map(a => a.getAttribute('href') ?? '');
+    const badLinks = links.filter(h => !(h.startsWith('http://127.0.0.1:') || h.startsWith('http://localhost:')));
+    return { found: true, rows: section.querySelectorAll('tbody tr').length, links, badLinks,
+      hasRefresh: section.textContent.includes('刷新状态'),
+      hasUnconnectedStep: section.textContent.includes('接通后此页自动出现入口') };
+  })()`) : null;
   await screenshot(step.name);
-  steps.push({ name: step.name, tabFound, subFound, expect: step.expect, hits,
+  steps.push({ name: step.name, tabFound, subFound, expect: step.expect, hits, domesticCheck,
     invalidWorkspaceAction: invalid, unavailable, unavailableContext, screenshot: `${step.name}.png` });
   console.log(`${invalid ? '✖' : '✓'} ${step.name}: ${hits.length}/${step.expect.length} 项可见, tab=${tabFound}, sub=${subFound}${invalid ? ' [Invalid workspace action]' : ''}${unavailable ? ' [暂不可用]' : ''}`);
 }
@@ -135,7 +149,9 @@ const narrow = await evaluate(`(() => {
 await screenshot('governance-425');
 console.log('✓ governance-425:', JSON.stringify(narrow));
 
-const failed = steps.filter(s => s.invalidWorkspaceAction || s.unavailable || !s.tabFound || s.hits.length === 0);
+const failed = steps.filter(s => s.invalidWorkspaceAction || s.unavailable || !s.tabFound || s.hits.length === 0
+  || (s.domesticCheck && (!s.domesticCheck.found || s.domesticCheck.rows === 0
+    || s.domesticCheck.badLinks.length > 0 || !s.domesticCheck.hasRefresh || !s.domesticCheck.hasUnconnectedStep)));
 const narrowOk = !!narrow.found && narrow.scrollWidth <= narrow.clientWidth + 1
   && narrow.overflowOffenders === 0 && narrow.minButtonHeight >= 43.5;
 const report = { at: new Date().toISOString(), url: pageUrl, viewport: [1280, 425],
