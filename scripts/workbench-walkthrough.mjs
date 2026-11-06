@@ -62,6 +62,8 @@ const screenshot = async name => {
 };
 
 await cdp('Page.enable'); await cdp('Runtime.enable'); await cdp('Network.enable');
+// 宿主静态资源会随中文壳重建而变化；禁用缓存，避免走查拿到旧 bundle 误判适配层已生效。
+await cdp('Network.setCacheDisabled', { cacheDisabled: true });
 await cdp('Emulation.setDeviceMetricsOverride', { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false });
 await cdp('Page.navigate', { url: pageUrl });
 await delay(300);
@@ -107,9 +109,15 @@ for (const step of sequence) {
     if (!section) return { found: false, rows: 0, links: [], badLinks: [], hasRefresh: false, hasUnconnectedStep: false };
     const links = [...section.querySelectorAll('a')].map(a => a.getAttribute('href') ?? '');
     const badLinks = links.filter(h => !(h.startsWith('http://127.0.0.1:') || h.startsWith('http://localhost:')));
+    const hostNav = [...document.querySelectorAll('a,button')]
+      .filter(e => /^(技能|连接服务|Skills|Connectors)$/.test((e.textContent || '').trim()))
+      .map(e => ({ tag: e.tagName, href: e.getAttribute('href'),
+        hidden: !!e.dataset.suitmeHidden || getComputedStyle(e).display === 'none' }));
     return { found: true, rows: section.querySelectorAll('tbody tr').length, links, badLinks,
       hasRefresh: section.textContent.includes('刷新状态'),
-      hasUnconnectedStep: section.textContent.includes('接通后此页自动出现入口') };
+      hasUnconnectedStep: section.textContent.includes('接通后此页自动出现入口'),
+      noLoadError: !section.querySelector('.sm-error'),
+      hostNavHidden: hostNav.every(x => x.hidden), hostNav };
   })()`) : null;
   await screenshot(step.name);
   steps.push({ name: step.name, tabFound, subFound, expect: step.expect, hits, domesticCheck,
@@ -151,7 +159,9 @@ console.log('✓ governance-425:', JSON.stringify(narrow));
 
 const failed = steps.filter(s => s.invalidWorkspaceAction || s.unavailable || !s.tabFound || s.hits.length === 0
   || (s.domesticCheck && (!s.domesticCheck.found || s.domesticCheck.rows === 0
-    || s.domesticCheck.badLinks.length > 0 || !s.domesticCheck.hasRefresh || !s.domesticCheck.hasUnconnectedStep)));
+    || s.domesticCheck.badLinks.length > 0 || !s.domesticCheck.hasRefresh
+    || !s.domesticCheck.hasUnconnectedStep || !s.domesticCheck.noLoadError
+    || !s.domesticCheck.hostNavHidden)));
 const narrowOk = !!narrow.found && narrow.scrollWidth <= narrow.clientWidth + 1
   && narrow.overflowOffenders === 0 && narrow.minButtonHeight >= 43.5;
 const report = { at: new Date().toISOString(), url: pageUrl, viewport: [1280, 425],

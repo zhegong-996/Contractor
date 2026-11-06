@@ -68,6 +68,17 @@ test('运行时脚本只隐藏未连接的海外入口，不外发数据、不�
   assert.match(RUNTIME_FILTER_SCRIPT, /suitme-workbench/);
   assert.match(RUNTIME_FILTER_SCRIPT, /CONNECTED/);
   assert.match(RUNTIME_FILTER_SCRIPT, /overseas-route/);
+  // 宿主侧栏链接带公司前缀（实测 /SUI/skills、/SUI/apps），路由规则必须能覆盖。
+  const routeLine = RUNTIME_FILTER_SCRIPT.split('\n').find(line => line.includes('var ROUTE ='));
+  assert.ok(routeLine, '运行时脚本应显式声明路由规则');
+  const ROUTE = new Function(`return ${routeLine!.replace('var ROUTE = ', '').replace(/;$/, '')}`)() as RegExp;
+  for (const href of ['/SUI/skills', '/SUI/apps', '/SUI/skills/studio', '/skills', '/apps']) {
+    assert.ok(ROUTE.test(href), `${href} 应被收敛`);
+  }
+  for (const href of ['/SUI/knowledge-workspaces', '/SUI/issues', '/', '/SUI/skills-other']) {
+    assert.equal(ROUTE.test(href), false, `${href} 不能被误伤`);
+  }
+  assert.match(RUNTIME_FILTER_SCRIPT, /el\.closest\('li'\)/);
   for (const forbidden of ['fetch(', 'XMLHttpRequest', 'https://', 'sendBeacon']) {
     assert.doesNotMatch(RUNTIME_FILTER_SCRIPT, new RegExp(forbidden.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   }

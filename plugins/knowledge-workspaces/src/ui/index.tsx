@@ -334,11 +334,20 @@ function WorkspaceConfiguration({ ui }: { ui: UI }) {
   </div></Details>;
 }
 function DomesticServices({ ui }: { ui: UI }) {
-  const [report, setReport] = useState<any>(), [error, setError] = useState(''), [loading, setLoading] = useState(true);
-  async function load() {
+  const [report, setReport] = useState<any>(), [error, setError] = useState(''), [loading, setLoading] = useState(true), [stale, setStale] = useState(false);
+  const reportRef = useRef<any>(undefined);
+  async function load(manual = false) {
     setLoading(true);
-    try { const value = await ui.read('service-status', {}); setReport(value); setError(''); }
-    catch (e: any) { setError(String(e?.message ?? e)); }
+    try {
+      const value = await ui.read('service-status', {});
+      reportRef.current = value; setReport(value); setError(''); setStale(false);
+    }
+    catch (e: any) {
+      // 自动轮询的瞬时失败不打扰用户：保留上一次结果，只在状态行标注可能不是最新。
+      // 首次加载或用户手动刷新失败才给出明确提示。
+      if (manual || !reportRef.current) setError(String(e?.message ?? e));
+      else setStale(true);
+    }
     finally { setLoading(false); }
   }
   useEffect(() => {
@@ -350,13 +359,14 @@ function DomesticServices({ ui }: { ui: UI }) {
   const groups: [string, string][] = [['local', '本机服务'], ['domestic', '国内服务'], ['overseas', '海外服务']];
   const entries: any[] = report?.services ?? [];
   return <section className="sm-stack"><div className="sm-section-head"><h2>国内可用服务</h2><Badge>未接通不放入口</Badge>
-    <Button icon="refresh" disabled={loading} onClick={() => void load()}>刷新状态</Button></div>
+    <Button icon="refresh" disabled={loading} onClick={() => void load(true)}>刷新状态</Button></div>
     <p className="sm-small sm-muted">每项状态由本机实时探测得出。只有探测成功且通过服务身份校验的条目才出现链接；未接通项给出状态、原因与可照做的接通步骤，不放任何点了没反应的空壳按钮。页面每 15 秒自动刷新，也可手动刷新。</p>
-    {error && <div className="sm-error" role="alert">状态探测失败：{error}<Button onClick={() => void load()}>重试</Button></div>}
+    {error && !report && <div className="sm-error" role="alert">状态探测失败：{error}<Button onClick={() => void load(true)}>重试</Button></div>}
+    {error && report && <p className="sm-small sm-muted" role="status">刷新失败：{error}。下方仍是 {report.checkedAt ? date(report.checkedAt) : '上一次'} 的探测结果，一次刷新失败不会清空已有状态。</p>}
     {loading && !report && <p role="status" className="sm-small sm-muted">正在探测本机服务…</p>}
     {!loading && !report && !error && <p role="status" className="sm-small sm-muted">尚未取得服务状态，请点「刷新状态」重试。</p>}
     {report && <>
-      <p className="sm-small sm-muted" role="status">最近探测：{report.checkedAt ? date(report.checkedAt) : '—'} · 已接通 {report.connected} 项 · 未接通 {report.unavailable} 项{loading ? ' · 正在刷新…' : ''}。状态来源逐项列在表内，监听器推断与实时探测已区分。</p>
+      <p className="sm-small sm-muted" role="status">最近探测：{report.checkedAt ? date(report.checkedAt) : '—'} · 已接通 {report.connected} 项 · 未接通 {report.unavailable} 项{loading ? ' · 正在刷新…' : ''}{stale ? ' · 自动刷新暂未成功，当前为上次结果' : ''}。状态来源逐项列在表内，监听器推断与实时探测已区分。</p>
       {groups.map(([key, title]) => {
         const rows = entries.filter(s => s.category === key);
         if (!rows.length) return null;

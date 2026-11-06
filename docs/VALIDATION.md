@@ -229,3 +229,12 @@ Wiki 原生 `bootstrap-root` 在这个固定版本会创建带不兼容设置的
 ### 5. 严格边界（未发生，不是 bug）
 
 合并审批 ≠ 业务验收；真人仍未在真实业务单上执行中文「确认验收」，SUI-129 未最终核可；部门 scope 授权仍需本人在飞书确认；企业微信 / 腾讯文档 / 钉钉 / 国内代码托管 / 公有云 CI 及海外 SaaS 均未接通，按约定没有入口；4190 与 4192 保持用户取消时的停机状态，未重启；生产发布、真实外部 PR / CI、真人多租户、Cognee 原生模型管线、`lobehub/acceptance` CLI 与云端报告仍未发生。`system-status` 里的 `modelApi / objectStorage / multiUserSso: false` 与 `offsiteRestoreVerified: false` 是如实标注未完成，不是伪装成已启用。
+
+### 6. 真实截图复核后的补充修复
+
+首轮走查虽然 11/11，但人工查看 `domestic-services-1280.png` 又发现两个体验问题，已一并修复并复验：
+
+- **宿主侧栏残留入口**：走查新增的 DOM 诊断显示侧栏仍是 `<a href="/SUI/skills">` / `<a href="/SUI/apps">`——带公司前缀，而运行时脚本的路由正则只匹配 `/skills` / `/apps` 开头，构建期 4 条规则也没覆盖这种运行时拼接的路径。改为显式 `ROUTE` 正则 `^\/(?:[A-Za-z0-9_-]+\/)?(skills|apps)(\/|$)`，并同时隐藏链接与其 `li` 容器；新增单测验证 `/SUI/skills`、`/SUI/apps`、`/SUI/skills/studio` 命中而 `/SUI/knowledge-workspaces`、`/SUI/skills-other` 不误伤。走查增加禁用浏览器缓存与 `hostNavHidden` 断言，实测两个入口 `hidden: true`，截图中侧栏只剩「代理 / 审计记录」。
+- **轮询抖动打扰用户**：自动刷新偶发 `Failed to fetch`（走查虚拟时间下 15 秒轮询被快速触发）时，页面弹出红色「状态探测失败」却仍保留完整数据。改为：自动轮询失败静默保留上一次结果，只在「最近探测」行标注「自动刷新暂未成功，当前为上次结果」；首次加载或用户手动点「刷新状态」失败才给明确提示，且已有数据时用温和文字而非红色错误框。走查新增 `noLoadError` 断言。
+
+复验：修正后 `npm test` **278/278**、`tsc`、`build:workspaces`、`build:chinese-shell`、`test:walkthrough` **11/11**、`test:responsive`、`audit:upstream`、`git diff --check` 全绿；国内服务页实测 12 行、2 个 loopback 链接、0 个坏链接、无加载错误、宿主侧栏两个未接通入口已隐藏。

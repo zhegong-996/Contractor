@@ -15,7 +15,8 @@
 - **两个硬故障**：中文壳重复构建必失败（上游 `closeBundle` 就地 stamp 了 `dist/sw.js`，占位符消失），构建前从 `public/sw.js` 恢复后连续两次成功；`tests/v06-services.test.ts` 固定 `at` 导致授权 8 小时后必然过期，改为相对当前时间。
 - **数据驱动的服务清单**：新增 `src/service-status.ts` 与 `service-status` 只读 action，并发实时探测 3100 / 4190 / 4192 / 4194，逐项标注状态来源；接通后自动出现入口，未接通项给原因与可照做的接通步骤，仍无任何空壳链接。交付台健康响应增加服务身份校验；Paperclip 的 SPA HTML `/health` 按「200 + `<html`」判定在线。
 - **体验与诚实性**：前端自动 / 手动刷新、加载态与独立错误态；设置页两个读分别降级、保存失败就地提示；`system-status` 的 `vectorSearch` / `automaticExtraction` / `visionReviewer` 从配置派生，界面不再宣称「向量检索未接入」或「视觉模型核对截图内容」；清掉残留的 GitHub / PR 文案，外链加协议白名单。
-- **验证**：`npm test` **278/278**、`tsc`、`build:workspaces`、中文壳连续两次构建、`test:responsive`、`audit:upstream`、`git diff --check` 全绿；`test:walkthrough` **11/11**，真实浏览器测得国内服务页 12 行、仅 2 个 loopback 链接、0 个坏链接。真实 HTTP 冒烟三个状态接口均 200。详见 `docs/VALIDATION.md` 第九轮。
+- **截图复核补修**：宿主侧栏 `/SUI/skills` `/SUI/apps` 带公司前缀，原运行时路由正则漏匹配，已改为覆盖前缀并同时隐藏 `li` 容器，走查加禁用缓存与 `hostNavHidden` 断言；自动轮询瞬时失败改为静默保留旧数据、只在状态行标注，手动刷新失败才提示。
+- **验证**：`npm test` **278/278**、`tsc`、`build:workspaces`、中文壳连续两次构建、`test:responsive`、`audit:upstream`、`git diff --check` 全绿；`test:walkthrough` **11/11**，真实浏览器测得国内服务页 12 行、仅 2 个 loopback 链接、0 个坏链接、侧栏两个未接通入口已隐藏。真实 HTTP 冒烟三个状态接口均 200。详见 `docs/VALIDATION.md` 第九轮。
 
 ### 最新边界声明（以本节为准）
 

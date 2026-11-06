@@ -44,6 +44,8 @@ export const RUNTIME_FILTER_SCRIPT = `(function(){
   var OVERSEAS = /slack|github|linear|notion|vercel|stripe|zapier|discord|jira|google workspace|openai|anthropic|figma|asana|trello/i;
   var CONNECTING = /connect|connect your|add connection|set up|未连接|连接|接入/i;
   var CONNECTED = /\\bconnected\\b|已连接|已接通|manage|配置完成|disconnect/i;
+  // 宿主侧栏链接带公司前缀（实测 /SUI/skills、/SUI/apps），不能只匹配 /skills 开头。
+  var ROUTE = /^\\/(?:[A-Za-z0-9_-]+\\/)?(skills|apps)(\\/|$)/;
   function text(el){ return (el && (el.innerText || el.textContent) || '').trim(); }
   function hide(el, reason){ if(!el || el.dataset.suitmeHidden) return;
     el.dataset.suitmeHidden = reason; el.style.setProperty('display','none','important'); }
@@ -52,7 +54,7 @@ export const RUNTIME_FILTER_SCRIPT = `(function(){
     for (var i=0;i<nodes.length;i++){
       var el = nodes[i], label = text(el), href = el.getAttribute('href') || '';
       if (el.closest('.suitme-workbench')) continue;      // 本项目插件页面不处理
-      if (/^\\/(skills|apps)(\\/|$)/.test(href)) { hide(el,'overseas-route'); continue; }
+      if (ROUTE.test(href)) { hide(el,'overseas-route'); var li = el.closest('li'); if (li) hide(li,'overseas-route'); continue; }
       if (!label || !OVERSEAS.test(label)) continue;
       if (CONNECTING.test(label) && !CONNECTED.test(label)) { hide(el,'unconnected-overseas'); continue; }
       var card = el.closest('[data-testid],[class*="card"],[class*="Card"]');

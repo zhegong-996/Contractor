@@ -123,6 +123,10 @@ test('service-status 在三处只读白名单与前端渲染条件中保持一�
   assert.equal((ui.match(/href=\{href\}/g) ?? []).length, 1);
   assert.match(ui, /setInterval/);
   assert.match(ui, /状态探测失败/);
+  // 自动轮询失败静默保留旧数据，只有手动刷新或首次加载失败才提示。
+  assert.match(ui, /manual \|\| !reportRef\.current/);
+  assert.match(ui, /setStale\(true\)/);
+  assert.match(ui, /load\(true\)/);
   assert.doesNotMatch(ui, /<a[^>]*>企业微信<\/a>/);
   assert.doesNotMatch(ui, /<a[^>]*>腾讯文档<\/a>/);
 });
