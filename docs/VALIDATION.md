@@ -117,3 +117,27 @@ Wiki 原生 `bootstrap-root` 在这个固定版本会创建带不兼容设置的
 ### 4. 本轮边界（不得越过）
 
 单测与浏览器截图不是生产发布或真实业务最终验收；本机单一负责人 + 服务身份不等于真实员工多租户（`multiUserSso: false`）；飞书只用了 allowlist 内的本人单聊，没有进群；CI / PR 交付未发生；真实资料正文、密钥、回执与截图只在 `.runtime`；Cognee 原生模型管线仍关闭。
+
+## 2026-11-06：用户语言层、按清单核可、真实组织映射与本机报告（第六轮）
+
+本轮补的是「最后一公里」：用户在会话里说中文、按锁定清单确认验收、飞书真实成员读成草案、逐项报告在本机可读可归档。实现与边界见 `ADAPTATION-v0.6.md` 0.0000000 节。
+
+### 1. 回归结果
+
+- `npm test` **252/252**（本轮收口时修掉两处遗留失败：`members.ts` 只读白名单补 `acceptance-report-view` / `org-mapping-view`；`v06-workbench.test.ts` 组织视图由 9 段更新为含 `feishuOrg` 的 10 段）。新增 5 个用例：中文指令歧义与帮助文案 2 个、`tests/confirm-acceptance.test.ts` 端到端 3 个（全通过归档、四类拒绝都不改任务状态、会话中文指令路由 + legacy 提交号提示）。
+- `tsc --noEmit`、`npm run build:workspaces`、`npm run test:responsive`（1280 / 425 两档 `scrollWidth == clientWidth`、0 越界、425 按钮 44px）、`npm run audit:upstream`（7 submodules、`problems: []`、`clean: true`）、`git diff --check` 全绿。
+- `npm run test:walkthrough` **10/10 步通过**，425px `clientWidth 393 / scrollWidth 393`、按钮 44px、溢出 0。**首次运行 9/10 失败是环境问题**：宿主服务继承了已失效的旧代理端口，插件 worker 连 `127.0.0.1:4180` 被劫持，页面显示 `connect failed: Connection refused`（截图 `.runtime/walkthrough/overview-1280.png`）；以干净的本机连接环境重启 3100 / 4180 后复跑通过，不是前端或 action 回归。重启后 3100 `/api/health`、4180 `/health` 均 200。
+
+### 2. 新增能力的本机实测（不是单测模拟）
+
+- `npm run org:preview` 经当前已授权的飞书 user 身份读到 **5 名真实成员**，`departmentScopeMissing: true` 并给出补 scope 的授权命令；`open_id` 按应用隔离如实标注。草案只写 `.runtime/org-mapping-draft.json`（gitignore），**未导入**注册表：`v06-org-mapping-view` 实测 `applied: false`、注册表版本 1、成员 1。
+- `npm run acceptance:list` 读到 1 个归档轮次（`verdict: pass`、2 cases）；`acceptance:report` 生成中文 `report.html`；`acceptance:self-check` 连续两次写入同一打回原因，总数仍为 1（幂等）。
+- `npm run acceptance:serve` 起在 `127.0.0.1:4192`：`/health` 返回 `loopback-only`，索引页列出归档任务并写明不启动云端报告服务，报告页含「逐项验收报告」「不代替原发起人在原会话」「自查标准」与边界声明。
+- 真实 bridge 上的三个只读 action：`v06-acceptance-report-view`（`available: true / verdict: pass / 2 cases / 1 归档 / 1 自查标准`）、`v06-org-mapping-view`、`v06-org-overview`（10 段且 `feishuOrg.ok: true`）均正常返回。
+
+### 3. 本轮边界（不得越过）
+
+- `confirmAcceptance` 是已实现且有端到端单测的代码路径，**没有由真人在真实业务单上执行**；第五轮 SUI-129 仍保持未最终核可。仓库默认 `acceptance.mode=legacy`，中文「确认验收」在该模式下仍需交付提交号并由系统核对 CI 与部署版本。
+- 飞书组织草案未导入，成员映射不等于真人登录或真实员工多租户，仍无第二位真人登录证据；真实姓名与 open_id 不入库。
+- 本机报告服务只读取已归档结果、只绑 loopback；`lobehub/acceptance` 的 CLI 与云端报告服务仍未启动，报告与自查标准都只是证据，不代替人签字。
+- Cognee 原生 LLM / embedding / cognify、L2 自动抽取在真实新确认资料上的端到端触发（`lastRun` 仍为空）、生产发布与真实 PR / CI 交付仍未发生；`.runtime` 证据不入库。

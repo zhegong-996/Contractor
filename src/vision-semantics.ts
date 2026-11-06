@@ -80,7 +80,7 @@ export function judgeWithVision(input: SemanticJudgementInput): { verdicts: Visu
     o.texts.length > 0 || o.classifications.some(c => c.confidence > 0.1));
   const limitations = [
     `本机视觉模型 ${input.observations[0]?.engine ?? 'apple-vision-on-device'}：实际解码 ${input.observations.length} 张截图，识别到 ${input.observations.reduce((n, o) => n + o.texts.length, 0)} 段文字`,
-    '判定依据为设备端 OCR 文字与图像分类；主观视觉质量（配色、留白、动效）仍由发起人 /accept 人工核可',
+    '判定依据为设备端 OCR 文字与图像分类；主观视觉质量（配色、留白、动效）仍由原发起人在原会话「确认验收」人工核可',
   ];
   if (input.observations.length) {
     const labels = [...new Set(input.observations.flatMap(o => o.classifications.slice(0, 2).map(c => c.identifier)))];

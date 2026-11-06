@@ -24,6 +24,7 @@ import { runOrgExtraction, DeterministicExtractionAdapter, type L1Reader, type E
 import { defaultAttentionPolicy, defaultWatchdogPolicy, filterEvent, assertIntervention, inspectRun, recoveryFrom,
   type AttentionPolicy, type WatchdogPolicy } from './runtime-guard.ts';
 import { assertStandardExternalised, readPlan } from './acceptance-plan.ts';
+import { FeishuOrgService, parseOrgTable, type OrgMappingDraft } from './feishu-org.ts';
 import type { CollabEvent } from './event-stream.ts';
 import { renderForChannel, endpointCapabilities, PLAIN_TEXT, type ChannelId, type SemanticObject, type RenderedMessage } from './channels.ts';
 
@@ -31,6 +32,15 @@ export interface V06Options {
   workbenchUrl: string;
   channel: ChannelId;
   actorUserId: string;
+}
+
+interface OrgMappingRecord {
+  appliedAt: string;
+  actor: string;
+  entries: { userId: string; name: string; roleId: string; department: string | null }[];
+  registryVersion: number;
+  source: string;
+  note: string;
 }
 
 export class V06Services {
@@ -48,6 +58,9 @@ export class V06Services {
     this.transfers = new TransferService(this.store, (action, taskId, detail) => this.localStore.audit(action, taskId, detail));
     this.reviewer = reviewer ?? new TraceEvidenceReviewer();
   }
+  /** Injectable so organisation-mapping contracts can be tested without Lark credentials. */
+  private feishuOrg = new FeishuOrgService();
+  setOrgReader(reader: FeishuOrgService) { this.feishuOrg = reader; }
   private scopeOf(detail: unknown): string {
     const d = detail as { taskId?: string };
     return d?.taskId ?? 'organization';
@@ -429,6 +442,85 @@ export class V06Services {
     return { report, upstream: { name: 'lobehub/acceptance', version: info.version, commit: info.commit } };
   }
   /** One read for the organization sub-tab. Each section degrades independently. */
+  /** 工作台只读：本机验收报告索引与自查标准，不触发外部服务。 */
+  async acceptanceReportView(taskId: string) {
+    const { runtime } = await import('./config.ts');
+    const { listBundles, readBundle, readSelfCheck } = await import('./acceptance-report.ts');
+    const dir = runtime('acceptance');
+    const safe = String(taskId ?? '').replace(/[^a-zA-Z0-9_-]/g, '_');
+    const report = safe ? readBundle(dir, safe) : null;
+    const standards = readSelfCheck(runtime('v06'));
+    return {
+      available: !!report, taskId: safe,
+      verdict: report?.summary?.verdict ?? null, cases: report?.cases?.length ?? 0,
+      createdAt: report?.createdAt ?? null, archivedRounds: listBundles(dir).length,
+      selfCheckStandards: standards.standards.slice(-20).map(item => item.text),
+      reportUrl: `http://127.0.0.1:4192/acceptance/${safe}`,
+      note: '本机只读报告服务（npm run acceptance:serve）；不启动 Acceptance 云端报告服务，业务材料不外发。报告不代替原发起人「确认验收」。',
+    };
+  }
+
+  // --- 飞书组织映射（FR-01/02 的组织落地）--------------------------------
+  /** 只读预览：把当前授权范围可见的真实成员读成草案，不写注册表、不改派单。 */
+  async orgMappingPreview(includeChatted = true) {
+    const draft = await this.feishuOrg.preview(includeChatted);
+    const previous = await this.store.readConfig<OrgMappingDraft>('org-mapping-draft');
+    const revision = await this.store.writeConfig('org-mapping-draft', draft, previous?.revision ?? null);
+    this.localStore.audit('v06.org-mapping-preview', 'organization', {
+      members: draft.members.length, appId: draft.appId,
+      departmentScopeMissing: draft.departmentScopeMissing, available: draft.available });
+    return { draft, revision };
+  }
+
+  /** 工作台只读状态：不触发外部通讯录读取，避免页面等待远端接口。 */
+  async orgMappingView() {
+    const applied = await this.store.readConfig<OrgMappingRecord>('org-mapping');
+    const draft = await this.store.readConfig<OrgMappingDraft>('org-mapping-draft');
+    const current = await this.roles.read();
+    return {
+      applied: applied?.value ?? null,
+      draft: draft ? { generatedAt: draft.value.generatedAt, members: draft.value.members.length,
+        departmentScopeMissing: draft.value.departmentScopeMissing,
+        authorizationHint: draft.value.authorizationHint, note: draft.value.note } : null,
+      registryVersion: current.registry.version,
+      registeredMembers: current.registry.members.length,
+      note: '成员映射只决定派单候选；真人登录、权限与配对仍由原生成员目录决定。',
+    };
+  }
+
+  /** 人工确认后导入：草案不自动生效，且必须携带注册表当前修订号，防止覆盖他人修改。 */
+  async orgMappingApply(input: unknown, expectedRegistryRevision: string | null, actor: string) {
+    // Array.prototype.entries is a method — never read it as an `entries` field.
+    const entries = parseOrgTable(Array.isArray(input) ? input : (input as { entries?: unknown })?.entries);
+    const current = await this.roles.read();
+    if (current.revision !== expectedRegistryRevision) throw new Error('职能注册表已变化，请刷新后再导入组织映射');
+    const registry = structuredClone(current.registry);
+    for (const entry of entries) {
+      const role = registry.roles.find(r => r.id === entry.roleId && r.active);
+      if (!role) throw new Error(`职能 ${entry.roleId} 不存在或已停用，请先配置职能再导入成员`);
+      const existing = registry.members.find(m => m.userId === entry.userId);
+      if (existing) {
+        if (existing.roleId !== entry.roleId) throw new Error(`成员 ${entry.userId} 已有主职能，需先显式调整再导入`);
+        continue; // 保留已派生的领域、邻接能力与职能快照
+      }
+      registry.members.push({ userId: entry.userId, roleId: entry.roleId,
+        domains: entry.domains.map(tag => ({ tag, weight: 0.2, evidence: ['飞书组织表导入，待任务证据校准'] })),
+        adjacency: [] });
+    }
+    const saved = await this.registrySave(registry, current.revision, actor);
+    const record: OrgMappingRecord = {
+      appliedAt: new Date().toISOString(), actor,
+      entries: entries.map(e => ({ userId: e.userId, name: e.name, roleId: e.roleId, department: e.department ?? null })),
+      registryVersion: saved.registry.version, source: 'feishu-org-table',
+      note: '导入只登记派单候选，不等于真人登录，也不授予任何资料权限。',
+    };
+    const previous = await this.store.readConfig<OrgMappingRecord>('org-mapping');
+    await this.store.writeConfig('org-mapping', record, previous?.revision ?? null);
+    this.localStore.audit('v06.org-mapping-applied', 'organization',
+      { actor, entries: entries.length, registryVersion: saved.registry.version });
+    return { record, registry: { version: saved.registry.version, members: saved.registry.members.length } };
+  }
+
   async organizationOverview(space = 'default') {
     const safe = async <T,>(name: string, job: () => T | Promise<T>) => {
       try { return { name, ok: true as const, value: await job() }; }
@@ -443,6 +535,7 @@ export class V06Services {
       safe('reviewer', () => this.reviewReadiness(false, true)),
       safe('ontology', () => this.ontologyMeta()),
       safe('extraction', () => this.l2Status()),
+      safe('feishuOrg', () => this.orgMappingView()),
       safe('signals', () => this.signalsView({})),
     ]);
     return { space, sections, generatedAt: new Date().toISOString() };
@@ -486,7 +579,7 @@ export class V06Services {
   /** All /workspace/v06-* actions land here. Config writes require the org-level owner. */
   async dispatch(action: string, p: any, actor: { admin: boolean; userId?: string }, opts: V06Options): Promise<unknown> {
     const orgOnly = ['roles-save', 'roles-derive', 'transfer-policy-save', 'grant-tighten', 'policy-save', 'edges-save',
-      'attention-policy-save', 'ontology-save', 'l2-extract'];
+      'attention-policy-save', 'ontology-save', 'l2-extract', 'org-mapping-apply', 'org-mapping-preview'];
     if (orgOnly.includes(action) && !actor.admin) throw new Error('Unauthorized: 该配置只能由组织级 owner 修改');
     // The authenticated identity wins. opts.actorUserId is only a display hint
     // for channel rendering and must never be usable to impersonate an owner.
@@ -542,6 +635,10 @@ export class V06Services {
       case 'round-view': return this.acceptanceRoundView(p.taskId);
       case 'acceptance-export': return this.acceptanceExport(p.taskId);
       case 'org-overview': return this.organizationOverview(p.space ?? 'default');
+      case 'acceptance-report-view': return this.acceptanceReportView(p.taskId ?? '');
+      case 'org-mapping-preview': return this.orgMappingPreview(p.includeChatted !== false);
+      case 'org-mapping-view': return this.orgMappingView();
+      case 'org-mapping-apply': return this.orgMappingApply(p.entries ?? p, p.registryRevision ?? null, who);
       case 'review-readiness': return this.reviewReadiness(p.traceReady === true, p.visualEvidenceRequired !== false);
       case 'review-evidence': return this.reviewEvidence(p);
       // FR-08 ontology

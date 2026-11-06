@@ -19,5 +19,5 @@ else if (action === 'reply' && id && value) result = await api(`/tasks/${id}/rep
 else if (action === 'accept' && id && value) result = await api(`/tasks/${id}/accept`, { sha: value, cases: rest.map(name => ({ name, passed: true })) });
 else if (action === 'review' && id) result = await api(`/tasks/${id}/review`, value ? JSON.parse(await readFile(value, 'utf8')) : {});
 else if (action === 'trace' && id && value) result = await api(`/tasks/${id}/trace`, JSON.parse(await readFile(value, 'utf8')));
-else { console.log('tasks | task ID | claim ID AGENT | receipt ID FILE | publish ID | sync ID | preview ID | handoff ID AGENT | reply ID TEXT | accept ID SHA CASE... | review ID [EVIDENCE.json] | trace ID EVENT.json'); process.exit(action ? 1 : 0); }
+else { console.log('内部执行端：tasks | task ID | claim ID AGENT | receipt ID FILE | publish ID | sync ID | preview ID | handoff ID AGENT | reply ID TEXT | accept ID SHA CASE... | review ID [EVIDENCE.json] | trace ID EVENT.json\n面向用户的中文指令见 README.md，用户不需要接触这些英文动作名。'); process.exit(action ? 1 : 0); }
 console.log(JSON.stringify(result, null, 2));

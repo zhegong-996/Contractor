@@ -4,7 +4,53 @@
 > 对象仓库：`/Users/gong.zhe/Developer/ai-native-collab`（`github.com/zhegong-996/suitme-collab`）
 > 依据：`docs/ARCHITECTURE-v0.6.md`（产品架构定稿）、`docs/PRD-v0.6.md`、Codex 会话「研究 AI Native 协作平台融合」、本仓库 `README.md` / `docs/*` / `sources.lock.json` / `src/*` / `git status`
 > 立场：**以 PRD v0.6 为准绳，代码适配产品**。已有实现尽量保留，以「补层」为主，不推倒重来；工程红线见 `PRD-v0.6.md` 第 2.2 节。
-> 状态：**方案已执行五轮**（底座 `f27a0e1`、功能补全 `7791c7b`、P3 前端增补 `c512c7b`、第四轮 L2 抽取 / P3 后半段 / 独立评审链 `255a5e9`；第五轮收尾见 0.000000 节）。文档按轮次保留历史记录，**最新边界声明以 0.000000 节为准**。
+> 状态：**方案已执行六轮**（底座 `f27a0e1`、功能补全 `7791c7b`、P3 前端增补 `c512c7b`、第四轮 L2 抽取 / P3 后半段 / 独立评审链 `255a5e9`、第五轮收尾 `78201c6`；第六轮见 0.0000000 节）。文档按轮次保留历史记录，**最新边界声明以 0.0000000 节为准**。
+
+---
+
+## 0.0000000 用户语言层、真实组织映射与本机验收报告（2026-11-06 · 第六轮）
+
+白话说：第五轮把规则、界面和一单真实任务都跑通了，但用户还得记 `/accept` 这种英文命令，组织里「谁属于哪个职能」仍要手填，逐项验收报告只能看 JSON 和 Markdown。本轮补的就是这三件「最后一公里」——**用户在会话里说中文、组织成员从真实通讯录读成草案、验收报告在本机可读可归档**，同时不把任何一步说成「系统替人签了字」。
+
+### 1. 用户看到的不再是协议词
+
+- `src/user-language.ts` 是统一的语言层：建任务 / 查看进度 / 补充说明 / **确认验收** / 验收不通过 / 转交全用中文；`CONFIRM_ACCEPT = '确认验收'` 是报告、界面、通知复用的唯一说法。旧英文斜杠命令仍可解析（保护已跑通的脚本与链路），但**不再出现在帮助文案、README 示例、工作台、验收报告或通知里**，只作为内部兼容语法并写审计 `user.command.legacySyntax`。
+- `Controller.ingest()` 改为走 `parseUserCommand()`；闲聊与 @ 仍不建任务，保持「只有明确指令才触发」的红线。
+- 顺手修掉两处会让用户踩空的地方：①「任务进度 SUI-1」原会被「任务」前缀抢走当成建单，现由状态别名优先处理；②帮助文案原写「要办的事直接说」，与实现不符，改为明确写明「任务 要办的事」并注明闲聊不建单。③仓库默认 `acceptance.mode=legacy` 时，「确认验收 SUI-1」缺交付提交号会落到英文底层校验错误，现给出可照做的中文指引「确认验收 任务编号 交付提交号」，**CI / 部署版本核对这条红线没有动**。
+
+### 2. 按开工前锁定清单确认验收：真人仍是唯一签字人
+
+- 新增 `Controller.confirmAcceptance()`，与代码交付验收 `accept()` **并列而非替换**：`ingest` 只在「已锁定清单 + `acceptance.mode=independent`」时走它；其余仍走原有的「交付提交 + 发起人核可」。
+- 硬闸门一个没省：原发起人身份（`context.requesterUserId`）→ 读回锁定清单 → 读回独立逐项评审报告 → `toAcceptanceCases()` 要求**所有检查项 passed**（有未通过 / 受阻项直接抛错，绝不算作通过）→ `verifyAcceptanceGate()` 复核清单哈希、文档修订、评审者独立性、视觉能力与事件流 → 写 `acceptance` / `decisions` 文档、改 `done`、追加 Trace、发中文通知。回执如实写 `environment: '工作台逐项评审（不是代码部署环境）'`，`decisions` 注明「不代表生产发布、其他功能或后续版本通过」。
+- `tests/confirm-acceptance.test.ts` 真跑 Controller：全通过路径的归档 / 状态 / 留痕 / 通知，以及身份不符、无锁定清单、存在未通过项、清单被改写四种拒绝（均断言 `patches` 为空、任务阶段未变）；另用真实 SQLite Store 验证会话里一句「确认验收」端到端路由到该路径，以及 legacy 模式缺提交号时的中文提示。
+- **边界**：这是一条已实现且有端到端单测的代码路径，**没有由真人在真实业务单上执行过**；第五轮 SUI-129 仍保持「未最终核可」。仓库默认 `legacy`，本机 `.runtime/config.json` 的 `independent` 不入库。
+
+### 3. 飞书组织映射：读成草案，不自动生效
+
+- `src/feishu-org.ts` + `scripts/org-mapping.ts`（`npm run org:preview` / `org:apply`）：只读当前授权范围可见的真实成员生成草案；`FeishuOrgService` 可注入以便无凭据测试，失败返回结构化草案而不打挂工作台。
+- 本机实测 `org:preview` 读到 **5 名真实成员**，部门字段全为空时如实置 `departmentScopeMissing: true` 并给出一次性授权命令，不编造部门；`open_id` 按应用隔离，跨应用绑定必须由管理员按姓名 / 工号显式确认。
+- 草案**不参与派单**。`org-mapping-apply` 要求组织级 owner、携带职能注册表当前修订号做乐观校验、职能必须存在且启用、已有主职能不覆盖（保留已派生领域与快照）；导入记录只写本机配置层并记审计。
+- 前端「设置 → 组织规则」新增第 10 段「飞书组织映射」只读状态；`v06-org-mapping-view` 不触发外部通讯录读取，避免页面等待远端接口。
+- **边界**：草案**未导入**职能注册表（实测 `applied: false`，注册表仍只有 1 名成员）；真实姓名与 `open_id` 只写 `.runtime/`（gitignore，不入库）；**成员映射 ≠ 真人登录 ≠ 多租户**，仍没有第二位真人登录的运行证据。
+
+### 4. 本机验收报告服务：可读、可归档、可回放，但不启动云端
+
+- `src/acceptance-report.ts` + `scripts/acceptance-report.ts` 提供 `acceptance:list` / `acceptance:report` / `acceptance:serve` / `acceptance:self-check`：把 Apache-2.0 的 `result.json` 渲染成中文 HTML（逐项判定 + 证据文件 + 锁定清单 + 自查标准 + 判定限制），索引列出所有归档轮次；报告服务**只监听 `127.0.0.1:4192`**，业务正文、密钥与截图不上传。
+- `Controller.runIndependentReview()` 把打回原因经 `recordSelfCheck()` 幂等沉淀为下次自查标准，落 `.runtime/v06/self-check-standards.json`，**不改写已锁定的清单**。
+- 工作台「协作 → 验收与责任 → 验收」新增「验收报告与自查标准」只读 Box（`v06-acceptance-report-view`）；`server.ts` / `members.ts` / `V06Services.dispatch` 三处只读白名单同步登记 `acceptance-report-view` 与 `org-mapping-view`。
+- **边界**：`lobehub/acceptance` 的 **CLI 与云端报告服务仍未启动**，本机服务只读取已归档结果、不触发任何外部服务；报告与自查标准都只是证据，**不代替原发起人在原会话确认验收**。
+
+### 5. 验证与接线
+
+- 全量回归：`npm test` **252/252**、`tsc --noEmit`、`npm run build:workspaces`、`npm run test:responsive`（1280 / 425 均 0 越界、425 按钮 44px）、`npm run test:walkthrough` **10/10**、`npm run audit:upstream`（7 submodules, `clean: true`）、`git diff --check` 全绿。详见 `docs/VALIDATION.md` 第六轮。
+- 真实 bridge 实测：`v06-acceptance-report-view` 返回 `available: true / verdict: pass / 2 cases / 1 归档轮次 / 1 条自查标准`；`v06-org-mapping-view` 返回草案与注册表版本；`v06-org-overview` 十段齐全且 `feishuOrg.ok: true`。本机报告服务 `/health` 返回 `loopback-only`，索引与报告页均含中文边界声明。
+- 环境备注：本轮首次跑宿主走查时 9/10 步失败，截图为 `connect failed: Connection refused`；查 `.runtime/logs/` 后确认是**宿主服务继承了已失效的旧代理端口**（本机插件 worker 连 `127.0.0.1:4180` 被旧 `HTTP_PROXY` 劫持），不是前端或 action 回归。以干净的本机连接环境重启 3100 / 4180 后复跑 10/10 通过。
+
+### 最新边界声明（以此为准）
+
+- **已实现**：中文用户指令与中文帮助 / 报告 / 通知（旧英文命令仅内部兼容）、按锁定清单的确认验收路径与全套闸门（含端到端单测）、飞书真实成员的只读组织草案与人工确认导入通道、本机中文验收报告服务与自查标准沉淀、两个新增只读视图接线、全套回归与宿主走查。
+- **仍未实现 / 不得宣称**：真人未在真实业务单上执行最终确认验收；飞书组织草案未导入注册表，真实员工多租户 / 第二位真人登录仍未部署；生产发布、真实 PR 与 CI 交付；**Cognee 原生** LLM / embedding / cognify / 自动实体抽取与向量语义管线；L2 自动抽取在真实新确认资料上的端到端触发（`lastRun` 仍为空）；`lobehub/acceptance` 的 CLI 与云端报告服务（本机服务不替代它们，也不等于上游能力已启用）；把单测或浏览器截图冒充生产验收。
+- **可回退**：仓库默认 `acceptance.mode=legacy` 一行回到原交付提交核可流程；只有本机 `.runtime/config.json` 开了 `independent`，该文件不入库。
 
 ---
 
@@ -26,7 +72,7 @@
 
 **验证**：最终全量回归见 `docs/VALIDATION.md` 第五轮；`npm test`、`tsc --noEmit`、`npm run build:workspaces`、`npm run test:responsive`、`npm run test:walkthrough`、`npm run audit:upstream`、`git diff --check` 全部通过。
 
-### 最新边界声明（以此为准）
+### 第五轮边界声明（历史记录，最新边界以 0.0000000 节为准）
 
 - **已实现**：开工前锁清单、独立评审（真实本机视觉）、逐项判定、Acceptance 格式导出、Transfer / 责任链、统一 Trace（含缺口如实提示）、L2 组织图确定性抽取与状态视图、runtimeGuard 强制、本机语义加权、三个 v0.6 视图、真实一单与全流程浏览器走查、本地演示、GitHub 推送合并。
 - **仍未实现 / 不得宣称**：真实业务最终 `/accept` 未由发起人执行；真实员工多租户与飞书组织映射；生产发布 / 真实 PR 与 CI 交付；**Cognee 原生** LLM / embedding / cognify / 自动实体抽取与向量语义管线（仍关闭）；L2 自动抽取在真实新确认资料上的端到端触发（`lastRun` 仍为空，只有契约与状态验证）；Acceptance 的 CLI 与云端报告服务；把 `.runtime` 截图或单测冒充生产验收。

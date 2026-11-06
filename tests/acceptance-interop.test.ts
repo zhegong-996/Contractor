@@ -72,7 +72,9 @@ test('导出目录里每个证据路径都是真实文件，result.json 可回�
   const saved = JSON.parse(readFileSync(path.join(dir, 'result.json'), 'utf8'));
   assert.equal(saved.summary.total, 2);
   assert.ok(written.includes('report.md'));
-  assert.match(readFileSync(path.join(dir, 'report.md'), 'utf8'), /不替代发起人/);
+  const reportMd = readFileSync(path.join(dir, 'report.md'), 'utf8');
+  assert.match(reportMd, /不替代原发起人在原会话「确认验收」/);
+  assert.doesNotMatch(reportMd, /\/accept/);
 });
 
 test('清单被改写时拒绝导出；证据缺描述时不接受', () => {

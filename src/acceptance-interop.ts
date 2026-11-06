@@ -124,7 +124,7 @@ export function toAcceptanceReport(input: {
     plan: planEntries,
     cases,
     summary: { total: cases.length, passed, failed, blocked, verdict,
-      conclusion: `独立评审者 ${input.round.reviewer.model} 按开工前锁定清单逐项判定：${passed} 项通过、${failed} 项未通过、${blocked} 项受阻。报告只提供证据，最终核可仍由发起人 /accept 完成。` },
+      conclusion: `独立评审者 ${input.round.reviewer.model} 按开工前锁定清单逐项判定：${passed} 项通过、${failed} 项未通过、${blocked} 项受阻。报告只提供证据，最终核可仍由原发起人在原会话确认验收。` },
   };
 }
 
@@ -180,7 +180,7 @@ export function writeAcceptanceBundle(dir: string, report: AcceptanceReport, inp
   writeFileSync(path.join(dir, 'result.json'), JSON.stringify(report, null, 2), { mode: 0o600 });
   writeFileSync(path.join(dir, 'report.md'), `# 第 ${report.entry} 轮验收报告\n\n${report.summary.conclusion}\n\n` +
     `结论：${report.summary.verdict}（通过 ${report.summary.passed} / 未通过 ${report.summary.failed} / 受阻 ${report.summary.blocked}）\n\n` +
-    `本报告由独立评审者产出，只提供证据，不替代发起人 /accept。\n`, { mode: 0o600 });
+    `本报告由独立评审者产出，只提供证据，不替代原发起人在原会话「确认验收」。\n`, { mode: 0o600 });
   written.add('result.json'); written.add('report.md');
   return [...written];
 }

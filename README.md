@@ -59,24 +59,25 @@ lark-cli config init --new --name ai-native-collab --lang zh_cn
 
 在 `.runtime/config.json` 填入该应用的 `appId`、`botId`、该应用下允许发起任务的 `allowedSenders`，必要时限定 `allowedChats`；核对完成后设置 `enabled: true` 并重启接入层。不同应用的 open_id 不能直接通用。默认没有允许的发起人，禁止启动派单监听。
 
-发起示例：
+发起示例（方括号里是执行端代号，可以省略）：
 
 ```text
-/task [codex] 在 collab-pilot/index.html 创建一个任务状态页面。
+任务 [codex] 在 collab-pilot/index.html 创建一个任务状态页面。
 验收：可以新增任务；可以修改状态；刷新后保留任务
 ```
 
-群聊需要 @机器人。回复示例：
+群聊需要 @机器人。用中文指令即可，不需要记英文命令；闲聊不会自动建单：
 
 ```text
-/status SUI-1
-/reply SUI-1 先保留现有页面，只修改新增任务的交互。
-/handoff SUI-1 workbuddy
-/accept SUI-1 交付提交的完整SHA
-/reject SUI-1 刷新后任务丢失
+任务 整理本周客户反馈
+查看进度 SUI-1
+补充说明 SUI-1 先保留现有页面，只修改新增任务的交互。
+转交 SUI-1 workbuddy
+确认验收 SUI-1
+验收不通过 SUI-1 刷新后任务丢失
 ```
 
-验收只能由原任务发起人在原会话操作。CI 与部署版本由系统核对；`/accept` 表示发起人确认任务交接包中的所有业务验收项。Agent 的“完成”只结束本轮，不关闭业务任务。
+验收只能由原任务发起人在原会话操作。开工前锁定了验收清单的任务，按清单与独立逐项评审报告「确认验收」，不需要交付提交号；代码交付类任务仍由系统核对 CI 与部署版本，要写成「确认验收 SUI-1 交付提交号」。Agent 的「完成」只结束本轮，不关闭业务任务。旧英文斜杠命令仍可解析（兼容既有脚本），但不再出现在帮助文案、工作台或验收报告里。
 
 ## 接入其他 Agent
 
@@ -121,6 +122,21 @@ npm run doctor
 自动测试使用临时状态和模拟接口，覆盖去重、并发签出、过期回执、部分失败重试、交付范围、版本验收及真实 stdio MCP 协议。真实飞书消息、模型执行、GitHub CI、预览与人工验收应分别记录；通过单元测试不等于真实全流程通过。
 
 本机已跑通的真实流程与尚未启用的能力见 [验证记录](docs/VALIDATION.md)。CLI 用量保存在回执中，费用尚未完整回填 Paperclip 成本账本，界面的零费用不代表没有发生模型调用。
+
+### 本机验收报告与组织映射
+
+这两项只在本机操作，业务正文、密钥与截图不外发：
+
+```sh
+npm run acceptance:list                       # 列出已归档的逐项验收报告
+npm run acceptance:report -- <任务ID>          # 生成中文 HTML 逐项报告
+npm run acceptance:serve                      # 只监听 127.0.0.1:4192 的只读报告服务
+npm run acceptance:self-check -- <round.json> # 把打回原因沉淀为下次自查标准
+npm run org:preview                           # 读取当前授权范围可见的飞书成员，生成草案
+npm run org:apply -- <org-table.json>         # 组织 owner 人工确认后导入职能注册表
+```
+
+报告与自查标准只提供证据，不代替原发起人在原会话「确认验收」；`lobehub/acceptance` 的云端报告服务与 CLI 未启动。组织草案不参与派单、不等于真人登录，真实姓名与 `open_id` 只写 `.runtime/`（不入库）；导入需组织 owner 并携带职能注册表当前修订号。
 
 
 ### 协作 Agent 与上下文工作区

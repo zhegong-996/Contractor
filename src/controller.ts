@@ -9,7 +9,8 @@ import { Github, parsePr } from './github.ts';
 import { feishuTrigger, readMessage, resultFrom } from './upstream.ts';
 import{collaborationReviewPolicyFor}from'./workspaces.ts';
 import{planForTask,lockPlan,readPlan,type VerificationLevel}from'./acceptance-plan.ts';
-import{verifyAcceptanceGate,evaluateRound,writeRound,readRound,type ItemEvidence}from'./acceptance-round.ts';
+import{verifyAcceptanceGate,evaluateRound,writeRound,readRound,toAcceptanceCases,type ItemEvidence}from'./acceptance-round.ts';
+import{USER_HELP,CONFIRM_ACCEPT,parseUserCommand}from'./user-language.ts';
 import{fromWorkerJournal,fromDelivery,capture}from'./event-stream.ts';
 import{TraceBridge,type TraceInput}from'./trace-bridge.ts';
 import{acceptanceChainEnabled,reviewerIdFor,type VisualArtifact}from'./visual-review.ts';
@@ -59,26 +60,39 @@ export class Controller {
     if (seen?.state === 'done') return { duplicate: true };
     this.store.db.prepare('INSERT OR IGNORE INTO events(id,state,value) VALUES(?,?,?)').run(trigger.id, 'pending', JSON.stringify(input));
     const text = trigger.text.replace(/@[^\s]+\s*/g, '').trim();
-    const match = /^(?:\/task|任务)\s+(?:\[([a-z][a-z0-9-]*)\]\s*)?([\s\S]+)$/.exec(text);
+    const parsed = parseUserCommand(text);
     let result: unknown;
-    if (match) {
+    if (!parsed) return { ignored: true, help: USER_HELP };
+    if (parsed.action === 'task') {
+      if (!parsed.detail) return { ignored: true, help: USER_HELP };
       const task = await this.createTask({ triggerId: trigger.id, chatId, messageId: String(trigger.meta.messageId), senderId: trigger.actor.id,
-        agent: match[1] ?? this.config.defaultAgent, text: match[2]! }); result = { task };
+        agent: parsed.agent ?? this.config.defaultAgent, text: parsed.detail }); result = { task };
     } else {
-      const action = /^\/(status|reply|accept|reject|handoff)\s+(\S+)(?:\s+([\s\S]+))?$/.exec(text);
-      if (!action) return { ignored: true, help: '发送 /task [codex] 任务内容；已有任务使用 /status、/reply、/accept、/reject、/handoff' };
-      const task = this.store.get(action[2]!);
-      if (task.senderId !== trigger.actor.id || task.chatId !== chatId) throw new Error('Only the task originator in its original chat can control it');
-      const detail = action[3] ?? '';
-      if (action[1] === 'reply') result = await this.reply(task.id, detail, trigger.id);
-      else if (action[1] === 'handoff') result = await this.handoff(task.id, detail.trim());
-      else if (action[1] === 'accept') {
-        const [sha, ...note] = detail.split(/\s+/);
-        const required: string[] = JSON.parse(task.context).businessAcceptance ?? ['符合任务要求'];
-        result = await this.accept(task.id, sha ?? '', required.map(name => ({ name, passed: true })), trigger.actor.id, trigger.id);
-      } else if (action[1] === 'reject') {
-        if (!detail.trim()) throw new Error('Please describe the failed acceptance case');
-        result = await this.reply(task.id, `验收未通过：${detail}`, trigger.id);
+      if (!parsed.taskId) return { ignored: true, help: USER_HELP };
+      const task = this.store.get(parsed.taskId);
+      if (task.senderId !== trigger.actor.id || task.chatId !== chatId) throw new Error('只有原发起人在原会话可以操作这个任务');
+      const detail = parsed.detail;
+      this.store.audit('user.command', task.id, { action: parsed.action, legacySyntax: parsed.fromLegacySyntax });
+      if (parsed.action === 'reply') result = await this.reply(task.id, detail, trigger.id);
+      else if (parsed.action === 'handoff') result = await this.handoff(task.id, detail.trim());
+      else if (parsed.action === 'accept') {
+        // 开工前锁了清单 + 独立评审已通过 → 按清单逐项确认（本版产品化路径）；
+        // 否则沿用已验证的「代码交付 + 发起人核可」流程，红线不变。
+        let sealed: Awaited<ReturnType<typeof readPlan>> = null;
+        try { sealed = await readPlan(this.pc, task.id); } catch { sealed = null; }
+        if (sealed && acceptanceChainEnabled(this.config)) {
+          result = await this.confirmAcceptance(task.id, trigger.actor.id, trigger.id);
+        } else {
+          const [sha] = detail.split(/\s+/);
+          // 中文指令不能把用户丢给一句英文底层校验错误：旧流程仍要核对
+          // CI 与部署版本，所以缺交付提交号时给出可照做的中文指引。
+          if (!sha) throw new Error('这是代码交付类任务，请附上交付提交号后再确认验收：「确认验收 任务编号 交付提交号」。系统需要核对 CI 与部署版本；按开工前锁定清单逐项评审的任务不需要提交号。');
+          const required: string[] = JSON.parse(task.context).businessAcceptance ?? ['符合任务要求'];
+          result = await this.accept(task.id, sha, required.map(name => ({ name, passed: true })), trigger.actor.id, trigger.id);
+        }
+      } else if (parsed.action === 'reject') {
+        if (!detail.trim()) throw new Error('请写明验收不通过的原因，便于只退回未通过的检查项');
+        result = await this.reply(task.id, `验收不通过：${detail}`, trigger.id);
       } else { await this.sync(task.id); result = this.store.get(task.id); }
     }
     this.store.db.prepare('UPDATE events SET state=? WHERE id=?').run('done', trigger.id);
@@ -305,6 +319,46 @@ export class Controller {
     this.store.notify(`accept:${eventId}`, task.id, `${task.identifier} 已记录验收通过，版本和验收证据已归档。`);
     return receipt;
   }
+  /**
+   * 产品化的最终核可：按「开工前锁定的清单 + 独立逐项评审报告」确认验收。
+   * 与代码交付验收（accept）并列，不要求 CI / commit，也绝不冒充部署环境。
+   * 身份必须是原发起人；清单版本、评审者、逐项判定由 verifyAcceptanceGate 复核。
+   */
+  async confirmAcceptance(id: string, actor: string, eventId: string) {
+    const task = this.store.get(id);
+    const context = JSON.parse(task.context);
+    if (context.requesterUserId && context.requesterUserId !== actor) throw new Error('只有原发起人可以确认验收');
+    const sealed = await readPlan(this.pc, id);
+    if (!sealed) throw new Error('本任务没有开工前锁定的验收清单，不能按清单确认验收');
+    const round = await readRound(this.pc, id);
+    if (!round) throw new Error('尚未完成独立逐项评审，不能确认验收');
+    const cases = toAcceptanceCases(round, sealed.plan);
+    const gate = await verifyAcceptanceGate({ pc: this.pc, taskId: id, cases });
+    if (gate.status !== 'verified') throw new Error(`验收闸门未通过：${gate.reason ?? '证据不足'}`);
+    const receipt = {
+      confirmedAt: new Date().toISOString(), actor, mode: 'sealed-plan',
+      planHash: sealed.plan.hash, planRevision: sealed.revision,
+      reviewer: round.reviewer.model, round: round.round, cases,
+      evidenceReview: { status: gate.status, level: gate.plan?.level, gaps: gate.gaps },
+      environment: '工作台逐项评审（不是代码部署环境）',
+      note: '本次核可由原发起人完成；独立评审报告只提供证据，不代替人签字',
+    };
+    await this.pc.document(task.id, 'acceptance', '逐项验收', JSON.stringify(receipt, null, 2));
+    await this.pc.document(task.id, 'decisions', '已采用结论',
+      `本任务由原发起人于 ${receipt.confirmedAt} 按开工前锁定清单确认验收。\n\n只适用于本任务所列检查项；不代表生产发布、其他功能或后续版本通过。\n\n证据缺口：${(gate.gaps ?? []).join('；') || '无'}`);
+    await this.pc.patch(`/issues/${task.id}`, { status: 'done' });
+    const current = this.store.get(id);
+    current.phase = 'accepted'; this.store.save(current);
+    this.store.audit('task.confirm-accepted', id, receipt);
+    await this.trace.append(id, capture({
+      taskId: id, at: receipt.confirmedAt, kind: 'acceptance', actor,
+      provenance: 'originator', evidenceKind: 'authored', checkpoint: CONFIRM_ACCEPT,
+      outcome: 'accepted', refs: cases.map(c => c.name),
+    }));
+    this.store.notify(`confirm:${eventId}`, task.id,
+      `${task.identifier} 已由原发起人${CONFIRM_ACCEPT}，逐项报告与证据已归档；未通过的检查项不会被算作通过。`);
+    return receipt;
+  }
   /** v0.6: seal the acceptance criteria before execution starts. */
   async sealAcceptancePlan(id: string, lockedBy: string, level?: VerificationLevel) {
     const task = this.store.get(id);
@@ -358,11 +412,18 @@ export class Controller {
     const report = evaluateRound({ plan: sealed.plan, reviewerModel: reviewer.id, producerModel,
       evidence: result.evidence, events, planRevision: sealed.revision });
     await writeRound(this.pc, report);
+    // 打回原因沉淀为下次自查标准；只落本机 .runtime/v06，不改写已锁定的清单。
+    try {
+      const { recordSelfCheck } = await import('./acceptance-report.ts');
+      recordSelfCheck(runtime('v06'), report, id);
+    } catch (error) {
+      this.store.audit('acceptance.self-check-failed', id, { reason: String(error).slice(0, 300) });
+    }
     this.store.audit('acceptance.independent-review', id, { reviewer: reviewer.id,
       semanticJudgement: reviewer.capabilities.semanticJudgement ?? false,
       round: report.round, overall: report.overall, limitations: result.limitations });
     return { report, reviewer: reviewer.id, capabilities: result.capabilities, limitations: result.limitations,
-      note: '报告只提供证据与逐项判定；最终核可仍是原发起人在原会话的 /accept' };
+      note: `报告只提供证据与逐项判定；最终核可仍由原发起人在原会话${CONFIRM_ACCEPT}` };
   }
   /** v0.6: best-effort append to the read-only trace projection. */
   async recordTraceEvent(id: string, event: TraceInput) { return this.trace.append(id, event); }

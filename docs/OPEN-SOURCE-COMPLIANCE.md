@@ -76,7 +76,7 @@
 | 5 | 只复用契约与报告格式 | ✅ `src/acceptance-interop.ts` 做计划 / 报告映射、校验与 bundle 写入，`scripts/export-acceptance.ts` 导出；`/accept` 发起人身份校验与「Agent 完成 ≠ 验收」红线未改动 |
 | 6 | 若不引入则记录不复用理由 | — 已引入，本条不适用 |
 
-**复用边界（仍未启用 / 不得宣称）**：不启动 Acceptance 的 CLI 与云端报告服务；独立评审者必须不同于产出模型；自撰证据一律拒绝；导出的 bundle 是本机 `.runtime` 产物，不是生产发布或真实业务最终验收。
+**复用边界（仍未启用 / 不得宣称）**：不启动 Acceptance 的 CLI 与云端报告服务；第六轮的 `src/acceptance-report.ts` / `scripts/acceptance-report.ts` 是**本仓库自研的本机只读报告服务**（只绑 `127.0.0.1`），读取已归档 `result.json` 渲染中文 HTML，不是上游 CLI 的封装，也不等于云端报告能力已启用；独立评审者必须不同于产出模型；自撰证据一律拒绝；导出的 bundle 是本机 `.runtime` 产物，不是生产发布或真实业务最终验收。
 
 ## 5. 当前声明缺口与修正状态
 

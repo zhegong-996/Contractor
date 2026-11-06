@@ -34,7 +34,13 @@
     "acceptance:export": "node --import tsx scripts/export-acceptance.ts",
     "audit:upstream": "node --import tsx scripts/audit-upstream.ts",
     "typecheck": "tsc --noEmit",
-    "build": "tsc --noEmit"
+    "build": "tsc --noEmit",
+    "org:preview": "node --import tsx scripts/org-mapping.ts preview",
+    "org:apply": "node --import tsx scripts/org-mapping.ts apply",
+    "acceptance:list": "node --import tsx scripts/acceptance-report.ts list",
+    "acceptance:report": "node --import tsx scripts/acceptance-report.ts report",
+    "acceptance:serve": "node --import tsx scripts/acceptance-report.ts serve",
+    "acceptance:self-check": "node --import tsx scripts/acceptance-report.ts self-check"
   },
   "dependencies": {
     "@a2a-js/sdk": "1.3.0",
