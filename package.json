@@ -29,6 +29,9 @@
     "doctor": "node --import tsx scripts/doctor.ts",
     "test": "node --import tsx scripts/test.ts",
     "test:responsive": "node --import tsx scripts/responsive-audit.ts",
+    "test:walkthrough": "node scripts/workbench-walkthrough.mjs",
+    "vision:start": "node --import tsx scripts/vision-server.ts",
+    "acceptance:export": "node --import tsx scripts/export-acceptance.ts",
     "audit:upstream": "node --import tsx scripts/audit-upstream.ts",
     "typecheck": "tsc --noEmit",
     "build": "tsc --noEmit"

@@ -30,7 +30,9 @@ flowchart TD
   Model[Flash/Lite · 通用 · 编码模型配置] -.预备策略，未启用新服务.-> Exec
   Cognee --> Memory[已确认知识 / BM25 持久记忆 / 人审概念]
   Cognee -->|op=read 只读投影| L2[L2 组织图 · 确定性抽取 / 草稿边 / 人审后才生效]
-  Cognee -.尚未启用.-> Semantic[自动实体抽取 / embedding 语义检索]
+  Cognee -.仍未启用.-> Semantic[Cognee 原生 LLM 实体抽取 / embedding / cognify]
+  Cognee --> Recall[BM25 检索 + Apple NL 设备端词向量语义加权 · 本机]
+  Recall --> Vision[Apple Vision 本机端点 · 截图 OCR / 分类 → 独立视觉评审]
 ```
 
 ## 真实接入状态
@@ -45,8 +47,8 @@ flowchart TD
 | 协作与开发执行 | 真实 Codex CLI + 原版 Autoloop worker；SUI-74、SUI-81、SUI-85 已运行 | 协作按证据调用工具、提问等待并接续；开发 PR #3 已交付且 CI 通过。旧项目访问失败不通过扩大授权解决 |
 | 服务 Agent | 原生成员归属、Harness 构建、A2A 子任务、澄清、回传与取消；独立 3110 实例具有三套 operator 账号和三个资料身份 | 业务与成员为模拟角色；主实例仍为本机管理员模式，不能替代真实员工生产验证 |
 | 其他 Agent | 通用 CLI / MCP / 人工接单接入合同 | 注册名称不等于云端自动执行已验证；WorkBuddy、豆包等逐端核实 |
-| 模型设置 | 轻量、通用、编码三档与动态执行身份绑定已保存到私有原生文档 | 仅预备配置，不存 API Key；新模型请求固定关闭，尚无新模型网关 |
-| Cognee + Ladybug | 固定 1.6.6；持久 chunk、BM25 检索、原文概念与关系候选、人审图版本、原版图谱 | 已确认知识持续索引，当前权限和版本前后复查；新增 LLM/embedding 与向量语义检索仍未启用 |
+| 模型设置 | 轻量、通用、编码三档与动态执行身份绑定已保存到私有原生文档 | 仅预备配置，不存 API Key；**不接入任何外部 / 云端模型网关**。例外是两套 macOS 设备端能力：Apple NaturalLanguage 词向量（recall 语义加权）与 Apple Vision（截图 OCR / 分类，独立视觉评审），均只监听 `127.0.0.1`、不外发业务材料、不下载模型 |
+| Cognee + Ladybug | 固定 1.6.6；持久 chunk、BM25 检索、原文概念与关系候选、人审图版本、原版图谱 | 已确认知识持续索引，当前权限和版本前后复查；**Cognee 原生** LLM / embedding / cognify 与向量语义检索仍未启用；另有不写入 Cognee 的 Apple NL 设备端词向量用于 recall 加权 |
 | 知识字典 | Cognee 原生 GraphSchema / reducer / JSON Schema 转换 | 概念、定义、文本/数字/布尔/日期/枚举/关系；按空间配置，尚未驱动自动抽取 |
 | Wiki 插件 | 原版插件已安装，本地 Markdown 目录 | 自动摄取关闭，未把共享 Wiki 空间字段当作可靠私有 ACL |
 | 存储与部署 | PG、SQLite、版本图及配置均为真实本机持久化 | 没有接对象存储、向量服务、Redis、SSO 或云数据库 |
@@ -59,7 +61,7 @@ flowchart TD
 - **资料层**：飞书保留实时引用，内部内容使用 Paperclip 文档与原生修订。非结构化正文与有类型的事实字段共同版本化，可编辑、搜索、筛选、审阅和撤回。
 - **知识引擎层**：直接集成 Cognee 的 DataPoint、Ladybug、来源追踪、图谱渲染与 GraphSchema。图引擎、字典模型和序列化不重写；SuitMe 只负责现有身份、确切资料版本和原生权限的衔接。
 - **当前图层**：已确认内部知识按当前修订持续建立文档、字段、片段和关系索引；Agent 按原文和字典准备概念关系，人审后进入图谱。按来源修订物理隔离；旧修订、过期权限或已验收任务不能用来读取当前上下文。生成图不会确认候选，也不会复活旧授权。
-- **当前记忆与后续扩展**：Cognee 原版 BM25 已用于获准来源和已采用概念的持久检索。跨来源自动消歧、embedding 语义检索与原生 LLM cognify 管线尚未启用；按用户选择不接入新模型。
+- **当前记忆与后续扩展**：Cognee 原版 BM25 已用于获准来源和已采用概念的持久检索；另有 Apple NaturalLanguage 设备端 300 维中英文词向量（`scripts/apple-embedding.swift`、`src/semantic-recall.ts`）对 recall 结果做语义加权——设备端计算、不下载模型、不写 Cognee、不外发材料，与 Cognee 原生管线无关。跨来源自动消歧、**Cognee 原生** embedding 语义检索与 LLM cognify 管线仍未启用；按用户选择不接入任何外部 / 云端模型服务。
 
 生命周期为来源 → 获准用于本任务 → 工作稿 → 人审候选 → 确认/采用 → 可复用知识。一次任务中出现过不代表可以成为长期记忆；模型不能自行批准授权、采用知识或最终验收。临时访问也不包含将别人的资料永久发布为知识的权限；专业负责人在其有权负责的空间审阅采用。修改内容后进入新的候选修订，确认不能跨版本沿用。
 
@@ -83,7 +85,7 @@ flowchart TD
 - 知识：检索与记忆、动态知识空间；内容、图谱与字典；结构化字段与正文、来源、版本、关系候选与人审。
 - 授权申请：同一任务中的资料、接收身份、用途、期限和处理记录。
 - 设置：模型与代理的预备配置，真实服务、存储和知识引擎状态。
-- v0.6 增补（P3，2026-11-06）：协作任务详情新增「验收与责任」（开工前锁定清单、逐项评审报告、独立评审就绪状态、Transfer 授权卡片、跨空间授权、统一过程流水与成本）；知识新增「关系与状态」子视图（L2 组织图边状态、Context Pack，**以及 L2 自动抽取状态与全局关系数**）；设置新增「组织规则」只读子视图（职能注册表、授权策略、政策、注意力、Watchdog、本体、**L2 抽取状态**与组织信号，共 9 段）。**主导航仍为 5 个 tab**，未新建独立界面，全部经 `/workspace/v06-*` 只读 action 消费；执行链路的注意力与 Watchdog 观测默认只写审计、不拦截。第四轮已做 1280 / 425 Chrome headless 布局走查（`npm run test:responsive`）与上游适配边界审计（`npm run audit:upstream`，清单见 `docs/UPSTREAM-ADAPTERS.md`）。
+- v0.6 增补（P3，2026-11-06）：协作任务详情新增「验收与责任」（开工前锁定清单、逐项评审报告、独立评审就绪状态、Transfer 授权卡片、跨空间授权、统一过程流水与成本）；知识新增「关系与状态」子视图（L2 组织图边状态、Context Pack，**以及 L2 自动抽取状态与全局关系数**）；设置新增「组织规则」只读子视图（职能注册表、授权策略、政策、注意力、Watchdog、本体、**L2 抽取状态**与组织信号，共 9 段）。**主导航仍为 5 个 tab**，未新建独立界面，全部经 `/workspace/v06-*` 只读 action 消费；执行链路的注意力预算与 Watchdog 已在 `runtimeGuard.enforce`（默认开启）下从「只观测」切到实际生效，人工介入 / 结果 / 验收 / 授权等必达通知由 `protectHumanNotifications` 保护，不被低价值通知抑制。第四轮已做 1280 / 425 Chrome headless 布局走查（`npm run test:responsive`）与上游适配边界审计（`npm run audit:upstream`，清单见 `docs/UPSTREAM-ADAPTERS.md`）；第五轮完成真实宿主实例 5 tab + 3 个 v0.6 视图的全流程浏览器走查（`npm run test:walkthrough`，10/10 通过）与本地演示页。
 
 常用宿主文案通过构建期 AST 中文词典覆盖；只改展示文案，保留路由、API 值和用户内容，上游源码不变。深层原生页面、原生认证页面和插件动态文案仍有未翻译部分，不宣称所有页面已经完整中文化。
 
@@ -102,7 +104,7 @@ flowchart TD
 
 本轮直接复用 Paperclip 的真实成员与角色，官方 A2A 1.3.0 的处理器与传输，Cognee 的持久图和原版 BM25。服务任务、上下文、成果和已确认知识已经接通；不是新增独立审批台或第二个调度器。当前原生 authenticated 登录与实际团队入驻仍待配置，不通过填写虚拟成员证明全员可用。完整合同、接口、前端结构和验证边界见 [多人服务与团队记忆](TEAM-NETWORK-MEMORY.md)。
 
-知识层现支持已确认资料持续索引、权限过滤的中文检索、概念关系候选与采用、当前字典/来源变动失效。前文“后续记忆层”中 BM25 与人审关系已经落地；**L2 组织图已连 Cognee L1 只读投影做确定性自动抽取**（`src/org-extraction.ts`，零模型调用、带逐字原文证据、草稿待人审），自动 LLM 实体抽取、embedding 与向量语义检索继续关闭。验收侧已注册视觉可用的独立评审者（默认结构式、如实声明不做图像语义判定），新验收流程可通过 `config.acceptance.mode=independent` 开启，本机实例已开启。
+知识层现支持已确认资料持续索引、权限过滤的中文检索、概念关系候选与采用、当前字典/来源变动失效。前文“后续记忆层”中 BM25 与人审关系已经落地；**L2 组织图已连 Cognee L1 只读投影做确定性自动抽取**（`src/org-extraction.ts`，零模型调用、带逐字原文证据、草稿待人审），**Cognee 原生**自动 LLM 实体抽取、embedding 与向量语义检索继续关闭；本机 Apple NL 设备端语义加权不在此列。验收侧已接入真实本机视觉语义评审：Apple Vision 设备端 OCR + 图像分类经 `http://127.0.0.1:4190/v1/chat/completions` 提供，`LocalModelVisionAdapter` 只允许本机 http 直连、拒绝代理与外发；新验收流程通过 `config.acceptance.mode=independent` 开启，本机实例已开启并在 SUI-129 上跑通 2/2 逐项判定，报告可导出为 `lobehub/acceptance` 格式的 bundle。仓库默认仍可 `legacy` 一行回退。
 
 
 ## 三成员隔离实例

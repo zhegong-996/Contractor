@@ -131,3 +131,9 @@ test('without a registry the existing flat dispatch is preserved, never broken',
   assert.equal(guard.skipped, true);
   assert.equal(guard.allowed, true);
 });
+
+test('跨空间授权查询：无申请是正常空态，不再让工作台误报「暂不可用」', async () => {
+  const { service } = setup();
+  assert.equal(await service.grantCheck('T-NO-GRANT'), null);
+  assert.equal(await service.dispatch('grant-check', { taskId: 'T-NO-GRANT' }, admin, opts), null);
+});

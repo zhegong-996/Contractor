@@ -291,7 +291,7 @@
 | **OpenHands SDK** / 参考 | 执行服务与协作控制平面的边界 | J 分层设计参考 | 仅参考，不引入第二套执行服务 |
 | **Outline (BSL 1.1) / Onyx / OpenFGA** | 会话中核读权限模型：collection/group、文档权限、relationship-based access control | X1 数据标签与授权粒度（B1）的设计参考 | 仅参考；**不引入代码**，尤其注意 Outline 的 BSL 1.1 |
 | **LobeHub** `lobehub/lobehub` / **Community License（Apache-2.0 + 附加条件，非 OSI 开源）** | 本轮核读：Workspace + Task、Manager/Worker、三层汇报、两级过滤、运行时三层分离、Agent Vent、harness 自优化 | D/F/G/J 的产品参照（L1–L5 自主度、注意力预算、组织体温闭环） | **只借思想、不引入代码**：衍生分发需商业授权，详见 `OPEN-SOURCE-COMPLIANCE.md` 第 3 节 |
-| **Acceptance** `lobehub/acceptance` / **独立 Apache-2.0 仓库**（不受主仓库 Community License 约束） | 本轮核读：开工前锁定计划、证据来源分类、独立评审模型（需视觉）、逐项判定、部分打回、打回沉淀成标准 | **F 模块 FR-16~19 的直接来源** | **尚未引入**；引入前按 `OPEN-SOURCE-COMPLIANCE.md` 第 4 节补齐 submodule / LICENSE / NOTICE / notices / lock；保留「评审者不得是产出模型」 |
+| **Acceptance** `lobehub/acceptance` / **独立 Apache-2.0 仓库**（不受主仓库 Community License 约束） | 核读：开工前锁定计划、证据来源分类、独立评审模型（需视觉）、逐项判定、部分打回、打回沉淀成标准 | **F 模块 FR-16~19 的直接来源** | **已引入**：submodule `f720feb…`（v0.10.0），协议动作见 `OPEN-SOURCE-COMPLIANCE.md` 第 4 节；`src/acceptance-interop.ts` / `scripts/export-acceptance.ts` 只映射契约与报告格式，不启动其 CLI / 云端报告服务；保留「评审者不得是产出模型」 |
 | **用户自有原型** `ai_bridge.py` / `knowledge.py` | 引用核验、快照与撤回投影 → `src/evidence.ts` | FR-17 证据核验、FR-09 撤回投影 | 保留 |
 
 **两批来源互补得很整齐**：Codex 会话里已有的是**工程底座**（任务真源、事件接入、执行适配、图谱存储），本轮架构讨论补上的是**产品语义**（职能轴、责任转移、证据化验收、组织信号）。前者没有后者会停在「审批流程系统」，后者没有前者会停在纸面架构。
@@ -349,9 +349,9 @@
 | 工作台哪里留痕 | 组织级配置落本地配置层 + SQLite 审计；任务级事实（Transfer / Grant / 边状态）落 **Paperclip 原生任务文档修订**；全部经 `/workspace/v06-*` action 调用，未新建第二业务库 |
 | 签字人是谁 | Transfer 双段责任链：承接人负执行责任、目标职能 owner 负兜底责任并起草验收标准；对外 / 资金 / 客户可见等动作强制 owner 联签；最终业务验收仍是**原发起人在原会话 `/accept`** |
 
-**FR 覆盖状态（第四轮更新，详见 `ADAPTATION-v0.6.md` 0.00000 节）**：FR-01/02/03/05/06/07/08/09/10/11/12/13/14/20/21/22/23/24/26/28 已具备契约与 API 实现；FR-16/17/19 已串成可运行链路（`sealPlanOnCreate → 独立评审 → 逐项报告 → /accept 闸门`）；**FR-18 已具备可插拔的视觉可用独立评审者**，但默认结构式评审明确声明不做图像语义判定，仓库默认仍是 `legacy`、本机实例已开启 `independent`。**L2 组织图已连 Cognee L1 只读自动抽取**（确定性、0 模型调用），前端三个视图长在现有 5 tab 内，1280 / 425 浏览器布局走查与上游适配边界审计已完成。**仍未完成**：真实视觉语义模型接入、`lobehub/acceptance` submodule 引入、真实「飞书 + Paperclip + GitHub」跨职能一单、宿主实例全流程浏览器验收、`runtimeGuard.enforce` 开启；Cognee 原生 LLM/embedding 与向量语义检索仍全部关闭。
+**FR 覆盖状态（2026-11-06 第五轮收尾更新，详见 `ADAPTATION-v0.6.md` 0.000000 节与 `docs/VALIDATION.md`）**：FR-01/02/03/05/06/07/08/09/10/11/12/13/14/16/17/18/19/20/21/22/23/24/26/28/29/30/31 已具备契约、API 与可运行链路；三个 v0.6 视图长在现有 5 tab 内。第四轮列出的「仍未做」已全部补齐：**FR-18 真实本机视觉语义模型**（macOS Apple Vision 设备端 OCR + 图像分类，端点只监听 `127.0.0.1`、不外发材料、不下载模型）、**`lobehub/acceptance` submodule 与 Acceptance 格式互操作导出**、**真实「飞书 → Paperclip → Transfer → Trace → 独立视觉评审 → Acceptance 导出 → GitHub issue」跨职能一单 SUI-129**、**宿主实例全流程浏览器验收**（10/10 视图通过 + 425px 窄屏 0 溢出）、**`runtimeGuard.enforce` 默认开启与人工必达通知保护**、**Apple NaturalLanguage 设备端词向量接入 recall 语义加权**、L2 抽取闭环与本地演示。**保留边界**：Cognee 原生 LLM / embedding / cognify 与向量语义管线仍全部关闭；真实业务最终 `/accept` 未由发起人执行；真实员工多租户、飞书组织映射与生产发布仍未部署；`.runtime` 运行证据不入库，不冒充生产或真实业务验收；仓库默认仍可用 `acceptance.mode=legacy` 一行回退旧 `/accept`。
 
-> 协议约束同步见 `OPEN-SOURCE-COMPLIANCE.md`：LobeHub 主仓库为 Community License（只借思想、不复制源码）、Acceptance 为独立 Apache-2.0、Outline 为 BSL 1.1（禁止引入代码）。本轮**未新增任何开源依赖或 submodule**，全部为自研契约层，无需补充协议材料。
+> 协议约束同步见 `OPEN-SOURCE-COMPLIANCE.md`：LobeHub 主仓库为 Community License（只借思想、不复制源码）、Acceptance 为独立 Apache-2.0、Outline 为 BSL 1.1（禁止引入代码）。第五轮**新增 1 个 submodule**（`lobehub/acceptance` Apache-2.0 `f720feb…`），已按该文档第 4 节补齐 LICENSE 原文 / NOTICE 检查 / `THIRD_PARTY_NOTICES.md` 专节 / `docs/SOURCES.md` / `sources.lock.json` / `audit:upstream`；除此之外未新增其他开源依赖。Apple Vision 与 Apple NaturalLanguage 是 macOS 系统框架，不引入第三方代码。
 
 ---
 

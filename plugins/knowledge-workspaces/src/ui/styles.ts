@@ -72,6 +72,9 @@ export const styles = `
   .suitme-workbench .sm-v06 .sm-input{font-size:16px;min-width:0;max-width:100%}
   .suitme-workbench .sm-v06 button{min-height:44px}
   .suitme-workbench .sm-v06 .sm-button{min-height:44px}
+  /* Secondary nav lives outside .sm-v06 but is still part of our plugin:
+     a real 425px host walkthrough measured 40.8px buttons there. */
+  .suitme-workbench .sm-task-stage button{min-height:44px}
   .suitme-workbench .sm-v06 .sm-document dl div{grid-template-columns:1fr;gap:2px}
   .suitme-workbench .sm-v06 .sm-inline-meta{overflow-wrap:anywhere}
 }

@@ -29,6 +29,11 @@
       "url": "https://github.com/deepseek-ai/deepseek-harness",
       "commit": "fcc0ad462172522aaf5c93a7b2e01f6b9f0b0159",
       "license": "MIT"
+    },
+    "acceptance": {
+      "url": "https://github.com/lobehub/acceptance",
+      "commit": "f720feb862bdbe3acc653bdedc297e20e08be1ae",
+      "license": "Apache-2.0"
     }
   }
 }

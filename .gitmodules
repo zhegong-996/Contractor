@@ -16,3 +16,6 @@
 [submodule "upstream/cognee"]
 	path = upstream/cognee
 	url = https://github.com/topoteretes/cognee.git
+[submodule "upstream/acceptance"]
+	path = upstream/acceptance
+	url = https://github.com/lobehub/acceptance.git

@@ -189,12 +189,19 @@ The existing pinned Super-agent MIT source also supplies `settingsPolicy` and `a
 
 The existing pinned Cognee source additionally supplies `BM25ChunksRetriever.initialize`, `_build_corpus_stats`, `_scorer` and content-derived chunk identity. SuitMe binds the corpus to authorized source-version Ladybug files, uses the existing Prime-derived tokenizer, and keeps proposed concepts/relations subject to human review and current GraphSchema. The pinned upstream remains unmodified. LLM/embedding services are not enabled by this integration.
 
+## Acceptance (`lobehub/acceptance`) — Apache-2.0
+
+Pinned submodule commit `f720feb862bdbe3acc653bdedc297e20e08be1ae` (v0.10.0), from https://github.com/lobehub/acceptance. `Copyright © 2026 LobeHub`. This is a **separate repository under Apache-2.0**, NOT the LobeHub Community License that governs the main `lobehub/lobehub` repository. Its LICENSE is retained verbatim in `licenses/acceptance-APACHE-2.0.txt` and the upstream copy is kept unmodified at `upstream/acceptance/LICENSE`; upstream has no NOTICE file to carry over. The fixed commit is recorded in `.gitmodules` and `sources.lock.json`.
+
+Actually reused: the plan/report **contract and file layout** — locked plan items, evidence-source classification, per-item judgement, `result.json` / `report.md` / assets — mapped by our own adapters `src/acceptance-interop.ts` (`toAcceptancePlanItems`, `toAcceptanceReport`, `assertAcceptanceReport`, `writeAcceptanceBundle`) and `scripts/export-acceptance.ts`. The upstream `plugin.json` and `report-schema.md` are read only as format references. No upstream source file is modified, copied into `src/`, or bundled into a build.
+
+Preserved boundaries: its CLI and cloud report service are **not started**; `/accept` still requires the original initiator's identity check and "Agent finished is not acceptance" stays in force; the independent reviewer must differ from the producing model; evidence classified as self-authored is rejected. Exported bundles are local `.runtime` artifacts, not a production release or a business final acceptance.
+
 ## 2026-11-06 licence review — reference-only projects (no code imported)
 
 Full review and the actionable checklist: `docs/OPEN-SOURCE-COMPLIANCE.md`. The following projects were studied during the v0.6 architecture work but **no source code, UI component, package or running service from them is included in this repository**. Their licences differ from the MIT/Apache-2.0 upstreams above and must not be treated as interchangeable.
 
 - **LobeHub (`lobehub/lobehub`)** — **LobeHub Community License**: Apache-2.0 *with additional conditions* (GitHub reports `Other`, not OSI open source). It permits commercial use as an unmodified frontend/backend service, but **developing and distributing a derivative work requires a commercial licence from the producer**; contributors also agree the producer may change the licence terms and use contributions commercially. Only its product concepts (role Agents, three-layer reporting, L1–L5 autonomy, attention budget, organisation signals) are studied and re-implemented independently here. No source is copied, forked or bundled.
-- **Acceptance (`lobehub/acceptance`)** — a **separate repository under Apache-2.0** (`Copyright © 2026 LobeHub`), NOT covered by the Community License above. It is **not yet imported**. If FR-16~19 adopts it, the pinned commit, `licenses/acceptance-APACHE-2.0.txt`, a notice entry and a `sources.lock.json` entry are required first.
 - **Graphiti (`getzep/graphiti`)** — Apache-2.0. Only the temporal-edge (`valid_at` / `invalid_at`) semantics are borrowed; its graph database and LLM services are not deployed.
 - **OpenHands Software Agent SDK** — MIT. Studied for the execution/control-plane boundary only; no second execution service is introduced.
 - **Outline** — **BSL 1.1** (source-available, not OSI open source, with production-use restrictions). Permission model studied only; **code import is prohibited** for this integration.

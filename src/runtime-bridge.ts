@@ -33,11 +33,23 @@ export interface Observation {
   enforced: boolean;
 }
 
+/** Notifications that ask a person to decide, approve or verify must never be
+ *  suppressed by an attention budget — otherwise a task can wait forever. */
+export const HUMAN_REQUIRED_OUTBOX = /^(ask|preview|accept|pr|intake|agent-service|collab-intake|workspace-completed|v06:grant-request|v06:transfer):/;
+
+export interface NotificationGate {
+  deliver: boolean;
+  reason: string;
+  mustDeliver: boolean;
+  observation: Observation;
+}
+
 export class RuntimeGuardBridge {
   constructor(
     readonly store: { audit: (action: string, issueId: string, detail: unknown) => void },
     readonly policies?: PolicyProvider,
     readonly enforce = false,
+    readonly protectHumanNotifications = true,
   ) {}
 
   async observe(input: TurnObservation, space = 'default'): Promise<Observation> {
@@ -74,5 +86,33 @@ export class RuntimeGuardBridge {
     };
     this.store.audit('v06.runtime-observed', input.taskId, { runId: input.runId, space, ...result });
     return result;
+  }
+
+  /**
+   * The actual enforcement point: low-value / self-progress outbox rows are
+   * not sent when `enforce` is on. Human-required messages always pass, and
+   * a task waiting on a person is recorded as `waiting-human` (never a stall).
+   */
+  async gateNotification(input: {
+    taskId: string; notificationId: string; summary: string; at?: string;
+  }, space = 'default'): Promise<NotificationGate> {
+    const at = input.at ?? new Date().toISOString();
+    const mustDeliver = this.protectHumanNotifications
+      && (HUMAN_REQUIRED_OUTBOX.test(input.notificationId)
+        || /等待人工|请确认|需要你|请审批|请验收|追问/.test(input.summary));
+    const selfProgress = /^(assistant-prepared|self-progress|worker-progress):/.test(input.notificationId);
+    const observation = await this.observe({
+      taskId: input.taskId, runId: `notify:${input.notificationId}`, actorId: 'system',
+      summary: input.summary.slice(0, 200), at, kind: selfProgress ? 'self-progress' : 'signal',
+      status: mustDeliver && /^(ask|v06:grant-request|v06:transfer):/.test(input.notificationId)
+        ? 'waiting-human' : 'running',
+    }, space);
+    const deliver = !this.enforce || mustDeliver || observation.attention.wake;
+    const reason = !this.enforce ? '只观测：未启用拦截'
+      : mustDeliver ? '人工介入/结果通知，必须送达（等待人工不算卡死）'
+        : observation.attention.reason;
+    this.store.audit('v06.notification-gated', input.taskId,
+      { notificationId: input.notificationId, deliver, mustDeliver, reason, enforced: this.enforce });
+    return { deliver, reason, mustDeliver, observation };
   }
 }

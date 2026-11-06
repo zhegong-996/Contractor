@@ -100,7 +100,7 @@ lark-cli config init --new --name ai-native-collab --lang zh_cn
 
 ## 知识与跨职能协作
 
-采用集成成熟方案与个性化界面的方式。知识引擎直接接入固定版本 Cognee，当前可生成确切来源修订的文档/字段图谱，使用原版图谱前端，按空间配置知识字典、属性、枚举与关系。安装：`npm run setup:graph`（需要 uv），再重启 bridge 并安装工作台插件。真实图持久化已验证；L2 组织图可从该投影确定性生成带原文证据的草稿边（`src/org-extraction.ts`，0 模型调用），Cognee 原生实体抽取、embedding 与 Agent 语义记忆仍未启用。详见 [方案比较及复用边界](docs/KNOWLEDGE-ENGINE.md)。
+采用集成成熟方案与个性化界面的方式。知识引擎直接接入固定版本 Cognee，当前可生成确切来源修订的文档/字段图谱，使用原版图谱前端，按空间配置知识字典、属性、枚举与关系。安装：`npm run setup:graph`（需要 uv），再重启 bridge 并安装工作台插件。真实图持久化已验证；L2 组织图可从该投影确定性生成带原文证据的草稿边（`src/org-extraction.ts`，0 模型调用）。**Cognee 原生实体抽取、embedding 与 Agent 语义记忆仍未启用**；另有一套**完全在本机、不联网**的 Apple NaturalLanguage 设备端词向量用于 recall 的语义加权（`src/semantic-recall.ts`），以及 Apple Vision 设备端 OCR/分类的**本机视觉评审端点**（`scripts/vision-server.ts`，仅 `127.0.0.1`），二者都不下载模型、不调用外部模型服务，也不改变 Cognee 的隔离边界。详见 [方案比较及复用边界](docs/KNOWLEDGE-ENGINE.md)。
 
 复用 Paperclip 自带的 **LLM Wiki 插件**作为知识浏览、来源、Markdown 页面、版本及维护入口，不另写编辑器和检索引擎。安装脚本使用同一固定提交的插件，通过其原生配置 API 绑定专用本地目录和现有接单身份。自动摄取默认关闭；插件的团队空间字段尚不能视为已经验证的保密边界，私有业务资料不进入这个共享 Wiki。
 

@@ -25,6 +25,7 @@ test('425px 规则：容器不设硬宽、表格在自身容器滚动、按钮 �
   assert.match(styles, /\.sm-v06 \.sm-table-scroll\{max-width:100%;min-width:0;overflow-x:auto/);
   assert.match(styles, /@media\(max-width:720px\)/);
   assert.match(styles, /\.sm-v06 button\{min-height:44px\}/);
+  assert.match(styles, /\.sm-task-stage button\{min-height:44px\}/);
   assert.match(styles, /\.sm-v06 \.sm-table\{min-width:620px\}/);
   assert.match(styles, /\.sm-v06 \.sm-document dd,\.suitme-workbench \.sm-v06 \.sm-document dt\{overflow-wrap:anywhere/);
 });

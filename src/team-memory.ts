@@ -10,6 +10,7 @@ import { root, runtime, secrets } from './config.ts';
 import { primeQueryTerms } from './vendor/prime-query.ts';
 import { contractProof, type Workspaces, type WorkspaceActor } from './workspaces.ts';
 import {memoryAnnotation} from './memory-contract.ts';
+import { embedTexts, fuseRecall, readSemanticIndex, type SemanticChunk, type SemanticIndexFile } from './semantic-recall.ts';
 export {memoryAnnotation} from './memory-contract.ts';
 export class TeamMemory {
   readonly graph: KnowledgeGraph;
@@ -52,8 +53,21 @@ export class TeamMemory {
   async index(id:string,actor:WorkspaceActor){
     this.w.manager(actor);const {record}=await this.graph.source(id,actor);
     if(!reusable(record.value,this.w.config,secrets().jwtSecret))throw new Error('只有已确认知识才能进入团队记忆');
-    const result=await this.graph.run(id,record.revision,true,actor),file=path.join(await this.folder(id,record.revision),'ready.json');
-    const marker=JSON.parse(readFileSync(file,'utf8'));marker.memoryVersion=2;writeFileSync(path.join(await this.folder(id,record.revision),'chunk-tokens.json'),JSON.stringify(Object.fromEntries(result.nodes.filter((n:any)=>n.type==='MemoryChunk'||n.type==='KnowledgeConcept').map((n:any)=>[n.id,primeQueryTerms(n.type==='MemoryChunk'?n.text:n.name+' '+n.concept_type+' '+n.evidence)]))),{mode:0o600});writeFileSync(file,JSON.stringify(marker),{mode:0o600});
+    const result=await this.graph.run(id,record.revision,true,actor),folder=await this.folder(id,record.revision),file=path.join(folder,'ready.json');
+    const nodes=result.nodes.filter((n:any)=>n.type==='MemoryChunk'||n.type==='KnowledgeConcept');
+    const textOf=(n:any)=>n.type==='MemoryChunk'?String(n.text??''):[n.name,n.concept_type,n.evidence].filter(Boolean).join(' ');
+    const marker=JSON.parse(readFileSync(file,'utf8'));marker.memoryVersion=2;
+    writeFileSync(path.join(folder,'chunk-tokens.json'),JSON.stringify(Object.fromEntries(nodes.map((n:any)=>[n.id,primeQueryTerms(textOf(n))]))),{mode:0o600});
+    // Local on-device word embeddings for semantic recall. Same permission and
+    // revision boundary as the lexical index: this file lives next to the
+    // source-version Ladybug graph and is never read outside that scope.
+    const embedded=embedTexts(nodes.map((n:any)=>textOf(n)));
+    const semantic:SemanticIndexFile={schemaVersion:1,engine:embedded.engine,dimension:embedded.dimension,
+      createdAt:new Date().toISOString(),chunks:nodes.map((n:any,i:number)=>({chunkId:String(n.id),text:textOf(n),
+        title:record.value.title,concept:n.type==='KnowledgeConcept'?String(n.name??''):null,
+        sourceId:id,revision:record.revision,vector:embedded.vectors[i]!}))};
+    writeFileSync(path.join(folder,'semantic-vectors.json'),JSON.stringify(semantic),{mode:0o600});
+    writeFileSync(file,JSON.stringify(marker),{mode:0o600});
     // L2 organisation-graph extraction is best-effort: a failure is audited
     // and must never roll back a verified L1 projection or knowledge indexing.
     if(this.w.config.orgExtraction?.autoRunOnIndex!==false&&this.w.onSourceIndexed)try{await this.w.onSourceIndexed(id,record.revision);}catch(error){this.w.store.audit('v06.l2-auto-extract-failed',id,{revision:record.revision,reason:String(error).slice(0,300)});}
@@ -62,8 +76,11 @@ export class TeamMemory {
   async status(actor:WorkspaceActor){
     const records=[];for(const s of this.w.catalog().sources.filter(s=>!s.external&&(actor.admin||this.w.members(s.domain).includes(actor.agent!)))){
       try{const r=await this.w.knowledge.read(s.ref,actor.admin?this.w.pc:this.w.reader(actor.agent!));if(!reusable(r.value,this.w.config,secrets().jwtSecret))continue;
-        const file=path.join(await this.folder(s.id,r.revision),'ready.json');records.push({id:s.id,title:r.value.title,revision:r.revision,indexed:existsSync(file)&&JSON.parse(readFileSync(file,'utf8')).memoryVersion===2});}catch{}
-    }return{engine:'Cognee + Ladybug + BM25',modelCalls:0,semanticEmbedding:false,records};
+        const folder=await this.folder(s.id,r.revision),file=path.join(folder,'ready.json');records.push({id:s.id,title:r.value.title,revision:r.revision,
+          indexed:existsSync(file)&&JSON.parse(readFileSync(file,'utf8')).memoryVersion===2,
+          semanticIndexed:existsSync(path.join(folder,'semantic-vectors.json'))});}catch{}
+    }return{engine:'Cognee + Ladybug + BM25 + 本机词向量混合检索',modelCalls:0,semanticEmbedding:true,
+      semanticEngine:'Apple NaturalLanguage 设备端词向量（降级：本地字符二元组哈希向量）',records};
   }
   async search(taskId:string|undefined,query:string,actor:WorkspaceActor){
     const task=taskId?this.w.store.get(taskId):undefined,state=task?await this.w.state(task):undefined;if(task&&(task.phase==='accepted'||!actor.admin&&actor.agent!==task.agent)||!task&&!actor.admin&&!actor.userId)throw new Error('Unauthorized: memory task scope');
@@ -82,6 +99,21 @@ export class TeamMemory {
     });
     for(const s of sources){const current=await this.w.readMaterial(s.id,task?.agent??(!actor.admin?actor.agent:undefined));if(!reusable(current.value,this.w.config,secrets().jwtSecret)||task&&!await this.w.allowed(task,s.id,task.agent)||!task&&!actor.admin&&!this.w.members(this.w.source(s.id).domain).includes(actor.agent!)||current.hash!==s.hash||path.join(await this.folder(s.id,s.revision),'graph.ladybug')!==s.path)throw new Error('检索期间来源、版本、字典或权限变化，结果已丢弃');}
     if(actor.userId&&actor.userId!=='local-board'){const {TeamMembers}=await import('./members.ts');const current=await new TeamMembers(this.w).resolve(actor.userId);if(current.agent!==actor.agent||current.admin!==actor.admin)throw new Error('成员身份或权限已经变化');}
+    if(this.w.config.knowledge?.semanticRecall?.enabled!==false){
+      try{
+        const chunks:SemanticChunk[]=[];let engine='';
+        for(const s of sources){const index=readSemanticIndex(path.join(path.dirname(s.path),'semantic-vectors.json'));
+          if(index){chunks.push(...index.chunks);engine=engine||index.engine;}}
+        if(chunks.length){
+          const queryVector=embedTexts([query]).vectors[0]!;
+          const hits=fuseRecall({lexicalHits:result.hits??[],chunks,queryVector,
+            weight:this.w.config.knowledge?.semanticRecall?.weight??0.45,limit:8});
+          return{...result,engine:`Cognee BM25 + ${engine}（混合）`,semanticRecall:true,
+            localEmbeddingCalls:1,semanticChunks:chunks.length,hits};
+        }
+      }catch(error){this.w.store.audit('memory.semantic-recall-degraded',taskId??'organization',
+        {reason:String(error).slice(0,200)});return{...result,semanticRecall:false,semanticDegraded:true};}
+    }
     return result;
   }
   async tick(){

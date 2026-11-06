@@ -4,7 +4,33 @@
 > 对象仓库：`/Users/gong.zhe/Developer/ai-native-collab`（`github.com/zhegong-996/suitme-collab`）
 > 依据：`docs/ARCHITECTURE-v0.6.md`（产品架构定稿）、`docs/PRD-v0.6.md`、Codex 会话「研究 AI Native 协作平台融合」、本仓库 `README.md` / `docs/*` / `sources.lock.json` / `src/*` / `git status`
 > 立场：**以 PRD v0.6 为准绳，代码适配产品**。已有实现尽量保留，以「补层」为主，不推倒重来；工程红线见 `PRD-v0.6.md` 第 2.2 节。
-> 状态：**方案已执行四轮**（底座 `f27a0e1`、功能补全 `7791c7b`、P3 前端增补 `c512c7b`；第四轮 L2 抽取 / P3 后半段 / 独立评审链见 0.00000 节）。文档随实施进度更新，**最新边界声明以 0.00000 节为准**。
+> 状态：**方案已执行五轮**（底座 `f27a0e1`、功能补全 `7791c7b`、P3 前端增补 `c512c7b`、第四轮 L2 抽取 / P3 后半段 / 独立评审链 `255a5e9`；第五轮收尾见 0.000000 节）。文档按轮次保留历史记录，**最新边界声明以 0.000000 节为准**。
+
+---
+
+## 0.000000 真实一单、本机视觉模型与收尾（2026-11-06 · 第五轮）
+
+本轮把第四轮列出的「仍未做」逐条做完，并完成 GitHub 推送合并与本地演示。用白话说：之前是「规则写好了、界面有了，但没在真实一单上从头跑到尾，也没有真的看图」；现在这些都在本机真实实例上跑过一遍。
+
+| 第四轮仍未做 | 第五轮落地 |
+|---|---|
+| 真实视觉语义模型 | macOS Apple Vision 设备端 OCR + 图像分类，只绑定 `127.0.0.1:4190`；`LocalModelVisionAdapter` 只允许本机 http 直连；SUI-129 逐项判定 **2/2 passed** |
+| `lobehub/acceptance` submodule | Apache-2.0 `f720feb…` 固定引入；`src/acceptance-interop.ts` + `scripts/export-acceptance.ts` 映射计划 / 报告格式；LICENSE / NOTICES / SOURCES / lock / audit 全部补齐；其 CLI 与云端报告服务未启动 |
+| 真实跨职能一单 | 飞书单聊 → Paperclip `SUI-129` → 锁定 2 条验收清单 → Transfer L0 卡片 → Trace 捕获事件 → 本机视觉独立评审 → Acceptance bundle → GitHub issue #1（已关闭） |
+| 宿主实例全流程浏览器验收 | `npm run test:walkthrough` 用真实 Chrome CDP 走查 5 tab + 3 个 v0.6 子视图，**10/10 通过**；425px 无溢出、按钮 44px；修掉 worker action 正则与「责任」空态误报 |
+| `runtimeGuard.enforce` 开启 | 默认 `true`，注意力预算 / Watchdog 从「只观测」切到实际生效，人工必达通知由 `protectHumanNotifications` 保护 |
+| 本地语义检索 | Apple NaturalLanguage 设备端 300 维中英文词向量接入 recall 加权，无需 API Key、无需下载模型、无外部服务；`system-status` 报 `vectorSearch: true` |
+| 本地演示 | `.runtime/walkthrough/demo.html` 可交互时间线 + 真实浏览器截图 + 能力全景 + 边界说明，`demo-preview.png` 为渲染预览；均在 `.runtime`，不入库 |
+
+**顺带修掉的真实宿主问题**：`plugins/.../worker.ts` 的 action 正则 `/^[a-z-]+$/` 不允许数字，导致全部 `v06-*` 请求返回 `Invalid workspace action`（新增 `action-name.ts` 统一守卫）；中文句中「。验收：」被旧正则吞掉（`controller.ts` 的 `businessAcceptanceFrom()`）；`LocalModelVisionAdapter` 受 `HTTP_PROXY` 影响报 `fetch failed / bad port`（改 `node:http` 直连）；「责任」视图把「无跨空间授权申请」的正常空态显示成「暂不可用」（`grantCheck` 返回 `null`）；Acceptance bundle 同一证据重复列出（`written` 改 `Set`）；425px 子导航按钮 40.8px（补 `.sm-task-stage button{min-height:44px}`）。
+
+**验证**：最终全量回归见 `docs/VALIDATION.md` 第五轮；`npm test`、`tsc --noEmit`、`npm run build:workspaces`、`npm run test:responsive`、`npm run test:walkthrough`、`npm run audit:upstream`、`git diff --check` 全部通过。
+
+### 最新边界声明（以此为准）
+
+- **已实现**：开工前锁清单、独立评审（真实本机视觉）、逐项判定、Acceptance 格式导出、Transfer / 责任链、统一 Trace（含缺口如实提示）、L2 组织图确定性抽取与状态视图、runtimeGuard 强制、本机语义加权、三个 v0.6 视图、真实一单与全流程浏览器走查、本地演示、GitHub 推送合并。
+- **仍未实现 / 不得宣称**：真实业务最终 `/accept` 未由发起人执行；真实员工多租户与飞书组织映射；生产发布 / 真实 PR 与 CI 交付；**Cognee 原生** LLM / embedding / cognify / 自动实体抽取与向量语义管线（仍关闭）；L2 自动抽取在真实新确认资料上的端到端触发（`lastRun` 仍为空，只有契约与状态验证）；Acceptance 的 CLI 与云端报告服务；把 `.runtime` 截图或单测冒充生产验收。
+- **可回退**：仓库默认仍可用 `acceptance.mode=legacy` 一行回到原 `/accept`；只有本机 `.runtime/config.json` 开了 `independent`，该文件不入库。
 
 ---
 
@@ -37,9 +63,9 @@
 
 `npm test` **204/204 通过**（新增 16 例：L2 抽取 6、独立评审链 6、响应式/上游静态守卫 4）；`tsc --noEmit`、`npm run build:workspaces`、`npm run test:responsive`、`npm run audit:upstream`、`git diff --check` 全绿。
 
-### 仍未做 / 不得宣称
+### 第四轮当时的仍未做（已在 0.000000 节逐条补齐，勿再按本条对外表述）
 
-真实视觉模型的语义判定（本机无模型，结构式评审只核验证据绑定）；`lobehub/acceptance` submodule 引入；真实「飞书 + Paperclip + GitHub」跨职能一单；上游冗余适配代码的实际重构/替换（本轮只做清单与边界审计）；`runtimeGuard.enforce` 开启；宿主实例的完整浏览器流程走查。Cognee 原生 LLM/embedding/cognify 与向量语义检索**仍全部关闭**——L2 抽取是确定性投影，不是语义抽取。
+真实视觉模型的语义判定（当时本机无模型，结构式评审只核验证据绑定）；`lobehub/acceptance` submodule 引入；真实「飞书 + Paperclip + GitHub」跨职能一单；`runtimeGuard.enforce` 开启；宿主实例的完整浏览器流程走查。**保留下来仍然成立的只有两条**：Cognee 原生 LLM/embedding/cognify 与向量语义检索**仍全部关闭**（L2 抽取是确定性投影，不是语义抽取）；上游冗余适配代码本轮只做了清单与边界审计，未做实际重构 / 替换。
 
 ---
 
@@ -85,7 +111,7 @@
 
 **验证**：`npm test` 179 个用例、`tsc --noEmit` 通过。新增 6 个测试文件覆盖规则与端到端链路，含「无职能注册表时不改变原有扁平派单」「Transfer 卡片在纯文本渠道不丢字段」「无 Transfer 时 `/accept` 沿用原发起人核可」「本体边规则与可达性」「Watchdog 无检查点不自动重放」。
 
-**仍未做（不要宣称已实现）**：
+**第二轮当时的仍未做（已在 0.000000 节补齐，勿再按本条对外表述）**：
 - **前端**：现有 5 tab 工作台未新增视图，只能在 API 层调用；P3 才补界面。
 - **独立视觉评审模型**：当前注册的是 `TraceEvidenceReviewer`，只做证据绑定、明确声明 `vision: false` / `externalModelEnabled: false`，`review-readiness` 会如实返回「FR-18 未就绪」；接入视觉模型前**不开启** `config.acceptance.sealPlanOnCreate`。
 - **Acceptance submodule 引入**：未引入，仅自研同等契约；引入前按 `OPEN-SOURCE-COMPLIANCE.md` 第 4 节补齐协议材料。
@@ -153,10 +179,10 @@
 |---|---|
 | 仓库 | `suitme-collab`，Node 24.11+ / TypeScript / tsx；Paperclip 0.3.1 提供 3100 工作台，SuitMe bridge 4180 |
 | 真源 | Paperclip + PostgreSQL 18.1（54329）存任务/成员/审批/文档/修订/审计；SQLite 只存映射、幂等、接入状态 |
-| 上游 | 6 个 Git submodule 固定提交：`paperclip`、`superagent`、`autoloop`、`prime-agent`、`deepseek-harness`、`cognee`；`sources.lock.json` 锁 4 个 |
+| 上游（开工前基线） | 当时 6 个 Git submodule 固定提交：`paperclip`、`superagent`、`autoloop`、`prime-agent`、`deepseek-harness`、`cognee`；`sources.lock.json` 锁 4 个。现为 **7 个 submodule、lock 锁 7 个**（第五轮新增 `upstream/acceptance`） |
 | 多实例 | 主实例 3100 / 4180（本机管理员 `local_trusted`）；另有 3110 / 4181 三模拟成员 `authenticated` 隔离实例 |
 | 前端 | 单页插件入口 `/SUI/knowledge-workspaces`，5 个 view tab（我的工作 / 协作 / 知识 / Agent / 设置）；中文由构建期 AST 词典覆盖，深层原生页面仍有未翻译部分 |
-| **工作区状态** | `git status` 有约 27 个已修改文件 + 未跟踪 `docs/AGENT-BUILDING.md`，说明上一轮 Codex 改造尚未收口 |
+| **工作区状态（开工前历史快照）** | 当时 `git status` 有约 27 个已修改文件 + 未跟踪 `docs/AGENT-BUILDING.md`，说明上一轮 Codex 改造尚未收口；该批改动已于 `f27a0e1` 收口提交，**不是当前工作区现状** |
 
 > **第 0 步动作**：P0 开工前先把这批未提交改动提交或明确归属，避免 v0.6 改造与上一轮改动混在同一批 diff 里，无法回滚。
 
@@ -176,11 +202,11 @@
 
 ### 0.3 明确未启用 / 未完成（不要当成已有能力）
 
-- 新模型服务、自动实体抽取、embedding / 向量语义检索、LLM `cognify`、自动知识采用、自动最终验收。
+- 外部 / 云端新模型服务、**Cognee 原生**自动实体抽取、embedding / 向量语义检索、LLM `cognify`、自动知识采用、自动最终验收。已接通的 Apple NL 设备端语义加权与 Apple Vision 本机视觉评审**不属于这一条**（均为 macOS 系统框架、只监听 `127.0.0.1`、不外发材料，见 0.000000 节）。
 - 完整 Harness `AgentLoop`、动态模块装载器、完整 preset registry、Prime Agent daemon、Autoloop hub、第二套调度器。
 - 真实员工登录与飞书组织映射、跨真实员工生产协作、第二位真人登录证据、公网 Agent 发现。
 - Claude Code / WorkBuddy / 豆包 / Grok Bot / Cursor 云端自动派单、ACP 远端恢复（均只到接口或人工接单层）。
-- **Trace 未入库、CLI 用量未回填成本账本**（`docs/VALIDATION.md:42` 明确「界面零费用不代表没有发生模型调用」）。
+- **Trace 已在 `trace-view` 可读并作为独立评审证据，但仍如实标注缺口**：SUI-129 的流水明确列出 `kind:model` / `receipt` / `ci` 缺失、tokens 与 costCents 未记录；CLI 用量仍未完整回填 Paperclip 成本账本（`docs/VALIDATION.md` 明确「界面零费用不代表没有发生模型调用」）。
 - 无合并试点 PR、无生产部署、无对象存储 / 向量服务 / Redis / SSO；异机恢复与联合备份未验证。
 
 > 边界共识（沿用现有文档）：模拟成员 ≠ 真实员工、本地预览 ≠ 生产部署、CI 通过 ≠ 业务验收、Agent 完成 ≠ 验收。这些在 v0.6 改造后继续成立。

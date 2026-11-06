@@ -89,10 +89,13 @@ export function GovernancePanel({ ui, task }: { ui: V06UI; task: any }): any {
   const extra = { taskId: task.id, reload };
   const plan = useRead(ui, 'v06-plan-view', extra);
   const round = useRead(ui, 'v06-round-view', extra);
-  const readiness = useRead(ui, 'v06-review-readiness', { ...extra, traceReady: false, visualEvidenceRequired: true });
   const transfer = useRead(ui, 'v06-transfer-view', extra);
   const grant = useRead(ui, 'v06-grant-check', extra);
   const trace = useRead(ui, 'trace-view', extra);
+  // Readiness must reflect the actual event stream, never a hard-coded value:
+  // an incomplete trace is a real gate (FR-25), not a UI placeholder.
+  const traceReady = trace.value?.available === true && (trace.value?.gaps?.length ?? 1) === 0;
+  const readiness = useRead(ui, 'v06-review-readiness', { ...extra, traceReady, visualEvidenceRequired: true });
   const refresh = () => setReload(value => value + 1);
   return <section className="sm-stack sm-v06"><div className="sm-section-head"><h2>验收与责任</h2><Refresh onClick={refresh} busy={ui.busy} /></div>
     <p className="sm-small sm-muted">这里只显示依据与责任记录，最终核可仍是原发起人在原会话的 /accept。签字人不变。</p>
@@ -118,8 +121,9 @@ export function GovernancePanel({ ui, task }: { ui: V06UI; task: any }): any {
       <Box title="独立评审就绪状态"><Load state={readiness} empty="尚未评估">
         {(value: any) => <><Summary value={value} />
           <div className="sm-notice"><p className="sm-small">{value?.ready
-            ? '独立视觉评审链路已就绪：结构式评审核对截图/录屏的来源、哈希与事件绑定，逐项报告只作为证据，最终核可仍由发起人在原会话 /accept。'
+            ? '独立视觉评审链路已就绪：本机视觉模型核对截图内容与事件绑定，逐项报告只作为证据，最终核可仍由发起人在原会话 /accept。'
             : `尚未就绪：${(value?.reasons ?? []).join('；') || '等待事件流水与评审者注册'}`}</p>
+            {!!trace.value?.gaps?.length && <p className="sm-small sm-muted">事件流水缺口：{trace.value.gaps.join('；')}</p>}
             {(value?.limitations ?? []).length > 0 && <p className="sm-small sm-muted">{value.limitations.join('；')}</p>}
           </div></>}
       </Load></Box>

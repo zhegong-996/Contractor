@@ -82,6 +82,38 @@ Wiki 原生 `bootstrap-root` 在这个固定版本会创建带不兼容设置的
 - `npm test` **204/204**、`tsc --noEmit`、`npm run build:workspaces`、`git diff --check` 通过。新增 16 个用例：L2 抽取 6（跨版本泄漏拒绝、逐字证据、幂等不重置人审状态、模型适配器幻觉证据被拒、全局图与任务镜像、reader 只读调用）、独立评审链 6（能力声明、结构式判定/受阻/自撰/哈希、完整闸门、评审者≠产出模型、Controller 自动写报告链路、本机端点限制）、响应式与上游静态守卫 4。
 - `npm run test:responsive`：本机 Google Chrome headless，iframe 定宽得到精确 **1280 / 425** 视口。两档 `scrollWidth == clientWidth`、越界元素 0、表格只在自身容器滚动；425 按钮最小高度 44px（修复前 41px）。结果 `.runtime/responsive-audit.json`、截图 `.runtime/responsive-425.png`。这是插件样式与 v0.6 面板骨架的**布局走查**，不是宿主实例的完整流程验收。
 - `npm run audit:upstream`：6 个 submodule 的 gitlink 与 `sources.lock.json` 一致、工作树干净、LICENSE/NOTICE 与 `THIRD_PARTY_NOTICES.md` 齐全、无强传染协议文本、`src/org-extraction.ts` 无 Cognee 写入/模型调用；结果 `.runtime/upstream-audit.json`，`clean: true`。
-- L2 抽取链路用注入的 L1 投影做契约验证（零模型调用、草稿边带逐字原文证据、重复抽取不新增、不重置已验收边）；**尚未**在本机真实 Cognee 投影与真实已确认资料上跑一次端到端 journey，不把它冒充生产验证。
-- 独立视觉评审用结构式适配器验证：截图绑定、自撰材料拒绝、哈希不匹配、缺证据受阻、缺截图时如实降级；`verifyAcceptanceGate` 完整放行。**未接入真实视觉模型**，不做图像内容语义判定；本机 `.runtime/config.json` 已切 `acceptance.mode=independent`，需重启 bridge 生效，旧流程可用 `legacy` 一行回退。
+- L2 抽取链路用注入的 L1 投影做契约验证（零模型调用、草稿边带逐字原文证据、重复抽取不新增、不重置已验收边）；**第四轮当时**尚未在本机真实 Cognee 投影与真实已确认资料上跑一次端到端 journey，不把它冒充生产验证（第五轮已在真实链路上读取 L2 状态，仍保留 `lastRun` 为空的边界，见下一节）。
+- 独立视觉评审用结构式适配器验证：截图绑定、自撰材料拒绝、哈希不匹配、缺证据受阻、缺截图时如实降级；`verifyAcceptanceGate` 完整放行。**第四轮当时**未接入真实视觉模型、不做图像内容语义判定；本机 `.runtime/config.json` 已切 `acceptance.mode=independent`，需重启 bridge 生效，旧流程可用 `legacy` 一行回退。第五轮已接入 Apple Vision 设备端视觉语义判定，见下一节。
 - 私有运行证据（harness HTML、审计 JSON、截图）只保留忽略提交的 `.runtime`；真实业务正文、密钥与回执不提交。
+
+## 2026-11-06：真实一单、本机视觉模型与宿主全流程走查（第五轮 / 收尾）
+
+本轮把第四轮列出的「仍未做」全部补齐。**除明确标注外，以下均为真实本机实例上的运行结果，不是单测模拟**；证据在 `.runtime/walkthrough/`（gitignore，不入库）。
+
+### 1. 真实跨职能一单 SUI-129
+
+- 真实飞书单聊消息 `om_x100b61e688da38a0b08c6c26b9e5109` 发起 → Paperclip 生成 `SUI-129`；中文句中「。验收：」被 `businessAcceptanceFrom()` 正确解析，开工前**锁定 2 条验收清单**（`plan.hash = a9b6655a…`，原生修订 `afa861f8…`）。
+- Role Registry 与 Transfer：`role-growth → role-product` 生成 L0「仅本 Task」授权卡片（`standardDraftedBy`、联签人、承接人 / 目标职能 owner 兜底的双段责任链均落 Paperclip 任务文档）。
+- 统一过程流水 `trace-view`：真实写入 1 条 `chrome-headless` 截图捕获事件（`evidenceKind: captured`、`ci-screenshot`、sha256 绑定）；**如实列出 5 个缺口**（`kind:model` / `receipt` / `ci` 缺失、tokens 与 costCents 未记录），没有把「有流水」写成「流水完整」。
+- 独立视觉评审：`/tasks/SUI-129/review` 经本机 Vision 端点约 4.7 秒返回，评审者 `local-vision:apple-vision-local`（`vision: true` / `independent: true` / `semanticJudgement: true`，与产出模型不同）；实际解码 2 张截图、识别 116 段文字，按「期望文本」逐项判定 **2/2 passed**。模型只判定 OCR 文字与图像分类（`document` / `screenshot`），**配色、留白、动效等主观视觉质量明确留给发起人 `/accept` 人工核可**。
+- Acceptance 导出：`npm run acceptance:export -- SUI-129` 产出 `result.json`（`verdict: pass`，2 cases）、`report.md` 与 assets；同一 Trace event 被两个检查项引用时资产去重，无重复文件。
+- GitHub：私有仓库联调 [issue #1](https://github.com/zhegong-996/suitme-collab/issues/1) 已创建并关闭（state `CLOSED`）。**没有合并试点 PR、没有生产部署、没有由发起人对该单执行最终 `/accept`**。
+
+### 2. 本机能力（不接入任何外部 / 云端模型服务）
+
+- `scripts/apple-vision.swift` 用 macOS Vision 设备端 OCR + 图像分类；`scripts/vision-server.ts` 只绑定 `127.0.0.1:4190` 提供 OpenAI 兼容端点；`src/vision-semantics.ts` 按期望文本逐项判定；`LocalModelVisionAdapter` 拒绝非本机 / https 地址，并用 `node:http` 直连避开 `HTTP_PROXY`（修复 `fetch failed / bad port`）。业务材料不外发。
+- `scripts/apple-embedding.swift` + `src/semantic-recall.ts` 用 Apple NaturalLanguage 设备端 300 维中英文词向量为 recall 加权；实测「验收 / 审核」≈ 0.573、「验收 / 香蕉」≈ -0.05。`system-status` 显示 `embedding: Apple NL 设备端词向量（本机）`、`vectorSearch: true`、`modelApi: false`、`externalLlmCalls: 0`。**Cognee 原生 LLM / embedding / cognify / 自动实体抽取仍全部关闭**（`automaticExtraction: false`），两者不是同一件事。
+- `runtimeGuard.enforce` 默认开启，注意力预算与 Watchdog 从「只观测」切到实际生效；`protectHumanNotifications` 保护人工介入 / 结果 / 验收 / 授权等必达通知。真实 SUI-128 审计显示 `enforced: true` 且人工接单通知 `mustDeliver: true`。
+- L2 组织图：`l2-status` 显示 `connected: true`、`adapter: deterministic-l1-projection`、`modelCalls: 0`、L1 仍按 `sha256(sourceId@revision)` 隔离；**`lastRun` 仍为 `null`**——真实 journey 中没有新确认资料触发索引，因此不宣称 L2 自动抽取已在真实业务资料上跑过端到端，这一条仍属契约与状态验证。
+- 合规：`lobehub/acceptance` 以 Apache-2.0 submodule `f720feb…`（v0.10.0）引入，LICENSE 原文、`THIRD_PARTY_NOTICES.md` 专节、`docs/SOURCES.md`、`sources.lock.json` 与 `audit:upstream` 均已补齐；只复用契约与报告格式，其 CLI / 云端报告服务未启动。
+
+### 3. 宿主实例全流程浏览器验收与本地演示
+
+- `npm run test:walkthrough`（`scripts/workbench-walkthrough.mjs`）用 Chrome CDP 驱动真实 Paperclip 实例 `http://127.0.0.1:3100/SUI/knowledge-workspaces`，走查 5 tab + 3 个 v0.6 子视图共 **10/10 步通过**：所有期望文本命中、`Invalid workspace action` 0、`暂不可用` 0。
+- 425px 窄屏实测 `clientWidth 393 / scrollWidth 393`、按钮最小高度 **44px**、溢出元素 **0**。修复了两个只有真实宿主才暴露的问题：worker 的 action 正则不允许数字（所有 `v06-*` 被拒）、「责任」视图把「无跨空间授权申请」的正常空态显示成「暂不可用」。
+- 证据：`.runtime/walkthrough/report.json`、12 张 1280 / 425 截图、`.runtime/walkthrough/journey.json`；可交互演示 `.runtime/walkthrough/demo.html` 与预览 `demo-preview.png`。这些都在 `.runtime`，**不提交 GitHub**。
+- 当前服务健康：Paperclip `3100`、bridge `4180`、本机视觉端点 `4190` 均返回 200。
+
+### 4. 本轮边界（不得越过）
+
+单测与浏览器截图不是生产发布或真实业务最终验收；本机单一负责人 + 服务身份不等于真实员工多租户（`multiUserSso: false`）；飞书只用了 allowlist 内的本人单聊，没有进群；CI / PR 交付未发生；真实资料正文、密钥、回执与截图只在 `.runtime`；Cognee 原生模型管线仍关闭。

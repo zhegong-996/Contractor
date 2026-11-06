@@ -24,6 +24,7 @@ import { runOrgExtraction, DeterministicExtractionAdapter, type L1Reader, type E
 import { defaultAttentionPolicy, defaultWatchdogPolicy, filterEvent, assertIntervention, inspectRun, recoveryFrom,
   type AttentionPolicy, type WatchdogPolicy } from './runtime-guard.ts';
 import { assertStandardExternalised, readPlan } from './acceptance-plan.ts';
+import type { CollabEvent } from './event-stream.ts';
 import { renderForChannel, endpointCapabilities, PLAIN_TEXT, type ChannelId, type SemanticObject, type RenderedMessage } from './channels.ts';
 
 export interface V06Options {
@@ -213,7 +214,11 @@ export class V06Services {
     return found;
   }
   async grantCheck(taskId: string) {
-    const grant = await this.readGrant(taskId);
+    // Read model, not a precondition: "this task has no cross-space grant"
+    // is a normal empty state. Throwing here made the workbench render
+    // "暂不可用" as if the service were broken.
+    const grant = (await this.store.readTaskDoc<ContextGrant>(taskId, 'context-grant'))?.value;
+    if (!grant) return null;
     assertGrantUsable(grant);
     return { usable: true, message: toContextGrantCard(grant) };
   }
@@ -401,6 +406,28 @@ export class V06Services {
     const { readRound } = await import('./acceptance-round.ts');
     return readRound(this.pc as any, taskId);
   }
+  /** Export the sealed round into the pinned lobehub/acceptance report shape. */
+  async acceptanceExport(taskId: string) {
+    if (!this.pc) throw new Error('未连接原生文档存储，不能导出验收报告');
+    const [{ readRound }, interop, { parseTrace }] = await Promise.all([
+      import('./acceptance-round.ts'), import('./acceptance-interop.ts'), import('./event-stream.ts'),
+    ]);
+    const sealed = await readPlan(this.pc as any, taskId);
+    const round = await readRound(this.pc as any, taskId);
+    if (!sealed || !round) throw new Error('该任务缺少开工前锁定清单或逐项评审报告');
+    let events: CollabEvent[] = [];
+    try {
+      const trace = await this.pc.get(`/issues/${taskId}/documents/trace`);
+      events = parseTrace(String(trace?.body ?? ''));
+    } catch { events = []; }
+    const report = interop.toAcceptanceReport({ plan: sealed.plan, round, events,
+      verifier: this.reviewer.capabilities.semanticJudgement ? 'llm' : 'program' });
+    interop.assertAcceptanceReport(report);
+    const info = interop.upstreamInfo();
+    this.localStore.audit('v06.acceptance-exported', taskId,
+      { upstreamVersion: info.version, commit: info.commit, verdict: report.summary.verdict });
+    return { report, upstream: { name: 'lobehub/acceptance', version: info.version, commit: info.commit } };
+  }
   /** One read for the organization sub-tab. Each section degrades independently. */
   async organizationOverview(space = 'default') {
     const safe = async <T,>(name: string, job: () => T | Promise<T>) => {
@@ -513,6 +540,7 @@ export class V06Services {
       // F. review readiness + read-only workbench projections
       case 'plan-view': return this.acceptancePlanView(p.taskId);
       case 'round-view': return this.acceptanceRoundView(p.taskId);
+      case 'acceptance-export': return this.acceptanceExport(p.taskId);
       case 'org-overview': return this.organizationOverview(p.space ?? 'default');
       case 'review-readiness': return this.reviewReadiness(p.traceReady === true, p.visualEvidenceRequired !== false);
       case 'review-evidence': return this.reviewEvidence(p);

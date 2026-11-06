@@ -54,7 +54,9 @@ npm run install:workspaces
 
 **已运行**：本地确定性图投影、图读取、原版图谱渲染、字典保存、原生修订冲突检查与任务权限拦截。
 
-**未启用**：`remember / recall / cognify / improve / forget` 业务管线、LLM 实体抽取、embedding、向量检索、自动跨来源消歧合并、长期记忆整理、OWL 导入接口。Cognee 的无 API Key 路径仍会下载并执行 GLiNER 与本地 embedding 模型；用户选择暂不启用新服务，因此本轮也不以“无 Key”为由启动这些模型。
+**未启用**：`remember / recall / cognify / improve / forget` 业务管线、**Cognee 原生** LLM 实体抽取、embedding、向量检索、自动跨来源消歧合并、长期记忆整理、OWL 导入接口。
+
+**已启用但与 Cognee 原生管线无关**：① `src/semantic-recall.ts` + `scripts/apple-embedding.swift` 用 macOS NaturalLanguage 设备端 300 维中英文词向量，对 recall 结果做语义加权（`system-status` 报 `vectorSearch: true`）；不写 Cognee、不下载模型、不调用外部服务。② `scripts/apple-vision.swift` + `scripts/vision-server.ts` 用 macOS Vision 设备端 OCR 与图像分类，提供只监听 `127.0.0.1:4190` 的独立视觉评审端点，供 FR-18 逐项核对截图内容。两者都是本机系统框架能力，不改变 L1 按 `sha256(sourceId@revision)` 物理隔离的边界，也不等于启用了 Cognee 的语义抽取或长期记忆管线。Cognee 的无 API Key 路径仍会下载并执行 GLiNER 与本地 embedding 模型；用户选择暂不启用新服务，因此本轮也不以“无 Key”为由启动这些模型。
 
 **已启用但不同层**：L2 组织图的自动抽取（`src/org-extraction.ts`）。它只调用 `KnowledgeGraph.readProjection()` 的 `op=read` 路径读**单个** `sourceId@revision` 的既有 Cognee 投影，按确定性规则把结构化字段、人审概念与显式谓词字典映射成带逐字原文引用的 **L2 草稿边**；不写入 L1、不调用 cognify/embedding、模型调用 0、草稿必须人验收才能作依据。经 `Workspaces.onSourceIndexed` 在已确认资料索引完成后自动触发，best-effort 且失败只写审计。这是产品层的组织语义投影，不是 Cognee 的语义实体抽取，因此不违背上一段的关闭边界。
 

@@ -6,7 +6,7 @@
 
 ## 0. 先说结论
 
-1. **已引入源码的 8 个上游，全部是 MIT 或 Apache-2.0，没有 GPL / AGPL / SSPL 等传染性协议**（逐个核对 6 个 submodule 的 LICENSE 与 3 份 `licenses/` 原文）。这是当前可以安全做私有集成的前提。
+1. **已引入源码的 9 个上游，全部是 MIT 或 Apache-2.0，没有 GPL / AGPL / SSPL 等传染性协议**（逐个核对 7 个 submodule 的 LICENSE 与各 `licenses/` 原文）。这是当前可以安全做私有集成的前提。
 2. **但"可以复用"不等于"协议相同"**：MIT 只要求保留版权与许可声明；Apache-2.0 还要求保留 NOTICE、标注修改，并带专利授权与专利报复条款。
 3. **最需要注意的一处**：`lobehub/lobehub` 主仓库**不是标准 Apache-2.0**，而是 **LobeHub Community License（Apache-2.0 + 附加条件）**，GitHub 标为 `Other`、非 OSI 开源；而其组织下的 `lobehub/acceptance` 是**独立的 Apache-2.0 仓库**。两者必须分开判断，不能因为同属 LobeHub 就按同一协议处理。
 4. 当前仓库为私有、不对外分发；**一旦产品化交付或对外发布，第 2 节 B 类项目必须重新评估**，其中 Outline (BSL 1.1) 与 LobeHub 主仓库的衍生分发限制会立刻生效。
@@ -25,6 +25,7 @@
 | Prime Agent | MIT | `74591cdd…` | submodule + **代码移植** | `harness.py` query runs/terms、`harness_digest.rs` 权重 → `src/vendor/prime-query.ts` | ✅ 全文（含 Mario Zechner 原始 MIT 声明）｜⚠️ **缺 `sources.lock.json` 条目**；移植文件须保留版权头 |
 | Cognee 1.6.6 | **Apache-2.0** | `525b1d11…` | submodule | LadybugAdapter、DataPoint/provenance、GraphVisualization、GraphSchema、BM25ChunksRetriever | ✅ `upstream/cognee/LICENSE` + `licenses/cognee-APACHE-2.0.txt` |
 | `@a2a-js/sdk` 1.3.0 | **Apache-2.0** | npm，gitHead `29417a5b…` | npm 依赖 | `DefaultRequestHandler`、`TaskStore`、`delegate_service` 原生委派 | ✅ `licenses/a2a-js-APACHE-2.0.txt` + lockfile 完整性 |
+| `lobehub/acceptance` | **Apache-2.0** | `f720feb…`（v0.10.0） | submodule | **验收计划 / 报告格式的契约与文件布局**；`src/acceptance-interop.ts`、`scripts/export-acceptance.ts` 做映射；不启动其 CLI / 云端报告服务 | ✅ `licenses/acceptance-APACHE-2.0.txt` + `THIRD_PARTY_NOTICES.md` 专节 + lock 条目 |
 
 **MIT 与 Apache-2.0 的差异（落地时必须体现）**
 
@@ -38,7 +39,6 @@
 | 项目 | 协议 | 参考了什么 | 为什么不能当代码复用 |
 |---|---|---|---|
 | **LobeHub `lobehub/lobehub`** | **Community License = Apache-2.0 + 附加条件**（GitHub 标 `Other`，非 OSI 开源） | Workspace+Task、Manager/Worker 三层汇报、L1–L5 自主度、两级事件过滤、运行时三层分离、Agent Vent、harness 自优化 | **见第 3 节**：允许"不修改源码地商用"，但**开发并分发衍生作品须取得商业授权**；贡献者还同意作者可调整协议。故只借产品思想，不复制、不 fork、不打包其源码 |
-| **`lobehub/acceptance`** | **Apache-2.0**（独立仓库，README 明确 `This project is Apache License 2.0 licensed`） | 开工前锁定验收计划、证据来源分类、独立评审模型（需视觉）、逐项判定、部分打回、打回沉淀自查 | 协议本身允许引入，**尚未引入**；引入动作见第 4 节。注意不要因为同组织就套用 Community License |
 | **Graphiti (getzep)** | Apache-2.0 | Episode、**边的 `valid_at` / `invalid_at` 双时间有效性**、supersession 语义 | 协议允许，但需 Neo4j/FalkorDB 与 LLM 服务，本版只借时间边模型，不部署整套；Cognee 有 `GraphitiSource` 可留作未来迁移 |
 | **OpenHands Software Agent SDK** | MIT | 执行服务与协作控制平面的边界 | 协议允许，但会引入第二套执行服务与 Python 运行时，本版不引入 |
 | **Outline** | **BSL 1.1**（source-available，非 OSI 开源，有生产使用限制与转换期） | collection/group、文档权限模型 | **明确禁止引入代码**；仅作权限设计参照（PRD R7、ADAPTATION 已标注） |
@@ -61,18 +61,22 @@
 - ✅ 可以：阅读其架构、借鉴「岗位 Agent / 三层汇报 / 注意力预算 / 组织体温闭环」这些**思想与方法**，在自研模块里重新实现。
 - ❌ 不可以：复制其源码、fork 后改品牌打包、把其组件随本产品一起分发。
 - ⚠️ 特别注意：本产品也是「AI 协作平台」，与 LobeHub 存在功能重叠；若未来要对外分发，建议把「借鉴了哪些概念、是否为独立实现」留一份设计溯源记录（本文件 + `ARCHITECTURE-v0.6.md` 已承担该作用）。
-- ✅ `lobehub/acceptance` 是**另一个仓库、另一份协议（Apache-2.0）**，可以独立评估引入，不受上述附加条件约束；但仍需单独保留其版权与 LICENSE 原文。
+- ✅ `lobehub/acceptance` 是**另一个仓库、另一份协议（Apache-2.0）**，不受上述附加条件约束；2026-11-06 已作为第七个 submodule 引入（`f720feb…`），单独保留版权、LICENSE 原文与声明，动作清单见第 4 节。
 
-## 4. 引入 Acceptance 的合规动作清单（FR-16~19 前置）
+## 4. Acceptance 引入的合规动作（2026-11-06 已完成）
 
-当前仓库**不存在** `upstream/acceptance`，`.gitmodules` 无该条目，`licenses/` 无其许可文件。若按 `ADAPTATION-v0.6.md` 建议引入，必须一次性完成：
+**状态：已引入。** `upstream/acceptance` 固定 commit `f720feb862bdbe3acc653bdedc297e20e08be1ae`（v0.10.0），`.gitmodules`、`sources.lock.json` 与 gitlink 三者一致，`npm run audit:upstream` 已纳入该条目检查。下面逐条核对当时的前置清单：
 
-1. 新增 submodule 并**锁定 commit**（不要跟随主分支），在 `.gitmodules` 与 `sources.lock.json` 同时登记 URL / commit / `license: Apache-2.0`。
-2. 保存 `LICENSE` 原文到 `licenses/acceptance-APACHE-2.0.txt`，并检查是否有 `NOTICE` 一并保留。
-3. 在 `THIRD_PARTY_NOTICES.md` 增加条目：版权归属（Copyright © 2026 LobeHub）、固定 commit、复用了哪些文件、保留了哪些边界（**不启动其 CLI / 云端报告服务**）。
-4. 在 `docs/SOURCES.md` 补充「实际复用 / 保留边界」一行。
-5. 只复用其**契约与报告格式**，本仓库的 `/accept` 发起人身份校验与「Agent 完成 ≠ 验收」红线不改动。
-6. 若不引入，则 FR-16~19 需自研同等契约，并在 PRD Q5 记录「不复用理由」。
+| # | 前置动作 | 落地结果 |
+|---|---|---|
+| 1 | submodule 锁 commit + 双处登记 | ✅ `.gitmodules` 登记 `upstream/acceptance`，`sources.lock.json` 记 URL / commit / `license: Apache-2.0`，不跟随主分支 |
+| 2 | 保存 LICENSE、检查 NOTICE | ✅ `licenses/acceptance-APACHE-2.0.txt` 为上游 `LICENSE` 原文；上游无 NOTICE 文件需随附 |
+| 3 | `THIRD_PARTY_NOTICES.md` 条目 | ✅ 新增 `## Acceptance (lobehub/acceptance) — Apache-2.0` 专节：Copyright © 2026 LobeHub、固定 commit、实际复用内容、未启动 CLI / 云端报告服务 |
+| 4 | `docs/SOURCES.md` 补一行 | ✅ 已补「实际复用 / 保留边界」 |
+| 5 | 只复用契约与报告格式 | ✅ `src/acceptance-interop.ts` 做计划 / 报告映射、校验与 bundle 写入，`scripts/export-acceptance.ts` 导出；`/accept` 发起人身份校验与「Agent 完成 ≠ 验收」红线未改动 |
+| 6 | 若不引入则记录不复用理由 | — 已引入，本条不适用 |
+
+**复用边界（仍未启用 / 不得宣称）**：不启动 Acceptance 的 CLI 与云端报告服务；独立评审者必须不同于产出模型；自撰证据一律拒绝；导出的 bundle 是本机 `.runtime` 产物，不是生产发布或真实业务最终验收。
 
 ## 5. 当前声明缺口与修正状态
 
@@ -84,7 +88,7 @@
 | G4 | 用户自有原型 `ai_bridge.py` / `knowledge.py` 权属未声明 | `src/evidence.ts` 的迁移来源缺书面依据 | ✅ 已在本文件与 notices 标注为用户自有、经授权迁移 |
 | G5 | Alice 研究包 manifest 标 MIT、完整许可未核实 | 静态恢复不等同原厂授权证明 | ✅ 保持「仅设计参考、不复制代码、不宣称已授权」 |
 | G6 | npm 传递依赖未做全量法律审计 | `THIRD_PARTY_NOTICES.md` 已声明该边界 | ⬜ 发行前需单独做一次依赖扫描 |
-| G7 | Acceptance 未引入、协议动作未做 | FR-16~19 目前是自研契约 | ⬜ 见第 4 节，P1 决策 |
+| G7 | Acceptance 未引入、协议动作未做 | FR-16~19 目前是自研契约 | ✅ 已引入 submodule `f720feb…` 并按第 4 节补齐全部协议材料；契约映射与导出已可运行 |
 
 ## 6. 工程红线 R7：新增依赖的检查清单
 
@@ -102,7 +106,7 @@
 | 功能 | 可复用对象 | 协议是否允许 | 动作 |
 |---|---|---|---|
 | FR-25/27 事件流水与成本归因 | DeepSeek Harness output-retention、Autoloop 回执（MIT） | ✅ | 已引入；本轮自研 `event-stream.ts` / `trace-bridge.ts` 适配层 |
-| FR-16~19 证据化验收 | `lobehub/acceptance`（Apache-2.0） | ✅ | 待按第 4 节引入；当前用自研契约，默认关闭 |
+| FR-16~19 证据化验收 | `lobehub/acceptance`（Apache-2.0） | ✅ | 已引入 submodule；`src/acceptance-interop.ts` 映射契约与报告格式，独立评审链已可运行，本机实例已开 `independent`；仓库默认仍可用 `legacy` 一行回退 |
 | FR-06/08 知识底座 | Cognee（Apache-2.0） | ✅ | 已引入；新增边状态层为自研 |
 | FR-09 图谱边状态 / 失效 | Graphiti 双时间边语义（Apache-2.0） | ✅（借语义） | 不部署其服务，只借模型 |
 | FR-11/12 Transfer 责任链 | `@a2a-js/sdk`（Apache-2.0） | ✅ | 已引入；Transfer 对象自研 |

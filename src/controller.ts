@@ -16,6 +16,19 @@ import{acceptanceChainEnabled,reviewerIdFor,type VisualArtifact}from'./visual-re
 import{assertReviewerCapable}from'./independent-review.ts';
 import type { V06Services } from './v06.ts';
 
+/**
+ * Business acceptance items are declared in the originating IM message as
+ * `验收：A；B`. Chinese messages commonly attach it to the previous sentence
+ * with no whitespace (`…方案。验收：…`), which the old `\s` guard missed and
+ * silently replaced with the generic "符合任务要求" item. Keep the extraction
+ * in one pure function so the sealed plan always reflects what the human asked.
+ */
+export function businessAcceptanceFrom(text: string): string[] {
+  const line = /(?:^|[\s。；;，,、])验收[:：]\s*(.+)$/m.exec(text)?.[1];
+  const items = line ? line.split(/[；;]/).map(s => s.trim()).filter(Boolean).slice(0, 12) : [];
+  return items.length ? items : ['符合任务要求'];
+}
+
 export function validateAcceptance(task: Task, sha: string, cases: { name: string; passed: boolean }[]) {
   const d = task.delivery;
   if (!d || d.ci !== 'passed' || !d.deployedSha || sha !== d.headSha || sha !== d.deployedSha) throw new Error('Acceptance must target the deployed, CI-verified commit');
@@ -84,8 +97,7 @@ export class Controller {
     const linked = this.store.list().find(t => t.id === issue.id);
     if (linked && linked.triggerId !== input.triggerId) throw new Error('Paperclip returned a task linked to a different source event');
     const prepared = await this.github.prepare(issue.id);
-    const acceptanceLine = /(?:^|\s)验收[:：]\s*(.+)$/m.exec(input.text)?.[1];
-    const businessAcceptance = acceptanceLine ? acceptanceLine.split(/[；;]/).map(s => s.trim()).filter(Boolean).slice(0, 12) : ['符合任务要求'];
+    const businessAcceptance = businessAcceptanceFrom(input.text);
     const context = JSON.stringify({ schemaVersion: 1, taskId: issue.id, identifier: issue.identifier, request: input.text,
       repository: this.config.repository, baseSha: prepared.baseSha, allowedPaths: this.config.allowedPaths,requesterUserId:input.requesterUserId,
       businessAcceptance, systemAcceptance: ['指定提交 CI 通过', '预览版本与交付提交一致'],

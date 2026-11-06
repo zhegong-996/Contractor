@@ -44,11 +44,21 @@ export const configSchema = z.object({
       timeoutMs: z.number().int().min(1000).max(60000).default(15000),
     }).default(() => ({ mode: 'structural' as const, model: 'structural-vision-reviewer', timeoutMs: 15000 })),
   }).optional(),
-  // v0.6 P3: observe every assistant turn and worker receipt through the
-  // attention-budget / Watchdog contracts. Enforcement (suppressing low-value
-  // notifications) stays off until a real journey proves it cannot stall a
-  // task that is waiting for a human answer.
-  runtimeGuard: z.object({ enforce: z.boolean().default(false) }).optional(),
+  // v0.6 runtime guard. Enforcement is ON by default now that the notification
+  // gateway protects every human-required message: low-value / self-progress
+  // outbox rows are suppressed, while ask / preview / accept / PR / grant
+  // requests and anything waiting on a human are always delivered.
+  runtimeGuard: z.object({
+    enforce: z.boolean().default(true),
+    protectHumanNotifications: z.boolean().default(true),
+  }).default(() => ({ enforce: true, protectHumanNotifications: true })),
+  // Local, on-device semantic recall. No external model API is started.
+  knowledge: z.object({
+    semanticRecall: z.object({
+      enabled: z.boolean().default(true),
+      weight: z.number().min(0).max(1).default(0.45),
+    }).default(() => ({ enabled: true, weight: 0.45 })),
+  }).default(() => ({ semanticRecall: { enabled: true, weight: 0.45 } })),
   // L2 organisation-graph extraction. The default adapter is deterministic:
   // no model service is started and Cognee L1 stays read-only and isolated.
   orgExtraction: z.object({

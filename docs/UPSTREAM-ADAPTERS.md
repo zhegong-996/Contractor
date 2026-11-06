@@ -7,7 +7,7 @@
 
 上游 = 固定 submodule 提交 + 原版 LICENSE/NOTICE；**适配层 = 本仓库独立文件**。新增能力一律落在适配层，改上游源码、把上游文件复制进 `src/`、或起第二个调度核心都在工程红线 R2 之外。`npm run audit:upstream` 会把这条边界机器化校验（gitlink vs 锁文件、工作树是否干净、许可证与声明是否齐全、L2 抽取是否只读）。
 
-## 2. 六个已引入上游与适配层分组
+## 2. 七个已引入上游与适配层分组
 
 | 上游（协议 / 固定提交） | 复用能力 | 我们的适配层（按分组） | 是否改上游 |
 |---|---|---|---|
@@ -17,10 +17,11 @@
 | **Prime Agent** MIT `74591cddef28` | 检索词权重、近期目标权重 | `src/vendor/prime-query.ts`、消费方 `src/team-memory.ts` | 否 |
 | **DeepSeek Harness** MIT `fcc0ad462172` | 输入保留与序列化、参考信封序列化 | `src/upstream.ts`、`src/harness-composition.ts`；动态包边界避免把未使用的宿主及 peer 依赖拉进类型检查 | 否 |
 | **Cognee 1.6.6** Apache-2.0 `525b1d1179c5` | DataPoint、Ladybug 图存储、provenance、GraphSchema/JSON Schema、BM25 检索 | ① 运行时：`src/graph.ts`、`src/ontology.ts`、`src/team-memory.ts`；② Python RPC：`scripts/cognee-graph.py`、`scripts/cognee-recall.py`；③ 安装：`scripts/setup-graph.ts`；④ **新增 L2 抽取**：`src/org-extraction.ts` | 否 |
+| **Acceptance** Apache-2.0 `f720feb862bd` | 开工前锁定验收计划、证据来源分类、逐项判定与报告/产物格式的**契约与文件布局** | `src/acceptance-interop.ts`（计划/报告映射、校验、bundle 写入）、`scripts/export-acceptance.ts`（`npm run acceptance:export`）；上游 `plugin.json` / `report-schema.md` 只作格式参照 | 否 |
 
 另有 npm 依赖 `@a2a-js/sdk` 1.3.0（Apache-2.0，服务 Agent 网络）、`@modelcontextprotocol/sdk` 1.31.0、Zod 等，许可证原文保留在 `licenses/`，声明在 `THIRD_PARTY_NOTICES.md`。
 
-**只借思想、不引代码**：LobeHub 主仓库（Community License，非 OSI）、`lobehub/acceptance`（独立 Apache-2.0，本版仍未引入）、Graphiti（Apache-2.0，双时间边语义）、OpenHands SDK（MIT）、Outline（BSL 1.1，禁止引代码）。
+**只借思想、不引代码**：LobeHub 主仓库（Community License，非 OSI）、Graphiti（Apache-2.0，双时间边语义）、OpenHands SDK（MIT）、Outline（BSL 1.1，禁止引代码）。注意 `lobehub/acceptance` 是**同组织下的另一个仓库、另一份 Apache-2.0 协议**，已作为第七个 submodule 引入，不受 LobeHub 主仓库附加条件约束；其 CLI 与云端报告服务未启动。
 
 ## 3. 按职责看适配层目录
 

@@ -17,6 +17,7 @@
 // Both produce the same per-item verdict shape and both flow into
 // acceptance-round.evaluateRound. A reviewer NEVER approves a task (R3/R4).
 import { createHash } from 'node:crypto';
+import { request as httpRequest } from 'node:http';
 import { z } from 'zod';
 import type { Config } from './config.ts';
 import { eventId, type CollabEvent } from './event-stream.ts';
@@ -115,7 +116,34 @@ export class LocalModelVisionAdapter implements VisualReviewAdapter {
     const url = new URL(endpoint);
     if (!['localhost', '127.0.0.1', '::1'].includes(url.hostname))
       throw new Error('视觉评审端点只能是本机地址；真实业务材料不得发送到未批准的外部服务');
+    if (url.protocol !== 'http:')
+      throw new Error('本机视觉端点只使用 http 直连，不接受经由 TLS/代理的地址');
     this.id = reviewerId ?? `local-vision:${model}`;
+  }
+
+  /**
+   * Deliberately uses node:http rather than global fetch: an HTTP_PROXY in the
+   * host environment would otherwise route screenshots (real business
+   * material) through a proxy and fail with "bad port" on a loopback URL.
+   * A local endpoint must never be proxied or leave this machine.
+   */
+  private post(body: string, apiKey: string): Promise<{ status: number; text: string }> {
+    const url = new URL(this.endpoint);
+    return new Promise((resolve, reject) => {
+      const req = httpRequest({ hostname: url.hostname, port: url.port || 80,
+        path: url.pathname + url.search, method: 'POST', timeout: this.timeoutMs,
+        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body),
+          ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}) },
+      }, response => {
+        let text = '';
+        response.setEncoding('utf8');
+        response.on('data', chunk => { text += chunk; });
+        response.on('end', () => resolve({ status: response.statusCode ?? 0, text }));
+      });
+      req.on('timeout', () => req.destroy(new Error('本机视觉评审模型超时')));
+      req.on('error', reject);
+      req.end(body);
+    });
   }
   async review(request: VisualReviewRequest): Promise<VisualReviewOutput> {
     const apiKey = process.env.SUITME_VISION_API_KEY ?? '';
@@ -125,17 +153,22 @@ export class LocalModelVisionAdapter implements VisualReviewAdapter {
       items: request.plan.items,
       events: request.events.map(e => ({ id: eventId(e), kind: e.kind, evidenceKind: e.evidenceKind, outcome: e.outcome })),
       artifacts: request.artifacts.map(({ bytesBase64, ...rest }) => ({ ...rest })),
+      // Each decoded image maps 1:1 to the artifact that supplied its bytes,
+      // so the local reviewer can bind verdict refs to the right trace event.
+      visualImages: request.artifacts.filter(a => a.bytesBase64 && a.kind === 'screenshot')
+        .map(a => ({ eventId: a.eventId, itemId: a.itemId, kind: a.kind })),
       outputSchema: '{"verdicts":[{"itemId":"","status":"passed|failed|blocked","reason":"","refs":[]}],"limitations":[]}',
     }) }];
     for (const artifact of request.artifacts) if (artifact.bytesBase64 && artifact.kind === 'screenshot')
       content.push({ type: 'image_url', image_url: { url: `data:${artifact.mimeType ?? 'image/png'};base64,${artifact.bytesBase64}` } });
-    const response = await fetch(this.endpoint, {
-      method: 'POST', headers: { 'Content-Type': 'application/json', ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}) },
-      body: JSON.stringify({ model: this.model, messages: [{ role: 'user', content }], temperature: 0 }),
-      signal: AbortSignal.timeout(this.timeoutMs),
-    });
-    if (!response.ok) throw new Error(`视觉评审模型返回 ${response.status}`);
-    const payload: any = await response.json();
+    const response = await this.post(JSON.stringify({
+      model: this.model, messages: [{ role: 'user', content }], temperature: 0,
+    }), apiKey);
+    if (response.status < 200 || response.status >= 300)
+      throw new Error(`视觉评审模型返回 ${response.status}`);
+    let payload: any;
+    try { payload = JSON.parse(response.text); }
+    catch { throw new Error('本机视觉评审模型返回了非 JSON 响应'); }
     const text = String(payload?.choices?.[0]?.message?.content ?? '').replace(/^```(?:json)?|```$/g, '').trim();
     let parsed: unknown;
     try { parsed = JSON.parse(text); } catch { throw new Error('视觉评审模型输出不是合法 JSON'); }

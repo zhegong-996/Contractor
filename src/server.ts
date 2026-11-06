@@ -55,11 +55,11 @@ workspaces.onSourceIndexed = async (sourceId, revision) => {
   if (config.orgExtraction.enabled === false) return;
   await v06.l2Extract({ sourceId, revision, actor: 'l2-auto-index', space: 'default' });
 };
-// Observation-only by default: see config.runtimeGuard and runtime-bridge.ts.
+// Enforced by default; human-required notifications are always delivered.
 const guard = new RuntimeGuardBridge(store, async space => {
   const [attention, watchdog] = await Promise.all([v06.attentionPolicy(space), v06.watchdogPolicy(space)]);
   return { attention: attention.policy, watchdog: watchdog.policy };
-}, config.runtimeGuard?.enforce === true);
+}, config.runtimeGuard.enforce, config.runtimeGuard.protectHumanNotifications);
 const ingest = async (input: unknown) => (await collaborationIntake.ingest(input)) ?? control.ingest(input);
 let feishuState = config.feishu.enabled ? 'connecting' : 'disabled';
 let tail: Promise<unknown> = Promise.resolve();
@@ -105,7 +105,7 @@ const server = createServer(async (req, res) => {
       const action = url.pathname.slice('/workspace/'.length);
       // Reads recheck their own scope and revisions. They need not wait behind
       // indexing or native process reconciliation; mutations keep the single lane.
-      const v06Reads=['roles-view','role-route','role-hints','role-snapshot','transfer-view','transfer-policy','dispatch-guard','grant-widen','grant-check','edges-view','edge-impact','label-check','policy-view','verification-level','topology-advice','inflight-policy','signals','review-readiness','ontology-meta','ontology-view','ontology-query','attention-policy','attention-filter','watchdog-policy','watchdog-inspect','plan-view','round-view','org-overview','context-pack','l2-status','l2-edges-view','l2-graph-view'];
+      const v06Reads=['roles-view','role-route','role-hints','role-snapshot','transfer-view','transfer-policy','dispatch-guard','grant-widen','grant-check','edges-view','edge-impact','label-check','policy-view','verification-level','topology-advice','inflight-policy','signals','review-readiness','ontology-meta','ontology-view','ontology-query','attention-policy','attention-filter','watchdog-policy','watchdog-inspect','plan-view','round-view','acceptance-export','org-overview','context-pack','l2-status','l2-edges-view','l2-graph-view'];
       const readOnly=['view','team-members','agent-services','agent-build','development-view','network-view','memory-status','memory-search','memory-annotations','context-pack','context-record','context-search','ontology-view','model-settings','system-status','trace-view'].includes(action)||action==='knowledge-graph'&&payload.project!==true||action.startsWith('v06-')&&v06Reads.includes(action.slice(4));
       const runWorkspace=readOnly?<T>(job:()=>Promise<T>)=>withFeishuReads(job):serialize;
       res.end(JSON.stringify(await runWorkspace(async () => {
@@ -149,10 +149,16 @@ const server = createServer(async (req, res) => {
             storage: { primary: 'PostgreSQL（本机持久化）', events: 'SQLite', configuration: '本机配置文件', wiki: '本机 Markdown 目录',
               databaseBackup: health.databaseBackup?.status ?? 'unknown', offsiteRestoreVerified: false },
             records: Object.fromEntries(['tasks', 'events', 'outbox', 'audit'].map(table => [table, store.db.prepare('SELECT COUNT(*) n FROM ' + table).get()!.n])),
-            integrations: { modelApi: false, embedding: false, vectorSearch: false, objectStorage: false, multiUserSso: false },
+            integrations: { modelApi: false, embedding: 'Apple NL 设备端词向量（本机）', vectorSearch: true,
+              visionReviewer: config.acceptance?.visualReviewer?.mode === 'model' ? 'Apple Vision 本机端点' : '结构式',
+              objectStorage: false, multiUserSso: false },
             knowledgeEngine: { name: 'Cognee', commit: cogneeCommit, storage: 'Ladybug', installed: existsSync(runtime('cognee-venv', 'bin', 'python')),
               sourceRevisionGraphs: existsSync(runtime('knowledge-graph')) ? readdirSync(runtime('knowledge-graph')).filter(name => /^[a-f0-9]{64}$/.test(name) && existsSync(runtime('knowledge-graph', name, 'ready.json'))).length : 0,
-              automaticExtraction: false, semanticRecall: false, lexicalRecall: true, reviewedConceptRelations: true, automaticConfirmedKnowledgeIndexing:true,
+              automaticExtraction: false, semanticRecall: config.knowledge.semanticRecall.enabled,
+              semanticEngine: 'Apple NaturalLanguage 设备端中英文词向量 + Cognee BM25 混合（降级：本地字符二元组哈希向量）',
+              externalLlmCalls: 0,
+              lexicalRecall: true, reviewedConceptRelations: true, automaticConfirmedKnowledgeIndexing:true,
+              runtimeGuardEnforced: config.runtimeGuard.enforce,
               l2OrganisationExtraction: { enabled: config.orgExtraction.enabled, mode: config.orgExtraction.mode,
                 autoRunOnIndex: config.orgExtraction.autoRunOnIndex, modelCalls: 0 } },
             upstream: { name: 'Paperclip', version: health.version, commit: health.commit } };
@@ -255,7 +261,7 @@ const server = createServer(async (req, res) => {
       if (!actor.admin) throw new Error('Unauthorized'); const data = await body(req);
       res.end(JSON.stringify(await serialize(() => ingest(data)))); return;
     }
-    const match = /^\/tasks\/([^/]+)(?:\/(claim|receipt|publish|sync|preview|accept|handoff|reply|reconcile|knowledge-propose|knowledge-review|knowledge-attach))?$/.exec(url.pathname);
+    const match = /^\/tasks\/([^/]+)(?:\/(claim|receipt|publish|sync|preview|accept|handoff|reply|reconcile|review|trace|knowledge-propose|knowledge-review|knowledge-attach))?$/.exec(url.pathname);
     if (!match) { res.statusCode = 404; res.end(JSON.stringify({ error: 'Not found' })); return; }
     const task = store.get(match[1]!);
     if (!actor.admin && task.agent !== actor.agent) throw new Error('Task belongs to another agent');
@@ -263,6 +269,25 @@ const server = createServer(async (req, res) => {
     if (req.method !== 'POST') throw new Error('Method not allowed');
     const data = await body(req); const action = match[2];
     const result = await serialize(async () => {
+      // v0.6 FR-16~19: run the registered independent reviewer against the
+      // sealed plan and the real trace. This only writes a per-item evidence
+      // report; the final approval stays with the originator's /accept.
+      if (action === 'review') {
+        if (!actor.admin) throw new Error('Unauthorized: 独立评审只由本地 owner 触发');
+        const artifacts = Array.isArray(data.visualArtifacts) ? data.visualArtifacts : [];
+        return control.runIndependentReview(task.id, artifacts);
+      }
+      // Trusted execution endpoints (CLI / harness) may append a captured
+      // event to the read-only trace projection. The task identity comes from
+      // the URL, never from the payload; invalid fields are rejected instead
+      // of being silently normalised into evidence.
+      if (action === 'trace') {
+        if (!actor.admin) throw new Error('Unauthorized: 只有本地 owner 可登记捕获事件');
+        const { capture } = await import('./event-stream.ts');
+        const event = capture({ ...(data.event ?? data), taskId: task.id }).event;
+        if (!event) throw new Error('事件字段不完整，未写入过程流水');
+        return control.recordTraceEvent(task.id, event);
+      }
       if (action === 'knowledge-propose') return task.kind === 'collaboration' ? workspaces.propose(task.id, data, actor) : knowledge.propose(store.get(task.id), data, actor.agent ?? 'local-operator', reader);
       if (action === 'knowledge-review' || action === 'knowledge-attach') {
         if (task.kind === 'collaboration') throw new Error('请通过知识协作入口处理来源依赖与确认');
@@ -320,6 +345,17 @@ async function deliver() {
   for (const row of rows) {
     const task = store.get(row.issue_id);
     if (!task.messageId.startsWith('om_')) { store.db.prepare("UPDATE outbox SET state='local_only' WHERE id=?").run(row.id); continue; }
+    // v0.6 FR-22: attention budget is enforced on the real IM outbox. Human
+    // questions / acceptance / grant requests always bypass the filter.
+    let gate: Awaited<ReturnType<typeof guard.gateNotification>>;
+    try {
+      gate = await guard.gateNotification({ taskId: row.issue_id, notificationId: row.id, summary: row.text });
+    } catch { gate = { deliver: true, reason: '护栏不可用，安全起见照常发送', mustDeliver: true } as any; }
+    if (!gate.deliver) {
+      store.db.prepare("UPDATE outbox SET state='suppressed' WHERE id=?").run(row.id);
+      store.audit('v06.notification-suppressed', row.issue_id, { notificationId: row.id, reason: gate.reason });
+      continue;
+    }
     await sendFeishu({ commands: { lark: async (args: string[]) => {
       const result = JSON.parse(await command('lark-cli', ['--profile', config.feishu.profile, ...args, '--as', 'bot', '--format', 'json']));
       if (!result.ok) throw new Error(result.error?.message ?? 'Feishu reply failed'); return result.data;

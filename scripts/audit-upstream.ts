@@ -31,6 +31,7 @@ const ADAPTERS: Record<string, string[]> = {
   'deepseek-harness': ['src/upstream.ts', 'src/harness-composition.ts'],
   cognee: ['src/graph.ts', 'src/org-extraction.ts', 'src/ontology.ts', 'src/team-memory.ts',
     'scripts/cognee-graph.py', 'scripts/cognee-recall.py', 'scripts/setup-graph.ts'],
+  acceptance: ['src/acceptance-interop.ts', 'src/v06.ts', 'scripts/export-acceptance.ts'],
 };
 
 for (const submodulePath of paths) {
@@ -43,7 +44,10 @@ for (const submodulePath of paths) {
     problems.push(`${name}: 许可证 ${entry.license} 不在已评审的 MIT / Apache-2.0 白名单`);
   if (!flat(notices).includes(flat(name)))
     problems.push(`${name}: THIRD_PARTY_NOTICES.md 未提及`);
-  const gitlink = git('ls-tree', 'HEAD', submodulePath).split(/\s+/)[2] ?? '';
+  // Use the index (not HEAD) so a newly pinned submodule can be audited
+  // before its commit lands; after commit the index equals HEAD.
+  const indexLine = git('ls-files', '-s', submodulePath);
+  const gitlink = indexLine.split(/\s+/)[1] ?? '';
   if (gitlink !== entry.commit)
     problems.push(`${name}: gitlink ${gitlink.slice(0, 12)} 与锁文件 ${entry.commit.slice(0, 12)} 不一致`);
   const head = git('-C', submodulePath, 'rev-parse', 'HEAD');
@@ -53,11 +57,17 @@ for (const submodulePath of paths) {
   notes.push(`${name}: ${entry.license} @ ${entry.commit.slice(0, 12)} · 适配层 ${(ADAPTERS[name] ?? []).length} 个文件`);
 }
 
-const dirty = git('status', '--porcelain', 'upstream');
-if (dirty) problems.push(`upstream/ 工作树存在改动或未跟踪内容：\n${dirty}`);
+// A staged gitlink (new/updated submodule) is normal; what must stay clean is
+// each upstream worktree itself. Check those instead of the parent index.
+for (const submodulePath of paths) {
+  let inner = '';
+  try { inner = git('-C', submodulePath, 'status', '--porcelain'); }
+  catch (error) { problems.push(`${submodulePath}: 无法读取上游工作树状态：${String(error).split('\n')[0]}`); continue; }
+  if (inner) problems.push(`${submodulePath}: 上游工作树存在改动或未跟踪内容：\n${inner}`);
+}
 
 for (const file of ['THIRD_PARTY_NOTICES.md', 'licenses/cognee-APACHE-2.0.txt',
-  'licenses/a2a-js-APACHE-2.0.txt', 'licenses/harness-vendor-MIT.txt'])
+  'licenses/a2a-js-APACHE-2.0.txt', 'licenses/harness-vendor-MIT.txt', 'licenses/acceptance-APACHE-2.0.txt'])
   if (!existsSync(path.join(root, file))) problems.push(`缺少声明/许可证文件 ${file}`);
 for (const file of readdirSync(path.join(root, 'licenses'))) {
   const text = readFileSync(path.join(root, 'licenses', file), 'utf8');
