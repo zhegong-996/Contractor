@@ -36,11 +36,15 @@
     "typecheck": "tsc --noEmit",
     "build": "tsc --noEmit",
     "org:preview": "node --import tsx scripts/org-mapping.ts preview",
+    "org:auth": "node --import tsx scripts/org-auth.ts",
+    "org:table": "node --import tsx scripts/org-table.ts",
     "org:apply": "node --import tsx scripts/org-mapping.ts apply",
     "acceptance:list": "node --import tsx scripts/acceptance-report.ts list",
     "acceptance:report": "node --import tsx scripts/acceptance-report.ts report",
     "acceptance:serve": "node --import tsx scripts/acceptance-report.ts serve",
-    "acceptance:self-check": "node --import tsx scripts/acceptance-report.ts self-check"
+    "acceptance:self-check": "node --import tsx scripts/acceptance-report.ts self-check",
+    "delivery:serve": "node --import tsx scripts/delivery-server.ts",
+    "delivery:demo": "node --import tsx scripts/delivery-demo.ts"
   },
   "dependencies": {
     "@a2a-js/sdk": "1.3.0",

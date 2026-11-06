@@ -11,7 +11,7 @@
 
 | 上游（协议 / 固定提交） | 复用能力 | 我们的适配层（按分组） | 是否改上游 |
 |---|---|---|---|
-| **Paperclip** MIT `0eaabe5c0b37` | 原生任务/审批/文档修订、Plugin SDK、LLM Wiki、成本账本 | ① 运行时：`src/paperclip.ts`、`src/store.ts`、`src/controller.ts`、`src/server.ts`、`src/commands.ts`；② 前端插件：`plugins/knowledge-workspaces/src/ui/*`、`src/worker.ts`；③ 构建期中文壳：`scripts/build-chinese-shell.ts` + `locales/shell.zh-CN.json`；④ 安装：`scripts/install-workspace-plugin.ts`、`scripts/install-wiki.ts` | 否 |
+| **Paperclip** MIT `0eaabe5c0b37` | 原生任务/审批/文档修订、Plugin SDK、LLM Wiki、成本账本 | ① 运行时：`src/paperclip.ts`、`src/store.ts`、`src/controller.ts`、`src/server.ts`、`src/commands.ts`；② 前端插件：`plugins/knowledge-workspaces/src/ui/*`、`src/worker.ts`；③ 构建期中文壳：`scripts/build-chinese-shell.ts` + `locales/shell.zh-CN.json` + `src/shell-domestic.ts`（国内入口收敛）；④ 安装：`scripts/install-workspace-plugin.ts`、`scripts/install-wiki.ts`；⑤ 本机代码交付：`src/local-git.ts`、`scripts/delivery-server.ts` 实现与 `src/github.ts` 相同的 `DeliveryAdapter` | 否 |
 | **DSH Super-agent** MIT `8c32a9dc5d72` | 飞书触发解析、会话线程键、出站通知、settingsPolicy / assessmentOutcome | `src/upstream.ts`、`src/feishu-sources.ts`（出站只把超长通知标识映射成飞书允许的稳定幂等键） | 否 |
 | **Agent Autoloop** MIT `ba8cf6d8cf24` | worker 契约、原生进程执行与回执恢复、CLI 适配器 | `src/upstream.ts`、`src/native-worker.ts`、`src/assistant-turn.ts` | 否 |
 | **Prime Agent** MIT `74591cddef28` | 检索词权重、近期目标权重 | `src/vendor/prime-query.ts`、消费方 `src/team-memory.ts` | 否 |

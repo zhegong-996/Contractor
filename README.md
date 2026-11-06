@@ -15,7 +15,7 @@
 - **DeepSeek Harness 原版模块**：Agent 身份与工作方法的作用域装配、提示词与工具限制、原生工具执行管线；[构建与执行边界](docs/AGENT-BUILDING.md)。
 - **Autoloop 原版模块**：原版 worker、Codex/Claude/通用命令/ACP 适配器、进程与结果日志、会话接续和回执恢复。
 - **Cognee 原版模块**：Ladybug 图存储、DataPoint、来源追踪、图谱渲染与知识字典模型；**L2 组织图只读自动抽取**（确定性、0 模型调用）已接入，Cognee 原生 LLM 实体抽取、embedding 与语义记忆管线暂不启用。详见 [上游适配清单](docs/UPSTREAM-ADAPTERS.md)。
-- **本仓库接入层**：原系统之间的身份和任务映射、交接包、限定范围的 GitHub 交付、版本证据和业务验收。
+- **本仓库接入层**：原系统之间的身份和任务映射、交接包、限定范围的本机 Git 代码交付、版本证据和业务验收。
 
 上游作为 Git submodule 固定到提交，不复制整套调度器。实际复用文件和版本见 [来源记录](docs/SOURCES.md)。
 
@@ -133,8 +133,27 @@ npm run acceptance:report -- <任务ID>          # 生成中文 HTML 逐项报�
 npm run acceptance:serve                      # 只监听 127.0.0.1:4192 的只读报告服务
 npm run acceptance:self-check -- <round.json> # 把打回原因沉淀为下次自查标准
 npm run org:preview                           # 读取当前授权范围可见的飞书成员，生成草案
+npm run org:auth                              # 生成补齐部门 scope 的登录命令（携带现有全部 scope）
+npm run org:table -- --exclude "已离职成员"    # 记录 owner 核对结论并生成组织表
 npm run org:apply -- <org-table.json>         # 组织 owner 人工确认后导入职能注册表
+npm run delivery:serve                        # 本机 Git 服务 + 中文代码交付台（127.0.0.1:4194）
+npm run delivery:demo                         # 真跑一遍 clone/pull、push、本机 CI、审批与预览
 ```
+
+### 本机代码交付（国内环境默认）
+
+`delivery.provider` 默认 `local`，不需要 GitHub 账号、token 或海外网络。`npm run delivery:serve` 在 `127.0.0.1:4194` 起中文交付台，同时启动 `git://127.0.0.1:9418/suitme-collab.git`（只绑 loopback），可以 `git clone` / `pull` / `push`：
+
+```sh
+git clone git://127.0.0.1:9418/suitme-collab.git
+git push git://127.0.0.1:9418/suitme-collab.git HEAD:refs/heads/你的分支
+```
+
+交付台提供提交与分支查看、**本机 CI**（提交存在 / 允许路径 / 与 main 无冲突）、合并审批（同意 / 打回 / 登记合并）、通知记录与固定到确切提交的预览。控制器通过 `DeliveryAdapter` 注入该实现，`prepare/publish/inspect/preview` 四个动作与原有 GitHub 适配器一致；已有部署可显式设置 `delivery.provider=github` 回退。**合并审批不等于业务验收**，业务验收仍由原发起人在原会话「确认验收」。
+
+### 前端国内适配
+
+`npm run install:upstream` 与 `npm run up` 都会保证中文壳生效（上游重新构建覆盖后自动重建一次）。构建期收敛 Paperclip 侧栏的技能库 / 连接服务入口，运行时用同源静态资源过滤页面里**未连接**的海外集成卡片；两者都不改上游源码。设置里的「国内服务」只给已实测接通的服务入口（例如交付台通过 `delivery-status` 探测成功才显示链接），**未接通的服务只做文字说明，不放可点空壳**。
 
 启动后打开 `http://127.0.0.1:4192/overview` 可看到本机成果总览：实时探测 Paperclip `3100`、Bridge `4180`、Apple Vision `4190`、报告服务 `4192`，并展示当前验收链配置、中文指令清单（与 `USER_HELP` 同源）、按清单确认验收的四步、脱敏的飞书组织草案摘要与归档报告入口。总览页只读、只绑 loopback，不展示真实姓名与 `open_id`。本机实例的 `acceptance.mode=independent` 依赖 `4190` 视觉端点，需先运行 `npm run vision:start`；端点停机时独立评审链会失败而不是自动降级。
 

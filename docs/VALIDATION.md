@@ -160,3 +160,34 @@ Wiki 原生 `bootstrap-root` 在这个固定版本会创建带不兼容设置的
 - 总览页是**状态展示**，不是验收动作：没有替任何真人「确认验收」，没有导入组织表，没有创建新的真实业务任务，没有向飞书发消息。
 - 4190 视觉评审只提供证据与逐项判定；`confirmAcceptance` 仍未由真人在真实业务单上执行，第五轮 SUI-129 仍保持未最终核可；仓库默认仍是 `legacy` 可一行回退。
 - 所有服务只绑 `127.0.0.1`；`lobehub/acceptance` 的 CLI 与云端报告服务、生产发布与真实 PR / CI、真实员工多租户、Cognee 原生模型管线、L2 在真实新资料上的端到端触发仍未发生。
+
+## 2026-11-06：组织映射导入、国内前端适配与本机代码交付（第八轮）
+
+### 1. 组织 owner 核对并完成导入
+
+- owner 明确 **2 名成员已不在组织内**，只导入其余 **3 人**（真实姓名与标识只在 `.runtime`，不进仓库）。其中 1 人按姓名绑定到注册表已有的「增长」成员 ID（跨应用 `open_id` 不自动合并），另 2 人以草案 `open_id` 新增为「产研」；部门字段留空，如实标注 scope 未授权。
+- `npm run org:table` 把 owner 决策写入 `.runtime/v06/org-owner-decisions.json`，`FeishuOrgService.preview()` 读取该决策，**下次预览只剩 3 人**（实测 `excludedByOwner` 含 2 项），历史会话成员不会被反复带回。
+- `npm run org:apply` 实测 `imported: 3`、`registryVersion: 2`、`registeredMembers: 3`，`v06-org-mapping-view.applied` 已有记录；已有成员的派生领域未被覆盖。真实姓名与 `open_id` 只在 `.runtime`，不进仓库。
+- **修掉一个危险命令**：原 `ORG_AUTH_HINT` 只带 2 个新 scope，飞书重新登录会把已授予的 **162 个 scope 全部冲掉**。新增 `npm run org:auth`，生成携带现有全部 scope + 缺失 scope 的登录命令（默认只打印，`--execute` 才发起；仍需本人在飞书确认）。实测 `grantedScopes: 162`、`missingScopes` 为通讯录 / 部门两项。
+- **修掉受限环境下的重启失败**：`scripts/up.ts` 的 `restart-bridge` 依赖 `ps` 校验 PID，在禁用 `ps` 的沙箱里直接抛错；改为 `ps` 失败时退回 `lsof` 校验「该 PID 正在监听服务端口」，两者都失败则拒绝停止。修复后 `npm run restart:bridge` 正常，新代码得以加载。
+
+### 2. 前端国内适配（收敛 + 中文化 + 深度改造）
+
+- 构建期 `src/shell-domestic.ts` 精确移除 Paperclip 侧栏两个国内用不到的入口（经典侧栏 + 协调器侧栏共 **4 条规则，全部命中**，`missed: []`）；产物里 `label:"Skills"` / `label:"Connectors"` 归零。修复了一处顺序 bug：必须先按原始英文结构收敛，再跑中文文案替换，否则协调器规则匹配不到。
+- 运行时通过**同源静态资源** `suitme-domestic.js` / `.css` 过滤数据驱动的**未连接**海外集成卡片；已连接服务、业务内容与 `.suitme-workbench` 插件页面不动。脚本不含 `fetch` / 外发地址，`index.html` 实测 200 返回注入标记，两个静态资源均 200。
+- 中文壳不再「已提交但默认不生效」：`install-upstream.ts` 末尾与 `up.ts` 启动前都会保证构建（`up.ts` 只在标记缺失时重建）。标题改为「SuitMe 协作台」，词典补 15 条。
+- 插件设置新增「国内服务」：**只有实测接通才给入口**——`delivery-status` 只读探测 4194 成功才渲染交付台链接；飞书按 `system-status` 显示状态；企业微信 / 腾讯文档 / 钉钉 / Gitee / CNB / 工蜂 / 公有云 CI / Slack / GitHub 等未接通项只做灰字说明，无可点按钮。
+- `development.tsx` 的「GitHub 交付」改为「代码交付（本机 Git）」，PR 链接改为本机交付编号；控制器写入的文档标题同步改中文。
+
+### 3. 本机代码交付链路（真跑通，不是模拟）
+
+- `src/local-git.ts` 实现与 `Github` 相同的 `DeliveryAdapter`（`prepare/publish/inspect/preview`），`config.delivery.provider` **默认 `local`**，`server.ts` 注入；`github` 适配器保留可显式回退。
+- `npm run delivery:serve` 在 `127.0.0.1:4194` 起中文交付台，并在 `127.0.0.1:9418` 起 `git daemon`（`--export-all --enable=receive-pack`），实测 `git ls-remote git://127.0.0.1:9418/suitme-collab.git HEAD` 返回提交。
+- `npm run delivery:demo` 端到端实测：创建裸仓库 → 工作区提交 `collab-pilot/delivery-demo-*.md` → push → 本机 CI `passed`（1 个文件、无冲突、路径合规）→ `git://` **真实 clone + fetch** 成功 → 合并审批 `approved` → 预览固定到确切提交 `526f633a3ee0` → 3 条通知记录。
+- 交付台提供仓库 clone/push 命令、分支与提交、交付请求列表、CI 判定、改动文件、审批记录（同意 / 打回 / 登记合并）、通知记录与预览页；只绑 loopback，业务通知沿用现有通道。
+
+### 4. 回归与边界
+
+- `npm test` **266/266**、`tsc --noEmit`、`build:workspaces`、`build:chinese-shell`（4 条规则全命中）、`test:walkthrough` **10/10**（425px `393/393`、按钮 44px、溢出 0）、`test:responsive`、`audit:upstream`（7 submodules clean）、`git diff --check` 全绿。新增 `tests/shell-domestic.test.ts`（6 例）与 `tests/local-delivery.test.ts`（5 例）。
+- **严格边界**：合并审批 ≠ 业务验收，`confirmAcceptance` 仍未由真人在真实业务单执行，SUI-129 仍未最终核可；部门 scope 授权仍需本人在飞书确认（脚本不代替）；本机交付台只登记合并，不自动改写业务验收状态；未接通的国内/海外服务没有伪造入口；`lobehub/acceptance` CLI 与云端服务、生产发布、真实 PR / CI、真人多租户、Cognee 原生管线仍未发生。
+- 4190 视觉端点与 4192 报告服务在本轮被用户主动取消，未重启；4194 交付台与 3100/4180 正常。

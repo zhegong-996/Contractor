@@ -40,7 +40,7 @@ const projects = await pc.get<any[]>(`/companies/${company.id}/projects`);
 let project = projects.find(p => p.name === '协作闭环试点');
 if (!project) project = await pc.post(`/companies/${company.id}/projects`, {
   idempotencyKey: 'suitme-collab-pilot', name: '协作闭环试点', status: 'in_progress',
-  description: '飞书发起、Agent 执行、GitHub 交付、指定版本验收',
+  description: '飞书发起、Agent 执行、本机 Git 代码交付、指定版本验收',
   workspace: { cwd: config.checkout, repoUrl: `https://github.com/${config.repository}`, isPrimary: true },
 });
 config.projectId = project.id;

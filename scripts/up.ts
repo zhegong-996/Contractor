@@ -1,4 +1,4 @@
-import { spawn, execFileSync } from 'node:child_process';
+import { spawn, spawnSync, execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, openSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { root, runtime } from '../src/config.ts';
@@ -6,17 +6,44 @@ import { root, runtime } from '../src/config.ts';
 mkdirSync(runtime('logs'), { recursive: true });
 const action = process.argv[2] ?? 'up';
 const services = [
-  { name: 'paperclip', script: 'scripts/paperclip.ts', url: 'http://127.0.0.1:3100/api/health' },
-  { name: 'bridge', script: 'src/server.ts', url: 'http://127.0.0.1:4180/health' },
+  { name: 'paperclip', script: 'scripts/paperclip.ts', port: 3100, url: 'http://127.0.0.1:3100/api/health' },
+  { name: 'bridge', script: 'src/server.ts', port: 4180, url: 'http://127.0.0.1:4180/health' },
 ];
+
+/**
+ * 校验 PID 确实属于本项目服务再允许停止。
+ * 优先按命令行判断；在禁用 ps 的沙箱/受限环境里退回「pid 正在监听该服务端口」，
+ * 两者都拿不到就拒绝停止，避免误杀无关进程。
+ */
+function ownsServicePid(pid: number, script: string, port: number): boolean {
+  try { process.kill(pid, 0); } catch { return false; }
+  try {
+    const cmd = execFileSync('ps', ['-p', String(pid), '-o', 'command='], { encoding: 'utf8' });
+    if (cmd.includes(path.join(root, script))) return true;
+  } catch { /* ps 在部分沙箱不可用，继续用端口归属判断 */ }
+  try {
+    const listeners = execFileSync('lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-t'], { encoding: 'utf8' });
+    return listeners.split('\n').map(line => Number(line.trim())).filter(Boolean).includes(pid);
+  } catch { return false; }
+}
+// 启动时兜底：如果上游重新构建过 UI 把中文壳覆盖成英文，这里自动重建一次。
+// 只检查标记，不每次都跑 Vite，避免拖慢日常启动。
+if (action === 'up') {
+  const indexHtml = path.join(root, 'upstream/paperclip/ui/dist/index.html');
+  if (existsSync(indexHtml) && !readFileSync(indexHtml, 'utf8').includes('suitme-domestic.js')) {
+    const nodeBin = existsSync('/usr/local/bin/node') ? '/usr/local/bin/node' : process.execPath;
+    const rebuilt = spawnSync(nodeBin, ['--import', path.join(root, 'node_modules/tsx/dist/loader.mjs'),
+      'scripts/build-chinese-shell.ts'], { cwd: root, stdio: 'inherit', env: process.env });
+    if (rebuilt.status !== 0) throw new Error('中文界面构建失败；请先运行 npm run install:upstream');
+  }
+}
 for (const service of action === 'restart-bridge' ? services.filter(s => s.name === 'bridge') : action === 'stop' ? [...services].reverse() : services) {
   const file = runtime(`${service.name}-service.pid`);
   let online = await fetch(service.url).then(r => r.ok).catch(() => false);
   if (action === 'restart-bridge' && online) {
     if (!existsSync(file)) throw new Error('Bridge is not owned by this supervisor');
     const pid = Number(readFileSync(file, 'utf8'));
-    const cmd = execFileSync('ps', ['-p', String(pid), '-o', 'command='], { encoding: 'utf8' });
-    if (!cmd.includes(path.join(root, service.script))) throw new Error('PID identity changed; refusing to stop');
+    if (!ownsServicePid(pid, service.script, service.port)) throw new Error('PID identity changed; refusing to stop');
     process.kill(pid, 'SIGTERM');
     const deadline = Date.now() + 35000;
     while (Date.now() < deadline) {
@@ -30,8 +57,7 @@ for (const service of action === 'restart-bridge' ? services.filter(s => s.name 
     if (!existsSync(file)) { console.log(`${service.name}: not owned by this supervisor`); continue; }
     const pid = Number(readFileSync(file, 'utf8'));
     try {
-      const cmd = execFileSync('ps', ['-p', String(pid), '-o', 'command='], { encoding: 'utf8' });
-      if (!cmd.includes(path.join(root, service.script))) throw new Error('PID identity changed; refusing to stop');
+      if (!ownsServicePid(pid, service.script, service.port)) throw new Error('PID identity changed; refusing to stop');
       process.kill(pid, 'SIGTERM'); console.log(`${service.name}: stopping`);
     } catch (error) { console.log(`${service.name}: ${String(error).split('\n')[0]}`); }
     continue;

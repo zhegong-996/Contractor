@@ -14,14 +14,60 @@
  */
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { existsSync, readFileSync } from 'node:fs';
 import { z } from 'zod';
 import { roleIdSchema } from './roles.ts';
+import { runtime } from './config.ts';
 
 const execute = promisify(execFile);
 
 /** 管理员补齐通讯录/部门读取范围的一次性授权命令（需本人在飞书确认）。 */
 export const ORG_AUTH_HINT =
   'lark-cli auth login --scope "contact:contact.base:readonly contact:department.organize:readonly" --no-wait --json';
+
+/** 读取部门字段必须新增的两个 scope。 */
+export const ORG_SCOPE_ADDITIONS = [
+  'contact:contact.base:readonly', 'contact:department.organize:readonly',
+] as const;
+
+/**
+ * 飞书 OAuth 重新登录会把 scope 集合整体替换成这次传入的值。
+ * 因此补部门权限时必须把当前已授予的全部 scope 一起带上，
+ * 否则 ORG_AUTH_HINT 那种「只传两个新 scope」的命令会清空现有 100+ 权限。
+ */
+export function normaliseScopes(value: string | string[] | undefined): string[] {
+  const parts = Array.isArray(value) ? value : String(value ?? '').split(/\s+/);
+  return [...new Set(parts.map(s => String(s).trim()).filter(Boolean))];
+}
+export function missingOrgScopes(grantedScopes: string | string[] | undefined): string[] {
+  const granted = new Set(normaliseScopes(grantedScopes));
+  return ORG_SCOPE_ADDITIONS.filter(scope => !granted.has(scope));
+}
+export function orgAuthCommand(grantedScopes: string | string[] | undefined): string {
+  const scopes = [...normaliseScopes(grantedScopes), ...missingOrgScopes(grantedScopes)];
+  return `lark-cli auth login --scope "${scopes.join(' ')}" --no-wait --json`;
+}
+
+/** 组织 owner 的人工核对结论（排除已离职成员、跨应用 ID 绑定）只落本机。 */
+export interface OwnerExclusion {
+  name: string;
+  openId?: string;
+  reason: string;
+  at: string;
+}
+export interface OwnerDecisions {
+  schemaVersion: 1;
+  updatedAt: string;
+  actor: string;
+  excluded: OwnerExclusion[];
+  note: string;
+}
+export function readOwnerDecisions(dir: string = runtime('v06')): OwnerDecisions | null {
+  try {
+    const file = `${dir}/org-owner-decisions.json`;
+    return existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) as OwnerDecisions : null;
+  } catch { return null; }
+}
 
 export interface FeishuOrgMember {
   openId: string;
@@ -41,7 +87,14 @@ export interface OrgMappingDraft {
   source: string;
   appId: string | null;
   departmentScopeMissing: boolean;
+  /** 简短提示，保持既有调用方兼容；真正可执行的全量命令见 authorizationCommand。 */
   authorizationHint: string;
+  /** 携带当前全部已授权 scope + 缺失 scope 的登录命令，不会冲掉已有权限。 */
+  authorizationCommand?: string;
+  grantedScopes?: string[];
+  missingScopes?: string[];
+  /** owner 已确认不在组织内、被本轮草案主动排除的成员。 */
+  excludedByOwner?: OwnerExclusion[];
   members: FeishuOrgMember[];
   note: string;
 }
@@ -56,15 +109,21 @@ async function defaultCommand(args: string[]): Promise<any> {
 }
 
 export class FeishuOrgService {
-  constructor(private readonly command: (args: string[]) => Promise<any> = defaultCommand) {}
+  constructor(
+    private readonly command: (args: string[]) => Promise<any> = defaultCommand,
+    /** 可注入组织 owner 的人工核对结论，便于在测试里验证离职成员不会被带回草案。 */
+    private readonly decisions: () => OwnerDecisions | null = () => readOwnerDecisions(),
+  ) {}
 
   /** 只读预览：不写注册表、不改派单。失败也返回结构化草案，不把工作台打挂。 */
   async preview(includeChatted = true): Promise<OrgMappingDraft> {
     const generatedAt = new Date().toISOString();
     let appId: string | null = null;
+    let grantedScopes: string[] = [];
     try {
       const status = await this.command(['auth', 'status', '--json', '--verify']);
       appId = String(status?.appId ?? '') || null;
+      grantedScopes = normaliseScopes(status?.identities?.user?.scope ?? status?.scope);
     } catch { /* 身份信息缺失不影响成员读取，草案里如实标 null */ }
 
     const calls: string[][] = [
@@ -91,7 +150,15 @@ export class FeishuOrgService {
       } catch (error) { lastFailure = String((error as Error).message ?? error); }
     }
 
-    const list = [...members.values()];
+    // 组织 owner 已确认不在组织内的成员（例如已离职）不再出现在草案里，
+    // 否则 --has-chatted 会把历史会话里的人反复带回来。
+    const excluded = this.decisions()?.excluded ?? [];
+    const matchesExclusion = (member: FeishuOrgMember) => excluded.some(item =>
+      (item.openId && item.openId === member.openId) || item.name === member.name);
+    const all = [...members.values()];
+    const list = all.filter(member => !matchesExclusion(member));
+    const excludedByOwner = excluded.filter(item => all.some(member =>
+      (item.openId && item.openId === member.openId) || item.name === member.name));
     const departmentScopeMissing = list.length > 0 && list.every(member => !member.department);
     return {
       schemaVersion: 1, generatedAt, available: list.length > 0,
@@ -99,6 +166,10 @@ export class FeishuOrgService {
       source: 'lark-cli contact +search-user（当前已授权的 user 身份，最小可见范围）',
       appId, departmentScopeMissing,
       authorizationHint: departmentScopeMissing ? ORG_AUTH_HINT : '',
+      authorizationCommand: orgAuthCommand(grantedScopes),
+      grantedScopes,
+      missingScopes: missingOrgScopes(grantedScopes),
+      ...(excludedByOwner.length ? { excludedByOwner } : {}),
       members: list,
       note: '只读取当前授权范围可见的成员；open_id 按应用隔离，跨应用需管理员按姓名/工号确认后再绑定。草案不参与派单，必须人工确认才写入职能注册表；成员映射不等于真人登录。',
     };

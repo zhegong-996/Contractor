@@ -317,6 +317,26 @@ function WorkspaceConfiguration({ ui }: { ui: UI }) {
     </form><form className="sm-form" onSubmit={e => { e.preventDefault(); ui.run('configure-participants', { keys: participants }); }}><fieldset className="sm-choices"><legend>可选执行身份</legend>{ui.data.configurableAgents.map((a: any) => <label className="sm-check" key={a.key}><input type="checkbox" checked={participants.includes(a.key)} onChange={e => setParticipants(e.target.checked ? [...participants, a.key] : participants.filter(x => x !== a.key))} />{a.name}</label>)}</fieldset><p className="sm-muted sm-small">调整可选身份不改变原生资源权限。正在负责的任务须先交接。</p><div><Button disabled={ui.busy || !participants.length}>保存执行身份</Button></div></form>
   </div></Details>;
 }
+function DomesticServices({ ui }: { ui: UI }) {
+  const [delivery, setDelivery] = useState<any>(), [system, setSystem] = useState<any>();
+  useEffect(() => {
+    void ui.read('delivery-status', {}).then(setDelivery).catch(() => setDelivery({ ok: false }));
+    void ui.read('system-status', {}).then(setSystem).catch(() => {});
+  }, []);
+  const feishuReady = system?.services?.feishu === 'ready';
+  const deliveryReady = delivery?.ok === true;
+  return <section className="sm-stack"><div className="sm-section-head"><h2>国内可用服务</h2><Badge>未接通不放入口</Badge></div>
+    <p className="sm-small sm-muted">只列出本机已经接通的服务并给出入口；未接通的服务仅作文字说明，不显示可点按钮或链接，避免出现点了没反应的空壳入口。宿主侧栏的技能库、连接服务入口已收敛，页面里未连接的海外集成卡片由本机适配层过滤。</p>
+    <div className="sm-table-scroll"><table className="sm-table"><thead><tr><th>服务</th><th>当前状态</th><th>入口</th></tr></thead><tbody>
+      <tr><th>飞书消息与组织</th><td>{feishuReady ? '已接通 · 仅 allowlist 本人单聊' : '未接通'}</td><td className="sm-small sm-muted">在飞书原会话操作，工作台不代发</td></tr>
+      <tr><th>本机代码交付台</th><td>{deliveryReady ? '已接通 · 本机 Git 服务' : '未启动'}</td><td>{deliveryReady ? <a href={delivery.url} target="_blank" rel="noreferrer">打开交付台</a> : <span className="sm-small sm-muted">运行 npm run delivery:serve 后才显示入口</span>}</td></tr>
+      <tr><th>中文协作台</th><td>已接通 · 当前页面</td><td className="sm-small sm-muted">任务、知识、验收与组织视图</td></tr>
+    </tbody></table></div>
+    <h3>尚未接通，不提供入口</h3>
+    <p className="sm-small sm-muted">企业微信 · 腾讯文档 / 腾讯问卷 · 钉钉 · Gitee / CNB / 工蜂 · 公有云 CI · Slack / GitHub / Linear / Notion / Vercel / Zapier。以上服务在本机没有授权凭据，也不默认出现在界面里；需要时由管理员先配置并实测接通，再新增入口。</p>
+    <p className="sm-small sm-muted">本机 Git 交付只固定确切提交、记录合并审批与通知，<strong>不等于业务验收</strong>；业务验收仍由原发起人在原会话「确认验收」。</p>
+  </section>;
+}
 function Settings({ ui }: { ui: UI }) {
   const [tab, setTab] = useDraft(ui.prefix + 'settings-tab', 'models'), [modelData, setModelData] = useDraft<any>(ui.prefix + 'model-data', null), [draft, setDraft] = useDraft<any>(ui.prefix + 'model-draft', null);
   const [system, setSystem] = useState<any>(), [loadError, setLoadError] = useState(''), [saved, setSaved] = useState(false);
@@ -324,7 +344,7 @@ function Settings({ ui }: { ui: UI }) {
   useEffect(() => { void load(); }, []);
   const tiers: Record<string, string> = { fast: '轻量事务', standard: '复杂分析', code: '开发执行' }, providers: Record<string, string> = { unconfigured: '待选择', gemini: 'Gemini', ark: '火山方舟', 'codex-cli': 'Codex CLI', 'claude-cli': 'Claude Code CLI', other: '其他服务' };
   function profileChange(id: string, key: string, value: any) { setSaved(false); setDraft({ ...draft, profiles: draft.profiles.map((p: any) => p.id === id ? { ...p, [key]: value } : p) }); }
-  return <section className="sm-stack"><nav className="sm-task-stage" aria-label="系统设置"><button aria-pressed={tab === 'models'} onClick={() => setTab('models')}>模型与代理</button><button aria-pressed={tab === 'system'} onClick={() => setTab('system')}>服务与架构</button><button aria-pressed={tab === 'workspace'} onClick={() => setTab('workspace')}>空间与权限</button><button aria-pressed={tab === 'organization'} onClick={() => setTab('organization')}>组织规则</button></nav>{tab==='workspace'&&<WorkspaceConfiguration ui={ui}/>}{tab==='organization'&&<OrganizationPanel ui={ui}/>}
+  return <section className="sm-stack"><nav className="sm-task-stage" aria-label="系统设置"><button aria-pressed={tab === 'models'} onClick={() => setTab('models')}>模型与代理</button><button aria-pressed={tab === 'system'} onClick={() => setTab('system')}>服务与架构</button><button aria-pressed={tab === 'workspace'} onClick={() => setTab('workspace')}>空间与权限</button><button aria-pressed={tab === 'organization'} onClick={() => setTab('organization')}>组织规则</button><button aria-pressed={tab === 'domestic'} onClick={() => setTab('domestic')}>国内服务</button></nav>{tab==='workspace'&&<WorkspaceConfiguration ui={ui}/>}{tab==='organization'&&<OrganizationPanel ui={ui}/>}{tab==='domestic'&&<DomesticServices ui={ui}/>}
     {loadError && <div className="sm-error" role="alert">{loadError}<Button onClick={() => void load()}>重试</Button></div>}
     {tab === 'models' && (!draft || !modelData ? <p role="status">正在读取模型配置…</p> : <><div className="sm-section-head"><h2>模型与代理</h2><Badge>新模型服务未启用</Badge></div>
       <p className="sm-small sm-muted">当前协作助手：{modelData.currentAssistant.engine === 'claude' ? 'Claude Code' : 'Codex'} CLI · {modelData.currentAssistant.model ?? '未显式指定型号'}。以下保存为预备策略，不切换既有任务，也不发送资料到新服务。</p>

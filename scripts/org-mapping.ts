@@ -21,6 +21,11 @@ if (action === 'preview') {
     members: draft.members.map((m: any) => ({ name: m.name, openId: m.openId, department: m.department })),
     departmentScopeMissing: draft.departmentScopeMissing,
     authorizationHint: draft.authorizationHint,
+    missingScopes: draft.missingScopes ?? [],
+    scopeLogin: draft.missingScopes?.length
+      ? '运行 npm run org:auth 取得携带现有全部 scope 的登录命令（需本人在飞书确认）'
+      : '部门读取范围已具备',
+    excludedByOwner: draft.excludedByOwner?.map((item: any) => item.name) ?? [],
     note: draft.note,
   }, null, 2));
 } else if (action === 'apply') {

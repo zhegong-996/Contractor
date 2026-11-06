@@ -8,7 +8,8 @@ import type { Store } from '../src/store.ts';
 import { root } from '../src/config.ts';
 import { V06Services } from '../src/v06.ts';
 import { MemoryV06Store } from '../src/v06-store.ts';
-import { FeishuOrgService, parseOrgTable, ORG_AUTH_HINT } from '../src/feishu-org.ts';
+import { FeishuOrgService, parseOrgTable, ORG_AUTH_HINT,
+  orgAuthCommand, missingOrgScopes, ORG_SCOPE_ADDITIONS } from '../src/feishu-org.ts';
 import { registrySchema } from '../src/roles.ts';
 
 const at = '2026-11-06T10:00:00.000Z';
@@ -72,6 +73,36 @@ test('部门字段可用时不报缺 scope；读取失败时返回结构化空�
   assert.equal(failed.available, false);
   assert.match(failed.reason ?? '', /scope missing/);
   assert.deepEqual(failed.members, []);
+});
+
+test('补部门权限时携带现有全部 scope，不会把已有授权清空', () => {
+  const granted = 'contact:user.base:readonly im:message docs:document.content:read';
+  assert.deepEqual(missingOrgScopes(granted), [...ORG_SCOPE_ADDITIONS]);
+  const command = orgAuthCommand(granted.split(' '));
+  assert.match(command, /contact:user\.base:readonly/);
+  assert.match(command, /im:message/);
+  assert.match(command, /docs:document\.content:read/);
+  for (const scope of ORG_SCOPE_ADDITIONS) assert.match(command, new RegExp(scope.replaceAll('.', '\\.')));
+  // 不是「只传两个新 scope」的危险命令。
+  assert.notEqual((command.match(/contact:/g) ?? []).length, 2);
+  assert.deepEqual(missingOrgScopes([...ORG_SCOPE_ADDITIONS]), []);
+});
+
+test('组织 owner 确认已离职的成员不会重新出现在草案里', async () => {
+  const reader = new FeishuOrgService(async (args: string[]) => {
+    if (args[0] === 'auth') return { appId: 'cli_test', identities: { user: { scope: 'contact:user.base:readonly' } } };
+    return { ok: true, data: { users: args.includes('me')
+      ? [{ open_id: 'ou_me', localized_name: '本人', is_activated: true, department: '' }]
+      : [{ open_id: 'ou_me', localized_name: '本人', is_activated: true, department: '' },
+         { open_id: 'ou_gone', localized_name: '已离职', is_activated: true, department: '' }] } };
+  }, () => ({ schemaVersion: 1, updatedAt: at, actor: 'org-owner',
+    excluded: [{ name: '已离职', openId: 'ou_gone', reason: '组织 owner 确认已不在组织内', at }], note: '' }));
+  const draft = await reader.preview();
+  assert.deepEqual(draft.members.map(m => m.name), ['本人']);
+  assert.deepEqual(draft.excludedByOwner?.map(e => e.name), ['已离职']);
+  assert.equal(draft.departmentScopeMissing, true);
+  assert.match(draft.authorizationCommand ?? '', /contact:user\.base:readonly/);
+  assert.deepEqual(draft.missingScopes, [...ORG_SCOPE_ADDITIONS]);
 });
 
 test('组织表严格校验：重复成员、非法职能 ID 都拒绝', () => {

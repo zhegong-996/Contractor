@@ -5,6 +5,14 @@ import type { Config } from './config.ts';
 import { runtime, root } from './config.ts';
 import type { Delivery, Task } from './store.ts';
 
+/** 交付适配器接口：GitHub 与本机 Git 服务都必须实现同样四个动作。 */
+export interface DeliveryAdapter {
+  prepare(id: string): Promise<{ workspace: string; branch: string; baseSha: string }>;
+  publish(task: Task): Promise<Delivery>;
+  inspect(pr: number): Promise<Delivery>;
+  preview(task: Task): Promise<Delivery>;
+}
+
 export function allowedFile(file: string, allowed: string[]): boolean {
   if (!file || file.startsWith('/') || file.split('/').some(p => p === '..') || file.includes('\\')) return false;
   return allowed.some(prefix => prefix.endsWith('/') ? file.startsWith(prefix) : file === prefix);
@@ -22,7 +30,7 @@ async function noSymlink(rootPath: string, file: string) {
     catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
   }
 }
-export class Github {
+export class Github implements DeliveryAdapter {
   constructor(readonly config: Config) {}
   async api(route: string) { return JSON.parse(await command('gh', ['api', `repos/${this.config.repository}/${route}`])); }
   async prepare(id: string) {

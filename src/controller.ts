@@ -5,7 +5,7 @@ import type { Config } from './config.ts';
 import { runtime } from './config.ts';
 import { Paperclip } from './paperclip.ts';
 import { Store, type Task } from './store.ts';
-import { Github, parsePr } from './github.ts';
+import { Github, type DeliveryAdapter, parsePr } from './github.ts';
 import { feishuTrigger, readMessage, resultFrom } from './upstream.ts';
 import{collaborationReviewPolicyFor}from'./workspaces.ts';
 import{planForTask,lockPlan,readPlan,type VerificationLevel}from'./acceptance-plan.ts';
@@ -41,12 +41,12 @@ export function validateAcceptance(task: Task, sha: string, cases: { name: strin
 
 export class Controller {
   readonly pc: Paperclip;
-  readonly github: Github;
+  readonly github: DeliveryAdapter;
   readonly trace: TraceBridge;
   /** v0.6 functional layer, injected by the server after construction. */
   v06?: V06Services;
-  constructor(readonly config: Config, readonly store: Store) {
-    this.pc = new Paperclip(config.paperclipUrl); this.github = new Github(config);
+  constructor(readonly config: Config, readonly store: Store, delivery: DeliveryAdapter = new Github(config)) {
+    this.pc = new Paperclip(config.paperclipUrl); this.github = delivery;
     this.trace = new TraceBridge(this.pc, config, store);
   }
   async ingest(input: unknown) {
@@ -254,7 +254,7 @@ export class Controller {
   async publish(id: string) {
     const task = this.store.get(id); if (task.phase !== 'executed' && task.phase !== 'delivered') throw new Error('Task has no completed execution');
     task.delivery = await this.github.publish(task); task.phase = 'delivered'; this.store.save(task);
-    await this.pc.document(task.id, 'delivery', 'GitHub 交付', JSON.stringify(task.delivery, null, 2));
+    await this.pc.document(task.id, 'delivery', '代码交付（本机 Git）', JSON.stringify(task.delivery, null, 2));
     this.store.notify(`pr:${task.delivery.pr}:${task.delivery.headSha}`, task.id, `${task.identifier} 已提交，等待 CI。\n[查看 PR](${task.delivery.url})`);
     await this.trace.append(task.id, fromDelivery({
       taskId: task.id, sha: task.delivery.headSha, ci: task.delivery.ci ?? 'pending',
@@ -269,7 +269,7 @@ export class Controller {
     if (current.headSha !== old.headSha) { task.phase = 'delivered'; await this.pc.patch(`/issues/${task.id}`, { status: 'in_review' }); }
     this.store.save(task);
     if (current.headSha !== old.headSha) this.store.audit('delivery.changed', task.id, { previous: old.headSha, current: current.headSha });
-    if (JSON.stringify(old) !== JSON.stringify(task.delivery)) await this.pc.document(task.id, 'delivery', 'GitHub 交付', JSON.stringify(task.delivery, null, 2));
+    if (JSON.stringify(old) !== JSON.stringify(task.delivery)) await this.pc.document(task.id, 'delivery', '代码交付（本机 Git）', JSON.stringify(task.delivery, null, 2));
     return task;
   }
   async preview(id: string) {

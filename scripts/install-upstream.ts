@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import { root, runtime } from '../src/config.ts';
 mkdirSync(runtime('corepack-bin'), { recursive: true });
@@ -18,3 +18,8 @@ run('corepack', ['pnpm', '--filter', '@paperclipai/plugin-sdk', 'build'], repo);
 run('corepack', ['pnpm', '--filter', '@paperclipai/paperclip-runner', 'build:typescript'], repo);
 run('corepack', ['pnpm', '--filter', '@paperclipai/ui', 'build'], repo);
 run('corepack', ['pnpm', 'db:migrate'], repo);
+// 中文壳 + 国内适配必须在上游原版 UI 构建之后执行，否则会被英文产物覆盖。
+// 优先使用系统 Node 24（Vite 要求 >=24.11），缺失时退回当前运行时。
+const nodeBin = existsSync('/usr/local/bin/node') ? '/usr/local/bin/node' : process.execPath;
+run(nodeBin, ['--import', path.join(root, 'node_modules/tsx/dist/loader.mjs'),
+  'scripts/build-chinese-shell.ts']);

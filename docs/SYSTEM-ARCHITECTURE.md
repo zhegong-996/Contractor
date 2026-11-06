@@ -114,3 +114,9 @@ flowchart TD
 ## 本机只读总览（第七轮）
 
 `scripts/acceptance-report.ts serve` 在 `127.0.0.1:4192` 额外提供 `/overview`：`src/acceptance-report.ts` 的 `renderOverviewHtml` 只渲染纯数据，脚本侧用 `node:http` 直连探测 3100 / 4180 / 4190 / 4192 的实时状态，读取 `.runtime/config.json` 的验收配置与 `.runtime/org-mapping-draft.json` 的**成员计数与布尔值**（成员明细不进页面），中文指令清单直接引用 `USER_HELP` 避免文档漂移。该页不写任何状态、不调用业务写接口，也不依赖 bridge 的身份令牌；`4190` 视觉端点停机时只显示离线，不会伪装成结构式评审通过。
+
+## 国内环境适配与本机代码交付（第八轮）
+
+`config.delivery.provider` 默认 `local`：`src/github.ts` 导出 `DeliveryAdapter`（`prepare / publish / inspect / preview`），`src/local-git.ts` 以本机裸仓库 + 本机合并请求记录 + 本机 CI（提交存在、允许路径、与 main 无冲突）+ 确切提交预览实现同一契约，`src/server.ts` 按配置注入 `Controller`，`github` 适配器保留供已有部署回退，业务验收红线未动。`scripts/delivery-server.ts` 只绑 `127.0.0.1:4194` 提供中文交付台，并在 `127.0.0.1:9418` 起 `git daemon` 供 clone / pull / push；合并审批与通知记录落 `.runtime/git/deliveries/`，不改写业务任务状态。
+
+前端适配分两层：`src/shell-domestic.ts` 在构建期精确收敛上游侧栏的技能库 / 连接服务入口，运行时通过同源 `suitme-domestic.js` 过滤**数据驱动且未连接**的海外集成卡片；`scripts/build-chinese-shell.ts` 先收敛再翻译，`install-upstream.ts` 与 `up.ts` 保证中文壳默认生效。插件设置的「国内服务」通过只读 `delivery-status` 探测交付台，**只有实测接通才渲染链接**，未接通项只做文字说明，不留空壳入口。

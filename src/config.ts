@@ -66,6 +66,19 @@ export const configSchema = z.object({
     autoRunOnIndex: z.boolean().default(true),
     mode: z.enum(['deterministic', 'model']).default('deterministic'),
   }).default(() => ({ enabled: true, autoRunOnIndex: true, mode: 'deterministic' as const })),
+  // 代码交付链路。国内环境默认用本机 Git 服务（git:// + 本机交付台），
+  // 不依赖 github.com / gh CLI；保留 github 适配器供已有部署显式回退。
+  delivery: z.object({
+    provider: z.enum(['local', 'github']).default('local'),
+    /** 本机交付台 HTTP 端口，只绑 127.0.0.1。 */
+    port: z.number().int().min(1024).max(65535).default(4194),
+    /** git daemon 端口，提供 clone / pull / push。 */
+    gitPort: z.number().int().min(1024).max(65535).default(9418),
+    repoName: z.string().regex(/^[a-z0-9][a-z0-9._-]*$/).default('suitme-collab'),
+    /** 审批时是否自动给飞书 allowlist 本人发通知；默认关闭，避免未经确认的消息。 */
+    feishuNotify: z.boolean().default(false),
+  }).default(() => ({ provider: 'local' as const, port: 4194, gitPort: 9418,
+    repoName: 'suitme-collab', feishuNotify: false })),
 });
 export type Config = z.infer<typeof configSchema>;
 export type Agent = Config['agents'][string];

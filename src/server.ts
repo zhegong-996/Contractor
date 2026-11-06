@@ -1,4 +1,4 @@
-import { createServer, type IncomingMessage } from 'node:http';
+import { createServer, request as httpRequest, type IncomingMessage } from 'node:http';
 import { spawn } from 'node:child_process';
 import { timingSafeEqual, randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
@@ -7,6 +7,8 @@ import readline from 'node:readline';
 import path from 'node:path';
 import { loadConfig, runtime, secrets } from './config.ts';
 import{Development}from'./development.ts';
+import { Github } from './github.ts';
+import { LocalGitDelivery } from './local-git.ts';
 import { Store } from './store.ts';
 import { Controller } from './controller.ts';
 import { command } from './commands.ts';
@@ -31,7 +33,29 @@ import { V06Services } from './v06.ts';
 import { RuntimeGuardBridge } from './runtime-bridge.ts';
 
 const config = loadConfig(); const credentials = secrets();
-const store = new Store(runtime('bridge.sqlite')); const control = new Controller(config, store);
+
+/** 只读探测本机代码交付台；没有连接时返回 ok:false，前端不给空入口。 */
+function deliveryStatus(): Promise<{ ok: boolean; url: string; git: string | null; provider: string }> {
+  const port = config.delivery.port, url = `http://127.0.0.1:${port}/`;
+  return new Promise(resolve => {
+    const req = httpRequest({ hostname: '127.0.0.1', port, path: '/health', method: 'GET', timeout: 1200 }, res => {
+      let body = ''; res.setEncoding('utf8');
+      res.on('data', chunk => { body += chunk; });
+      res.on('end', () => {
+        try { const health = JSON.parse(body); resolve({ ok: health.ok === true, url,
+          git: String(health.git ?? '') || null, provider: String(health.provider ?? 'local-git') }); }
+        catch { resolve({ ok: false, url, git: null, provider: 'local-git' }); }
+      });
+    });
+    req.on('timeout', () => req.destroy(new Error('timeout')));
+    req.on('error', () => resolve({ ok: false, url, git: null, provider: 'local-git' }));
+    req.end();
+  });
+}
+const store = new Store(runtime('bridge.sqlite'));
+// 国内环境默认走本机 Git 交付；已有部署可显式配置 delivery.provider=github 回退。
+const deliveryAdapter = config.delivery.provider === 'local' ? new LocalGitDelivery(config) : new Github(config);
+const control = new Controller(config, store, deliveryAdapter);
 const knowledge = new KnowledgeService(config, store, control.pc, credentials.jwtSecret);
 const workspaces = new Workspaces(config, store);
 const assistant = new WorkspaceAssistant(workspaces);
@@ -106,7 +130,7 @@ const server = createServer(async (req, res) => {
       // Reads recheck their own scope and revisions. They need not wait behind
       // indexing or native process reconciliation; mutations keep the single lane.
       const v06Reads=['roles-view','role-route','role-hints','role-snapshot','transfer-view','transfer-policy','dispatch-guard','grant-widen','grant-check','edges-view','edge-impact','label-check','policy-view','verification-level','topology-advice','inflight-policy','signals','review-readiness','ontology-meta','ontology-view','ontology-query','attention-policy','attention-filter','watchdog-policy','watchdog-inspect','plan-view','round-view','acceptance-export','acceptance-report-view','org-overview','org-mapping-view','context-pack','l2-status','l2-edges-view','l2-graph-view'];
-      const readOnly=['view','team-members','agent-services','agent-build','development-view','network-view','memory-status','memory-search','memory-annotations','context-pack','context-record','context-search','ontology-view','model-settings','system-status','trace-view'].includes(action)||action==='knowledge-graph'&&payload.project!==true||action.startsWith('v06-')&&v06Reads.includes(action.slice(4));
+      const readOnly=['view','team-members','agent-services','agent-build','development-view','delivery-status','network-view','memory-status','memory-search','memory-annotations','context-pack','context-record','context-search','ontology-view','model-settings','system-status','trace-view'].includes(action)||action==='knowledge-graph'&&payload.project!==true||action.startsWith('v06-')&&v06Reads.includes(action.slice(4));
       const runWorkspace=readOnly?<T>(job:()=>Promise<T>)=>withFeishuReads(job):serialize;
       res.end(JSON.stringify(await runWorkspace(async () => {
         workspaceActor = await teamMembers.gate(action, payload, workspaceActor);
@@ -115,6 +139,7 @@ const server = createServer(async (req, res) => {
         // channel renderer (conversation text + workbench link + optional card).
         if(action.startsWith('v06-'))return v06.dispatch(action.slice(4),payload,workspaceActor,{workbenchUrl:config.paperclipUrl,channel:'workspace',actorUserId:workspaceActor.userId??'local-operator'});
         if(action==='development-view')return development.view(payload.taskId,workspaceActor);
+        if(action==='delivery-status')return deliveryStatus();
         if(action==='development-start')return development.start(payload,workspaceActor);
         if(action==='development-accept')return development.accept(payload,workspaceActor);
         if (action === 'network-route') return serviceNetwork.route(payload, workspaceActor);
