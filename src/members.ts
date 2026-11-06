@@ -94,7 +94,8 @@ export class TeamMembers {
       const v06Reads = ['roles-view', 'role-route', 'role-hints', 'role-snapshot', 'transfer-view', 'transfer-policy',
         'dispatch-guard', 'grant-widen', 'grant-check', 'edges-view', 'edge-impact', 'label-check',
         'policy-view', 'verification-level', 'topology-advice', 'inflight-policy', 'signals', 'review-readiness',
-        'ontology-meta', 'ontology-view', 'ontology-query', 'attention-policy', 'attention-filter', 'watchdog-policy', 'watchdog-inspect'];
+        'ontology-meta', 'ontology-view', 'ontology-query', 'attention-policy', 'attention-filter', 'watchdog-policy', 'watchdog-inspect',
+        'plan-view', 'round-view', 'org-overview', 'context-pack'];
       if (actor.humanRole === 'viewer' && !v06Reads.includes(action.slice(4))) throw new Error('只读成员不能修改职能、授权或策略');
       return actor;
     }

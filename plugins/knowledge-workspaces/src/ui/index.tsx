@@ -5,6 +5,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ButtonH
 import { usePluginAction, useHostNavigation, MarkdownBlock, MarkdownEditor, type PluginPageProps, type PluginSidebarProps } from '@paperclipai/plugin-sdk/ui';
 import { styles } from './styles.js';
 import { GraphPanel, DictionaryPanel } from './knowledge-graph.js';
+import { GovernancePanel, OrganizationPanel, KnowledgeStatePanel } from './v06-panels.js';
 
 const labels: Record<string, string> = { pending: '待授权', approved: '已授权', denied: '已拒绝', revoked: '已撤权', revoking: '撤权中', expired: '已过期',
   ready: '待推进', waiting: '待审阅', running: '执行中', handoff_pending: '正在恢复交接', access_blocked: '等待授权', unknown: '待核对执行', accepted: '已完成',
@@ -205,7 +206,7 @@ function TaskDetail({ ui, task, panel, setPanel }: { ui: UI; task: any; panel: s
   return <article className="sm-task-detail"><div className="sm-row sm-spread sm-wrap"><div className="sm-inline-meta"><a {...ui.nav.linkProps('/issues/' + task.id)}>{task.identifier}</a><span>{task.state.context?.service?.name ?? actor(ui, task.agent)}负责</span></div><Badge state={task.phase} /></div>
     <h2 className="sm-task-heading">{task.title}</h2>{task.goal.length>180?<Details remember={k+':goal'}><summary>目标与约束</summary><p className="sm-goal">{task.goal}</p></Details>:<p className="sm-goal">{task.goal}</p>}
     {task.error && <p className="sm-error" role="alert">{task.error}</p>}
-    <nav className="sm-task-stage" aria-label="任务工作区">{[['progress', '进展'], ['access', '上下文'], ['handoff', '协作与交接'], ['knowledge', '知识沉淀']].map(([id, name]) => <button key={id} aria-pressed={panel === id} onClick={() => setPanel(id!)}>{name}{id === 'access' && task.requests.some((r: any) => r.state === 'pending') ? ' · 待授权' : ''}</button>)}</nav>
+    <nav className="sm-task-stage" aria-label="任务工作区">{[['progress', '进展'], ['access', '上下文'], ['handoff', '协作与交接'], ['knowledge', '知识沉淀'], ['governance', '验收与责任']].map(([id, name]) => <button key={id} aria-pressed={panel === id} onClick={() => setPanel(id!)}>{name}{id === 'access' && task.requests.some((r: any) => r.state === 'pending') ? ' · 待授权' : ''}</button>)}</nav>
     {panel === 'progress' && <div className="sm-stack"><AgentPanel ui={ui} task={task} setPanel={setPanel} editCheckpoint={setCheckpoint} />
       {task.phase === 'unknown' && <section className="sm-notice sm-stack"><h3>先核对原执行已停止</h3><p>当前执行状态不明，交接与重新执行已暂停。</p><label className="sm-check"><input type="checkbox" checked={stopped} onChange={e => setStopped(e.target.checked)} />已在原执行端确认停止写入</label>
         <label className="sm-field">核对依据<input className="sm-input" value={stopNote} onChange={e => setStopNote(e.target.value)} /></label><div><Button disabled={ui.busy || !stopped || !stopNote.trim()} onClick={() => ui.run('stopped', { taskId: task.id, confirmed: stopped, note: stopNote })}>记录停止确认</Button></div></section>}
@@ -247,6 +248,7 @@ function TaskDetail({ ui, task, panel, setPanel }: { ui: UI; task: any; panel: s
           {acceptedDraft ? <RecordBody body={acceptedDraft.body} /> : <p className="sm-muted sm-small">已验收版本保存在原生修订记录中，内容仍按当前访问权限显示。</p>}
           <a className="sm-button" {...ui.nav.linkProps('/issues/' + acceptance.checkpoint.id)}>原生文档与修订</a></Details>}</div>}
     </section>}
+    {panel === 'governance' && <GovernancePanel ui={ui} task={task} />}
   </article>;
 }
 function TaskWorkspace({ ui, selected, setSelected, panel, setPanel }: { ui: UI; selected: string; setSelected: (id: string) => void; panel: string; setPanel: (s: string) => void }) {
@@ -274,8 +276,8 @@ function Spaces({ ui, chosen, choose, domain, setDomain, composeWith }: { ui: UI
   return <div className="sm-space-grid"><nav className="sm-space-nav" aria-label="知识空间">{ui.data.spaces.map((s: any) => <button key={s.domain} aria-pressed={domain === s.domain} onClick={() => setDomain(s.domain)}><span>{s.name}</span><span className="sm-count">{ui.data.sources.filter((v: any) => v.domain === s.domain).length}</span></button>)}</nav>
     <section><div className="sm-section-head"><h2>{space.name}</h2>{space.canContribute&&<div className="sm-actions"><a className="sm-button" {...ui.nav.linkProps('/projects/' + space.projectId)}>成员与权限</a><Button icon="plus" onClick={() => setCreate(!create)}>{create ? '收起' : '新增知识'}</Button></div>}</div>
       {ui.data.feishuConnected && <Details remember={ui.prefix + 'feishu-connect:' + domain}><summary>接入飞书文档</summary><form className="sm-form" onSubmit={e => { e.preventDefault(); void ui.invoke('attach-feishu-document', { space: domain, url: feishuUrl }).then(() => setFeishuUrl('')).catch(() => {}); }}><label className="sm-field">文档链接<input className="sm-input" type="url" value={feishuUrl} onChange={e => setFeishuUrl(e.target.value)} required /></label><p className="sm-small sm-muted">保存实时来源引用，Agent 使用时仍需本任务授权。</p><div><Button disabled={ui.busy || !feishuUrl.trim()}>接入文档引用</Button></div></form></Details>}{create && <div className="sm-compose"><KnowledgeForm ui={ui} draftKey={ui.prefix + 'source-form:' + domain} submit={async record => { await ui.invoke('create-source', { domain, record: { ...record, domains: [domain] } }); setCreate(false); }} /></div>}
-      <nav className="sm-task-stage" aria-label="知识库视图">{[['content', '内容'], ['graph', '图谱'], ['dictionary', '知识字典']].map(([id, title]) => <button key={id} aria-pressed={knowledgeTab === id} onClick={() => setKnowledgeTab(id!)}>{title}</button>)}</nav>
-      {knowledgeTab === 'dictionary' ? <DictionaryPanel key={domain} ui={ui} space={domain} /> : <>
+      <nav className="sm-task-stage" aria-label="知识库视图">{[['content', '内容'], ['graph', '图谱'], ['dictionary', '知识字典'], ['relations', '关系与状态']].map(([id, title]) => <button key={id} aria-pressed={knowledgeTab === id} onClick={() => setKnowledgeTab(id!)}>{title}</button>)}</nav>
+      {knowledgeTab === 'relations' ? <KnowledgeStatePanel key={domain} ui={ui} domain={domain} /> : knowledgeTab === 'dictionary' ? <DictionaryPanel key={domain} ui={ui} space={domain} /> : <>
       <div className="sm-content-toolbar"><input className="sm-input" type="search" aria-label="搜索知识内容" placeholder="搜索标题、字段和正文" value={query} onChange={e => setQuery(e.target.value)} />
         <select className="sm-input" aria-label="内容状态" value={stateFilter} onChange={e => setStateFilter(e.target.value)}><option value="">全部状态</option>{['candidate', 'confirmed', 'withdrawn', 'source'].map(s => <option key={s} value={s}>{labels[s]}</option>)}</select>
         <select className="sm-input" aria-label="内容形态" value={shape} onChange={e => setShape(e.target.value)}><option value="">全部内容</option><option value="structured">含结构化字段</option><option value="document">含正文</option><option value="external">外部来源</option></select></div>
@@ -322,7 +324,7 @@ function Settings({ ui }: { ui: UI }) {
   useEffect(() => { void load(); }, []);
   const tiers: Record<string, string> = { fast: '轻量事务', standard: '复杂分析', code: '开发执行' }, providers: Record<string, string> = { unconfigured: '待选择', gemini: 'Gemini', ark: '火山方舟', 'codex-cli': 'Codex CLI', 'claude-cli': 'Claude Code CLI', other: '其他服务' };
   function profileChange(id: string, key: string, value: any) { setSaved(false); setDraft({ ...draft, profiles: draft.profiles.map((p: any) => p.id === id ? { ...p, [key]: value } : p) }); }
-  return <section className="sm-stack"><nav className="sm-task-stage" aria-label="系统设置"><button aria-pressed={tab === 'models'} onClick={() => setTab('models')}>模型与代理</button><button aria-pressed={tab === 'system'} onClick={() => setTab('system')}>服务与架构</button><button aria-pressed={tab === 'workspace'} onClick={() => setTab('workspace')}>空间与权限</button></nav>{tab==='workspace'&&<WorkspaceConfiguration ui={ui}/>}
+  return <section className="sm-stack"><nav className="sm-task-stage" aria-label="系统设置"><button aria-pressed={tab === 'models'} onClick={() => setTab('models')}>模型与代理</button><button aria-pressed={tab === 'system'} onClick={() => setTab('system')}>服务与架构</button><button aria-pressed={tab === 'workspace'} onClick={() => setTab('workspace')}>空间与权限</button><button aria-pressed={tab === 'organization'} onClick={() => setTab('organization')}>组织规则</button></nav>{tab==='workspace'&&<WorkspaceConfiguration ui={ui}/>}{tab==='organization'&&<OrganizationPanel ui={ui}/>}
     {loadError && <div className="sm-error" role="alert">{loadError}<Button onClick={() => void load()}>重试</Button></div>}
     {tab === 'models' && (!draft || !modelData ? <p role="status">正在读取模型配置…</p> : <><div className="sm-section-head"><h2>模型与代理</h2><Badge>新模型服务未启用</Badge></div>
       <p className="sm-small sm-muted">当前协作助手：{modelData.currentAssistant.engine === 'claude' ? 'Claude Code' : 'Codex'} CLI · {modelData.currentAssistant.model ?? '未显式指定型号'}。以下保存为预备策略，不切换既有任务，也不发送资料到新服务。</p>

@@ -27,6 +27,7 @@ import { TeamMembers } from './members.ts';
 import { AgentServices } from './agent-services.ts';
 import { OntologyService } from './ontology.ts';
 import { V06Services } from './v06.ts';
+import { RuntimeGuardBridge } from './runtime-bridge.ts';
 
 const config = loadConfig(); const credentials = secrets();
 const store = new Store(runtime('bridge.sqlite')); const control = new Controller(config, store);
@@ -46,6 +47,11 @@ const ontology = new OntologyService(workspaces);
 // config for organisation policy, SQLite for audit only.
 const v06 = new V06Services(store, workspaces.pc);
 control.v06 = v06;
+// Observation-only by default: see config.runtimeGuard and runtime-bridge.ts.
+const guard = new RuntimeGuardBridge(store, async space => {
+  const [attention, watchdog] = await Promise.all([v06.attentionPolicy(space), v06.watchdogPolicy(space)]);
+  return { attention: attention.policy, watchdog: watchdog.policy };
+}, config.runtimeGuard?.enforce === true);
 const ingest = async (input: unknown) => (await collaborationIntake.ingest(input)) ?? control.ingest(input);
 let feishuState = config.feishu.enabled ? 'connecting' : 'disabled';
 let tail: Promise<unknown> = Promise.resolve();
@@ -91,7 +97,7 @@ const server = createServer(async (req, res) => {
       const action = url.pathname.slice('/workspace/'.length);
       // Reads recheck their own scope and revisions. They need not wait behind
       // indexing or native process reconciliation; mutations keep the single lane.
-      const v06Reads=['roles-view','role-route','role-hints','role-snapshot','transfer-view','transfer-policy','dispatch-guard','grant-widen','grant-check','edges-view','edge-impact','label-check','policy-view','verification-level','topology-advice','inflight-policy','signals','review-readiness','ontology-meta','ontology-view','ontology-query','attention-policy','attention-filter','watchdog-policy','watchdog-inspect'];
+      const v06Reads=['roles-view','role-route','role-hints','role-snapshot','transfer-view','transfer-policy','dispatch-guard','grant-widen','grant-check','edges-view','edge-impact','label-check','policy-view','verification-level','topology-advice','inflight-policy','signals','review-readiness','ontology-meta','ontology-view','ontology-query','attention-policy','attention-filter','watchdog-policy','watchdog-inspect','plan-view','round-view','org-overview','context-pack'];
       const readOnly=['view','team-members','agent-services','agent-build','development-view','network-view','memory-status','memory-search','memory-annotations','context-pack','context-record','context-search','ontology-view','model-settings','system-status','trace-view'].includes(action)||action==='knowledge-graph'&&payload.project!==true||action.startsWith('v06-')&&v06Reads.includes(action.slice(4));
       const runWorkspace=readOnly?<T>(job:()=>Promise<T>)=>withFeishuReads(job):serialize;
       res.end(JSON.stringify(await runWorkspace(async () => {
@@ -143,7 +149,15 @@ const server = createServer(async (req, res) => {
         }
         if (action === 'enable-collaboration-im') return collaborationIntake.enable(payload.taskId, workspaceActor);
         if (action === 'assistant-tool') return assistant.tool(payload.jobId, payload.runId, payload.callId, payload.input, workspaceActor);
-        if (action === 'assistant-receipt') return assistant.receipt(payload.jobId, payload.runId, payload.receipt, workspaceActor);
+        if (action === 'assistant-receipt') {
+          const result: any = await assistant.receipt(payload.jobId, payload.runId, payload.receipt, workspaceActor);
+          if (result?.taskId) {
+            try { await guard.observe({ taskId: result.taskId, runId: payload.runId, actorId: workspaceActor.userId ?? 'worker',
+              summary: '执行端回执', at: new Date().toISOString(), kind: 'delegation', status: 'running' }); }
+            catch { /* observation only */ }
+          }
+          return result;
+        }
         if (action === 'assistant-context') return assistant.context(payload.jobId, payload.runId, workspaceActor);
         if (action === 'trace-view') {
           const task = store.get(payload.taskId);
@@ -175,6 +189,13 @@ const server = createServer(async (req, res) => {
             usage: payload.usage as Record<string, any> | undefined,
             at: new Date().toISOString(), outcome: String(job.status ?? 'completed'),
           }));
+          // v0.6 P3: evaluate attention budget + heartbeat for this turn.
+          // Best-effort and observation-only: never changes the assistant result.
+          try {
+            await guard.observe({ taskId: job.taskId, runId: payload.runId, actorId: workspaceActor.userId ?? job.agent ?? 'assistant',
+              summary: `模型调用回执 · ${String(job.status ?? 'completed')}`, at: new Date().toISOString(),
+              status: String(job.status ?? '') === 'waiting' ? 'waiting-human' : 'running' });
+          } catch { /* observation must not break a verified execution path */ }
           return job;
         }
         if (action === 'assistant-failed') { await assistant.fail(payload.jobId, payload.runId, payload.error ?? '运行失败', workspaceActor); return { recorded: true }; }

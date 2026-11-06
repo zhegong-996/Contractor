@@ -4,7 +4,30 @@
 > 对象仓库：`/Users/gong.zhe/Developer/ai-native-collab`（`github.com/zhegong-996/suitme-collab`）
 > 依据：`docs/ARCHITECTURE-v0.6.md`（产品架构定稿）、`docs/PRD-v0.6.md`、Codex 会话「研究 AI Native 协作平台融合」、本仓库 `README.md` / `docs/*` / `sources.lock.json` / `src/*` / `git status`
 > 立场：**以 PRD v0.6 为准绳，代码适配产品**。已有实现尽量保留，以「补层」为主，不推倒重来；工程红线见 `PRD-v0.6.md` 第 2.2 节。
-> 状态：**方案已执行两轮并全部提交**（底座 `f27a0e1`、功能补全 `7791c7b`）。文档随实施进度更新，边界声明以 0.000 节为准。
+> 状态：**方案已执行三轮**（底座 `f27a0e1`、功能补全 `7791c7b` 已提交；P3 前端增补见 0.0000 节）。文档随实施进度更新，边界声明以 0.0000 / 0.000 节为准。
+
+---
+
+## 0.0000 P3 前端增补与执行链路接入（2026-11-06 · 第三轮）
+
+按既定顺序进入 P3。**主导航仍为 5 个 tab，未新建独立 app、未改宿主路由、未改上游 Paperclip UI**；三个视图全部长在现有 tab 的二级导航里，符合 PRD 10A 节 S5/S6。
+
+| 现有位置 | 新增视图 | 数据来源 | 用户能看到什么 |
+|---|---|---|---|
+| 协作 → 任务详情 | 「验收与责任」panel（`v06-panels.tsx` / `GovernancePanel`） | `v06-plan-view`、`v06-round-view`、`v06-review-readiness`、`v06-transfer-view`、`v06-grant-check`、`trace-view` | 开工前锁定的验收清单与原生修订号、逐项判定报告、独立评审未就绪原因、Transfer 授权卡片（含撤销）、跨空间授权状态、统一过程流水（时间 / 事件 / 执行者 / 依据 / 成本 / 证据缺口） |
+| 知识 → 新增子 tab | 「关系与状态」（`KnowledgeStatePanel`） | `v06-edges-view`、`v06-context-pack` | L2 组织图每条关系的状态（草稿 / 已验收 / 可复用）、生效与失效时间、证据数，可验收 / 标可复用 / 置失效；Context Pack 一次性投影快照 |
+| 设置 → 新增子 tab | 「组织规则」（`OrganizationPanel`） | `v06-org-overview` 一次汇总 8 段 | 职能注册表、Transfer 授权策略、Workspace 政策、注意力预算、Watchdog、独立评审就绪度、默认本体、组织信号；**只读、逐段独立降级、只提示不排名** |
+
+**后端配套**
+
+- `v06.ts` 新增 3 个只读投影：`plan-view` / `round-view` / `org-overview`；`context-pack` 一并登记进 `server.ts` 与 `members.ts` 的 `v06Reads`，避免只读请求被排进写队列。
+- 新增 `src/runtime-bridge.ts`：把 FR-22/23/24 的注意力预算与 Watchdog 契约接到**真实执行链路**——`assistant-result`（模型调用）与 `assistant-receipt`（执行回执）每轮产生一条 `v06.runtime-observed` 审计。**默认只观测**：不改通知、回执、租约、恢复或任务状态；`config.runtimeGuard.enforce` 为可开启开关，默认 `false`，开启前必须先跑通真实 journey。仓库既有的合并、自身进度排除、每轮工具上限与会话接续逻辑完全未动。
+
+**三问复核**：会话里由既有 `channels.renderForChannel` + outbox 表达（本轮未改会话文案）；工作台按上表三个位置留痕；签字人仍是原发起人 `/accept`，Transfer 联签与 owner 兜底不变。
+
+**验证**：`npm test` **188/188 通过**（新增 9 个用例，含只读 action 登记与三个视图接线断言）、`tsc --noEmit` 通过、`npm run build:workspaces`（esbuild 打包 + 插件 `tsc --noEmit`）通过。
+
+**仍未做（不要宣称已实现）**：前端未在真实浏览器做 1280 / 425 走查；独立视觉评审模型、Acceptance submodule 引入、真实跨职能 journey 仍未完成；L2 组织图未连 Cognee 自动抽取管线（按用户选择不启用 LLM/embedding，此项不做）；`runtimeGuard.enforce` 未开启；上游复用代码整理（P3 后半段）未开始；`config.acceptance.sealPlanOnCreate` 仍默认关闭。
 
 ---
 

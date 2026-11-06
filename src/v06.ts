@@ -324,6 +324,37 @@ export class V06Services {
   ontologyMeta() { return { nodeKinds: NODE_KINDS, edgeFamilies: EDGE_FAMILIES, rules: EDGE_RULES,
     note: 'L2 组织图；L1 Cognee 证据图按 sourceId@revision 物理隔离，未改动' }; }
 
+  // --- F. Read-only projections for the existing workbench -------------------
+  /** Plan sealed before work started. null means the legacy /accept flow is in use. */
+  async acceptancePlanView(taskId: string) {
+    if (!this.pc) return null;
+    return readPlan(this.pc as any, taskId);
+  }
+  /** Per-item review report. It is evidence for the originator, never an approval. */
+  async acceptanceRoundView(taskId: string) {
+    if (!this.pc) return null;
+    const { readRound } = await import('./acceptance-round.ts');
+    return readRound(this.pc as any, taskId);
+  }
+  /** One read for the organization sub-tab. Each section degrades independently. */
+  async organizationOverview(space = 'default') {
+    const safe = async <T,>(name: string, job: () => T | Promise<T>) => {
+      try { return { name, ok: true as const, value: await job() }; }
+      catch (error) { return { name, ok: false as const, error: String((error as Error).message ?? error) }; }
+    };
+    const sections = await Promise.all([
+      safe('registry', () => this.registryView()),
+      safe('transferPolicy', () => this.transferPolicy()),
+      safe('policy', () => this.policyView(space, 'workspace-owner')),
+      safe('attention', () => this.attentionPolicy(space)),
+      safe('watchdog', () => this.watchdogPolicy(space)),
+      safe('reviewer', () => this.reviewReadiness(false, true)),
+      safe('ontology', () => this.ontologyMeta()),
+      safe('signals', () => this.signalsView({})),
+    ]);
+    return { space, sections, generatedAt: new Date().toISOString() };
+  }
+
   // --- FR-22/23/24 runtime guard -----------------------------------------
   async attentionPolicy(space: string): Promise<{ policy: AttentionPolicy; revision: string | null }> {
     const stored = await this.store.readConfig<AttentionPolicy>(`attention-policy:${space}`);
@@ -413,7 +444,10 @@ export class V06Services {
       case 'signals': return this.signalsView(p.readings ?? {}, p.at);
       case 'signal-fix': return this.signalFixLoop(p.signal, p.taskId, p.fix);
       case 'signal-retest': return this.signalRetest(p.loop, p.value, p.threshold);
-      // F. review readiness
+      // F. review readiness + read-only workbench projections
+      case 'plan-view': return this.acceptancePlanView(p.taskId);
+      case 'round-view': return this.acceptanceRoundView(p.taskId);
+      case 'org-overview': return this.organizationOverview(p.space ?? 'default');
       case 'review-readiness': return this.reviewReadiness(p.traceReady === true, p.visualEvidenceRequired !== false);
       case 'review-evidence': return this.reviewEvidence(p);
       // FR-08 ontology

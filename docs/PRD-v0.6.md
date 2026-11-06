@@ -335,7 +335,7 @@
 |---|---|---|---|---|
 | FR-29 | 渠道适配层 | ① 新增会话渠道只需注册一个 adapter，业务对象不改；② 非本渠道事件静默跳过不抛错；③ 信封含 triggerId / actor / chat / message / thread | P0 | ✅ 已落地 `channels.ts` |
 | FR-30 | 语义对象降级渲染 | ① 飞书纯文本含全部责任与验收字段；② 卡片渠道返回同等 `data`；③ 两种渲染的 `text` 完全一致 | P0 | ✅ 已落地 |
-| FR-31 | Trace 在工作台可读 | ① `/workspace/trace-view` 只读且走现有授权；② 读取失败明示 unavailable，不得显示成「空且通过」；③ 前端 P3 复用现有任务详情组件 | P0 | ✅ 后端已落地，前端待 P3 |
+| FR-31 | Trace 在工作台可读 | ① `/workspace/trace-view` 只读且走现有授权；② 读取失败明示 unavailable，不得显示成「空且通过」；③ 前端 P3 复用现有任务详情组件 | P0 | ✅ 后端 + P3 前端已落地（协作 → 验收与责任 → 过程流水） |
 
 ### 功能补全的检查点
 
@@ -349,7 +349,7 @@
 | 工作台哪里留痕 | 组织级配置落本地配置层 + SQLite 审计；任务级事实（Transfer / Grant / 边状态）落 **Paperclip 原生任务文档修订**；全部经 `/workspace/v06-*` action 调用，未新建第二业务库 |
 | 签字人是谁 | Transfer 双段责任链：承接人负执行责任、目标职能 owner 负兜底责任并起草验收标准；对外 / 资金 / 客户可见等动作强制 owner 联签；最终业务验收仍是**原发起人在原会话 `/accept`** |
 
-**FR 覆盖状态**：FR-01/02/03/05/06/07/08/09/10/11/12/13/14/20/21/22/23/24/26/28 已具备契约与 API 实现；FR-16/17/19 契约层已落地且 `draftedBy` 已接入主链路；**FR-18（视觉评审）仍为未完成**——注册的 `TraceEvidenceReviewer` 明确声明 `vision: false` / `externalModelEnabled: false`，`review-readiness` 会如实返回未就绪，禁止宣称已满足。另有两项「契约完成但未自动挂到执行循环」：注意力策略 / Watchdog 保留现有运行时不动（见 `ADAPTATION-v0.6.md` 0.000 节）；前端视图（FR-22 报告的在线可查界面、FR-31 ③）仍待 P3。
+**FR 覆盖状态**：FR-01/02/03/05/06/07/08/09/10/11/12/13/14/20/21/22/23/24/26/28 已具备契约与 API 实现；FR-16/17/19 契约层已落地且 `draftedBy` 已接入主链路；**FR-18（视觉评审）仍为未完成**——注册的 `TraceEvidenceReviewer` 明确声明 `vision: false` / `externalModelEnabled: false`，`review-readiness` 会如实返回未就绪，禁止宣称已满足。P3 已完成（详见 `ADAPTATION-v0.6.md` 0.0000 节）：**前端三个视图**长在现有 5 tab 内（协作任务的「验收与责任」、知识的「关系与状态」、设置的「组织规则」），FR-22 报告的在线可查界面与 FR-31 ③ 已可访问；**注意力策略 / Watchdog 已接入真实执行链路**（每轮模型调用与执行回执产生 `v06.runtime-observed` 审计），但默认只观测、不拦截，`config.runtimeGuard.enforce` 仍为 `false`。**FR-18 视觉评审、真实跨职能 journey、前端窄屏走查与上游代码整理仍未完成**，不因 P3 完成而宣称已满足。
 
 > 协议约束同步见 `OPEN-SOURCE-COMPLIANCE.md`：LobeHub 主仓库为 Community License（只借思想、不复制源码）、Acceptance 为独立 Apache-2.0、Outline 为 BSL 1.1（禁止引入代码）。本轮**未新增任何开源依赖或 submodule**，全部为自研契约层，无需补充协议材料。
 

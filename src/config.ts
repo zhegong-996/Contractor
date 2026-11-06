@@ -31,6 +31,11 @@ export const configSchema = z.object({
     level: z.enum(['L1', 'L2', 'L3', 'L4']).default('L3'),
     reviewerModel: z.string().min(1).default('independent-reviewer'),
   }).optional(),
+  // v0.6 P3: observe every assistant turn and worker receipt through the
+  // attention-budget / Watchdog contracts. Enforcement (suppressing low-value
+  // notifications) stays off until a real journey proves it cannot stall a
+  // task that is waiting for a human answer.
+  runtimeGuard: z.object({ enforce: z.boolean().default(false) }).optional(),
 });
 export type Config = z.infer<typeof configSchema>;
 export type Agent = Config['agents'][string];
