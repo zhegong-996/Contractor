@@ -113,7 +113,8 @@ test('collectServiceStatus 并发探测，单个端点失败不影响其余条�
 });
 
 test('service-status 在三处只读白名单与前端渲染条件中保持一致', () => {
-  const server = read('src/server.ts'), members = read('src/members.ts'), ui = read('plugins/knowledge-workspaces/src/ui/index.tsx');
+  const server = read('src/server.ts'), members = read('src/members.ts'),
+    ui = read('plugins/knowledge-workspaces/src/ui/domestic-services.tsx');
   assert.match(server, /if\(action==='service-status'\)return serviceStatus\(feishuState\)/);
   assert.match(server, /'delivery-status','service-status'/);
   assert.match(members, /'delivery-status', 'service-status'/);

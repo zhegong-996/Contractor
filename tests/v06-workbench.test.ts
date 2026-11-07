@@ -1,7 +1,8 @@
 // P3: read-only workbench projections + runtime-guard observation bridge.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
+import path from 'node:path';
 import type { Store } from '../src/store.ts';
 import { V06Services } from '../src/v06.ts';
 import { MemoryV06Store } from '../src/v06-store.ts';
@@ -100,7 +101,10 @@ test('新增只读 action 同时登记在 server 与 members 的 v06Reads', () =
 });
 
 test('工作台三个视图接进现有 5 tab 的二级导航', () => {
-  const source = readFileSync(new URL('../plugins/knowledge-workspaces/src/ui/index.tsx', import.meta.url), 'utf8');
+  // 前端已按职责拆分；二级导航分散在 task-detail / spaces / settings，读取整个 ui 目录。
+  const dir = path.join(new URL('..', import.meta.url).pathname, 'plugins/knowledge-workspaces/src/ui');
+  const source = readdirSync(dir).filter(f => f.endsWith('.tsx'))
+    .map(f => readFileSync(path.join(dir, f), 'utf8')).join('\n');
   assert.ok(source.includes("['governance', '验收与责任']"));
   assert.ok(source.includes("['relations', '关系与状态']"));
   assert.ok(source.includes("tab === 'organization'"));

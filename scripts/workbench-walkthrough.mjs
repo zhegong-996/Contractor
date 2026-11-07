@@ -101,6 +101,13 @@ for (const step of sequence) {
   const unavailableContext = unavailable
     ? body.slice(Math.max(0, body.indexOf('暂不可用') - 120), body.indexOf('暂不可用') + 200) : null;
   const hits = step.expect.filter(text => body.includes(text));
+  // 白屏守卫：国内收敛脚本若把宿主外壳误判为「未连接卡片」隐藏，DOM 仍在但整页不可见。
+  const pageVisible = await evaluate(`(() => {
+    const hidden = [...document.querySelectorAll('[data-suitme-hidden]')];
+    return { bodyTextLen: document.body.innerText.length, hiddenCount: hidden.length,
+      shellHidden: hidden.some(e => e.querySelector('#root') || e.querySelector('.suitme-workbench')
+        || (e.textContent || '').length > 600) };
+  })()`);
   // 「国内服务」页额外做真实 DOM 校验：状态表必须有行、必须可刷新，
   // 且渲染出来的每一个链接都只能是本机 loopback 地址（未接通项不能偷偷带 href）。
   const domesticCheck = step.domestic ? await evaluate(`(() => {
@@ -120,7 +127,7 @@ for (const step of sequence) {
       hostNavHidden: hostNav.every(x => x.hidden), hostNav };
   })()`) : null;
   await screenshot(step.name);
-  steps.push({ name: step.name, tabFound, subFound, expect: step.expect, hits, domesticCheck,
+  steps.push({ name: step.name, tabFound, subFound, expect: step.expect, hits, domesticCheck, pageVisible,
     invalidWorkspaceAction: invalid, unavailable, unavailableContext, screenshot: `${step.name}.png` });
   console.log(`${invalid ? '✖' : '✓'} ${step.name}: ${hits.length}/${step.expect.length} 项可见, tab=${tabFound}, sub=${subFound}${invalid ? ' [Invalid workspace action]' : ''}${unavailable ? ' [暂不可用]' : ''}`);
 }
@@ -158,6 +165,7 @@ await screenshot('governance-425');
 console.log('✓ governance-425:', JSON.stringify(narrow));
 
 const failed = steps.filter(s => s.invalidWorkspaceAction || s.unavailable || !s.tabFound || s.hits.length === 0
+  || s.pageVisible.bodyTextLen === 0 || s.pageVisible.shellHidden
   || (s.domesticCheck && (!s.domesticCheck.found || s.domesticCheck.rows === 0
     || s.domesticCheck.badLinks.length > 0 || !s.domesticCheck.hasRefresh
     || !s.domesticCheck.hasUnconnectedStep || !s.domesticCheck.noLoadError

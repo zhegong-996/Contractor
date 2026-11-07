@@ -238,3 +238,47 @@ Wiki 原生 `bootstrap-root` 在这个固定版本会创建带不兼容设置的
 - **轮询抖动打扰用户**：自动刷新偶发 `Failed to fetch`（走查虚拟时间下 15 秒轮询被快速触发）时，页面弹出红色「状态探测失败」却仍保留完整数据。改为：自动轮询失败静默保留上一次结果，只在「最近探测」行标注「自动刷新暂未成功，当前为上次结果」；首次加载或用户手动点「刷新状态」失败才给明确提示，且已有数据时用温和文字而非红色错误框。走查新增 `noLoadError` 断言。
 
 复验：修正后 `npm test` **278/278**、`tsc`、`build:workspaces`、`build:chinese-shell`、`test:walkthrough` **11/11**、`test:responsive`、`audit:upstream`、`git diff --check` 全绿；国内服务页实测 12 行、2 个 loopback 链接、0 个坏链接、无加载错误、宿主侧栏两个未接通入口已隐藏。
+
+---
+
+## 第十轮：前端分层重构、产品架构梳理与白屏故障修复（2026-11-07）
+
+### 1. 为什么要改
+
+前端 `plugins/knowledge-workspaces/src/ui/index.tsx` 单文件 527 行、35 个顶层声明，混合了 UI 原语、中文文案字典、任务详情、知识空间、设置与页面壳；`v06-panels.tsx` 另有一份重复的 `useRead` 状态机；13 处 `.catch(() => {})` 依赖页面顶部错误条，用户在表单里看不到失败原因；多个源码字符串测试直接读 `index.tsx`，把结构锁死。用户同时指出此前只讲了技术分层，产品与业务架构不清楚。
+
+### 2. 改了什么
+
+- **分层**：`index.tsx` 缩为 5 行入口（`WorkspacePage` / `WorkspaceSidebar` 再导出）；新增 `foundation.tsx`、`async.ts`、`forms.tsx`、`domestic-services.tsx`、`settings.tsx`、`task-detail.tsx`、`spaces.tsx`、`workspace-page.tsx`。最大模块 191 行，依赖单向（基础设施 → 视图 → 页面壳 → 入口），`v06-panels.tsx` 改用共享 `useRead`。**零路由变化、零 tab 变化、零上游改动**。
+- **错误与外链**：13 处静默 catch 收敛为「两个高频表单用 `useActionFeedback` + `ActionError` 就地提示，其余统一 `UI.report` 上报」，只保留页面壳两处写明理由的静默（后台轮询不打扰、`invoke` rethrow）；`RecordBody` 的知识来源与 Spaces 的飞书来源外链改走 `safeHttpUrl`；「国内服务」补 `ServiceEntry` / `ServiceReport` 类型契约。
+- **测试**：新增 `tests/frontend-structure.test.ts` 5 例（入口瘦化、原语单一来源、依赖单向、异步契约与错误上报、入口与外链红线）；`service-status` / `shell-domestic` / `v06-workbench` / `workspace-action` 四处静态断言改为按职责读模块或扫描整个 ui 目录。
+- **产品与业务架构**：`SYSTEM-ARCHITECTURE.md` 新增定位、渠道形态、三级 owner 与角色职责、8 步端到端闭环（4 个人工决策点）、5 tab 功能地图、功能成熟度三档与 5 条业务红线；`PRD-v0.6.md` 10A 工作台文件指针同步；`ADAPTATION-v0.6.md` 第十轮成为最新边界声明。
+
+### 3. 真实浏览器暴露的白屏故障（本轮最重要的发现）
+
+首轮全套回归里 `test:walkthrough` **11 步全失败**，截图全白。CDP 诊断显示：DOM 已渲染（`root.innerHTML` 64159 字符、工作台本身 19434 字），但 `document.body.innerText` 为 0，且**没有任何 JS 异常**；`[data-suitme-hidden]` 有 4 个元素，其中第一个是宿主外壳 `div.contents`，reason `unconnected-overseas`。
+
+根因：`src/shell-domestic.ts` 的运行时 `sweep()` 遍历 `a,button,[role="button"],[data-testid]`，带 `data-testid` 的大容器也被当作候选，并用**容器全文**做关键字匹配。页面文本同时含海外词与「连接」、又不含「已连接」时，整个外壳被隐藏——状态相关、间歇性，上一轮走查通过只是当时文案恰好不满足条件。
+
+修复：候选只保留小型可交互节点；新增 `MAX_LABEL`(120) / `MAX_CARD`(400) / `MAX_HIDE`(600) 长度上限；`protectedEl()` 拒绝 body / html / `#root` / 含 `.suitme-workbench` 的容器；`repair()` 每轮自愈已误隐藏的大容器。走查每步新增 `bodyTextLen` / `shellHidden` 断言，单测补 8 条静态守门。
+
+修复后实测：11 步 `bodyTextLen` 590–1774 全非空、`shellHidden: false`、隐藏元素恒为 3 个未接通海外入口（技能 / 连接服务 / Explore connectors），11/11 通过。
+
+### 4. 回归结果
+
+| 项 | 结果 |
+|---|---|
+| `npm test` | **283/283**（新增 5 例结构守卫） |
+| `npx tsc --noEmit`（主工程 + 插件 tsconfig） | 通过 |
+| `npm run build:workspaces`（esbuild 打包 + 插件类型检查） | 通过，产物导出 `WorkspacePage` / `WorkspaceSidebar` 正常 |
+| `npm run build:chinese-shell` | 通过，`hiddenEntries` 4 条、`missed: []` |
+| `npm run test:responsive` | 通过，425px 0 溢出、按钮 44px |
+| `npm run test:walkthrough` | **11/11**，白屏守卫全绿 |
+| `npm run audit:upstream` | `clean: true` |
+| `git diff --check` | 通过 |
+
+环境说明：后台沙箱内跑 `build:chinese-shell` 时，Vite `emptyOutDir` 需批量删除 `ui/dist/assets` 391 个文件，被运行环境的 `SAFE_DELETE_BULK_CONFIRM_REQUIRED`（阈值 50）拦截而退出 1；在已授权的前台环境同一命令退出 0、产物正常。**这是工具环境的批量删除保护，不是代码缺陷**，其余 7 项在沙箱内也全绿。
+
+### 5. 严格边界（未发生，不是 bug）
+
+本轮是结构重构 + 文档，**没有新增业务功能、tab 或路由**；真人在真实业务单上「确认验收」仍未发生（SUI-129 未核可）；部门 scope 授权仍需本人在飞书确认；企业微信 / 腾讯文档 / 钉钉 / 国内代码托管 / 公有云 CI 及海外 SaaS 均未接通，按约定没有入口；4190 / 4192 保持用户取消时的停机状态；生产发布、真实外部 PR / CI、真人多租户、Cognee 原生模型管线仍未发生。合并审批 ≠ 业务验收，报告 / 模型判定 / CI 通过都不替代原发起人在原会话「确认验收」。

@@ -153,7 +153,9 @@ git push git://127.0.0.1:9418/suitme-collab.git HEAD:refs/heads/你的分支
 
 ### 前端国内适配
 
-`npm run install:upstream` 与 `npm run up` 都会保证中文壳生效（上游重新构建覆盖后自动重建一次）；`npm run build:chinese-shell` 可重复执行（构建前恢复上游 `sw.js` 的原始占位符）。构建期收敛 Paperclip 侧栏的技能库 / 连接服务入口，运行时用同源静态资源过滤页面里**未连接**的海外集成卡片；两者都不改上游源码。
+`npm run install:upstream` 与 `npm run up` 都会保证中文壳生效（上游重新构建覆盖后自动重建一次）；`npm run build:chinese-shell` 可重复执行（构建前恢复上游 `sw.js` 的原始占位符）。构建期收敛 Paperclip 侧栏的技能库 / 连接服务入口，运行时用同源静态资源过滤页面里**未连接**的海外集成卡片；两者都不改上游源码。运行时脚本只检查小型可交互节点，并保护 `#root` 与包含工作台的大容器，避免宿主外壳被误判为「未连接卡片」而整页白屏。
+
+插件前端源码已按职责拆层：`index.tsx` 只作 SDK 入口再导出，实现分布在 `foundation.tsx`（原语与 `UI` 契约）、`async.ts`（只读状态机与写操作反馈）、`forms.tsx`、`domestic-services.tsx`、`settings.tsx`、`task-detail.tsx`、`spaces.tsx`、`workspace-page.tsx`。**5 个主 tab、路由与上游 UI 均未改动**，分层与依赖约束见 `docs/SYSTEM-ARCHITECTURE.md`，结构守卫在 `tests/frontend-structure.test.ts`。
 
 设置里的「国内服务」由只读 `service-status` 统一提供数据：并发实时探测 3100 / 4190 / 4192 / 4194，逐项标注状态来源（实时探测、进程内判定或监听器事件推断），页面每 15 秒自动刷新，也可手动刷新，探测失败与「未启动」分开显示。**只有状态为已接通且 URL 通过 loopback 校验的条目才渲染链接**；未接通项给出原因与可照做的接通步骤，不放任何可点空壳。交付台健康响应还要校验 `scope=loopback-only` / `provider=local-git` / 端口，避免端口被别的服务占用时误判为已接通。宿主侧栏的「技能 / 连接服务」链接带公司前缀（`/SUI/skills`、`/SUI/apps`），运行时脚本也已覆盖这类路径并隐藏其列表项；自动刷新瞬时失败会静默保留上次结果，不弹误导性错误框。
 

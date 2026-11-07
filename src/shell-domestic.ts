@@ -46,19 +46,35 @@ export const RUNTIME_FILTER_SCRIPT = `(function(){
   var CONNECTED = /\\bconnected\\b|已连接|已接通|manage|配置完成|disconnect/i;
   // 宿主侧栏链接带公司前缀（实测 /SUI/skills、/SUI/apps），不能只匹配 /skills 开头。
   var ROUTE = /^\\/(?:[A-Za-z0-9_-]+\\/)?(skills|apps)(\\/|$)/;
+  var MAX_LABEL = 120, MAX_CARD = 400, MAX_HIDE = 600;
   function text(el){ return (el && (el.innerText || el.textContent) || '').trim(); }
-  function hide(el, reason){ if(!el || el.dataset.suitmeHidden) return;
+  // 宿主外壳（#root / .contents 等）可能带 data-testid，且全文里同时含海外词与「连接」。
+  // 绝不能把这种大容器当成「未连接卡片」隐藏，否则整个应用白屏。
+  function protectedEl(el){
+    if(!el || el === document.body || el === document.documentElement || el.id === 'root') return true;
+    if(text(el).length > MAX_HIDE) return true;
+    if(el.querySelector && (el.querySelector('.suitme-workbench') || el.querySelector('#root'))) return true;
+    return false;
+  }
+  function hide(el, reason){ if(protectedEl(el) || el.dataset.suitmeHidden) return;
     el.dataset.suitmeHidden = reason; el.style.setProperty('display','none','important'); }
+  function repair(){
+    var hidden = document.querySelectorAll('[data-suitme-hidden]');
+    for (var j=0;j<hidden.length;j++){ var e = hidden[j];
+      if(protectedEl(e)){ delete e.dataset.suitmeHidden; e.style.removeProperty('display'); } }
+  }
   function sweep(){
-    var nodes = document.querySelectorAll('a,button,[role="button"],[data-testid]');
+    repair();
+    var nodes = document.querySelectorAll('a,button,[role="button"]');
     for (var i=0;i<nodes.length;i++){
       var el = nodes[i], label = text(el), href = el.getAttribute('href') || '';
       if (el.closest('.suitme-workbench')) continue;      // 本项目插件页面不处理
       if (ROUTE.test(href)) { hide(el,'overseas-route'); var li = el.closest('li'); if (li) hide(li,'overseas-route'); continue; }
-      if (!label || !OVERSEAS.test(label)) continue;
+      if (!label || label.length > MAX_LABEL || !OVERSEAS.test(label)) continue;
       if (CONNECTING.test(label) && !CONNECTED.test(label)) { hide(el,'unconnected-overseas'); continue; }
       var card = el.closest('[data-testid],[class*="card"],[class*="Card"]');
-      if (card && !CONNECTED.test(text(card)) && CONNECTING.test(text(card))) hide(card,'unconnected-overseas-card');
+      var cardText = card ? text(card) : '';
+      if (card && cardText.length <= MAX_CARD && !CONNECTED.test(cardText) && CONNECTING.test(cardText)) hide(card,'unconnected-overseas-card');
     }
   }
   sweep();

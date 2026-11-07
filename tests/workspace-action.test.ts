@@ -4,7 +4,7 @@
 // cross-checks every action name the UI sends against the bridge whitelist.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { root } from '../src/config.ts';
 import { assertWorkspaceAction, WORKSPACE_ACTION } from '../plugins/knowledge-workspaces/src/action-name.ts';
@@ -31,9 +31,10 @@ test('worker delegates the action name check to the shared guard', () => {
 });
 
 test('every v06-* action used by the UI is accepted; reads are whitelisted, writes have dispatch cases', () => {
-  const sources = ['plugins/knowledge-workspaces/src/ui/v06-panels.tsx',
-    'plugins/knowledge-workspaces/src/ui/index.tsx']
-    .map(read).join('\n');
+  // 前端按职责拆分后，action 可能出现在任意视图模块；扫描整个 ui 目录而不是单一文件。
+  const uiDir = path.join(root, 'plugins/knowledge-workspaces/src/ui');
+  const sources = readdirSync(uiDir).filter(f => /\.(tsx|ts)$/.test(f))
+    .map(f => readFileSync(path.join(uiDir, f), 'utf8')).join('\n');
   // Distinguish reads (which must be in the read-only allow-list) from
   // mutations (which use the serialized lane and need a dispatch case).
   const reads = [...new Set([...sources.matchAll(/useRead\(ui,\s*'(v06-[a-z0-9-]+)'/g)].map(m => m[1]!))];

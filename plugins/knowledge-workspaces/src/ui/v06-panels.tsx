@@ -4,7 +4,8 @@
 // plugin page. They do not create a second app, do not import upstream source,
 // and read only through /workspace/v06-* actions. Every surface is read-only
 // unless the button explicitly says it changes something.
-import { useEffect, useState, type ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
+import { useRead } from './async.js';
 
 interface V06UI {
   data: any;
@@ -48,18 +49,7 @@ const keyNames: Record<string, string> = {
 };
 const labelOf = (key: string) => keyNames[key] ?? key;
 
-function useRead(ui: V06UI, action: string, payload: any) {
-  const key = action + ':' + JSON.stringify(payload ?? {});
-  const [state, setState] = useState<{ value?: any; error?: string; loading: boolean }>({ loading: true });
-  useEffect(() => {
-    let active = true;
-    setState({ loading: true });
-    void ui.read(action, payload ?? {}).then(value => { if (active) setState({ value, loading: false }); })
-      .catch((error: any) => { if (active) setState({ error: String(error?.message ?? error), loading: false }); });
-    return () => { active = false; };
-  }, [key]);
-  return state;
-}
+// 只读状态机统一由 ./async.ts 提供；本文件只保留 v0.6 专属的展示组件。
 
 function Load({ state, empty = '暂无记录', children }: { state: ReturnType<typeof useRead>; empty?: string; children: (value: any) => ReactNode }): any {
   if (state.loading) return <p className="sm-muted sm-small" role="status">正在读取…</p>;

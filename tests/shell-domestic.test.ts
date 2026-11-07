@@ -2,7 +2,7 @@
 // 以及「中文壳默认生效」的安装链路。全部只读源码断言 + 纯函数测试。
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { root } from '../src/config.ts';
 import { domesticShell, domesticIndexHtml, RUNTIME_FILTER_SCRIPT, RUNTIME_FILTER_CSS,
@@ -10,6 +10,12 @@ import { domesticShell, domesticIndexHtml, RUNTIME_FILTER_SCRIPT, RUNTIME_FILTER
 import { chineseShell } from '../src/shell-locale.ts';
 
 const read = (file: string) => readFileSync(path.join(root, file), 'utf8');
+/** 前端已按职责拆成多个模块；跨模块断言读取整个 ui 目录，避免把结构锁死在单一文件。 */
+const uiSources = () => {
+  const dir = path.join(root, 'plugins/knowledge-workspaces/src/ui');
+  return readdirSync(dir).filter(f => f.endsWith('.tsx') || f.endsWith('.ts'))
+    .map(f => readFileSync(path.join(dir, f), 'utf8')).join('\n');
+};
 
 const sidebar = `export function S(){return <nav>
   <SidebarNavItem to="/routines" label="Routines" icon={Repeat} />
@@ -79,6 +85,17 @@ test('运行时脚本只隐藏未连接的海外入口，不外发数据、不�
     assert.equal(ROUTE.test(href), false, `${href} 不能被误伤`);
   }
   assert.match(RUNTIME_FILTER_SCRIPT, /el\.closest\('li'\)/);
+  // 白屏回归：宿主外壳 div.contents 带 data-testid 且全文含海外词与「连接」，
+  // 旧实现把它当未连接卡片隐藏，导致整页不可见。现在只允许处理小型可交互节点。
+  assert.match(RUNTIME_FILTER_SCRIPT, /MAX_LABEL/);
+  assert.match(RUNTIME_FILTER_SCRIPT, /MAX_CARD/);
+  assert.match(RUNTIME_FILTER_SCRIPT, /MAX_HIDE/);
+  assert.match(RUNTIME_FILTER_SCRIPT, /function protectedEl/);
+  assert.match(RUNTIME_FILTER_SCRIPT, /function repair/);
+  assert.match(RUNTIME_FILTER_SCRIPT, /el\.id === 'root'/);
+  assert.match(RUNTIME_FILTER_SCRIPT, /querySelector\('\.suitme-workbench'/);
+  assert.match(RUNTIME_FILTER_SCRIPT, /querySelectorAll\('a,button,\[role="button"\]'\)/);
+  assert.doesNotMatch(RUNTIME_FILTER_SCRIPT, /querySelectorAll\('a,button,\[role="button"\],\[data-testid\]'\)/);
   for (const forbidden of ['fetch(', 'XMLHttpRequest', 'https://', 'sendBeacon']) {
     assert.doesNotMatch(RUNTIME_FILTER_SCRIPT, new RegExp(forbidden.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   }
@@ -96,16 +113,17 @@ test('中文壳构建顺序与安装/启动链路：先收敛再翻译，默认�
 });
 
 test('国内服务清单：状态来自实时探测，未接通项不放空壳链接', () => {
-  const ui = read('plugins/knowledge-workspaces/src/ui/index.tsx');
-  assert.match(ui, /国内可用服务/);
-  assert.match(ui, /未接通不放入口/);
-  assert.match(ui, /ui\.read\('service-status', \{\}\)/);
+  const ui = uiSources();
+  const statusPanel = read('plugins/knowledge-workspaces/src/ui/domestic-services.tsx');
+  assert.match(statusPanel, /国内可用服务/);
+  assert.match(statusPanel, /未接通不放入口/);
+  assert.match(statusPanel, /ui\.read\('service-status', \{\}\)/);
   // 唯一生成链接的条件：已接通 + loopback URL 校验通过。
-  assert.match(ui, /const href = s\.state === 'connected' \? safeLoopbackUrl\(s\.url\) : null/);
-  assert.equal((ui.match(/href=\{href\}/g) ?? []).length, 1);
-  assert.match(ui, /刷新状态/);
-  assert.match(ui, /状态来源/);
-  assert.match(ui, /状态探测失败/);
+  assert.match(statusPanel, /const href = s\.state === 'connected' \? safeLoopbackUrl\(s\.url\) : null/);
+  assert.equal((statusPanel.match(/href=\{href\}/g) ?? []).length, 1);
+  assert.match(statusPanel, /刷新状态/);
+  assert.match(statusPanel, /状态来源/);
+  assert.match(statusPanel, /状态探测失败/);
   assert.doesNotMatch(ui, /<a[^>]*>企业微信<\/a>/);
   assert.doesNotMatch(ui, /<a[^>]*>腾讯文档<\/a>/);
   // 交付面板与任务上下文都不再出现 GitHub / PR 字样。

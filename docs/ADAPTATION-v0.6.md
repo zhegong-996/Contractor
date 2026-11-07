@@ -4,7 +4,25 @@
 > 对象仓库：`/Users/gong.zhe/Developer/ai-native-collab`（`github.com/zhegong-996/suitme-collab`）
 > 依据：`docs/ARCHITECTURE-v0.6.md`（产品架构定稿）、`docs/PRD-v0.6.md`、Codex 会话「研究 AI Native 协作平台融合」、本仓库 `README.md` / `docs/*` / `sources.lock.json` / `src/*` / `git status`
 > 立场：**以 PRD v0.6 为准绳，代码适配产品**。已有实现尽量保留，以「补层」为主，不推倒重来；工程红线见 `PRD-v0.6.md` 第 2.2 节。
-> 状态：**方案已执行九轮**（底座 `f27a0e1`、功能补全 `7791c7b`、P3 前端增补 `c512c7b`、第四轮 L2 抽取 / P3 后半段 / 独立评审链 `255a5e9`、第五轮收尾 `78201c6`、第六轮 `285b97c`、第七轮 `7f33dd9`、第八轮 `c69e414`；第九轮见 0.0000000000 节）。文档按轮次保留历史记录，**最新边界声明以 0.0000000000 节为准**。
+> 状态：**方案已执行十轮**（底座 `f27a0e1`、功能补全 `7791c7b`、P3 前端增补 `c512c7b`、第四轮 L2 抽取 / P3 后半段 / 独立评审链 `255a5e9`、第五轮收尾 `78201c6`、第六轮 `285b97c`、第七轮 `7f33dd9`、第八轮 `c69e414`；第九轮见 0.0000000000 节，第十轮见 0.00000000000 节）。文档按轮次保留历史记录，**最新边界声明以 0.00000000000 节为准**。
+
+---
+
+## 0.00000000000 前端分层重构、产品与业务架构梳理（2026-11-07 · 第十轮）
+
+白话说：上一轮把功能修对了，但前端仍是一个 527 行、35 个顶层声明的单文件，UI 原语、任务详情、设置和页面壳全堆在一起，测试还用源码字符串断言把结构锁死；用户也指出此前只讲了技术分层，产品与业务架构不清楚。本轮做两件事：**按职责重构前端**，并**补一份业务视角的产品架构**；过程中真实浏览器走查暴露并修掉一个间歇性白屏故障。
+
+- **前端分层**：`index.tsx` 缩成 5 行入口；新增 `foundation.tsx`（原语 / 文案字典 / `UI` 契约 / URL 协议白名单 / `ActionError`）、`async.ts`（`useRead` 与 `useActionFeedback`）、`forms.tsx`、`domestic-services.tsx`、`settings.tsx`、`task-detail.tsx`、`spaces.tsx`、`workspace-page.tsx`。依赖单向，`v06-panels.tsx` 删除私有 `useRead` 副本改用共享契约。静态断言测试从「只读 index.tsx」改为按职责读模块或扫描整个 ui 目录，新增 `tests/frontend-structure.test.ts` 5 例结构守卫。
+- **体验与真实性**：13 处 `.catch(() => {})` 收敛为「两个高频表单就地错误提示 + 其余统一 `UI.report` 上报」，只保留页面壳两处有注释说明的合理静默（后台轮询不打扰、`invoke` rethrow 避免未处理拒绝）；知识来源与飞书来源外链改走 `safeHttpUrl`；「国内服务」清单补 `ServiceEntry` / `ServiceReport` 类型契约，未接通项在数据契约里就不保证有 `url`。
+- **产品与业务架构**：`SYSTEM-ARCHITECTURE.md` 新增「产品与业务架构」章节，写清定位、渠道形态（IM 发起 / 工作台留痕）、三级 owner 与其余角色、8 步端到端闭环及 4 个人工决策点、5 tab 功能地图、功能成熟度三档（已跑通 / 预备配置 / 未接通）与 5 条业务红线；`PRD-v0.6.md` 10A 的工作台文件指针同步到新分层。
+- **真实白屏故障修复**：`RUNTIME_FILTER_SCRIPT` 的 `sweep()` 把带 `data-testid` 的宿主外壳 `div.contents` 也列为候选，用几千字全文做关键字匹配；页面文案同时含海外词与「连接」、又不含「已连接」时，会把整个应用外壳隐藏，造成**状态相关的间歇性白屏**（DOM 仍在、无 JS 异常、`body.innerText` 为 0）。改为只遍历小型可交互节点（`MAX_LABEL` / `MAX_CARD` / `MAX_HIDE`），`protectedEl` 拒绝 `#root`、body 与含工作台的大容器，`repair()` 自愈已误隐藏节点。走查每步新增 `bodyTextLen` / `shellHidden` 断言，复跑 11/11。
+- **验证**：`npm test` **283/283**（新增 5 例结构守卫）、`tsc --noEmit`、`build:workspaces`、`build:chinese-shell`、`test:responsive`、`test:walkthrough` **11/11**、`audit:upstream`、`git diff --check` 全绿；真实浏览器每步页面文本非空、外壳未隐藏、隐藏元素恰为 3 个未接通海外入口。详见 `docs/VALIDATION.md` 第十轮。
+
+### 最新边界声明（以本节为准）
+
+- **已发生**：前端按职责拆分且共享原语 / 异步契约统一；写操作不再静默吞错、外链经协议校验；产品与业务架构、角色口径、功能地图与成熟度三档写入文档；宿主外壳白屏故障修复并有浏览器断言守门。
+- **未发生**：本轮**没有新增业务功能、没有新增 tab、没有改路由与上游 UI**，是结构重构 + 文档；真人在真实业务单上「确认验收」（SUI-129 未核可）；部门 scope 本人在飞书确认；企业微信 / 腾讯文档 / 钉钉 / 国内代码托管 / 公有云 CI / 海外 SaaS 的实际连接；生产发布、真实外部 PR / CI、真人多租户、Cognee 原生模型管线；4190 / 4192 保持用户取消时的停机状态。
+- **红线不变**：合并审批 ≠ 业务验收；未接通服务一律不提供入口；真实姓名、`open_id`、密钥与业务正文只在 `.runtime`；上游源码不改；`Agent 完成 ≠ 业务验收`。
 
 ---
 
@@ -18,7 +36,7 @@
 - **截图复核补修**：宿主侧栏 `/SUI/skills` `/SUI/apps` 带公司前缀，原运行时路由正则漏匹配，已改为覆盖前缀并同时隐藏 `li` 容器，走查加禁用缓存与 `hostNavHidden` 断言；自动轮询瞬时失败改为静默保留旧数据、只在状态行标注，手动刷新失败才提示。
 - **验证**：`npm test` **278/278**、`tsc`、`build:workspaces`、中文壳连续两次构建、`test:responsive`、`audit:upstream`、`git diff --check` 全绿；`test:walkthrough` **11/11**，真实浏览器测得国内服务页 12 行、仅 2 个 loopback 链接、0 个坏链接、侧栏两个未接通入口已隐藏。真实 HTTP 冒烟三个状态接口均 200。详见 `docs/VALIDATION.md` 第九轮。
 
-### 最新边界声明（以本节为准）
+### 边界声明（历史记录，最新以 0.00000000000 节为准）
 
 - **已发生**：服务清单改为实时探测并可自动刷新；构建幂等与时间炸弹修复；状态字段与界面文案不再与配置矛盾；新增 12 例状态层测试与 1 个浏览器走查步骤。
 - **未发生**：真人在真实业务单上「确认验收」（SUI-129 未核可）；部门 scope 本人在飞书确认；企业微信 / 腾讯文档 / 钉钉 / 国内代码托管 / 公有云 CI / 海外 SaaS 的实际连接；生产发布、真实外部 PR / CI、真人多租户、Cognee 原生模型管线、`lobehub/acceptance` CLI 与云端服务；4190 / 4192 保持用户取消时的停机状态。
@@ -35,7 +53,7 @@
 - **本机代码交付**：`DeliveryAdapter` 抽象 + `src/local-git.ts` 实现，`delivery.provider` 默认 `local`。`npm run delivery:serve` 提供 `git://127.0.0.1:9418`（clone / pull / push）与 `127.0.0.1:4194` 中文交付台（提交、本机 CI、合并审批、通知记录、确切提交预览）；`npm run delivery:demo` 真跑通全流程。GitHub 适配器保留，可显式回退。
 - **验证**：`npm test` 266/266、`tsc`、`build:workspaces`、`build:chinese-shell`、`test:walkthrough` 10/10、`test:responsive`、`audit:upstream`、`git diff --check` 全绿。完整记录见 `docs/VALIDATION.md` 第八轮。
 
-### 边界声明（历史记录，最新以 0.0000000000 节为准）
+### 边界声明（历史记录，最新以 0.00000000000 节为准）
 
 - **已发生**：组织 owner 完成成员核对并导入 3 人（只登记派单候选，不等于真人登录或资料权限）；部门 scope 授权命令已生成但**仍需本人在飞书确认**；本机 Git 交付台真跑通 clone/pull/push、本机 CI、合并审批与预览；前端入口收敛与中文壳默认生效。
 - **未发生**：真人在真实业务单上执行「确认验收」（SUI-129 仍未最终核可）；企业微信 / 腾讯文档 / 钉钉 / 国内代码托管平台 / 公有云 CI 的实际连接；生产发布、真实外部 PR / CI、真实员工多租户、飞书进群；Cognee 原生模型管线、L2 在真实新资料上的端到端触发；`lobehub/acceptance` 的 CLI 与云端报告服务。
@@ -93,7 +111,7 @@
 - 真实 bridge 实测：`v06-acceptance-report-view` 返回 `available: true / verdict: pass / 2 cases / 1 归档轮次 / 1 条自查标准`；`v06-org-mapping-view` 返回草案与注册表版本；`v06-org-overview` 十段齐全且 `feishuOrg.ok: true`。本机报告服务 `/health` 返回 `loopback-only`，索引与报告页均含中文边界声明。
 - 环境备注：本轮首次跑宿主走查时 9/10 步失败，截图为 `connect failed: Connection refused`；查 `.runtime/logs/` 后确认是**宿主服务继承了已失效的旧代理端口**（本机插件 worker 连 `127.0.0.1:4180` 被旧 `HTTP_PROXY` 劫持），不是前端或 action 回归。以干净的本机连接环境重启 3100 / 4180 后复跑 10/10 通过。
 
-### 边界声明（历史记录，最新以 0.0000000000 节为准）
+### 边界声明（历史记录，最新以 0.00000000000 节为准）
 
 - **已实现**：中文用户指令与中文帮助 / 报告 / 通知（旧英文命令仅内部兼容）、按锁定清单的确认验收路径与全套闸门（含端到端单测）、飞书真实成员的只读组织草案与人工确认导入通道、本机中文验收报告服务与自查标准沉淀、两个新增只读视图接线、全套回归与宿主走查。
 - **仍未实现 / 不得宣称**：真人未在真实业务单上执行最终确认验收；飞书组织草案未导入注册表，真实员工多租户 / 第二位真人登录仍未部署；生产发布、真实 PR 与 CI 交付；**Cognee 原生** LLM / embedding / cognify / 自动实体抽取与向量语义管线；L2 自动抽取在真实新确认资料上的端到端触发（`lastRun` 仍为空）；`lobehub/acceptance` 的 CLI 与云端报告服务（本机服务不替代它们，也不等于上游能力已启用）；把单测或浏览器截图冒充生产验收。
@@ -119,7 +137,7 @@
 
 **验证**：最终全量回归见 `docs/VALIDATION.md` 第五轮；`npm test`、`tsc --noEmit`、`npm run build:workspaces`、`npm run test:responsive`、`npm run test:walkthrough`、`npm run audit:upstream`、`git diff --check` 全部通过。
 
-### 第五轮边界声明（历史记录，最新边界以 0.0000000000 节为准）
+### 第五轮边界声明（历史记录，最新边界以 0.00000000000 节为准）
 
 - **已实现**：开工前锁清单、独立评审（真实本机视觉）、逐项判定、Acceptance 格式导出、Transfer / 责任链、统一 Trace（含缺口如实提示）、L2 组织图确定性抽取与状态视图、runtimeGuard 强制、本机语义加权、三个 v0.6 视图、真实一单与全流程浏览器走查、本地演示、GitHub 推送合并。
 - **仍未实现 / 不得宣称**：真实业务最终 `/accept` 未由发起人执行；真实员工多租户与飞书组织映射；生产发布 / 真实 PR 与 CI 交付；**Cognee 原生** LLM / embedding / cognify / 自动实体抽取与向量语义管线（仍关闭）；L2 自动抽取在真实新确认资料上的端到端触发（`lastRun` 仍为空，只有契约与状态验证）；Acceptance 的 CLI 与云端报告服务；把 `.runtime` 截图或单测冒充生产验收。

@@ -310,7 +310,7 @@
 |---|---|---|
 | 会话渠道 | **当前唯一接通：飞书**（`lark-cli` 订阅 `im.message.receive_v1`）；出站为纯文本 + 工作台链接，无交互卡片 | `src/server.ts`、`src/upstream.ts`（Super-agent 原版 trigger/channel） |
 | 接入端（**非 IM**） | CLI、MCP、A2A SDK、本地工作台 API `/start-development` | `src/cli.ts`、`src/mcp.ts`、`src/service-network.ts`、`src/server.ts` |
-| 工作台 | Paperclip 插件式单页，侧栏 `/SUI/knowledge-workspaces`，5 个 view tab（我的工作 / 协作 / 知识 / Agent / 设置），无前端路由库 | `plugins/knowledge-workspaces/src/ui/index.tsx` |
+| 工作台 | Paperclip 插件式单页，侧栏 `/SUI/knowledge-workspaces`，5 个 view tab（我的工作 / 协作 / 知识 / Agent / 设置），无前端路由库 | `plugins/knowledge-workspaces/src/ui/index.tsx`（第十轮起只作入口再导出）；实现按职责拆到 `foundation / async / forms / domestic-services / settings / task-detail / spaces / workspace-page`，见 `SYSTEM-ARCHITECTURE.md`「前端模块分层」 |
 | 分工 | **IM 负责发起、追问、通知回写；工作台负责授权、留痕、审阅与签字** | `src/controller.ts`、`src/collaboration-intake.ts` |
 
 > 「对接各种 IM」在本版是**渠道抽象的目标状态**，不是已实现清单。当前只有飞书一个会话渠道；`src/channels.ts` 的注册表让第二个 IM 只需加一个 adapter，不必改写业务对象。
@@ -357,7 +357,7 @@
 
 ## 10B. 用户语言、最终核可与本机报告（2026-11-06 · 第六轮）
 
-第五轮把规则、界面和真实一单跑通后，剩下三件「用户侧最后一公里」：命令还是英文协议词、最终核可只能走代码交付验收、报告与组织成员没有可读 / 可导入的落点。本轮按 10A 的形态约束 S1–S6 补齐，**主导航仍是 5 个 tab，没有新建独立界面**；上面的「FR 覆盖状态」保留第五轮历史，**最新边界以 `ADAPTATION-v0.6.md` 0.0000000000 节为准**。
+第五轮把规则、界面和真实一单跑通后，剩下三件「用户侧最后一公里」：命令还是英文协议词、最终核可只能走代码交付验收、报告与组织成员没有可读 / 可导入的落点。本轮按 10A 的形态约束 S1–S6 补齐，**主导航仍是 5 个 tab，没有新建独立界面**；上面的「FR 覆盖状态」保留第五轮历史，**最新边界以 `ADAPTATION-v0.6.md` 0.00000000000 节为准**。
 
 | 能力 | 会话里怎么表达 | 工作台哪个 tab 留痕 | 谁签字 |
 |---|---|---|---|
