@@ -1,18 +1,20 @@
 # 09 · 目录结构完全指南（接手必读）
 
 > 目标：搞清楚**每个目录是干什么的、哪些入库、产物放哪、新文件该放哪**。
-> 根目录：`/Users/gong.zhe/Developer/ai-native-collab`｜第十六轮 C-1 收尾后 `git ls-files` 共 **273** 个入库文件（含 `HANDOFF/` 14 个）。
+> 根目录：`/Users/gong.zhe/Developer/ai-native-collab`｜第十七轮 C-2 收尾后 `git ls-files` 共 **280** 个入库文件（含 `HANDOFF/` 14 个）。
 
 ## 1. 完整目录树（带说明）
 
 ```
 ai-native-collab/                       仓库根（main 分支）
+├── console/                           ★ C-2 自研独立控制台（3 个文件，原生 HTML/CSS/JS，零运行时依赖，不依赖宿主插件接口）
+│   ├── index.html / styles.css / app.js        六视图 / 明暗主题 / 只读白名单 / 统一中文语言层
 ├── HANDOFF/                           ★ 本交接包（入库、随 commit 推送）——唯一位置
 │   ├── README.md                      总索引 + 包内每个文件的说明
 │   ├── 00-START-HERE.md               接手第一步（环境/服务/坑）
 │   ├── 01-PROJECT-OVERVIEW.md         产品与业务架构
 │   ├── 02-ARCHITECTURE.md             技术架构与真实引用关系
-│   ├── 03-WORK-LOG.md                 16 轮工作记录与用户决策
+│   ├── 03-WORK-LOG.md                 17 轮工作记录与用户决策
 │   ├── 04-CODE-MAP.md                 按功能域的代码地图
 │   ├── 05-VALIDATION-AND-COMMANDS.md  回归命令、预期输出、排障
 │   ├── 06-CURRENT-STATE-AND-NEXT.md   B2 证据；C-0~C-6 清单与产品原则
@@ -26,10 +28,11 @@ ai-native-collab/                       仓库根（main 分支）
 │   ├── memory-recall.ts / memory-checkpoint.ts    B2 读取链投影召回、checkpoint 增量应用
 │   └── pg-host.ts                              C-1 PostgreSQL 宿主：事务 / 步进队列 / 状态外置
 │   └── vendor/prime-query.ts           从 Prime Agent 移植的检索权重（必须保留 MIT 版权头）
-├── scripts/                           ★ CLI / 服务 / 构建 / 冒烟（47 个文件，含 .py/.swift/.mjs）
+├── scripts/                           ★ CLI / 服务 / 构建 / 冒烟（49 个文件，含 .py/.swift/.mjs）
 │   ├── memory-journey.ts / memory-checkpoint.ts  B2 真跑脚本（会写 .runtime/memory/）
-│   └── host-pg-smoke.ts                        C-1 PG 真跑 21/21（专属库 suitme_collab_c1）
-├── tests/                             ★ 回归测试（58 个 .test.ts，node:test）
+│   ├── host-pg-smoke.ts                        C-1 PG 真跑 21/21（专属库 suitme_collab_c1）
+│   └── console-server.ts / console-smoke.mjs   C-2 独立控制台承载与浏览器冒烟
+├── tests/                             ★ 回归测试（60 个 .test.ts，node:test）
 │   └── fixtures/                       测试夹具（prime-context-terms.json）
 ├── plugins/
 │   └── knowledge-workspaces/           ★ 中文工作台插件（唯一插件）

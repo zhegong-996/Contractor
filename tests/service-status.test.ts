@@ -51,10 +51,10 @@ test('Paperclip 的 SPA HTML 回退也算在线，但任意 200 不会被误判'
   assert.equal(bogus.services.find(s => s.id === 'paperclip')!.state, 'unavailable');
 });
 
-test('未接通的国内与海外服务：没有 url，也没有可点入口，但给出可照做的步骤', () => {
+test('未接通的本机与国内服务：没有 url，也没有可点入口，但给出可照做的步骤', () => {
   const report = buildServiceStatus(input({ probes: {}, feishuState: 'disabled' }));
   const unconnected = report.services.filter(s => s.state === 'unavailable');
-  assert.ok(unconnected.length >= 10, '停机时应覆盖本机服务、国内服务与海外服务');
+  assert.ok(unconnected.length >= 9, '停机时应覆盖本机服务与国内服务；海外服务不作为一等入口');
   for (const s of unconnected) {
     assert.equal(s.state, 'unavailable');
     assert.equal(s.url, undefined, `${s.name} 不应带链接`);

@@ -26,17 +26,19 @@
 - **不改 `upstream/` 下任何上游源码**；`npm run audit:upstream` 必须 `clean: true`，7 个 submodule 与 `sources.lock.json` / gitlink 一致。
 - LobeHub 主仓库（Community License）与 Outline（BSL 1.1）**只借思想，禁止复制代码与衍生分发**；`lobehub/acceptance` 是独立 Apache-2.0，可复用格式/CLI。
 - Super Agent、Agent Autoloop、DeepSeek Harness、Prime Agent、Cognee、Paperclip 均为 MIT/Apache-2.0，可复用代码；`src/vendor/prime-query.ts` 必须保留 Mario Zechner 原始 MIT 版权头。
+- **LobeHub 只借设计语言**：主仓库 Community License 禁止复制 / fork / 分发衍生作品；`@lobehub/ui` 为 MIT 但 v6 强绑 React 19 + ESM，本轮**未引入**，`console/` 全部自研。未来若要用其组件，必须先走 R7 六步并重新评估运行时约束。
+- **独立控制台只开放只读动作**：13 项白名单之外一律 403，密钥不出服务端，无网页发起入口，不新增常驻端口。
 - 引入任何新上游前：先核对许可证原文、登记 `sources.lock.json`、跑 `audit:upstream`；新增 npm 依赖同样走 R7 六步（精确版本、LICENSE 原文至 `licenses/`、NOTICES、lockfile integrity、SOURCES、审计脚本）。`pg@8.23.1` 已按此登记（MIT）。
 
 ## 5. 前端与入口红线
 
 - 「**没连接不要放空入口**」：只有 `service-status` 探测 `connected` 且 URL 通过 `safeLoopbackUrl` 才渲染 `<a href>`；未接通项连 `url` 字段都没有，也不放可点按钮。
-- 第十五轮用户拍板 ②「改独立前端应用」，**已废弃「5 tab 插件式单页」的硬约束**（C-2 换成自己的外壳，但保留 5 个 tab 的职能）；**工作台仍不是第二个任务发起入口**，不新增网页发起入口。
+- 第十五轮用户拍板 ②「改独立前端应用」，**已废弃「5 tab 插件式单页」的硬约束**（C-2 已落地 `console/` 自研外壳，旧插件工作台保留可回退）；**工作台仍不是第二个任务发起入口**，不新增网页发起入口。
 - 中文壳只改展示文案，不改路由 / API enum / 业务内容 / 上游源码；构建顺序「先 domesticShell 再 chineseShell」。
 
 ## 6. 工程约束
 
-- A → B → C **不并行**；B（B1 + B2）已验收，第十五轮用户拍板 ② 后 **C 已启动**，但 C-0 → C-6 + 收尾必须逐步验收，**不得跳步或并行**；动手前读 `PRD §10C` 的 C-P1~C-P6（新增长程执行三者分离）。飞书 IM 仍是唯一发起入口，工作台仍只做授权 / 留痕 / 签字，不新增网页发起入口。
+- A → B → C **不并行**；B（B1 + B2）已验收，第十五轮用户拍板 ② 后 **C 已启动**，但 C-0 → C-6 + 收尾必须逐步验收，**不得跳步或并行**；动手前读 `PRD §10C` 的 C-P1~C-P7（长程执行三者分离、用户可见层国内化）。飞书 IM 仍是唯一发起入口，工作台仍只做授权 / 留痕 / 签字，不新增网页发起入口。
 - **组织形态是配置不是骨架**：不得为了把 `assessThreeTier()` 跑绿，逼扁平配置的小团队硬造管理层；P3 / P4 按当前配置判定。**Agent 可提出改进但不能自己让改进生效**：不得自动改写已锁定清单、权限规则、人签红线或历史任务；候选改进须过工程闸门 + 人审 + 版本 + 灰度 + 可回滚。
 - 派活 / 状态判断必须走统一 `RoutingDecision` 与同一份 Trace，不要再各写一套；新增只读 action 必须同步 `server.ts` 的 `readOnly` 与 `members.ts` 的 `reads` / `v06Reads`。
 - Trace 写入是 advisory：**失败不得改变任务、回执或验收结果**。

@@ -467,7 +467,7 @@ export class PgHostPlatform implements HostPlatformPort {
         '状态外置与崩溃恢复（completeStep 原子入下一棒 / recoverStaleSteps）',
       ],
       missing: [
-        '独立应用 UI 承载（② 下由 C-2 提供；Plugin SDK 不再是缺口）',
+        '默认底座仍由宿主承载界面（C-2 已提供自研独立控制台预览，尚未切换默认底座）',
         '真实远端工具沙箱 / 多机 Remote Tool Calling（本轮只验证循环与状态分离，未部署外部执行环境）',
         'Redis 队列横向扩展（本机用 PG SKIP LOCKED 等价；生产大规模可替换，切换点为 claimStep / completeStep / recoverStaleSteps）',
       ] };

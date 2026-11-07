@@ -40,9 +40,9 @@ const keyNames: Record<string, string> = {
   edges: '关系', revision: '版本', generatedAt: '读取时间', wake: '唤醒注意力',
   traceReady: '证据链完整', visualEvidenceRequired: '需要视觉证据', ready: '就绪',
   missing: '缺口', limitations: '限制', reasons: '未就绪原因', reasonsNote: '未就绪原因', nodeKinds: '节点类型', edgeRules: '边规则',
-  connected: '已连接 L1 读取器', adapter: '抽取适配器', mode: '抽取模式', lastRun: '最近一次抽取',
+  connected: '已连接一级证据图读取器', adapter: '抽取适配器', mode: '抽取模式', lastRun: '最近一次抽取',
   drafted: '新增草稿边', skippedExisting: '已存在跳过', rejected: '被拒绝的提案', modelCalls: '模型调用次数',
-  l1: 'L1 投影规模', isolationKey: '隔离键', semanticJudgement: '图像语义判定', vision: '支持视觉输入',
+  l1: '一级证据图规模', isolationKey: '隔离键', semanticJudgement: '图像语义判定', vision: '支持视觉输入',
   independent: '独立于产出模型', externalModelEnabled: '启用外部模型', inputModes: '可接收证据类型',
   signals: '组织信号', policy: '策略', registry: '职能注册表', attention: '注意力策略',
   watchdog: '运行时巡检', ontology: '默认本体', transferPolicy: '授权策略',
@@ -123,7 +123,7 @@ export function GovernancePanel({ ui, task }: { ui: V06UI; task: any }): any {
           cases: value?.cases, archivedRounds: value?.archivedRounds, createdAt: value?.createdAt }} />
           {value?.available
             ? <div className="sm-actions"><a className="sm-button" href={value.reportUrl} target="_blank" rel="noreferrer">查看逐项验收报告</a></div>
-            : <p className="sm-small sm-muted">本任务还没有归档报告，先执行 npm run acceptance:export -- 任务ID。</p>}
+            : <p className="sm-small sm-muted">本任务还没有归档报告。完成逐项判定后，报告会自动归档到这里。</p>}
           {Array.isArray(value?.selfCheckStandards) && value.selfCheckStandards.length > 0
             && <ul className="sm-small">{value.selfCheckStandards.map((text: string, i: number) => <li key={i}>{text}</li>)}</ul>}
           <p className="sm-small sm-muted">{value?.note}</p></>}
@@ -164,7 +164,7 @@ export function OrganizationPanel({ ui }: { ui: V06UI }): any {
   const overview = useRead(ui, 'v06-org-overview', { space, reload });
   const titles: Record<string, string> = { registry: '职能注册表', transferPolicy: 'Transfer 授权策略', policy: 'Workspace 政策',
     attention: '注意力预算', watchdog: '运行时巡检', reviewer: '独立评审就绪度', ontology: '默认组织本体',
-    extraction: 'L2 自动抽取状态', feishuOrg: '飞书组织映射', signals: '组织状态信号' };
+    extraction: '组织关系抽取状态', feishuOrg: '飞书组织映射', signals: '组织状态信号' };
   return <section className="sm-stack sm-v06"><div className="sm-section-head"><h2>组织规则</h2><Refresh onClick={() => setReload(v => v + 1)} busy={ui.busy} /></div>
     <div className="sm-notice"><p className="sm-small">本页只读。职能划分、验证等级、汇报拓扑与授权档位都是配置，组织级修改需组织 owner；组织信号只提示、不拦截、不排名，也不用于考核。</p></div>
     <label className="sm-field">Workspace 标识<input className="sm-input" value={space} onChange={e => setSpace(e.target.value)} placeholder="default" /></label>
@@ -189,10 +189,10 @@ export function KnowledgeStatePanel({ ui, domain }: { ui: V06UI; domain?: string
   const globalEdges = useRead(ui, 'v06-l2-edges-view', { reload });
   const stateNames: Record<string, string> = { draft: '草稿', accepted: '已验收', reusable: '可复用' };
   return <section className="sm-stack sm-v06"><div className="sm-section-head"><h2>关系与状态</h2><Refresh onClick={() => setReload(v => v + 1)} busy={ui.busy} /></div>
-    <p className="sm-small sm-muted">空间：{show(domain ?? '全部')}。关系本身带状态与有效期；只有已验收的关系能被 Agent 当作依据，来源变版时旧关系自动失效。L1 证据图按来源修订隔离，不受此页影响。</p>
-    <Box title="L2 自动抽取" hint="读 Cognee L1 → 生成带原文证据的草稿边"><Load state={extraction} empty="尚未读取抽取状态">
+    <p className="sm-small sm-muted">空间：{show(domain ?? '全部')}。关系本身带状态与有效期；只有已验收的关系能被助手当作依据，来源变版时旧关系自动失效。一级证据图按来源修订隔离，不受此页影响。</p>
+    <Box title="组织关系自动抽取" hint="读一级证据图 → 生成带原文证据的草稿边"><Load state={extraction} empty="尚未读取抽取状态">
       {(value: any) => <><Summary value={value?.lastRun ?? value} />
-        <p className="sm-small sm-muted">{value?.connected ? '已连接 Cognee L1 只读投影' : '未连接 L1 读取器'}；当前为{value?.mode === 'model' ? '模型' : '确定性'}抽取，模型调用 {show(value?.lastRun?.modelCalls ?? 0)}。L1 按 sha256(sourceId@revision) 物理隔离，抽取只生成草稿，仍要人验收。</p>
+        <p className="sm-small sm-muted">{value?.connected ? '已连接一级证据图只读投影' : '未连接一级证据图读取器'}；当前为{value?.mode === 'model' ? '模型' : '确定性'}抽取，模型调用 {show(value?.lastRun?.modelCalls ?? 0)}。一级证据图按资料与版本物理隔离，抽取只生成草稿，仍要人验收。</p>
         <Load state={globalEdges} empty="全局组织图暂无关系">
           {(list: any) => <p className="sm-small sm-muted">全局组织图已有 {Array.isArray(list) ? list.length : 0} 条带状态关系。</p>}
         </Load></>}
@@ -200,7 +200,7 @@ export function KnowledgeStatePanel({ ui, domain }: { ui: V06UI; domain?: string
     <label className="sm-field">按任务查看<select className="sm-input" value={taskId} onChange={e => setTaskId(e.target.value)}>
       <option value="">选择协作任务</option>{tasks.map(t => <option key={t.id} value={t.id}>{t.identifier} · {t.title}</option>)}</select></label>
     {!taskId ? <div className="sm-empty"><strong>还没有协作任务</strong>先在「协作」里发起一单，关系会随任务沉淀。</div> : <>
-      <Box title="L2 组织图关系" hint="产品层记录"><Load state={edges} empty="此任务还没有组织图关系">
+      <Box title="组织图关系" hint="产品层记录"><Load state={edges} empty="此任务还没有组织图关系">
         {(value: any) => { const list: any[] = Array.isArray(value) ? value : Array.isArray(value?.edges) ? value.edges : [];
           return <>{!list.length ? <div className="sm-empty"><strong>暂无关系</strong>协作过程中的决策、证据与责任会在这里留下带状态的边。</div>
             : <div className="sm-table-scroll"><table className="sm-table"><thead><tr><th>关系</th><th>起点 → 终点</th><th>状态</th><th>生效 / 失效</th><th>证据</th><th>操作</th></tr></thead><tbody>

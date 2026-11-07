@@ -575,3 +575,34 @@ Cognee `cognify` 的真实外部模型调用未发生（缺端点与凭据）；
 ### 3. 严格边界（未发生，不是 bug）
 
 本轮**未引入 Redis**（用 PG `SKIP LOCKED` 等价）、**未部署远端工具沙箱 / 多机 Remote Tool Calling**（只验证循环与状态分离）、**未把 `runner.ts` / `assistant-runner.ts` 的常驻 `while` 切成单步**、**未切换默认底座**、**未改上游源码**。C-P6 的产品约束已固化，但长程执行尚未接到真实 Agent 循环上。真人业务验收（SUI-129 未核可）、Cognee 原生 `cognify` 真实调用、生产发布、真实外部 PR·CI、全员 SSO、飞书部门 scope 重新登录仍未发生。4190 / 4192 / 4194 / 9418 保持用户取消时的停机状态；5432 是用户既有本机 PG，只连回环、只用专属库，不动 `geo_flow` 等其它库。
+
+
+---
+
+## 第十七轮：C-2 国内适配与独立控制台（2026-11-07）
+
+**性质**：运行代码 + 前端资源 + 测试 + 文档；**未引入新上游、未改上游提交、未切换默认底座**。用户要求把 Paperclip 的「国外元素」做彻底国内适配，前端参考 LobeHub 的样式与部分功能。
+
+### 1. 交付
+
+- **国内适配**：中文壳词典扩到 344 条并覆盖上游残留英文；`domesticIndexHtml` 改掉移动桌面标题；服务清单移除 Slack / GitHub / Linear / Notion / Vercel / Zapier 一等入口，本机服务名中文化；工作台面板把 `npm run ...`、Cognee / Codex / Claude Code / Gemini / OpenAI / SQLite / Wiki / L1 / L2 等换成中文产品语言；内部标识不动。
+- **独立控制台**：`console/` 自研六视图（概览 / 协作 / 知识 / 验收 / 服务 / 设置）、LobeHub 风格布局与卡片、气泡时间线、明暗主题、425px 窄屏；`scripts/console-server.ts` 只绑回环、13 个只读 action 白名单、写动作 403、密钥不出服务端、CSP 与禁表单；`console/app.js` 统一中文语言层与 8 秒请求超时。
+- **真跑与契约**：`npm run console:smoke` 起临时端口 + Chrome 走查；`tests/console-shell.test.ts`（7 例）与 `tests/domestic-localization.test.ts`（7 例）。
+- **许可证核实**：LobeHub 主仓库 Community License 禁止复制；`@lobehub/ui` 为 MIT 但 v6 强绑 React 19 + ESM，**本轮不引入**，只借设计语言自研实现。见 `OPEN-SOURCE-COMPLIANCE.md` 第 3 节、`SOURCES.md`。
+
+### 2. 全套回归结果（本轮重跑）
+
+| 项 | 结果 |
+|---|---|
+| `npm test` | **349 / 349**（第十六轮 335 + C-2 新增 14 例） |
+| `npx tsc --noEmit` / `build:workspaces` | 通过 / 通过（插件已重挂真实宿主） |
+| `build:chinese-shell` | `ok:true`、`hiddenEntries` 4、`missed: []`、`warning: null` |
+| `test:responsive` | 425px 无溢出、按钮 44px、`problems: []` |
+| `test:walkthrough` | **11 / 11**，`failures: []`（旧插件工作台未回退） |
+| `console:smoke` | **`ok:true`**：6/6 视图渲染、真实任务 10 条、主题切换持久化、425px `425/425`、可见文案零海外品牌、无输入框、写动作 403、服务已连接 |
+| `host:pg` / `host:smoke` / `routing:status` | `ok:true` 21/21 / `ok:true` / `allWired:true`、三层 `recommended:false` |
+| `audit:upstream` / `git diff --check` | `clean:true`、`problems: []` / 通过 |
+
+### 3. 严格边界（未发生，不是 bug）
+
+默认 `config.host.provider` 仍是 `paperclip`；旧插件工作台保留并通过走查，控制台是**新增独立外壳**而非替换默认底座；`capabilities()` 仍如实列出「默认底座仍由宿主承载界面」。控制台由 `npm run console` 按需启动，**不新增常驻端口**、不提供网页发起入口。真人业务验收（SUI-129 未核可）、Cognee 原生 `cognify` 真实调用、生产发布、真实外部 PR·CI、全员 SSO、飞书部门 scope 重新登录仍未发生。4190 / 4192 / 4194 / 9418 保持停机；5432 只连回环专属库。`.runtime/console-smoke.json` 与 `.runtime/console/*.png` 不入库。

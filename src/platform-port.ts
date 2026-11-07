@@ -171,7 +171,7 @@ export class LocalHostPlatform implements HostPlatformPort {
         'cost-ledger（TraceBridge.flush 依赖）',
         'heartbeat 真实执行与 checkout / retry / runToken 语义',
         '事务与并发控制（单进程文件后端；local-pg 已实现）',
-        '独立应用 UI 承载（② 下由 C-2 提供，不再是 Plugin SDK 缺口）'] };
+        '默认底座仍由宿主承载界面（C-2 已提供自研独立控制台预览，尚未切换默认底座）'] };
   }
 }
 

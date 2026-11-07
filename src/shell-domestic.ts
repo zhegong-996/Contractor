@@ -86,6 +86,7 @@ export function domesticIndexHtml(html: string): string {
   return html
     .replace('<html lang="en"', '<html lang="zh-CN"')
     .replace(/<title>[^<]*<\/title>/, '<title>SuitMe 协作台</title>')
+    .replace(/(<meta name="apple-mobile-web-app-title" content=")[^"]*(")/, '$1SuitMe 协作台$2')
     .replace('</head>', '<link rel="stylesheet" href="/suitme-domestic.css"><script src="/suitme-domestic.js" defer></script></head>');
 }
 

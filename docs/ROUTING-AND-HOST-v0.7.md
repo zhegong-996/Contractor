@@ -150,7 +150,7 @@ Super Agent、Autoloop、LobeHub **不是同类**：触发策略 → 执行循�
 - **取舍如实**：本机不引 Redis（PG `SKIP LOCKED` 等价，切换点为 `claimStep / completeStep / recoverStaleSteps`）；不部署远端工具沙箱 / 多机 Remote Tool Calling；默认底座仍 `paperclip`；`runner.ts` 的常驻 `while` 循环尚未切成单步。三项仍缺都写在 `capabilities().missing`，不假装完成。
 - **证据**：`npm run host:pg` 在本机真跑 **21/21、`ok:true`**（含并发领取、崩溃恢复、事务回滚、token 幂等）；`tests/pg-host.test.ts` 6 例纯函数契约；`audit-upstream.ts` 按 R7 纳入 `pg` 精确版本 / integrity / 许可证 / 声明检查。
 
-每阶段验收必须跑：全套回归（当前 335 例单测、tsc、两个构建、响应式、走查、上游审计、diff-check）+ `npm run routing:status` + `npm run host:smoke` + `npm run host:pg`。
+每阶段验收必须跑：全套回归（当前 349 例单测、tsc、两个构建、响应式、走查、上游审计、diff-check）+ `npm run routing:status` + `npm run host:smoke` + `npm run host:pg` + `npm run console:smoke`。
 
 ---
 

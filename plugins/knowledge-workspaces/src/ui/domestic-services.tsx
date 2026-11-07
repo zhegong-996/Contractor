@@ -44,7 +44,8 @@ export function DomesticServices({ ui }: { ui: UI }) {
     const timer = setInterval(() => { if (!document.hidden) void load(); }, 15000);
     return () => clearInterval(timer);
   }, []);
-  const groups: [ServiceEntry['category'], string][] = [['local', '本机服务'], ['domestic', '国内服务'], ['overseas', '海外服务']];
+  // 海外服务不作为一等入口：清单只列本机与国内服务，未接通项不放空链接。
+  const groups: [ServiceEntry['category'], string][] = [['local', '本机服务'], ['domestic', '国内服务']];
   const entries: ServiceEntry[] = report?.services ?? [];
   return <section className="sm-stack"><div className="sm-section-head"><h2>国内可用服务</h2><Badge>未接通不放入口</Badge>
     <Button icon="refresh" disabled={loading} onClick={() => void load(true)}>刷新状态</Button></div>

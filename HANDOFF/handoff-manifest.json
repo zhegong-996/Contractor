@@ -1,14 +1,14 @@
 {
   "schemaVersion": 1,
   "purpose": "SuitMe 协作台项目交接包：让下一位 Agent 无需对话历史即可安全继续",
-  "generatedAt": "2026-11-07T21:46:00+08:00",
+  "generatedAt": "2026-11-07T22:10:00+08:00",
   "authoritativeLocation": "/Users/gong.zhe/Developer/ai-native-collab/HANDOFF/",
   "portableCopy": null,
   "repository": {
     "path": "/Users/gong.zhe/Developer/ai-native-collab",
     "remote": "https://github.com/zhegong-996/suitme-collab.git",
     "branch": "main",
-    "codeBaseCommit": "以 git rev-parse HEAD 为准（第十六轮 C-1 代码与文档一并提交推送；HEAD = origin/main = 远端 main）",
+    "codeBaseCommit": "以 git rev-parse HEAD 为准（第十七轮 C-2 代码与文档一并提交推送；HEAD = origin/main = 远端 main）",
     "originMainAtGeneration": "same-as-HEAD",
     "remoteMainAtGeneration": "same-as-HEAD",
     "note": "不再写死 hash：交接包生成时的 b58631c / f6611e0 / 4aa6fb0 / 8d3c455 / c27d7c0 / 3a563d3 均为历史。代码与文档在同一提交里一并推送。",
@@ -21,7 +21,7 @@
     "B1": "completed-and-validated",
     "B2": "completed-and-validated",
     "C": "in-progress-stepwise",
-    "currentBoundary": "docs/ADAPTATION-v0.6.md 0.00000000000000000 节（第十六轮 C-1：PG 真跑与长程执行地基）；C 产品约束见 docs/PRD-v0.6.md §10C（C-P1~C-P6）；验证见 docs/VALIDATION.md 第十六轮",
+    "currentBoundary": "docs/ADAPTATION-v0.6.md 0.000000000000000000 节（第十七轮 C-2：国内适配与独立控制台）；C 产品约束见 docs/PRD-v0.6.md §10C（C-P1~C-P7）；验证见 docs/VALIDATION.md 第十七轮",
     "userDecision": "② 改成独立前端应用（废弃 PRD §10A 的 S5/S6，保留 S1–S4，飞书 IM 仍是唯一发起入口）；补遗：组织形态必须可配置（按业务域/组织单元生效、允许一个 Agent 兼任多职责、禁止同一 Task 自派自验自环），Agent 靠沉淀自我改进但核心决策仍由人做，判断是工程能力 + AI 能力组合，验收本身也是一个可与产品/技术/运营协作的 Agent",
     "cProductConstraints": [
       "C-P1 组织形态可配置：层不是产品骨架；Agent 实例与职责绑定/生效范围/版本分离；组织级唯一、项目只引用不覆写、变更留快照不回溯",
@@ -29,26 +29,35 @@
       "C-P3 判断分三层、模型按需：确定性工程层 modelCalls=0 先过滤 -> AI 层只接判不准的少数并记证据与成本 -> 人层保留目标/边界/高风险联签/最终核可；人必达消息不受过滤影响",
       "C-P4 沉淀回流、L 级渐进不跳级：打回 -> 自查标准 -> 下次交付前强制先自查 -> 候选改进 -> 工程闸门+人审 -> 版本/灰度/可回滚 -> 效果对比；不得自动改写已锁定清单、权限规则、人签红线或历史任务",
       "C-P5 评估检查配置是否被正确执行：assessThreeTier 的 P3/P4 改按当前配置判定，扁平配置下不要求出现 supervisor；L1-L5 水位单独只读呈现",
-      "C-P6 循环 / 会话状态 / 执行环境三者分离，长程任务不绑机器：每一步是可独立重跑的短执行单元，状态与 checkpoint 外置到事务库，下一棒由队列原子激活，runToken 领取可回收，换机器只换执行工具的地方；权限仍按当前身份逐步重评"
+      "C-P6 循环 / 会话状态 / 执行环境三者分离，长程任务不绑机器：每一步是可独立重跑的短执行单元，状态与 checkpoint 外置到事务库，下一棒由队列原子激活，runToken 领取可回收，换机器只换执行工具的地方；权限仍按当前身份逐步重评",
+      "C-P7 用户可见层国内化、前端是自己的外壳：用户可见文案与服务清单不出现海外品牌 / 工程命令 / 英文协议词（内部标识可保留）；海外未接通服务不作一等入口；前端参考现代 AI 协作应用观感但自研实现、不复制上游代码；飞书仍是唯一发起入口，独立控制台只做查看 / 授权 / 确认，只读白名单之外一律拒绝"
     ],
     "cSteps": [
       "C-0 决策固化与产品思路复盘（完成）",
       "C-0b 组织形态可配置 + 沉淀自演进的产品约束固化（完成，仅文档）",
       "C-1 本机 PG 真跑与长程执行地基（完成：PgHostPlatform / SKIP LOCKED 步进队列 / config.host.provider=local-pg / R7 协议登记）",
-      "C-2 独立应用外壳 + 国内适配 + LobeHub 风格前端（下一步；用户 2026-11-07 追加：Paperclip 国外元素多，前端参考 LobeHub 样式与部分功能）",
+      "C-2 国内适配 + 自研独立控制台（完成：console/ 六视图 / 明暗主题 / 425px；13 项只读白名单；console:smoke 真跑）",
       "C-3 单一 Router（读配置决定 1 跳/2 跳）",
       "C-4 可配置角色体系 + 验收 Agent + A2A handoff",
       "C-5 按配置重跑三层评估 + 扁平/分层两种配置各跑真实一单",
       "C-6 沉淀回流与自演进闭环",
       "C 收尾：全量回归、文档同步、提交推送"
     ],
-    "note": "B 阶段已验收；第十五轮用户拍板 ② 解除产品形态冲突，C 正式启动且严格分步不并行。三层判断仍 recommended=false（覆盖率 5/7），C-5 前不把三层当默认答案、不放开主管自主派活；评估口径按当前配置改造后，扁平配置不得为凑绿硬造管理层",
+    "note": "B 阶段已验收；第十五轮用户拍板 ② 解除产品形态冲突，C 正式启动且严格分步不并行。三层判断仍 recommended=false（覆盖率 5/7），C-5 前不把三层当默认答案、不放开主管自主派活；评估口径按当前配置改造后，扁平配置不得为凑绿硬造管理层 第十七轮按用户新要求选定 08 第 10 项方向 (a)：不引入第 8 个上游，自己做国内化 + 独立控制台；默认底座仍可回退。",
     "c1Deliverables": [
       "src/pg-host.ts：PgHostPlatform，事务 / ACL / 成本账本 / heartbeat checkout-retry-runToken / FOR UPDATE SKIP LOCKED 步进队列 / 崩溃恢复 / 状态外置",
       "scripts/host-pg-smoke.ts：本机专属库 suitme_collab_c1 真跑，21 项 checks 全绿，报告 .runtime/host-pg-smoke.json（不入库）",
       "tests/pg-host.test.ts：6 例纯函数契约（回环 DSN、外部主机拒绝、capabilities 如实区分），不连库也能跑",
       "src/config.ts / src/platform-port.ts：host.provider 增加 local-pg，resolvePlatform 工厂接线",
       "R7 协议登记：pg@8.23.1 精确版本 + licenses/pg-MIT.txt + THIRD_PARTY_NOTICES.md + SOURCES.md + audit-upstream.ts 机器化检查"
+    ],
+    "c2Deliverables": [
+      "console/index.html / styles.css / app.js：自研 LobeHub 风格独立控制台，六视图、明暗主题、425px、统一中文语言层、8 秒请求超时",
+      "scripts/console-server.ts：只绑回环、13 项只读 action 白名单、写动作 403、密钥不出服务端、CSP 禁表单；按需启动非常驻",
+      "scripts/console-smoke.mjs + npm run console:smoke：临时端口 + Chrome 真跑 6 视图 / 主题 / 425px / 零海外文案 / 只读边界",
+      "tests/console-shell.test.ts + tests/domestic-localization.test.ts：14 例静态契约",
+      "国内适配：中文壳词典 344 条、页面元数据中文化、服务清单移除海外一等入口、工作台品牌与命令词全量中文化",
+      "许可证核实：LobeHub 主仓库 Community License 禁止复制；@lobehub/ui 为 MIT 但 v6 强绑 React 19，本轮不引入、不复制代码"
     ]
   },
   "b2Deliverables": [
@@ -59,7 +68,7 @@
     "收尾修复：reviewSource 改用评审后 revision，消除真实链路悬空 lineage；历史 append-only 日志中的旧行不物理删除"
   ],
   "validation": {
-    "unitTests": "335/335",
+    "unitTests": "349/349",
     "typecheck": "pass",
     "buildWorkspaces": "pass",
     "buildChineseShell": "pass (hiddenEntries 4, missed 0, warning null；前台重跑，后台沙箱批量删除保护为已知坑)",
@@ -76,11 +85,14 @@
       "routing:status": "ok (threeTier.recommended=false)",
       "host:smoke": "ok",
       "cognee:native status": "configured:false（缺 4 个环境变量，未外发业务材料）",
-      "host:pg": "ok:true, 21/21（PostgreSQL 17.10 专属库 suitme_collab_c1）"
+      "host:pg": "ok:true, 21/21（PostgreSQL 17.10 专属库 suitme_collab_c1）",
+      "console": "按需启动 http://127.0.0.1:4200/（只绑回环，非常驻服务）",
+      "console:smoke": "ok:true，6/6 视图、真实任务 10 条、主题持久化、425px 425/425、零海外文案、写动作 403"
     },
     "gitDiffCheck": "pass",
-    "reference": "HANDOFF/05-VALIDATION-AND-COMMANDS.md",
-    "hostPgSmoke": "ok:true, checks 21, failed []；事务回滚不变、并发领取不重复、崩溃回收旧 token 失效、步进链 modelCalls=3"
+    "reference": "HANDOFF/05-VALIDATION-AND-COMMANDS.md 与 docs/VALIDATION.md 第十七轮",
+    "hostPgSmoke": "ok:true, checks 21, failed []；事务回滚不变、并发领取不重复、崩溃回收旧 token 失效、步进链 modelCalls=3",
+    "consoleSmoke": "ok:true；检查项含 index/styles/script/realTasks/writeBlocked/readOnlyAllowlist/6 个视图/themeToggle/noOverseasCopy/noWebIntake/feishuNotice/serviceConnected/responsive425"
   },
   "services": {
     "3100": {
@@ -107,6 +119,11 @@
       "name": "本机 Git 交付台",
       "state": "stopped",
       "action": "DO NOT RESTART（用户取消）"
+    },
+    "4200": {
+      "name": "自研独立控制台（按需）",
+      "state": "not-running-by-default",
+      "action": "npm run console 才启动，只绑 127.0.0.1；console:smoke 用随机端口且跑完即关；不得作为常驻服务"
     },
     "5432": {
       "name": "本机 PostgreSQL 17（专属库 suitme_collab_c1）",
@@ -138,7 +155,7 @@
     },
     {
       "path": "HANDOFF/03-WORK-LOG.md",
-      "purpose": "16 轮工作记录（含第十五轮补遗、第十六轮 C-1）、提交号、排障模式、用户决策"
+      "purpose": "17 轮工作记录（含第十五轮补遗、第十六轮 C-1、第十七轮 C-2）、提交号、排障模式、用户决策"
     },
     {
       "path": "HANDOFF/04-CODE-MAP.md",
@@ -146,7 +163,7 @@
     },
     {
       "path": "HANDOFF/05-VALIDATION-AND-COMMANDS.md",
-      "purpose": "全套回归命令、第十六轮 C-1 实测结果（含 host:pg 21/21）、真实 HTTP 冒烟、排障、提交前检查"
+      "purpose": "全套回归命令、第十七轮 C-2 实测结果（含 host:pg 21/21 与 console:smoke）、真实 HTTP 冒烟、排障、提交前检查"
     },
     {
       "path": "HANDOFF/06-CURRENT-STATE-AND-NEXT.md",
@@ -158,7 +175,7 @@
     },
     {
       "path": "HANDOFF/08-OPEN-DECISIONS.md",
-      "purpose": "需用户拍板的事项（7 项待拍板 + 3 条已解决历史记录；第 10 项为 Paperclip 去留）"
+      "purpose": "需用户拍板的事项（第 10 项已于第十七轮按方向 (a) 定调；其余仍待拍板）"
     },
     {
       "path": "HANDOFF/DIRECTORY-GUIDE.md",
@@ -170,7 +187,7 @@
     },
     {
       "path": "HANDOFF/handoff-manifest.json",
-      "purpose": "本文件：机器可读交接元数据（含 C-P1~C-P6）"
+      "purpose": "本文件：机器可读交接元数据（含 C-P1~C-P7）"
     },
     {
       "path": "HANDOFF/SYNC-STATUS.md",
@@ -179,18 +196,18 @@
   ],
   "fileInventory": {
     "path": "HANDOFF/FILE-INVENTORY.md",
-    "totalEntries": 273,
-    "handWrittenDescriptions": 204,
+    "totalEntries": 280,
+    "handWrittenDescriptions": 211,
     "autoExtractedDescriptions": 69,
     "fallback": 0,
     "uncovered": 0,
-    "note": "第十四轮 269 + 第十六轮 C-1 新增 4 个入库文件（src/pg-host.ts、scripts/host-pg-smoke.ts、tests/pg-host.test.ts、licenses/pg-MIT.txt）；package.json / package-lock.json 等既有文件修改不计新增"
+    "note": "第十四轮 269 + 第十六轮 C-1 新增 4 + 第十七轮 C-2 新增 7（console/ 3、scripts 2、tests 2）；既有文件修改不计新增"
   },
   "nextSteps": [
     "读 HANDOFF/00-START-HERE.md、06-CURRENT-STATE-AND-NEXT.md、docs/PRD-v0.6.md §10C、07-RULES-AND-BOUNDARIES.md",
-    "跑 HANDOFF/05-VALIDATION-AND-COMMANDS.md 的全套回归确认 335/335、走查 11/11、host:pg 21/21",
-    "C-2：独立应用外壳 + 国内适配（用户 2026-11-07 追加：Paperclip 国外元素多，前端参考 LobeHub 样式与部分功能，自研实现不复制上游代码），保留 5 tab 职能、飞书仍是唯一发起入口",
-    "C-3：五个派活点收敛为单一 Router，读配置决定 1 跳/2 跳（保留 legacy 回退）",
+    "跑 HANDOFF/05-VALIDATION-AND-COMMANDS.md 的全套回归确认 349/349、走查 11/11、host:pg 21/21、console:smoke ok:true",
+    "C-2 已完成：国内化用户可见层 + console/ 自研独立控制台；默认底座仍 paperclip，旧插件工作台保留可回退",
+    "C-3（下一步）：五个派活点收敛为单一 Router，读配置决定 1 跳/2 跳（保留 legacy 回退），并把主链路继续往 HostPlatformPort 收",
     "C-4：可配置角色体系（Agent 实例 + 职责绑定 + 范围 + 版本），验收升格为协作 Agent，接 A2A handoff，禁止同一 Task 自派自验自环",
     "C-5：按当前配置重跑 assessThreeTier，扁平/分层两种配置各跑真实一单",
     "C-6：自查标准回流到交付前强制比对、候选改进经工程闸门+人审版本化生效、可回滚、效果对比",
@@ -203,7 +220,7 @@
     "国内/海外外部服务是否接通",
     "已取消服务的长期状态",
     "\"pi\" 的指代（当前按 earendil-works/pi 理解）",
-    "Paperclip 去留：许可证不是问题（固定提交 MIT），架构耦合才是；候选 Octop / DeerFlow 2.0；用户 2026-11-07 追加国内适配与 LobeHub 风格前端要求"
+    "Paperclip 去留：第十七轮已按方向 (a) 定调——不引入第 8 个上游，自己做国内化 + 独立控制台；默认底座仍可回退，后续 C-3 起继续去宿主化"
   ],
   "doNot": [
     "不要重启 4190/4192/4194/9418",
@@ -214,17 +231,19 @@
     "不要把投影当成权限来源或替换主读取源",
     "不要为凑 assessThreeTier 转绿而逼扁平配置硬造管理层；P3/P4 必须按当前配置判定",
     "不要让 Agent 自动改写已锁定清单、权限规则、人签红线或历史任务；改进须过工程闸门 + 人审 + 版本 + 可回滚",
-    "不要为长程执行引入 Redis 或远端工具沙箱之外的隐含假设：本机 PG SKIP LOCKED 只覆盖单机，capabilities().missing 如实列出仍缺项"
+    "不要为长程执行引入 Redis 或远端工具沙箱之外的隐含假设：本机 PG SKIP LOCKED 只覆盖单机，capabilities().missing 如实列出仍缺项",
+    "不要复制 LobeHub 主仓库源码或分发衍生作品；引入 @lobehub/ui 前必须重新评估 React 19 / ESM 约束并走 R7 六步",
+    "不要让独立控制台出现网页发起入口、写动作或常驻端口；飞书仍是唯一发起入口"
   ],
   "finalValidationAtHandoff": {
-    "unitTests": "335/335",
+    "unitTests": "349/349",
     "walkthrough": "11/11, failures 0",
+    "consoleSmoke": "ok:true, 6/6 视图, 写动作 403, 零海外文案",
     "hostPgSmoke": "ok:true, 21/21 checks",
     "memoryJourney": "ok:true, 9/9 checks, lineageComplete:true（第十四轮历史证据）",
-    "memoryCheckpoint": "incremental, checksumEqual:true",
-    "upstreamAudit": "clean: true, problems 0（含 pg@8.23.1 MIT 登记）",
+    "upstreamAudit": "clean: true, problems 0",
     "gitDiffCheck": "pass",
-    "note": "第十六轮 C-1 代码与文档同步后重跑全套回归：npm test 335/335、tsc、两构建、425px 响应式、真实浏览器走查 11/11、host:pg 21/21、host:smoke、routing:status、memory:checkpoint、audit:upstream、git diff --check"
+    "note": "第十七轮 C-2 代码与文档同步后重跑全套回归：npm test 349/349、tsc、两构建、425px 响应式、真实浏览器走查 11/11、console:smoke、host:pg 21/21、host:smoke、routing:status、audit:upstream、git diff --check"
   },
   "authoritativeOnly": true,
   "portableCopyNote": "WorkBuddy 工作区 handoff/ 与 SuitMe-HANDOFF.zip 已停用、不再维护；唯一权威位置为仓库内 HANDOFF/。"

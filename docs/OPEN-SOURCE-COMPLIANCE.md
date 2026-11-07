@@ -61,6 +61,7 @@
 - ✅ 可以：阅读其架构、借鉴「岗位 Agent / 三层汇报 / 注意力预算 / 组织体温闭环」这些**思想与方法**，在自研模块里重新实现。
 - ❌ 不可以：复制其源码、fork 后改品牌打包、把其组件随本产品一起分发。
 - ⚠️ 特别注意：本产品也是「AI 协作平台」，与 LobeHub 存在功能重叠；若未来要对外分发，建议把「借鉴了哪些概念、是否为独立实现」留一份设计溯源记录（本文件 + `ARCHITECTURE-v0.6.md` 已承担该作用）。
+- ✅ **第十七轮 C-2 核实**：组件库 `@lobehub/ui` / `lobehub/lobe-ui` 确为 **MIT**（Copyright 2023 LobeHub，可商用、保留声明即可）；但 v6 要求 React 19 + ESM + `motion` / `@lobehub/icons` / `@lobehub/fluent-emoji` 等 peer 依赖。**本轮不引入该组件库**：`console/` 全部自研，只借鉴布局、卡片、明暗主题、会话列表、气泡时间线等设计语言与交互范式，不复制任何组件源码，也不打包其资源。现有 `upstream/paperclip/ui/public/brands/apps/LOBE-LICENSE` 说明宿主自带图标集本身来自 MIT 的 LobeHub 图标，本轮未改动。
 - ✅ `lobehub/acceptance` 是**另一个仓库、另一份协议（Apache-2.0）**，不受上述附加条件约束；2026-11-06 已作为第七个 submodule 引入（`f720feb…`），单独保留版权、LICENSE 原文与声明，动作清单见第 4 节。
 
 ## 4. Acceptance 引入的合规动作（2026-11-06 已完成）

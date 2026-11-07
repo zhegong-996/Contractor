@@ -108,8 +108,6 @@ const NOT_CONNECTED: Array<Omit<ServiceEntry, 'state' | 'detail'>> = [
     setup: '先确认仓库、账号与 token，并把交付适配器切到对应 provider 后实测 push / pull；当前默认走本机 Git。', source: '凭据检查' },
   { id: 'cloud-ci', name: '公有云 CI', category: 'domestic',
     setup: '先配置流水线与凭据，再让交付记录引用真实构建结果；当前 CI 在本机校验。', source: '凭据检查' },
-  { id: 'overseas-saas', name: 'Slack / GitHub / Linear / Notion / Vercel / Zapier', category: 'overseas',
-    setup: '国内环境默认不使用；确需接入时由管理员完成授权与网络连通性实测，再新增入口。', source: '策略检查' },
 ];
 
 /**
@@ -127,7 +125,7 @@ export function buildServiceStatus(input: ServiceStatusInput): ServiceStatusRepo
   const paperclipOk = paperclipProbe?.statusCode === 200
     && (paperclipProbe.body?.status === 'ok' || /<html[\s>]/i.test(paperclipProbe.text ?? ''));
   services.push({
-    id: 'paperclip', name: 'Paperclip 工作台', category: 'local',
+    id: 'paperclip', name: '本机协作服务', category: 'local',
     state: paperclipOk ? 'connected' : 'unavailable',
     detail: paperclipOk ? '本机服务运行中（工作台入口返回 200），当前页面由其承载' : '本机服务未响应，工作台可能无法加载',
     ...(paperclipOk ? { url: safeLoopbackUrl(loopbackUrl(input.paperclipPort))! } : { setup: '运行 npm run up 启动本机工作台与 Bridge。' }),
@@ -136,7 +134,7 @@ export function buildServiceStatus(input: ServiceStatusInput): ServiceStatusRepo
 
   // Bridge 就是正在响应本次读取的进程，无需再发一次 HTTP 请求。
   services.push({
-    id: 'bridge', name: '中文协作台 Bridge', category: 'local', state: 'connected',
+    id: 'bridge', name: '中文协作台数据通道', category: 'local', state: 'connected',
     detail: '当前会话已连接；本次状态读取由它直接回答', source: '进程内判定',
   });
 

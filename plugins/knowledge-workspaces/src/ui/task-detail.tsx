@@ -40,7 +40,7 @@ function AgentPanel({ ui, task, setPanel, editCheckpoint }: { ui: UI; task: any;
   const [instruction, setInstruction] = useDraft(k + ':instruction', ''), [mode, setMode] = useDraft(k + ':mode', a.mode ?? 'advance');
   const [answer, setAnswer] = useDraft(k + ':answer', '');
   const pending = task.sourceAccess?.some((s: any) => !s.allowed), running = ['queued', 'running', 'cancelling'].includes(a.status);
-  const name = ui.data.assistantEngine === 'claude' ? 'Claude Code' : 'Codex';
+  const name = ui.data.assistantEngine === 'claude' ? '通用开发工具' : '代码开发工具';
   const status = a.status === 'completed' && a.attention?.length ? '等你补充' : a.status === 'completed' && pending ? '等待授权' : !a.enabled && a.status !== 'idle' ? '已暂停自动准备' : labels[a.status] ?? '待委托';
   return <section className="sm-agent" aria-label="协作 Agent"><div className="sm-agent-title"><Icon name="bot" /><h3>{task.state.context?.service?.name ?? '协作 Agent'}</h3><span className="sm-muted sm-small">{name}</span>
     <span className="sm-badge">{running && <span className="sm-running-dot" />}{status}</span>

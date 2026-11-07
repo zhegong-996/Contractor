@@ -78,6 +78,6 @@ test('系统状态如实区分「已配置」与「未就绪」，不再写死�
   assert.match(server, /modelApi: cogneeNative\.configured/);
   assert.match(server, /externalLlmCallsNote/);
   const settings = read('plugins/knowledge-workspaces/src/ui/settings.tsx');
-  assert.match(settings, /Cognee 原生管线/);
+  assert.match(settings, /原生知识管线/);
   assert.doesNotMatch(settings, /不调用任何外部或云端模型网关/);
 });

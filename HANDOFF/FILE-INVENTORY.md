@@ -1,8 +1,8 @@
 # FILE-INVENTORY · 逐文件说明（100% 覆盖）
 
-> 生成自 `git ls-files` + `HANDOFF/`，第十六轮 C-1 收尾后共 **273** 个条目（第十四轮 269 + C-1 新增 4 个入库文件）。
+> 生成自 `git ls-files` + `HANDOFF/`，第十七轮 C-2 收尾后共 **280** 个条目（第十四轮 269 + C-1 新增 4 + C-2 新增 7 个入库文件）。
 > 列：`路径 | 行数 | 说明`。`upstream/<name>` 是 gitlink（submodule），行数记 `-`。
-> 说明来源：精写字典 204 条、从源码注释/导出/测试名自动提取 69 条、按类型兜底 0 条。
+> 说明来源：精写字典 211 条、从源码注释/导出/测试名自动提取 69 条、按类型兜底 0 条。
 > 需要更详细的「哪些文件一起完成什么」见 `04-CODE-MAP.md`；目录结构见 `DIRECTORY-GUIDE.md`。
 
 ## 交接包 HANDOFF/（14）
@@ -12,9 +12,9 @@
 | `HANDOFF/00-START-HERE.md` | 88 | 新 Agent 第一份必读：环境、同步状态、干净环境变量、服务端口（含 5432 PG）、首次验证、8 个已知坑（含宿主重启后插件重挂）。 |
 | `HANDOFF/01-PROJECT-OVERVIEW.md` | 56 | 产品与业务架构：定位、渠道分工、三级 owner、8 步闭环、5 tab 功能地图、成熟度三档、五条红线。 |
 | `HANDOFF/02-ARCHITECTURE.md` | 89 | 技术架构：四层数据流、7 个上游真实引用强度、前端分层、中文壳、路由契约、共享记忆主干（B1+B2）、平台端口、代码交付。 |
-| `HANDOFF/03-WORK-LOG.md` | 55 | 全部 16 轮工作记录（含第十五轮补遗、第十六轮 C-1）、7 条排障模式、用户明确做过的决策。 |
+| `HANDOFF/03-WORK-LOG.md` | 56 | 全部 17 轮工作记录（含第十五轮补遗、第十六轮 C-1、第十七轮 C-2）、7 条排障模式、用户明确做过的决策。 |
 | `HANDOFF/04-CODE-MAP.md` | 172 | 按 14 个功能域讲「哪些文件一起完成什么」、关键导出与依赖方向速查。 |
-| `HANDOFF/05-VALIDATION-AND-COMMANDS.md` | 117 | 全套回归命令、第十六轮 C-1 实测结果（含 host:pg 21/21）、真实 HTTP 冒烟模板、服务端口表、排障速查、提交前检查。 |
+| `HANDOFF/05-VALIDATION-AND-COMMANDS.md` | 120 | 全套回归命令、第十七轮 C-2 实测结果（含 host:pg 21/21 与 console:smoke）、真实 HTTP 冒烟模板、服务端口表、排障速查、提交前检查。 |
 | `HANDOFF/06-CURRENT-STATE-AND-NEXT.md` | 61 | 当前状态快照、B2 四项真跑证据、C-0~C-6 分步清单（含两条新增产品原则）、按配置的三层判断、去 Paperclip 化路线。 |
 | `HANDOFF/07-RULES-AND-BOUNDARIES.md` | 44 | 红线与边界：业务验收身份、隐私与 .runtime、服务约束、许可证、前端入口、工程约束。 |
 | `HANDOFF/08-OPEN-DECISIONS.md` | 58 | 9 个条目（6 项待拍板 + 产品形态 ②、B2 范围、组织形态可配置与自演进三条已解决历史记录）：外部模型凭据、真人验收、部门 scope、外部服务、已停服务、pi 指代。 |
@@ -106,7 +106,7 @@
 | `src/workspace-policy.ts` | 100 | Workspace owner 策略（FR-05/20/28）：只能收紧、验证等级、拓扑建议、在途版本校验。 |
 | `src/workspaces.ts` | 740 | ★ 知识空间与授权核心：来源、访问申请、快照、撤权、协作任务创建、allowed 权限重评；B2 收尾改用评审后 revision 写来源事件，消除真实链路悬空 lineage。 |
 
-## 脚本与服务 scripts/（47）
+## 脚本与服务 scripts/（49）
 
 | 路径 | 行数 | 说明 |
 |---|---|---|
@@ -119,6 +119,8 @@
 | `scripts/cognee-native.py` | 90 | Cognee 原生管线 Python 侧：add → cognify(extractor=llm) → search，接外部 OpenAI-compatible 端点。 |
 | `scripts/cognee-native.ts` | 28 | Cognee 原生 CLI（status / cognify / search）；凭据只从进程环境读取。 |
 | `scripts/cognee-recall.py` | 33 | Cognee BM25 检索子进程，只接受权限过滤后的语料注入。 |
+| `scripts/console-server.ts` | 130 | C-2 独立控制台本地承载：只绑回环、13 项只读 action 白名单、密钥不出服务端、CSP 与禁表单；导出 listenConsole 供冒烟复用。 |
+| `scripts/console-smoke.mjs` | 155 | C-2 真跑：临时端口 + Chrome 走查 6 视图、主题、425px、零海外文案、写动作 403；报告 .runtime/console-smoke.json（不入库）。 |
 | `scripts/delivery-demo.ts` | 74 | 本机 Git 交付端到端冒烟：建裸仓库、提交、push、本机 CI、审批、预览。 |
 | `scripts/delivery-server.ts` | 199 | 本机代码交付台 4194 HTTP + git daemon 9418，只绑 127.0.0.1；当前按用户要求停机。 |
 | `scripts/doctor.ts` | 17 | 环境自检 CLI（依赖、配置、服务状态）。 |
@@ -158,7 +160,7 @@
 | `scripts/vision-server.ts` | 108 | 本机 OpenAI-compatible 视觉端点（4190），当前按用户要求停机。 |
 | `scripts/workbench-walkthrough.mjs` | 181 | ★ 真实浏览器 11 步走查：CDP 驱动 3100 工作台，含白屏守卫、链接白名单、侧栏隐藏断言。 |
 
-## 回归测试 tests/（59）
+## 回归测试 tests/（61）
 
 | 路径 | 行数 | 说明 |
 |---|---|---|
@@ -175,12 +177,14 @@
 | `tests/cognee-native.test.ts` | 83 | 回归测试：Cognee 原生管线默认打开，配置里只存环境变量名；未配置外部模型时列出缺失的环境变量名，状态接口不泄露凭据；配置齐全时解析出端点 / 模型，并把凭据只放进子进程环境… |
 | `tests/collaboration-intake.test.ts` | 57 | 回归测试：a whitelist alone cannot control another task that was not bound to this chat and sender；unapproved senders cannot resume, append background or change a task；pause does not create another task or treat IM text as permission approval… |
 | `tests/confirm-acceptance.test.ts` | 175 | 回归测试：按锁定清单确认验收：逐项全通过才归档，改 done、留痕并给中文通知；身份不符、无锁定清单、逐项未通过、清单被改写，一律拒绝且不改任务状态；会话里一句「确认验收」走按清单核可；未锁清单的旧流程要求中文写明的交付提交号 |
+| `tests/console-shell.test.ts` | 88 | C-2 控制台静态契约 7 例：用户可见层无国外元素、无网页发起入口、只读白名单、密钥与回环边界、资源自足。 |
 | `tests/context-dependency-performance.test.ts` | 9 | 回归测试：shared history dependencies are checked once per read and rechecked on the next read |
 | `tests/context.test.ts` | 99 | 回归测试：ported Prime Agent query terms match the pinned original Python implementation；adoption rechecks the exact input versions and blocks historical knowledge；a historical draft cannot reintroduce changed source evidence into a fresh model context… |
 | `tests/contracts.test.ts` | 123 | 回归测试：upstream Feishu intake deduplicates by message, not event delivery; ignores own bot；durable claim excludes another writer and another agent, including after reopening SQLite；event data cannot choose a new executable, identity or repository… |
 | `tests/coordination.test.ts` | 26 | 回归测试：the pinned Super-agent policy gates current delegated work and preserves observation mode；a due check is consumed once, bounded across rounds, and cannot resume a paused mandate… |
 | `tests/delivery.test.ts` | 26 | 回归测试：覆盖该模块的契约与失败路径。 |
 | `tests/development.test.ts` | 5 | 回归测试：development and acceptance cannot impersonate a requester even after a scoped member gate |
+| `tests/domestic-localization.test.ts` | 90 | C-2 国内适配契约 7 例：中文壳词典、页面元数据、服务清单去海外一等入口、工作台文案、控制台不依赖宿主。 |
 | `tests/event-stream.test.ts` | 143 | 回归测试：the three existing evidence sources normalize into one shape；agent-written conclusions stay authored and are never reported as captured evidence；malformed events are rejected with field paths instead of being silently stored… |
 | `tests/feishu-org.test.ts` | 165 | 回归测试：只读预览去重、排除外部租户、部门缺 scope 时给出授权命令；部门字段可用时不报缺 scope；读取失败时返回结构化空草案而不是抛出；补部门权限时携带现有全部 scope，不会把已有授权清空… |
 | `tests/feishu-sources.test.ts` | 40 | 回归测试：losing original source access never falls back to a previously read body… |
@@ -221,6 +225,14 @@
 | `tests/visual-review.test.ts` | 142 | 回归测试：legacy 模式保持原评审者；independent 模式换成视觉可用且独立的评审者；结构式视觉评审：绑定截图可过，缺证据受阻，自撰材料判失败，哈希不符判失败；完整新验收流程：锁定清单 → 独立视觉评审 → 逐项报告 → 核可闸门（人仍是最终签字）… |
 | `tests/workspace-action.test.ts` | 57 | 回归测试：action guard accepts lowercase names and the numbered v0.6 family；v06-plan-view；action guard still rejects path traversal, uppercase, underscores and empty names… |
 | `tests/workspaces.test.ts` | 261 | 回归测试：parent acceptance waits for the development it explicitly commissioned；an exact document revision cannot pass acceptance after its underlying source was revoked；approval and expiry are both required; pending, revoking and exact deadline deny access… |
+
+## 独立控制台 console/（3）
+
+| 路径 | 行数 | 说明 |
+|---|---|---|
+| `console/index.html` | 87 | C-2 自研独立外壳结构：侧栏会话与导航、六视图容器、助手与现场卡、飞书唯一发起说明；无输入框与提交表单。 |
+| `console/styles.css` | 259 | LobeHub 风格设计系统：明暗两套 CSS 变量、圆角卡片、气泡时间线、1240/900/425px 断点与 44px 按钮。 |
+| `console/app.js` | 260 | 六视图渲染、只读 API 调用与 8 秒超时、DOMESTIC_TERMS 统一中文语言层、主题持久化、窄屏侧栏。 |
 
 ## 前端插件 plugins/（23）
 
@@ -272,7 +284,7 @@
 | `docs/SYSTEM-ARCHITECTURE.md` | 241 | ★ 「现在是什么」：技术四层、产品与业务架构、前端分层、统一路由 Trace、共享记忆主干。 |
 | `docs/TEAM-NETWORK-MEMORY.md` | 70 | 多人服务协作与团队知识记忆。 |
 | `docs/UPSTREAM-ADAPTERS.md` | 54 | 上游适配代码清单与引用边界。 |
-| `docs/VALIDATION.md` | 541 | ★ 逐轮验证记录（含第十四轮 B2 全套回归与三处真实缺陷修复、第十五轮 C-0/C-0b 文档验证），判断「验证过没有」以此为准。 |
+| `docs/VALIDATION.md` | 608 | ★ 逐轮验证记录（含第十四轮 B2、第十六轮 C-1、第十七轮 C-2 全套回归），判断「验证过没有」以此为准。 |
 | `docs/WORKSPACES.md` | 70 | 知识空间与使用说明。 |
 | `docs/agent-integration.md` | 75 | Agent 接入与 CLI 适配说明。 |
 | `docs/design/workbench.md` | 11 | 工作台视觉/交互设计稿。 |
@@ -325,8 +337,8 @@
 
 ## 覆盖率
 
-- 总条目：**273**（第十四轮 269 + 第十六轮 C-1 新增 4 个入库文件）
-- 精写说明：**204**（74.7%）
+- 总条目：**280**（第十四轮 269 + C-1 新增 4 + C-2 新增 7 个入库文件）
+- 精写说明：**211**（75.4%）
 - 自动提取（源码注释/导出/真实测试名）：**69**
 - 兜底：**0**
 - 未覆盖：**0**

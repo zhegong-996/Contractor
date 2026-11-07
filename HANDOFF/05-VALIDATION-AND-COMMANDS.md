@@ -6,7 +6,7 @@
 cd /Users/gong.zhe/Developer/ai-native-collab
 export NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost NODE_USE_ENV_PROXY=0
 
-npm test                    # 335/335（基线）
+npm test                    # 349/349（基线）
 npx tsc --noEmit            # 退出 0
 npm run build:workspaces    # 插件 UI 打包 + 类型检查
 npm run build:chinese-shell # hiddenEntries 4 条、missed []、warning null
@@ -28,21 +28,24 @@ npm run memory:journey      # 真实 bridge action 全链路 + 端到端撤权�
 npm run routing:status      # allWired:true、threeTier.recommended:false
 npm run host:smoke          # 非 Paperclip 宿主 ok:true
 npm run host:pg             # PG 后端 21/21、ok:true（专属库 suitme_collab_c1）
+npm run console             # 自研独立控制台（按需启动，非常驻；默认 4200，只绑回环）
+npm run console:smoke       # 临时端口 + Chrome 真跑，输出 .runtime/console-smoke.json
 npm run cognee:native -- status   # enabled:true, configured:false（缺 4 个环境变量）
 npm run delivery:demo       # 本机 Git 链路；4194/9418 停机时 gitProtocolClonePull 为 false，属预期
 ```
 
 `memory:journey` 会新建一条专用资料并在末尾撤回，**不是只读检查**；`memory:checkpoint -- --reset` 会全量重建后再按 append-only 前缀增量应用。
 
-## 2. 第十六轮 C-1 实测结果（2026-11-07；含第十四轮 B2 历史数据）
+## 2. 第十七轮 C-2 实测结果（2026-11-07；含第十四轮 B2 与第十六轮 C-1 历史数据）
 
 | 项 | 结果 |
 |---|---|
-| `npm test` | **335 / 335**（第十四轮 329 + C-1 新增 6 例 PG 契约） |
+| `npm test` | **349 / 349**（第十四轮 329 + C-1 6 例 PG 契约 + C-2 14 例控制台与国内化契约） |
 | `npx tsc --noEmit` | 通过 |
 | `build:workspaces` / `build:chinese-shell` | 通过 / `hiddenEntries` 4、`missed: []`、`warning: null`（前台重跑） |
 | `test:responsive` | 425px `393/393`、溢出 0、按钮 44px、`problems: []` |
-| `test:walkthrough` | **11 / 11**，`failures: []` |
+| `test:walkthrough` | **11 / 11**，`failures: []`（旧插件工作台未回退） |
+| `console:smoke` | **`ok:true`**：6/6 视图、真实任务 10 条、主题切换持久化、425px `425/425`、可见文案零海外品牌、无输入框、写动作 403 |
 | `audit:upstream` | `clean: true`、`problems: []`（7 个上游） |
 | `memory:smoke` | 撤权前 1 命中 → 撤权后 **0 命中**、`excludedByRevocation=4`、`modelCalls=0` |
 | `memory:journey` | **`ok: true`，9/9 checks**：四类投影 `1/2/1/1 → 0/0/0/0`、召回 `1 → 0`、`lineageInvalidated`、新增 `lineageComplete`（本次资料悬空 lineage 前后均为 0）、`logErrors=0`、两次重放一致 |
@@ -85,6 +88,7 @@ req.on('error', e => console.log('ERR', e.message)); req.end(payload);
 | 4194 | 本机 Git 交付台 | **停机·不得重启** | — |
 | 9418 | git daemon | **停机·不得重启** | — |
 | 5432 | 本机 PG 17 专属库 suitme_collab_c1 | 运行中（用户既有实例） | 不新建服务；只连回环，勿动其它库 |
+| 4200（按需） | 自研独立控制台 | 不常驻 | `npm run console` 才启动，只绑 127.0.0.1；冒烟用随机端口，跑完即关 |
 
 ## 5. 排障速查
 

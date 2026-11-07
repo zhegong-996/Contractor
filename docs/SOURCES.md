@@ -12,11 +12,14 @@
 | Cognee 1.6.6 / Apache-2.0 | 原版 LadybugAdapter、DataPoint、provenance；GraphVisualization、GraphSchema reducer 与 JSON Schema serializer | 固定子模块不改源码；不启动 LLM/embedding/记忆管线；按来源修订接入现有权限；新增 `src/org-extraction.ts` 只读 L1 投影生成 L2 草稿边（零模型调用）。详见 KNOWLEDGE-ENGINE.md |
 | Paperclip Plugin SDK | 原版构建预设、宿主身份、导航、Markdown 组件，以及私有项目、审批、任务授权和修订 API | 第二阶段扩展位于 plugins/knowledge-workspaces，未修改上游；详见 WORKSPACES.md |
 | Acceptance `f720feb` / Apache-2.0 | 固定 submodule `upstream/acceptance`；只复用其开工前锁定计划、证据来源分类、逐项判定与报告/产物的**契约和文件布局**，由独立适配层 `src/acceptance-interop.ts` 与 `scripts/export-acceptance.ts` 映射为 `result.json` / `report.md` / assets | **不启动其 CLI 或云端报告服务**；`/accept` 发起人身份校验与「Agent 完成 ≠ 验收」红线不改动。LICENSE 原文保留在 `licenses/acceptance-APACHE-2.0.txt`，固定提交见 `sources.lock.json`，声明见 `THIRD_PARTY_NOTICES.md` |
+| LobeHub（**只借设计语言，不引代码**） | `console/` 独立控制台的布局、卡片、明暗主题、会话列表与气泡时间线参考其观感与交互范式；自研原生 HTML/CSS/JS 实现 | 主仓库 Community License（Apache-2.0 + 商用附加条件）**禁止复制 / fork / 分发衍生作品**；组件库 `@lobehub/ui` 虽为 MIT，但 v6 强绑 React 19 + ESM + 多个 peer，**本轮未引入依赖、未复制组件源码、未打包资源**；详见 OPEN-SOURCE-COMPLIANCE.md 第 3 节 |
 | node-postgres `pg@8.23.1` / MIT | 仅作为 PostgreSQL 客户端驱动：`src/pg-host.ts` 的事务、并发领取、步进队列与状态外置，真跑于本机专属库 `suitme_collab_c1` | 精确版本与 integrity 见 `package-lock.json`，LICENSE 原文 `licenses/pg-MIT.txt`；**不引 Redis、不部署远端工具沙箱、不切换默认底座**；`assertLocalPgDsn()` 只允许回环地址，DSN 只从环境变量读取 |
 
 src/upstream.ts 声明本项目用到的接口并加载固定源码；出站包装只把过长通知标识映射为飞书允许的稳定幂等键。动态包边界避免把未使用的 DeepSeek Harness 宿主及其 peer dependencies 拉进本项目的类型检查；实际执行的是上游实现。测试覆盖这些真实导出，而非本地仿制实现。
 
 中文宿主通过 `scripts/build-chinese-shell.ts` 在构建阶段应用 `locales/shell.zh-CN.json`：只替换展示文案，不修改上游工作树、许可证、路由、API 枚举或用户内容；复用原生 Vite / React 构建。国内环境适配层 `src/shell-domestic.ts` 在此基础上做两件事：构建期收敛侧栏的技能库 / 连接服务入口，以及通过**同源静态资源** `suitme-domestic.js` 在运行时隐藏数据驱动、且**未连接**的海外集成卡片；脚本不注入 DOM 翻译、不改写业务内容、不发出任何网络请求，也不碰本项目插件页面。`npm run build:chinese-shell` 可复现中文资源，`npm run install:upstream` 末尾与 `npm run up` 启动前都会保证它生效；重新执行上游原版 UI 构建可恢复原界面。插件自己的文案仍由各插件维护，覆盖范围见 SYSTEM-ARCHITECTURE.md。
+
+第十七轮 C-2 起，另有一层**自研独立控制台** `console/`：不依赖 Plugin SDK、不依赖宿主的 3100 页面，由 `scripts/console-server.ts` 只在回环地址按需提供，通过 `config.bridgePort` 只读访问本机动作分发口；浏览器只拿到 13 个只读 action 的结果，密钥不出服务端。中文展示语言由 `console/app.js` 的 `DOMESTIC_TERMS` 统一收敛。`npm run console` 按需启动、`npm run console:smoke` 真跑验证，均**不新增常驻服务**；旧插件工作台仍保留作为可回退实现。
 
 Paperclip、Super-agent、Autoloop 的主许可证为 MIT，Cognee 为 Apache-2.0；许可证文件保留在各自子模块。第三方 CLI、账号、服务和依赖仍按各自规则使用。个人登录文件不复制进项目或 GitHub。
 
