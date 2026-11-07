@@ -36,12 +36,16 @@ import { collectServiceStatus, type ServiceStatusReport } from './service-status
 import { getRoutingTrace, readRoutingEvents, replayRouting } from './routing-trace.ts';
 import { assessThreeTier } from './three-tier-assessment.ts';
 import { configureRouter, getRouter, planCoverage } from './router.ts';
+import { configureAgentRegistry, getAgentRegistry, onDuty } from './agent-registry.ts';
 import { getMemoryLog, readBridgedEvents } from './memory-log.ts';
 import { memoryReplayReport } from './memory-projections.ts';
 
 const config = loadConfig(); const credentials = secrets();
 // C-3：用组织形态配置装配单一 Router；五个派活点此后都经它写同一份 Trace。
-configureRouter(config.router);
+// C-4：同时装配组织级 Agent 注册表，Router 才校验主管是否真实在岗 / 职责匹配 / 范围覆盖；
+// 默认空注册表 = 扁平小团队，不硬造管理层。A2A 交接与验收编组共用同一份注册表单例。
+configureAgentRegistry(config.agentRegistry);
+configureRouter(config.router, undefined, getAgentRegistry());
 
 /** 只读探测本机代码交付台；没有连接时返回 ok:false，前端不给空入口。 */
 function deliveryStatus(): Promise<{ ok: boolean; url: string; git: string | null; provider: string }> {
@@ -167,7 +171,7 @@ const server = createServer(async (req, res) => {
       const action = url.pathname.slice('/workspace/'.length);
       // Reads recheck their own scope and revisions. They need not wait behind
       // indexing or native process reconciliation; mutations keep the single lane.
-      const v06Reads=['roles-view','role-route','role-hints','role-snapshot','transfer-view','transfer-policy','dispatch-guard','grant-widen','grant-check','edges-view','edge-impact','label-check','policy-view','verification-level','topology-advice','inflight-policy','signals','review-readiness','ontology-meta','ontology-view','ontology-query','attention-policy','attention-filter','watchdog-policy','watchdog-inspect','plan-view','round-view','acceptance-export','acceptance-report-view','org-overview','org-mapping-view','context-pack','l2-status','l2-edges-view','l2-graph-view'];
+      const v06Reads=['roles-view','role-route','role-hints','role-snapshot','transfer-view','transfer-policy','dispatch-guard','grant-widen','grant-check','edges-view','edge-impact','label-check','policy-view','verification-level','topology-advice','inflight-policy','signals','review-readiness','ontology-meta','ontology-view','ontology-query','attention-policy','attention-filter','watchdog-policy','watchdog-inspect','plan-view','round-view','acceptance-export','acceptance-report-view','org-overview','org-mapping-view','context-pack','l2-status','l2-edges-view','l2-graph-view','agent-registry-view','acceptance-crew'];
       const readOnly=['view','team-members','agent-services','agent-build','development-view','delivery-status','service-status','routing-status','memory-replay','network-view','memory-status','memory-search','memory-annotations','context-pack','context-record','context-search','ontology-view','model-settings','system-status','trace-view'].includes(action)||action==='knowledge-graph'&&payload.project!==true||action.startsWith('v06-')&&v06Reads.includes(action.slice(4));
       const runWorkspace=readOnly?<T>(job:()=>Promise<T>)=>withFeishuReads(job):serialize;
       res.end(JSON.stringify(await runWorkspace(async () => {
@@ -187,7 +191,8 @@ const server = createServer(async (req, res) => {
           const {events,errors}=readRoutingEvents();const projection=replayRouting(events);
           return {ok:true,log:'.runtime/routing/events.jsonl',eventCount:events.length,logErrors:errors,
             projection,threeTier:assessThreeTier(events,projection,errors,
-              {routerMode:getRouter().status().mode,configuredDomains:getRouter().status().domains.length}),
+              {routerMode:getRouter().status().mode,configuredDomains:getRouter().status().domains.length,
+                agentBindings:onDuty(getAgentRegistry()).length}),
             router:getRouter().status(),routerCoverage:planCoverage(events)};
         }
         if(action==='development-start')return development.start(payload,workspaceActor);

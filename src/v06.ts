@@ -30,6 +30,8 @@ import type { CollabEvent } from './event-stream.ts';
 import { renderForChannel, endpointCapabilities, PLAIN_TEXT, type ChannelId, type SemanticObject, type RenderedMessage } from './channels.ts';
 import { signatureFor } from './routing-decision.ts';
 import { getRouter } from './router.ts';
+import { getAgentRegistry, registrySummary, onDuty, agentVersion, reviewCrew,
+  type ReviewCrewQuery } from './agent-registry.ts';
 import { recordMemory, readBridgedEvents, sourceEventId, sourceKey } from './memory-log.ts';
 import { replayMemory } from './memory-projections.ts';
 
@@ -371,10 +373,31 @@ export class V06Services {
   async signalFixLoop(signal: Signal, taskId: string, fix: string) { return openFixLoop(signal, taskId, fix); }
   async signalRetest(loop: Parameters<typeof retest>[0], value: number, threshold: number) { return retest(loop, value, threshold); }
 
+  // --- C-4 组织级 Agent 编制与验收协作（只读） ---------------------------
+  /** 展示在岗 Agent、职责槽位、生效范围与版本；内部标识不外露给用户层。 */
+  agentRegistryView() {
+    const registry = getAgentRegistry();
+    return { ...registrySummary(registry),
+      agents: onDuty(registry).map(agent => ({
+        key: agent.key, label: agent.label,
+        responsibilities: [...agent.responsibilities], domains: [...agent.domains],
+        version: agentVersion(agent),
+      })) };
+  }
+  /** 按配置解析这一单的验收协作编组；空编制如实降级，不硬造验收 Agent。 */
+  acceptanceCrew(query: Partial<ReviewCrewQuery> = {}) {
+    return reviewCrew(getAgentRegistry(), {
+      taskId: query.taskId ?? '', domain: query.domain ?? null,
+      producedBy: query.producedBy ?? null, usedKeys: query.usedKeys ?? [],
+    });
+  }
+
   // --- F. Independent review readiness (FR-18/25) ------------------------
-  async reviewReadiness(traceReady: boolean, visualEvidenceRequired = true) {
+  async reviewReadiness(traceReady: boolean, visualEvidenceRequired = true,
+    crewQuery: Partial<ReviewCrewQuery> = {}) {
     assertReviewerCapable(this.reviewer, { producerModel: '', visualEvidenceRequired: false });
-    return acceptanceChainReady({ traceReady, reviewer: this.reviewer, visualEvidenceRequired });
+    return { ...acceptanceChainReady({ traceReady, reviewer: this.reviewer, visualEvidenceRequired }),
+      crew: this.acceptanceCrew(crewQuery) };
   }
   async reviewEvidence(input: Parameters<IndependentReviewer['review']>[0]) {
     const result = await this.reviewer.review(input);
@@ -607,6 +630,7 @@ export class V06Services {
       safe('extraction', () => this.l2Status()),
       safe('feishuOrg', () => this.orgMappingView()),
       safe('signals', () => this.signalsView({})),
+      safe('agents', () => this.agentRegistryView()),
     ]);
     return { space, sections, generatedAt: new Date().toISOString() };
   }
@@ -709,8 +733,10 @@ export class V06Services {
       case 'org-mapping-preview': return this.orgMappingPreview(p.includeChatted !== false);
       case 'org-mapping-view': return this.orgMappingView();
       case 'org-mapping-apply': return this.orgMappingApply(p.entries ?? p, p.registryRevision ?? null, who);
-      case 'review-readiness': return this.reviewReadiness(p.traceReady === true, p.visualEvidenceRequired !== false);
+      case 'review-readiness': return this.reviewReadiness(p.traceReady === true, p.visualEvidenceRequired !== false, p);
       case 'review-evidence': return this.reviewEvidence(p);
+      case 'agent-registry-view': return this.agentRegistryView();
+      case 'acceptance-crew': return this.acceptanceCrew(p);
       // FR-08 ontology
       case 'ontology-meta': return this.ontologyMeta();
       case 'ontology-view': return this.ontologyView(p.taskId);

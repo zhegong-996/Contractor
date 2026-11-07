@@ -156,9 +156,17 @@ Super Agent、Autoloop、LobeHub **不是同类**：触发策略 → 执行循�
 - **不写死三段**：`flat` 1 跳（默认，幂等键与改造前逐字一致）；`layered` 且业务域配了主管最多 2 跳；业务域没主管、`maxHops=1`、主管即承接人、决策被拒 / 待定，都退回 1 跳并标注 `degraded`，不硬造管理层。`legacy` 一行回退，不改写任何字段。
 - **红线**：同一 Task 自派自验自环被拦并写一条 `rejected` 留痕；人签只在最后一跳；配置 `revision` 写进每条决策 `basis.evidence`，历史决策不回溯改写；日志写入失败仍 advisory，不改业务结果。
 - **评估口径**：p6 从硬编码 `false` 改为按 Trace 中的 Router 快照判定；真实全量日志因含历史决策仍为 `false`。新增 p8（Agent 实例 + 职责绑定 + 分层配置），C-4 / C-5 前恒 `false`，避免合成数据凑齐 P3 / P4 后误判 `recommended=true`。
-- **证据**：`npm run router:smoke` 隔离内存 Trace 真跑三种形态 **31/31 `ok:true`**（legacy 5 / flat 5 / layered 10 跳）；`tests/router.test.ts` 12 例；`routing:status` 实测 `allWired:true, total 65 / routed 7, recommended:false`。
+- **证据**：`npm run router:smoke` 隔离内存 Trace 真跑三种形态 **31/31 `ok:true`**（legacy 5 / flat 5 / layered 10 跳）；`tests/router.test.ts` 11 例；`routing:status` 实测 `allWired:true, total 65 / routed 7, recommended:false`。
 
-每阶段验收必须跑：全套回归（当前 362 例单测、tsc、两个构建、响应式、走查、上游审计、diff-check）+ `npm run routing:status` + `npm run host:smoke` + `npm run host:pg` + `npm run console:smoke` + `npm run router:smoke`。
+### 6.4 C-4：组织级 Agent 编制与 A2A 在岗交接（第十九轮）
+
+- **配置里写的名字 → 在岗事实**：新增 `src/agent-registry.ts` 与 `config.agentRegistry`。Agent 实例带可扩展职责（个人助手 / 主管 / 执行 / 验收 / 标准起草 / 周期巡检 + 自定义）、`domains` 生效范围、`enabled` 与内容哈希版本；`registryRevision()` 是稳定快照，备注变化不算配置变更。默认**空编制**，10 人团队不硬造管理层。
+- **Router 第 3 参数**：`planRoute(input, config, registry?)` 显式传入注册表才校验主管在岗 / 职责匹配 / 范围覆盖，否则降级 1 跳并在 `degraded` 写明原因；未传时与 C-3 逐字等价。每跳证据带 `agents:<rev>:<n>`，`Router.status()` 返回编制摘要，p8 改用真实 `onDuty()` 计数。
+- **A2A handoff**：`handoffEnvelope()` 只传 `sourceIds / scope / causedBy`，校验目标在岗、职责、范围、版本与同一 Task 自环；`service-network.ts` 在编制非空时启用，空编制保持既有委派链路不变。
+- **验收是一等公民**：`reviewCrew()` 按职责解析逐项判定 / 标准起草 / 周期巡检，逐个排除已用主体与产出方，并与自定义职责 Agent 协作；`v06` 增加两个只读动作、控制台显示中文「Agent 编制」卡片。三条红线不变。
+- **证据**：`npm run agents:smoke` 隔离真跑 **43/43**；`tests/agent-registry.test.ts` 14 例；全套 378/378。
+
+每阶段验收必须跑：全套回归（当前 378 例单测、tsc、两个构建、响应式、走查、上游审计、diff-check）+ `npm run routing:status` + `npm run host:smoke` + `npm run host:pg` + `npm run console:smoke` + `npm run router:smoke` + `npm run agents:smoke`。
 
 ---
 

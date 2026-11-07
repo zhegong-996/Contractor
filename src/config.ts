@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
+import { agentRegistrySchema, defaultAgentRegistry } from './agent-registry.ts';
 
 export const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -165,6 +166,13 @@ export const configSchema = z.object({
   }).default(() => ({ provider: 'paperclip' as const, pgDsnEnv: 'COLLAB_PG_DSN' as const })),
   /** C-3：五个派活点统一经 Router；默认 flat（1 跳，行为与改造前一致）。 */
   router: routerConfigSchema.default(() => defaultRouterConfig()),
+  /**
+   * C-4：组织级 Agent 实例 + 职责绑定 + 生效范围 + 版本。组织级唯一，项目只引用不覆写。
+   * 默认**空注册表**——扁平小团队不硬造管理层；配置显示在岗 Agent 后，Router 才校验
+   * 主管是否在岗 / 职责是否匹配 / 范围是否覆盖 / 版本是否一致。
+   * 与既有 `agents`（执行引擎配置）、`agent-services.ts`（运行时服务目录）互不覆写。
+   */
+  agentRegistry: agentRegistrySchema.default(() => defaultAgentRegistry()),
 });
 export type Config = z.infer<typeof configSchema>;
 export type Agent = Config['agents'][string];

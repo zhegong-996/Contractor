@@ -3,7 +3,7 @@
 
   const VIEWS = [
     { id: 'overview', title: '概览', glyph: '◎', subtitle: '同一份共享现场，人和助手各看自己该看的', actions: ['view', 'memory-status', 'routing-status'] },
-    { id: 'collaboration', title: '协作', glyph: '⇄', subtitle: '谁接、谁派、谁干，都在一条责任链上', actions: ['view', 'trace-view', 'routing-status'] },
+    { id: 'collaboration', title: '协作', glyph: '⇄', subtitle: '谁接、谁派、谁干，都在一条责任链上', actions: ['view', 'trace-view', 'routing-status', 'v06-agent-registry-view'] },
     { id: 'knowledge', title: '知识', glyph: '▤', subtitle: '资料、证据与组织关系，按身份逐步重评', actions: ['memory-status', 'memory-replay', 'system-status'] },
     { id: 'acceptance', title: '验收', glyph: '✓', subtitle: '开工前锁定清单，逐项判定后由发起人确认', actions: ['view', 'v06-org-overview'] },
     { id: 'services', title: '服务', glyph: '◈', subtitle: '本机与国内服务的实时状态，没连接不放空入口', actions: ['service-status', 'system-status'] },
@@ -127,7 +127,9 @@
   }
 
   async function renderCollaboration() {
-    const [view, routing] = await Promise.all([safe('view'), safe('routing-status')]);
+    const [view, routing, registry] = await Promise.all([
+      safe('view'), safe('routing-status'), safe('v06-agent-registry-view'),
+    ]);
     const tasks = Array.isArray(view.tasks) ? view.tasks : state.tasks;
     state.tasks = tasks;
     const bubbles = tasks.slice(0, 8).map((task, index) =>
@@ -152,7 +154,24 @@
         { title: '按业务域分层', meta: '最多 2 跳', detail: '人只跟自己的助手说，业务域主管助手负责派活，执行者干活。' },
         { title: '红线', meta: '始终生效', detail: '同一任务不得自派自验自环，高风险动作仍由人签字。' },
       ]));
-    return errorCard(view) + errorCard(routing) + `<div class="content-grid">${timeline}${chain}${orgCard}${explain}</div>`;
+    const dutyLabels = { personal: '个人助手', supervisor: '业务域主管', worker: '执行',
+      acceptance: '验收', 'standard-drafting': '标准起草', inspection: '周期巡检' };
+    const agents = Array.isArray(registry.agents) ? registry.agents : [];
+    const crewCard = card('Agent 编制', '谁在什么范围担什么职责，由组织配置决定；没配就不硬造管理层',
+      agents.length
+        ? listRows(agents.slice(0, 6).map(agent => ({
+            title: clean(agent.label || '在岗助手'),
+            meta: (agent.domains || []).includes('*') ? '全域' : '按业务域',
+            detail: (agent.responsibilities || []).map(id => dutyLabels[id] || '专项协作').join('、')
+              + ' · 编制版本 ' + String(agent.version || '').slice(0, 8),
+          }))) + `<p class="note">${escapeHtml(clean(registry.shape || ''))} · 共 ${registry.onDuty || 0} 个在岗</p>`
+        : kvRows([
+            ['当前', '未配置在岗 Agent（扁平，不硬造管理层）'],
+            ['验收', '仍走本机服务与逐项报告'],
+            ['红线', '独立评审者不等于产出方；最终由原发起人确认验收'],
+          ]));
+    return errorCard(view) + errorCard(routing) + errorCard(registry)
+      + `<div class="content-grid">${timeline}${chain}${orgCard}${crewCard}${explain}</div>`;
   }
 
   async function renderKnowledge() {

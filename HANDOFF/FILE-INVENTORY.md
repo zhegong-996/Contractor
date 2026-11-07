@@ -1,6 +1,6 @@
 # FILE-INVENTORY · 逐文件说明（100% 覆盖）
 
-> 生成自 `git ls-files` + `HANDOFF/`，第十八轮 C-3 收尾后共 **283** 个条目（第十四轮 269 + C-1 新增 4 + C-2 新增 7 + C-3 新增 3 个入库文件）。
+> 生成自 `git ls-files` + `HANDOFF/`，第十九轮 C-4 收尾后共 **286** 个条目（第十四轮 269 + C-1 新增 4 + C-2 新增 7 + C-3 新增 3 个入库文件）。
 > 列：`路径 | 行数 | 说明`。`upstream/<name>` 是 gitlink（submodule），行数记 `-`。
 > 说明来源：精写字典 211 条、从源码注释/导出/测试名自动提取 69 条、按类型兜底 0 条。
 > 需要更详细的「哪些文件一起完成什么」见 `04-CODE-MAP.md`；目录结构见 `DIRECTORY-GUIDE.md`。
@@ -12,7 +12,7 @@
 | `HANDOFF/00-START-HERE.md` | 88 | 新 Agent 第一份必读：环境、同步状态、干净环境变量、服务端口（含 5432 PG）、首次验证、8 个已知坑（含宿主重启后插件重挂）。 |
 | `HANDOFF/01-PROJECT-OVERVIEW.md` | 56 | 产品与业务架构：定位、渠道分工、三级 owner、8 步闭环、5 tab 功能地图、成熟度三档、五条红线。 |
 | `HANDOFF/02-ARCHITECTURE.md` | 89 | 技术架构：四层数据流、7 个上游真实引用强度、前端分层、中文壳、路由契约、共享记忆主干（B1+B2）、平台端口、代码交付。 |
-| `HANDOFF/03-WORK-LOG.md` | 58 | 全部 18 轮工作记录（含第十五轮补遗、第十六轮 C-1、第十七轮 C-2、第十八轮 C-3）、7 条排障模式、用户明确做过的决策。 |
+| `HANDOFF/03-WORK-LOG.md` | 58 | 全部 19 轮工作记录（含第十五轮补遗、第十六轮 C-1、第十七轮 C-2、第十八轮 C-3、第十九轮 C-4）、7 条排障模式、用户明确做过的决策。 |
 | `HANDOFF/04-CODE-MAP.md` | 172 | 按 14 个功能域讲「哪些文件一起完成什么」、关键导出与依赖方向速查。 |
 | `HANDOFF/05-VALIDATION-AND-COMMANDS.md` | 120 | 全套回归命令、第十八轮 C-3 实测结果（含 host:pg 21/21、console:smoke 与 router:smoke 31/31）、真实 HTTP 冒烟模板、服务端口表、排障速查、提交前检查。 |
 | `HANDOFF/06-CURRENT-STATE-AND-NEXT.md` | 61 | 当前状态快照、B2 四项真跑证据、C-0~C-6 分步清单（含两条新增产品原则）、按配置的三层判断、去 Paperclip 化路线。 |
@@ -24,7 +24,7 @@
 | `HANDOFF/SYNC-STATUS.md` | 55 | ★ 唯一位置声明、代码基线/提交关系、接手校验命令、本目录内阅读顺序。 |
 | `HANDOFF/handoff-manifest.json` | 203 | 机器可读元数据：commit、远端、测试结果、服务状态、包内文件清单、下一步与开放决策。 |
 
-## 后端核心 src/（78）
+## 后端核心 src/（79）
 
 | 路径 | 行数 | 说明 |
 |---|---|---|
@@ -107,7 +107,9 @@
 | `src/workspaces.ts` | 740 | ★ 知识空间与授权核心：来源、访问申请、快照、撤权、协作任务创建、allowed 权限重评；B2 收尾改用评审后 revision 写来源事件，消除真实链路悬空 lineage。 |
 | `src/router.ts` | 190 | ★ C-3 单一 Router：`planRoute()` 纯函数决定 1/2 跳、`Router` 唯一写入口、`routerRevision()` 配置快照、`planCoverage()` 证据判定；自派自验自环被拦留痕，人签只在最后一跳。 |
 
-## 脚本与服务 scripts/（50）
+| `src/agent-registry.ts` | 324 | ★ C-4 组织级 Agent 注册表：可扩展职责槽位 / 生效范围 / 内容哈希版本 / 配置快照 / `resolveAssignment` / `handoffEnvelope` / `reviewCrew` / 单例装配；确定性工程层 `modelCalls=0`。 |
+
+## 脚本与服务 scripts/（51）
 
 | 路径 | 行数 | 说明 |
 |---|---|---|
@@ -162,7 +164,9 @@
 | `scripts/workbench-walkthrough.mjs` | 181 | ★ 真实浏览器 11 步走查：CDP 驱动 3100 工作台，含白屏守卫、链接白名单、侧栏隐藏断言。 |
 | `scripts/router-smoke.ts` | 130 | C-3 真跑：隔离内存 Trace 跑 legacy / flat / layered 三种形态，31 项 checks，报告 `.runtime/router-smoke.json`（不入库）。 |
 
-## 回归测试 tests/（62）
+| `scripts/agents-smoke.ts` | 265 | C-4 真跑：隔离内存 Trace 跑 C-3 兼容 / 空编制降级 / 在岗 2 跳 / 验收编组 / A2A 六类失败 / 接线守门，43 项 checks，报告 `.runtime/agent-registry-smoke.json`（不入库）。 |
+
+## 回归测试 tests/（63）
 
 | 路径 | 行数 | 说明 |
 |---|---|---|
@@ -228,6 +232,8 @@
 | `tests/workspace-action.test.ts` | 57 | 回归测试：action guard accepts lowercase names and the numbered v0.6 family；v06-plan-view；action guard still rejects path traversal, uppercase, underscores and empty names… |
 | `tests/workspaces.test.ts` | 261 | 回归测试：parent acceptance waits for the development it explicitly commissioned；an exact document revision cannot pass acceptance after its underlying source was revoked；approval and expiry are both required; pending, revoking and exact deadline deny access… |
 | `tests/router.test.ts` | 145 | C-3 契约 11 例：配置校验、快照、legacy 逐字回退、1/2 跳、人签位置、自环、纯函数确定性、p6/p8 闸门、9 处接线。 |
+
+| `tests/agent-registry.test.ts` | 240 | C-4 契约 14 例：schema / 版本快照 / 范围 / 确定性解析 / 自环 / A2A 交接 / 验收编组 / Router 兼容 / p8 / 五处接线。 |
 
 ## 独立控制台 console/（3）
 
@@ -340,7 +346,7 @@
 
 ## 覆盖率
 
-- 总条目：**283**（第十四轮 269 + C-1 新增 4 + C-2 新增 7 + C-3 新增 3 个入库文件）
+- 总条目：**286**（第十四轮 269 + C-1 新增 4 + C-2 新增 7 + C-3 新增 3 + C-4 新增 3 个入库文件）
 - 精写说明：**211**（75.4%）
 - 自动提取（源码注释/导出/真实测试名）：**69**
 - 兜底：**0**

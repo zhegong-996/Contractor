@@ -50,3 +50,5 @@ Paperclip、Super-agent、Autoloop 的主许可证为 MIT，Cognee 为 Apache-2.
 - Paperclip 同一固定提交的成员目录、membership、邀请、公司角色和人工审阅负责人的 API；没有自己编写认证系统。
 
 - 2026-11-07（第十八轮 C-3）：单一 Router 与可配置组织形态为**完全自研**，五个派活点共 9 处收敛到 `src/router.ts`；只复用既有 `RoutingDecision` / `RoutingTrace` 契约，未引入新上游、未改上游提交、未复制 LobeHub 代码。`npm run router:smoke` 在隔离内存 Trace 真跑三种形态 31/31。
+
+- 2026-11-07（第十九轮 C-4）：组织级 Agent 注册表、职责解析、A2A 交接校验与验收协作编组均为**完全自研**（`src/agent-registry.ts`）；只复用既有 `RoutingDecision` / `RoutingTrace` / A2A `Link` 字段语义，未引入新上游、未改上游提交、未复制 LobeHub 代码。`npm run agents:smoke` 在隔离内存 Trace 真跑 43/43。

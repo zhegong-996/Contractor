@@ -136,7 +136,9 @@ test('C-3：五个派活点全部收敛到单一 Router，不再各自直接写 
   assert.match(read('src/router.ts'), /if \(config\.mode === 'legacy'\)/, '必须保留 legacy 一行回退');
   assert.match(read('src/config.ts'), /router: routerConfigSchema\.default/, '组织形态必须是配置');
   const server = read('src/server.ts');
-  assert.match(server, /configureRouter\(config\.router\)/, '服务端必须按真实配置装配 Router');
+  assert.match(server, /configureRouter\(config\.router, undefined, getAgentRegistry\(\)\)/,
+    '服务端必须按真实配置装配 Router 与组织级 Agent 注册表（C-4）');
+  assert.match(server, /configureAgentRegistry\(config\.agentRegistry\)/, '注册表必须先装配再被 Router 读取');
   assert.match(server, /getRoutingTrace\(\)\.attachAudit/);
   assert.match(server, /routing-status/);
   assert.match(read('src/members.ts'), /'routing-status'/);

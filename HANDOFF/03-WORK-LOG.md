@@ -1,6 +1,6 @@
-# 03 · 全部工作记录（18 轮 + 基础建设期）
+# 03 · 全部工作记录（19 轮 + 基础建设期）
 
-> 权威逐轮记录：`docs/VALIDATION.md`（验证）与 `docs/ADAPTATION-v0.6.md`（边界声明，**最新边界以 `0.0000000000000000000` 节为准**）。
+> 权威逐轮记录：`docs/VALIDATION.md`（验证）与 `docs/ADAPTATION-v0.6.md`（边界声明，**最新边界以 `0.00000000000000000000` 节为准**）。
 > 完整提交历史以 `git log --oneline | wc -l` 与 `git rev-parse HEAD` 为准（交接时 `HEAD = b58631c`，其后已多次前进）。下表按时间线归纳，`提交` 列可直接 `git show <hash>`。
 
 ## 0. 基础建设期（前 21 个提交，早于分轮记录）
@@ -32,6 +32,8 @@
 | 第十六轮 | 本轮提交 | **方案 C-1：本机 PG 真跑与长程执行地基**：用户允许本机引入 PostgreSQL，并要求把 Agent 的循环 / 会话状态 / 执行环境拆开、每一步单独调用、步间靠队列推进；新增 `src/pg-host.ts`（事务 / ACL / 成本账本 / heartbeat `checkout-retry-runToken` / `SKIP LOCKED` 步进队列 / 崩溃恢复 / 状态外置）、`config.host.provider=local-pg` 与 `resolvePlatform` 接线、`npm run host:pg` 21 项真跑、`pg@8.23.1` 走 R7 协议登记；PRD 新增 C-P6，ADAPTATION 撤回「不引入 PG」的旧判断；另把「Paperclip 去留」登记为 `08` 第 10 项待拍板 | **335/335**、tsc、两构建、425px 响应式、走查 11/11、`host:pg` **21/21 ok:true**、`audit:upstream clean`；边界：未引 Redis、未部署远端工具沙箱、未切换默认底座、未改上游 |
 | 第十七轮 | 本轮提交 | **方案 C-2：国内适配 + 自研独立控制台**：用户要求把 Paperclip 的国外元素做彻底国内适配、前端参考 LobeHub 样式与功能；中文壳词典扩到 344 条并覆盖上游残留英文、移动桌面标题中文化、服务清单移除海外一等入口、工作台面板品牌与命令词全量中文化；新增 `console/`（六视图 / 明暗主题 / 425px / 统一中文语言层）、`scripts/console-server.ts`（回环 + 13 项只读白名单 + 密钥不出服务端）、`console:smoke` 真跑、14 例静态契约；核实 `@lobehub/ui` 为 MIT 但 v6 强绑 React 19，**不引入组件库、只借设计语言自研** | **362/362**、tsc、两构建、425px 响应式、走查 11/11、`console:smoke ok:true`（6/6 视图、写动作 403、零海外文案）、`host:pg` 21/21、`audit:upstream clean`；边界：默认底座仍 `paperclip`、旧工作台保留可回退、控制台非服务不常驻、飞书仍是唯一发起入口 |
 | 第十八轮 | 本轮提交 | **方案 C-3：单一 Router 与可配置组织形态**：按已拍板分步清单推进 C-3；新增 `src/router.ts`（`planRoute()` 纯函数 + `Router` 唯一写入口 + 配置 revision 快照 + `planCoverage()`）、`config.router`（legacy / flat / layered + 按业务域 domains）；五个派活点共 9 处改为 `getRouter().route()`，服务端 `configureRouter(config.router)` 装配；`routing-status` 与控制台「协作」视图可见当前组织形态；p6 改为按 Trace 证据判定，新增 p8 防跳级闸门（C-3 真跑发现合成数据可凑齐旧 P3/P4）；`router:smoke` 隔离真跑、11 例 Router 契约 + 2 例控制台契约 | **362/362**、tsc、两构建、425px 响应式、走查 11/11、`router:smoke` **31/31 ok:true**、`console:smoke ok:true`、`host:pg` 21/21、`routing:status allWired:true`、`audit:upstream clean`；边界：C-4/C-5/C-6 未做、默认底座仍 `paperclip`、历史路由决策不回溯、飞书仍是唯一发起入口、未引入新上游 |
+
+| 第十九轮 | 本轮提交 | **方案 C-4：组织级 Agent 编制、验收协作与 A2A 在岗交接**：用户说「请继续完成未完成的任务」，按已拍板分步清单推进 C-4；新增 `src/agent-registry.ts`（Agent 实例 / 可扩展职责槽位 / 生效范围 / 内容哈希版本 / `registryRevision` 快照 / `resolveAssignment` / `handoffEnvelope` / `reviewCrew` / 单例）、`config.agentRegistry`（默认空编制）；`planRoute` 第 3 参数显式装配后校验主管在岗 / 职责 / 范围，未传与 C-3 逐字等价；`server.ts` 装配注册表并把真实 `onDuty()` 传给 p8；`service-network` 的 A2A `route/start` 加在岗校验与 `handoff:` 留痕；`v06` 新增 `agent-registry-view` / `acceptance-crew` 只读动作、`org-overview` 扩为 11 段；控制台「协作」视图新增中文「Agent 编制」卡片；`agents:smoke` 隔离真跑 43/43、14 例注册表契约 + 2 例控制台契约 | **378/378**、tsc、两构建、425px 响应式、走查 11/11、`router:smoke` 31/31、`agents:smoke` **43/43 ok:true**、`console:smoke ok:true` 19 项、`host:pg` 21/21、`routing:status allWired:true`、`audit:upstream clean`；边界：C-5/C-6 未做、默认底座仍 `paperclip`、默认空编制故 p8 仍 false、飞书仍是唯一发起入口、未引入新上游 |
 
 ## 2. 反复出现的排障模式（接手者可直接复用）
 

@@ -247,3 +247,5 @@ flowchart TD
 `scripts/build-chinese-shell.ts` 在每次构建前从 `public/sw.js` 恢复 `dist/sw.js` 的原始占位符，修复上游 `closeBundle` 就地 stamp 后重复构建必失败的幂等问题；`tests/v06-services.test.ts` 的 `at` 改为相对当前时间，去掉固定日期导致的「过 8 小时就必然失败」的时间炸弹。
 
 宿主侧栏的「技能 / 连接服务」链接带公司前缀（实测 `/SUI/skills`、`/SUI/apps`），构建期 4 条规则覆盖不到这种运行时拼接的路径；运行时脚本改用 `ROUTE = /^\/(?:[A-Za-z0-9_-]+\/)?(skills|apps)(\/|$)/`，同时隐藏链接与其 `li` 容器，并在真实浏览器走查中断言这两个入口已隐藏、插件页与面包屑不受影响。自动刷新失败静默保留上次结果并在状态行标注，只有手动刷新或首次加载失败才提示，避免瞬时网络抖动弹出误导性的红色错误框。
+
+> **第十九轮 C-4 补记**：新增 `src/agent-registry.ts` 作为组织形态的真相源（Agent 实例 / 可扩展职责 / 生效范围 / 版本 / 快照），`config.agentRegistry` 默认空编制。`planRoute` 显式装配后校验主管在岗；`service-network` 的 A2A 交接校验目标职责与范围；`v06` 增加 `agent-registry-view` / `acceptance-crew` 只读动作；控制台「协作」视图显示中文编制卡。与 `agent-services.ts` 的运行时服务目录分工不变：注册表说「谁在什么范围担什么职责」，服务目录说「用什么工具 / 模型干活」。默认底座仍 `paperclip`，飞书仍是唯一发起入口。真跑 `npm run agents:smoke` 43/43。

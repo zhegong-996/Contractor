@@ -31,11 +31,11 @@ function pcWithPlan(plan: AcceptancePlan) {
   };
 }
 
-test('org-overview 一次返回十段组织视图（含 L2 抽取状态与飞书组织映射），单段失败不影响其余', async () => {
+test('org-overview 一次返回十一段组织视图（含 L2 抽取、飞书映射与 Agent 编制），单段失败不影响其余', async () => {
   const value: any = await setup().dispatch('org-overview', { space: 'default' }, admin, opts);
   assert.equal(value.space, 'default');
   assert.deepEqual(value.sections.map((s: any) => s.name),
-    ['registry', 'transferPolicy', 'policy', 'attention', 'watchdog', 'reviewer', 'ontology', 'extraction', 'feishuOrg', 'signals']);
+    ['registry', 'transferPolicy', 'policy', 'attention', 'watchdog', 'reviewer', 'ontology', 'extraction', 'feishuOrg', 'signals', 'agents']);
   assert.ok(value.sections.every((s: any) => typeof s.ok === 'boolean' && (s.ok ? 'value' in s : 'error' in s)));
   assert.ok(value.sections.filter((s: any) => s.ok).length >= 4);
 });

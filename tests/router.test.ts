@@ -173,7 +173,8 @@ test('接线完整：9 处派活点经 Router、服务端装配、状态视图�
   const files = ['src/controller.ts', 'src/coordination.ts', 'src/assistant.ts', 'src/service-network.ts', 'src/v06.ts'];
   const total = files.reduce((n, f) => n + (read(f).match(/getRouter\(\)\.route\(/g) ?? []).length, 0);
   assert.equal(total, 9);
-  assert.match(read('src/server.ts'), /configureRouter\(config\.router\)/);
+  assert.match(read('src/server.ts'), /configureRouter\(config\.router, undefined, getAgentRegistry\(\)\)/,
+    '服务端必须同时装配组织级 Agent 注册表');
   assert.match(read('src/server.ts'), /router:getRouter\(\)\.status\(\)/);
   assert.match(read('console/app.js'), /组织形态/);
   assert.match(read('scripts/router-smoke.ts'), /flat|layered/);

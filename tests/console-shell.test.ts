@@ -99,6 +99,23 @@ test('C-3 只读请求做 in-flight 去重并短缓存，避免并发重复请�
   assert.match(app, /const CACHE_MS = 1500/);
 });
 
+test('C-4 协作视图展示 Agent 编制，职责用中文、空编制如实降级', () => {
+  assert.match(app, /card\('Agent 编制'/);
+  assert.match(app, /v06-agent-registry-view/);
+  for (const label of ['个人助手', '业务域主管', '验收', '标准起草', '周期巡检', '专项协作']) {
+    assert.ok(app.includes(label), `职责槽位必须有中文名：${label}`);
+  }
+  assert.match(app, /未配置在岗 Agent（扁平，不硬造管理层）/);
+  assert.match(app, /独立评审者不等于产出方；最终由原发起人确认验收/);
+  assert.doesNotMatch(app, /supervisorAgentKey|registryRevision|agentVersion/, '配置字段名不得出现在用户层');
+});
+
+test('C-4 编制视图走只读白名单，不新增写动作或新网页入口', () => {
+  assert.match(server, /'v06-agent-registry-view'/);
+  assert.ok(!html.includes('新建任务'));
+  assert.ok(!app.includes('acceptance-crew'), '控制台不开验收编组的写入 / 派单动作');
+});
+
 test('C-2 静态资源自足，不依赖外部脚本或样式', () => {
   assert.match(html, /href="\/styles\.css"/);
   assert.match(html, /src="\/app\.js" defer/);

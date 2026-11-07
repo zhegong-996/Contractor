@@ -267,3 +267,5 @@ LobeHub 三层的原话依据（赛博禅心《如何让 Super-agent 成为同�
 - DeepSeek Super-agent 双层 Router/Worker 与注意力上限（新智元报道，2026-11-06）：https://view.inews.qq.com/a/20261106A0CW1B00
 
 > 二手转载与媒体解读仅用于定位原话，不作为「可直接复用代码」的依据；许可证与复用边界以 `docs/OPEN-SOURCE-COMPLIANCE.md` 与上游 LICENSE 原文为准。
+
+> **第十九轮 C-4 补记**：C-3 的单一 Router 已接上组织级 Agent 编制（`src/agent-registry.ts`），配置里的主管名必须对应真实在岗、职责匹配、范围覆盖的 Agent；默认空编制保持扁平。A2A handoff 与验收编组已落地，C-5 按配置重跑评估、C-6 自演进闭环仍排队。三层判断仍 `recommended=false`。

@@ -7,12 +7,28 @@ import { contractProof, type Workspaces, type WorkspaceActor } from './workspace
 import type { WorkspaceAssistant } from './assistant.ts';
 import { secrets } from './config.ts';
 import { getRouter } from './router.ts';
+import { getAgentRegistry, onDuty, handoffEnvelope } from './agent-registry.ts';
 
 const routeInput = z.object({ taskId: z.string(), serviceId: z.string(), expectedVersion:z.string(), goal: z.string().trim().min(1).max(3000), sourceIds: z.array(z.string()).max(8) }).strict();
 type Link = { childId: string; parentId: string; serviceId: string; serviceVersion: string; sourceIds: string[]; caller: string; ownerUserId: string; goal: string; createdAt: string; generation?: number; cancelled?: boolean; returnedJobId?: string; proof?: string };
 const digest = (v: unknown) => createHash('sha256').update(JSON.stringify(v)).digest('hex');
 export class ServiceNetwork {
   constructor(readonly w: Workspaces, readonly assistant: WorkspaceAssistant) {}
+  /**
+   * C-4：组织编制已配置时，A2A 交接必须校验目标 Agent 在岗 / 绑定执行职责 /
+   * 范围覆盖 / 自环，并把版本留进 Trace。**默认空注册表不校验**——扁平小团队
+   * 不硬造管理层，既有 SUI-103 / 106 的委派链路一字不改。
+   */
+  private handoffEvidence(input: {
+    taskId: string; from: string; to: string; causedBy: string;
+    usedKeys: string[]; sourceIds: string[];
+  }): string[] {
+    const registry = getAgentRegistry();
+    if (!onDuty(registry).length) return [];
+    const envelope = handoffEnvelope(registry, { ...input, responsibility: 'worker', domain: null });
+    if (!envelope.ok) throw new Error('协作交接未通过组织编制校验：' + envelope.reason);
+    return ['handoff:' + envelope.to + '@' + envelope.agentVersion, 'duty:worker'];
+  }
   async links(parentId: string): Promise<Link[]> {
     try { const doc = await this.w.pc.get('/issues/' + parentId + '/documents/service-network');
       const list: Link[] = JSON.parse(doc.body);
@@ -35,6 +51,8 @@ export class ServiceNetwork {
     if(serviceVersion(profile)!==p.expectedVersion)throw new Error('服务职责已变化，请核对后配置');
     if (profile.actorKey === task.agent) throw new Error('不能把任务再次委托给同一个资料身份');
     if (p.sourceIds.some(id => !state.sources.includes(id))) throw new Error('交接资料必须已明确属于当前任务');
+    const handoff = this.handoffEvidence({ taskId: p.taskId, from: actor.userId ?? task.agent, to: profile.actorKey,
+      causedBy: p.taskId + ':' + profile.id, usedKeys: [task.agent], sourceIds: p.sourceIds });
     state.context!.serviceRoutes ??= [];
     const routes = state.context!.serviceRoutes.filter(r => r.serviceId !== profile.id);
     if (routes.length >= 3) throw new Error('本任务最多配置三个协作服务');
@@ -44,7 +62,7 @@ export class ServiceNetwork {
       taskId: p.taskId, stage: 'delegation',
       caller: { actor: actor.userId ?? task.agent, role: 'supervisor', source: 'a2a-sdk' },
       target: { role: 'worker', serviceId: profile.id, agentKey: profile.actorKey },
-      basis: { kind: 'service-route', evidence: ['goal:' + p.goal.slice(0, 80), 'version:' + serviceVersion(profile)] },
+      basis: { kind: 'service-route', evidence: ['goal:' + p.goal.slice(0, 80), 'version:' + serviceVersion(profile), ...handoff] },
       scope: { sourceIds: p.sourceIds, visibility: 'space' },
       outcome: 'pending',
       causedBy: p.taskId + ':' + profile.id,
@@ -62,6 +80,8 @@ export class ServiceNetwork {
     if (prior){const cs=await this.w.state(this.w.store.get(prior.childId));if(!prior.cancelled&&!cs.delegation?.jobId)await this.dispatch(prior);return this.render(prior, true);}
     if (list.length >= 3) throw new Error('本任务的服务委托预算已用完');
     for (const id of route.sourceIds) if (!await this.w.allowed(task, id, task.agent, state)) throw new Error('交接方无权使用所选资料，请先处理授权');
+    const handoff = this.handoffEvidence({ taskId: parentId, from: task.agent, to: service.actorKey,
+      causedBy: parentId + ':' + service.id, usedKeys: [task.agent], sourceIds: route.sourceIds });
     const child = await this.w.createTask({ title: '协作评估：' + route.goal.slice(0, 90), goal: route.goal, agent: service.actorKey,
       sources: route.sourceIds, autoDiscover: false, requestKey: 'network:' + digest({ parentId, generation: task.generation, route, version: serviceVersion(service) }) }, { admin: true, userId: state.context?.requesterUserId ?? actor.userId });
     const childState = await this.w.state(child);
@@ -78,7 +98,7 @@ export class ServiceNetwork {
       caller: { actor: task.agent, role: 'supervisor', source: 'a2a-sdk' },
       target: { role: 'worker', serviceId: service.id, agentKey: service.actorKey },
       basis: { kind: 'service-route', evidence: ['child:' + child.id, 'generation:' + task.generation,
-        'version:' + serviceVersion(service), 'goal:' + route.goal.slice(0, 80)], policyVersion: 'a2a-1.0' },
+        'version:' + serviceVersion(service), 'goal:' + route.goal.slice(0, 80), ...handoff], policyVersion: 'a2a-1.0' },
       scope: { sourceIds: route.sourceIds, visibility: 'space' },
       outcome: 'committed',
       causedBy: child.id,

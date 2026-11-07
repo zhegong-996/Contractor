@@ -19,6 +19,8 @@ import { routingDecision, decisionOf, type RoutingDecision, type RoutingDecision
 import type { MemoryEvent } from './architecture-contracts.ts';
 import { getRoutingTrace, type RoutingTrace } from './routing-trace.ts';
 import { defaultRouterConfig, type RouterConfig, ROUTER_MODES } from './config.ts';
+import { onDuty, scopeCovers, registryRevision, registrySummary, defaultAgentRegistry,
+  type AgentRegistry } from './agent-registry.ts';
 
 export { ROUTER_MODES, defaultRouterConfig } from './config.ts';
 export type RouterMode = typeof ROUTER_MODES[number];
@@ -46,10 +48,23 @@ export type RoutingPlan = {
   degraded: string | null;
   domain: string | null;
   supervisorAgentKey: string | null;
+  /** C-4：显式传入 Agent 注册表时写入配置快照；未传为 null（C-3 逐字等价）。 */
+  registryRevision: string | null;
 };
 
 const mark = (mode: RouterMode, revision: string, hop: number, total: number) =>
   `router:${mode}@${revision}:${hop}/${total}`;
+const dutyMark = (registry: AgentRegistry) =>
+  `agents:${registryRevision(registry)}:${onDuty(registry).length}`;
+
+/** C-4：配置里写的主管名必须对应一个真实在岗、职责匹配、范围覆盖的 Agent。 */
+function supervisorDutyIssue(registry: AgentRegistry, key: string, domain: string | null): string | null {
+  const agent = onDuty(registry).find(a => a.key === key);
+  if (!agent) return '未在组织注册表在岗（或已停用）';
+  if (!agent.responsibilities.includes('supervisor')) return '未绑定主管职责';
+  if (!scopeCovers(agent, domain)) return '生效范围不覆盖该业务域';
+  return null;
+}
 
 /** evidence 上限 12 条；追加 Router 快照时先给原有证据让位，不改任何既有业务依据。 */
 function withMark(input: RoutingRequest, ...marks: string[]): RoutingRequest {
@@ -65,14 +80,19 @@ function keyOf(target: RoutingDecision['target']): string {
  * 纯函数：不 IO、不读时钟（时间由 routingDecision 统一注入）、不写 Trace。
  * 两次同输入同配置产出完全相同（含 decisionId），便于重放与回放验证。
  */
-export function planRoute(input: RoutingRequest, config: RouterConfig = defaultRouterConfig()): RoutingPlan {
+export function planRoute(input: RoutingRequest, config: RouterConfig = defaultRouterConfig(),
+  registry?: AgentRegistry): RoutingPlan {
   const revision = routerRevision(config);
+  const regRevision = registry ? registryRevision(registry) : null;
+  /** 注册表快照追加在 Router 标记之前，保持「最后一个证据是 Router 配置快照」的既有语义。 */
+  const snapshot = (req: RoutingRequest, ...marks: string[]) =>
+    withMark(req, ...(registry ? [dutyMark(registry)] : []), ...marks);
   const { domain: requestedDomain, ...decisionInput } = input;
   const base = (overrides: Partial<RoutingRequest> = {}) => ({ ...decisionInput, ...overrides });
   const domain = requestedDomain ?? config.defaultDomain ?? null;
   const empty = (extra: Partial<RoutingPlan> = {}): RoutingPlan => ({
     mode: config.mode, revision, hops: [], blocked: null, degraded: null,
-    domain, supervisorAgentKey: null, ...extra,
+    domain, supervisorAgentKey: null, registryRevision: regRevision, ...extra,
   });
 
   // legacy：一行回退。原样产出改造前那一条决策，连 evidence 都不动。
@@ -81,63 +101,73 @@ export function planRoute(input: RoutingRequest, config: RouterConfig = defaultR
   }
 
   const supervisor = domain ? config.domains[domain] : undefined;
+  const supervisorKey = supervisor?.supervisorAgentKey ?? null;
   // 被拒绝 / 待定的派活没有真的交出去，不展开两跳；人签红线只在最后一跳。
   const committed = (input.outcome ?? 'committed') === 'committed';
-  const wantsTwoHops = config.mode === 'layered' && config.maxHops >= 2 && committed
-    && Boolean(supervisor) && supervisor!.supervisorAgentKey !== keyOf(input.target);
+  // C-4：显式传入注册表时，配置里写的主管名必须对应真实在岗、职责匹配、范围覆盖的 Agent。
+  // 未传注册表 = C-3 逐字等价（既有真跑与历史决策一律不受影响）。
+  const dutyIssue = registry && supervisorKey ? supervisorDutyIssue(registry, supervisorKey, domain) : null;
+  let wantsTwoHops = config.mode === 'layered' && config.maxHops >= 2 && committed
+    && Boolean(supervisor) && supervisorKey !== keyOf(input.target);
+  let boundDegraded: string | null = null;
+  if (wantsTwoHops && dutyIssue) {
+    wantsTwoHops = false;
+    boundDegraded = `业务域 ${domain ?? '未指定'} 配置的主管 ${supervisorKey} ${dutyIssue}，按扁平派单`;
+  }
   const total = wantsTwoHops ? 2 : 1;
-  const degraded = config.mode === 'layered' && total === 1
+  const degraded = boundDegraded ?? (config.mode === 'layered' && total === 1
     ? (!committed ? '本次派活未提交（rejected / pending），保持单跳记录'
       : supervisor ? '业务域主管与承接人是同一 Agent，跳过中间层避免自派自验'
         : `业务域 ${domain ?? '未指定'} 未配置中间决策层，按扁平派单`)
-    : null;
+    : null);
 
   if (!wantsTwoHops) {
     return empty({
-      hops: [routingDecision(withMark(base(), mark(config.mode, revision, 1, total)))],
-      degraded, supervisorAgentKey: supervisor?.supervisorAgentKey ?? null,
+      hops: [routingDecision(snapshot(base(), mark(config.mode, revision, 1, total)))],
+      degraded, supervisorAgentKey: supervisorKey,
     });
   }
 
-  const supervisorKey = supervisor!.supervisorAgentKey;
+  // 走到这里说明 wantsTwoHops 成立：业务域与主管名必然存在。
+  const confirmedSupervisor = supervisorKey!;
   const seed = input.idempotencyKey ?? `${input.taskId}:${input.stage}:${input.caller.actor}`;
   const personalKey = supervisor!.personalAgentKey;
 
   // 自派自验自环守卫：caller 与 target 撞车、主管与承接人撞车、或个人 Agent 与主管撞车。
   const collisions: string[] = [];
   if (input.caller.actor === keyOf(input.target)) collisions.push('原始调用方与承接人是同一主体');
-  if (input.caller.actor === supervisorKey) collisions.push('原始调用方与业务域主管是同一主体');
+  if (input.caller.actor === confirmedSupervisor) collisions.push('原始调用方与业务域主管是同一主体');
   if (personalKey && personalKey === keyOf(input.target)) collisions.push('Personal Agent 与承接人是同一主体');
   if (collisions.length) {
     // 被拦的派活也要留痕：写一条 rejected 决策，不静默丢掉这次尝试。
     const reason = collisions.join('；');
     return empty({
-      blocked: reason, supervisorAgentKey: supervisorKey,
-      hops: [routingDecision(withMark(base({ outcome: 'rejected' as const }),
+      blocked: reason, supervisorAgentKey: confirmedSupervisor,
+      hops: [routingDecision(snapshot(base({ outcome: 'rejected' as const }),
         mark(config.mode, revision, 1, 1), 'router:blocked:' + reason.slice(0, 120)))],
     });
   }
 
   // 第一跳只是把活交给业务域主管：不能替人签字，也不能把红线扩散成两次签字。
   const handoff: RoutingRequest = { ...decisionInput,
-    target: { role: 'supervisor' as const, agentKey: supervisorKey },
+    target: { role: 'supervisor' as const, agentKey: confirmedSupervisor },
     causedBy: input.causedBy ?? input.taskId,
     idempotencyKey: seed + ':hop1',
     outcome: 'committed' as const,
   };
   delete handoff.requiresHumanSignature;
   delete handoff.signatureReason;
-  const hop1 = routingDecision(withMark(handoff, mark(config.mode, revision, 1, 2)));
+  const hop1 = routingDecision(snapshot(handoff, mark(config.mode, revision, 1, 2)));
 
-  const hop2 = routingDecision(withMark(base({
-    caller: { actor: supervisorKey, role: 'supervisor' as const, source: 'role-registry' as const },
+  const hop2 = routingDecision(snapshot(base({
+    caller: { actor: confirmedSupervisor, role: 'supervisor' as const, source: 'role-registry' as const },
     causedBy: hop1.decisionId,
     idempotencyKey: seed + ':hop2',
   }), mark(config.mode, revision, 2, 2)));
 
   return {
     mode: config.mode, revision, hops: [hop1, hop2], blocked: null, degraded: null,
-    domain, supervisorAgentKey: supervisorKey,
+    domain, supervisorAgentKey: confirmedSupervisor, registryRevision: regRevision,
   };
 }
 
@@ -160,10 +190,12 @@ export class Router {
   constructor(
     readonly config: RouterConfig = defaultRouterConfig(),
     readonly trace: RoutingTrace = getRoutingTrace(),
+    /** C-4：显式装配后才启用「主管必须真实在岗」校验；undefined 保持 C-3 逐字等价。 */
+    readonly registry?: AgentRegistry,
   ) {}
   route(input: RoutingRequest, trace?: RoutingTrace): RouteResult {
     const sink = trace ?? this.trace;
-    const plan = planRoute(input, this.config);
+    const plan = planRoute(input, this.config, this.registry);
     let written = 0;
     for (const hop of plan.hops) {
       try { if (sink.record(hop).written) written++; } catch { /* advisory：日志永不前置 */ }
@@ -177,6 +209,7 @@ export class Router {
       defaultDomain: this.config.defaultDomain ?? null,
       domains: Object.entries(this.config.domains).map(([id, d]) => ({ id, label: d.label, supervisorAgentKey: d.supervisorAgentKey })),
       shape: this.config.mode === 'legacy' ? '沿用原有直写' : this.config.mode === 'flat' ? '扁平（1 跳）' : '按业务域分层（最多 2 跳）',
+      agentRegistry: registrySummary(this.registry ?? defaultAgentRegistry()),
     };
   }
 }
@@ -184,7 +217,7 @@ export class Router {
 let current: Router | undefined;
 export function getRouter(): Router { return current ??= new Router(); }
 /** 服务端启动时用真实配置装配；不主动 loadConfig，避免测试进程读真实 .runtime/config.json。 */
-export function configureRouter(config: RouterConfig, trace?: RoutingTrace): Router {
-  return current = new Router(config, trace ?? getRoutingTrace());
+export function configureRouter(config: RouterConfig, trace?: RoutingTrace, registry?: AgentRegistry): Router {
+  return current = new Router(config, trace ?? getRoutingTrace(), registry);
 }
 export function setRouter(router: Router | null): void { current = router ?? undefined; }

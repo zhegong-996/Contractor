@@ -7,6 +7,7 @@ import { readRoutingEvents, replayRouting } from '../src/routing-trace.ts';
 import { assessThreeTier } from '../src/three-tier-assessment.ts';
 import { platformSwitchChecklist } from '../src/platform-port.ts';
 import { getRouter, configureRouter, planCoverage } from '../src/router.ts';
+import { configureAgentRegistry, defaultAgentRegistry, getAgentRegistry, onDuty } from '../src/agent-registry.ts';
 
 const WIRING = [
   ['src/controller.ts', '入口路由 / 建单 / 交接'],
@@ -26,14 +27,22 @@ const wiring = WIRING.map(([file, purpose]) => {
 });
 
 let configSource = 'default(flat)';
-try { configureRouter(loadConfig().router); configSource = '.runtime/config.json'; }
-catch { configureRouter(defaultRouterConfig()); }
+try {
+  const cfg = loadConfig();
+  configureAgentRegistry(cfg.agentRegistry);
+  configureRouter(cfg.router, undefined, getAgentRegistry());
+  configSource = '.runtime/config.json';
+} catch {
+  configureAgentRegistry(defaultAgentRegistry());
+  configureRouter(defaultRouterConfig(), undefined, getAgentRegistry());
+}
 
 const { events, errors } = readRoutingEvents();
 const projection = replayRouting(events);
 const routerStatus = getRouter().status();
 const threeTier = assessThreeTier(events, projection, errors,
-  { routerMode: routerStatus.mode, configuredDomains: routerStatus.domains.length });
+  { routerMode: routerStatus.mode, configuredDomains: routerStatus.domains.length,
+    agentBindings: onDuty(getAgentRegistry()).length });
 
 console.log(JSON.stringify({
   ok: true,

@@ -635,3 +635,32 @@ Cognee `cognify` 的真实外部模型调用未发生（缺端点与凭据）；
 ### 3. 严格边界（未发生，不是 bug）
 
 真实全量日志含改造前的历史决策，p6 仍为 `false`（历史不回溯改写）；隔离 `router:smoke` 才能看到「全部决策带 Router 快照」。C-4 / C-5 / C-6 未做，默认底座仍 `paperclip`，飞书仍是唯一发起入口，控制台只读白名单未放宽。`.runtime/router-smoke.json` 不入库；`router:smoke` 不写真实 `.runtime/routing/events.jsonl`。4190 / 4192 / 4194 / 9418 保持停机；5432 只连回环专属库。
+
+---
+
+## 第十九轮：C-4 组织级 Agent 编制与验收协作（2026-11-07）
+
+### 1. 交付
+
+- **注册表**：新增 `src/agent-registry.ts`（Agent 实例 / 可扩展职责 / 生效范围 / 内容哈希版本 / `registryRevision` 快照 / `resolveAssignment` 确定性解析 / `handoffEnvelope` / `reviewCrew` / `registrySummary` / 单例）；`config.agentRegistry` 默认**空编制**，扁平小团队不硬造管理层。
+- **Router 兼容**：`planRoute(input, config, registry?)` 第 3 参数显式传入时才校验主管在岗 / 职责 / 范围，未传与 C-3 逐字等价；`Router` 第 3 参数同理；`server.ts` 启动装配真实编制并把 `onDuty()` 真实计数传给 p8。证据追加 `agents:<rev>:<n>`，`ROUTER_MARK` 语义不变，历史决策不回溯。
+- **A2A 与验收**：`service-network.ts` 的 `route()` / `start()` 在编制非空时做在岗校验并留 `handoff:` 证据；`v06.ts` 新增 `agent-registry-view` / `acceptance-crew` 两个只读动作，`review-readiness` 返回验收协作编组，`org-overview` 扩为 11 段；控制台「协作」视图新增中文「Agent 编制」卡片。
+- **红线**：独立评审者 ≠ 产出方、不替代原发起人确认验收、已锁定清单不可改写；同一 Task 自派自验自环一律拦下；飞书仍是唯一发起入口，控制台只新增只读动作，未新增服务。
+- **真跑**：`npm run agents:smoke` **43/43 `ok:true`**；`tests/agent-registry.test.ts` 14 例；`tests/console-shell.test.ts` 补 2 例编制视图契约；`tests/v06-workbench.test.ts` 同步 11 段；两处 C-3 守门断言改为「Router 与注册表同时装配」。
+
+### 2. 全套回归结果（本轮重跑）
+
+| 项 | 结果 |
+|---|---|
+| `npm test` | **378 / 378**（第十八轮 362 + C-4 新增 14 例注册表契约 + 2 例控制台契约） |
+| `npx tsc --noEmit` / `build:workspaces` / `build:chinese-shell` | 通过 / 通过 / `ok:true`、`missed: []`、`warning: null` |
+| `test:responsive` / `test:walkthrough` | 425px 无溢出、按钮 44px / **11 / 11**、`failures: []` |
+| `router:smoke` / `agents:smoke` | **31/31** / **43/43**，均 `ok:true`，隔离内存 Trace 不写真实日志 |
+| `console:smoke` / `host:pg` / `host:smoke` | `ok:true` 19 项（6 视图 / 主题 / 425px / 零海外文案 / 只读边界） / `ok:true` 21/21 / `ok:true` |
+| `routing:status`（真实服务端） | `allWired:true`；`router.mode=flat`、`agentRegistry.onDuty=0`；p8 false、`recommended:false` |
+| `memory:checkpoint` / `audit:upstream` / `git diff --check` | `logErrors:0` / `clean:true`、`problems: []` / 通过 |
+| 真实只读接口 | `v06-agent-registry-view` / `v06-acceptance-crew` / `v06-review-readiness` 均 200，空编制如实降级并返回三条红线 |
+
+### 3. 严格边界（未发生，不是 bug）
+
+默认编制为空，所以真实服务端 p8 仍 `false`、三层判断 `recommended=false`；`agents:smoke` 的「在岗 2 跳」是隔离合成编制，不代表组织已配置管理层。C-5 / C-6 未做；`assessThreeTier()` 的 P3 / P4 仍按角色名判定；默认底座仍 `paperclip`；飞书仍是唯一发起入口；未引入第 8 个上游、未改上游提交、未复制 LobeHub 代码。`.runtime/agent-registry-smoke.json` 不入库。

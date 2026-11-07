@@ -21,7 +21,7 @@
     "B1": "completed-and-validated",
     "B2": "completed-and-validated",
     "C": "in-progress-stepwise",
-    "currentBoundary": "docs/ADAPTATION-v0.6.md 0.0000000000000000000 节（第十八轮 C-3：单一 Router 与可配置组织形态）；C 产品约束见 docs/PRD-v0.6.md §10C（C-P1~C-P8）；验证见 docs/VALIDATION.md 第十八轮",
+    "currentBoundary": "docs/ADAPTATION-v0.6.md 0.00000000000000000000 节（第十九轮 C-4：组织级 Agent 编制、验收协作与 A2A 在岗交接）；C 产品约束见 docs/PRD-v0.6.md §10C（C-P1~C-P8）；验证见 docs/VALIDATION.md 第十九轮",
     "userDecision": "② 改成独立前端应用（废弃 PRD §10A 的 S5/S6，保留 S1–S4，飞书 IM 仍是唯一发起入口）；补遗：组织形态必须可配置（按业务域/组织单元生效、允许一个 Agent 兼任多职责、禁止同一 Task 自派自验自环），Agent 靠沉淀自我改进但核心决策仍由人做，判断是工程能力 + AI 能力组合，验收本身也是一个可与产品/技术/运营协作的 Agent",
     "cProductConstraints": [
       "C-P1 组织形态可配置：层不是产品骨架；Agent 实例与职责绑定/生效范围/版本分离；组织级唯一、项目只引用不覆写、变更留快照不回溯",
@@ -39,12 +39,12 @@
       "C-1 本机 PG 真跑与长程执行地基（完成：PgHostPlatform / SKIP LOCKED 步进队列 / config.host.provider=local-pg / R7 协议登记）",
       "C-2 国内适配 + 自研独立控制台（完成：console/ 六视图 / 明暗主题 / 425px；13 项只读白名单；console:smoke 真跑）",
       "C-3 单一 Router 与可配置组织形态（完成：src/router.ts / config.router / 9 处接线 / router:smoke 31/31 / p8 闸门）",
-      "C-4 可配置角色体系 + 验收 Agent + A2A handoff",
-      "C-5 按配置重跑三层评估 + 扁平/分层两种配置各跑真实一单",
+      "C-4 可配置角色体系 + 验收 Agent + A2A handoff（完成：src/agent-registry.ts / config.agentRegistry / Router 在岗校验 / agents:smoke 43/43 / p8 真实在岗数）",
+      "C-5 按配置重跑三层评估 + 扁平/分层两种配置各跑真实一单（下一步）",
       "C-6 沉淀回流与自演进闭环",
       "C 收尾：全量回归、文档同步、提交推送"
     ],
-    "note": "B 阶段已验收；第十五轮用户拍板 ② 解除产品形态冲突，C 正式启动且严格分步不并行。三层判断仍 recommended=false（8 项前置条件，p8 在 C-4/C-5 前恒 false）；C-3 真跑发现只按角色名判定 P3/P4 会被合成数据凑齐，已补闸门。第十七轮按用户新要求选定 08 第 10 项方向 (a)：不引入第 8 个上游，自己做国内化 + 独立控制台；第十八轮 C-3 完成单一 Router，默认底座仍可回退。",
+    "note": "B 阶段已验收；第十五轮用户拍板 ② 解除产品形态冲突，C 正式启动且严格分步不并行。三层判断仍 recommended=false（8 项前置条件，p8 在 C-4/C-5 前恒 false）；C-3 真跑发现只按角色名判定 P3/P4 会被合成数据凑齐，已补闸门。第十七轮按用户新要求选定 08 第 10 项方向 (a)：不引入第 8 个上游，自己做国内化 + 独立控制台；第十八轮 C-3 完成单一 Router；第十九轮 C-4 落地组织级 Agent 编制、验收协作与 A2A 在岗交接，p8 改用真实在岗数判定（默认空编制 0 → false），默认底座仍可回退。",
     "c1Deliverables": [
       "src/pg-host.ts：PgHostPlatform，事务 / ACL / 成本账本 / heartbeat checkout-retry-runToken / FOR UPDATE SKIP LOCKED 步进队列 / 崩溃恢复 / 状态外置",
       "scripts/host-pg-smoke.ts：本机专属库 suitme_collab_c1 真跑，21 项 checks 全绿，报告 .runtime/host-pg-smoke.json（不入库）",
@@ -69,6 +69,17 @@
       "three-tier-assessment.ts：p6 按 Trace 里的 Router 快照判定，新增 p8 防跳级闸门（Agent 实例 + 职责绑定 + 分层配置，C-4/C-5 前恒 false）",
       "routing-status / console 协作视图：router 状态、routerCoverage、组织形态与「怎么派活」中文卡片",
       "console/app.js：只读请求 in-flight 去重 + 1.5 秒成功结果短缓存，修掉 view 慢导致并发重复请求一起超时的真实问题；tests/console-shell.test.ts 补 2 例契约"
+    ],
+    "c4Deliverables": [
+      "src/agent-registry.ts：Agent 实例 / 可扩展职责槽位 / domains 生效范围 / 内容哈希版本 / registryRevision 快照 / resolveAssignment / handoffEnvelope / reviewCrew / registrySummary / 单例装配（modelCalls=0）",
+      "src/config.ts：agentRegistry 段，默认空编制（扁平小团队不硬造管理层）；与既有 agents 执行引擎配置、agent-services 运行时服务目录互不覆写",
+      "src/router.ts：planRoute 第 3 参数 registry，显式装配才校验主管在岗 / 职责 / 范围，未传与 C-3 逐字等价；每跳证据带 agents:<rev>:<n> 快照",
+      "src/server.ts / scripts/routing-status.ts：configureAgentRegistry + configureRouter(...,getAgentRegistry())；p8 改用真实 onDuty() 计数",
+      "src/service-network.ts：A2A route/start 在编制非空时校验在岗 / 职责 / 范围 / 自环并留 handoff:<to>@<version> 证据；空编制不改既有委派链路",
+      "src/v06.ts：agent-registry-view / acceptance-crew 只读动作，review-readiness 返回验收编组，org-overview 扩为 11 段",
+      "console/app.js + scripts/console-server.ts：中文「Agent 编制」卡片与 v06-agent-registry-view 只读白名单；控制台无输入框 / 无写动作",
+      "scripts/agents-smoke.ts + npm run agents:smoke：隔离内存 Trace 真跑 43/43，报告 .runtime/agent-registry-smoke.json（不入库）",
+      "tests/agent-registry.test.ts：14 例注册表契约；tests/console-shell.test.ts 补 2 例编制视图契约；两处 C-3 守门断言同步为「Router 与注册表同时装配」"
     ]
   },
   "b2Deliverables": [
@@ -79,7 +90,7 @@
     "收尾修复：reviewSource 改用评审后 revision，消除真实链路悬空 lineage；历史 append-only 日志中的旧行不物理删除"
   ],
   "validation": {
-    "unitTests": "362/362",
+    "unitTests": "378/378",
     "typecheck": "pass",
     "buildWorkspaces": "pass",
     "buildChineseShell": "pass (hiddenEntries 4, missed 0, warning null；前台重跑，后台沙箱批量删除保护为已知坑)",
@@ -105,7 +116,8 @@
     "reference": "HANDOFF/05-VALIDATION-AND-COMMANDS.md 与 docs/VALIDATION.md 第十八轮",
     "hostPgSmoke": "ok:true, checks 21, failed []；事务回滚不变、并发领取不重复、崩溃回收旧 token 失效、步进链 modelCalls=3",
     "consoleSmoke": "ok:true；检查项含 index/styles/script/realTasks/writeBlocked/readOnlyAllowlist/6 个视图/themeToggle/noOverseasCopy/noWebIntake/feishuNotice/serviceConnected/responsive425",
-    "routerSmoke": "ok:true, checks 31, failed []；隔离内存 Trace，未写真实 .runtime/routing/events.jsonl"
+    "routerSmoke": "ok:true, checks 31, failed []；隔离内存 Trace，未写真实 .runtime/routing/events.jsonl",
+    "agentsSmoke": "ok:true, 43/43 checks（隔离内存 Trace，不写真实 .runtime/routing/events.jsonl）"
   },
   "services": {
     "3100": {
@@ -168,7 +180,7 @@
     },
     {
       "path": "HANDOFF/03-WORK-LOG.md",
-      "purpose": "18 轮工作记录（含第十五轮补遗、第十六轮 C-1、第十七轮 C-2、第十八轮 C-3）、提交号、排障模式、用户决策"
+      "purpose": "19 轮工作记录（含第十五轮补遗、第十六轮 C-1、第十七轮 C-2、第十八轮 C-3）、提交号、排障模式、用户决策"
     },
     {
       "path": "HANDOFF/04-CODE-MAP.md",
@@ -209,19 +221,19 @@
   ],
   "fileInventory": {
     "path": "HANDOFF/FILE-INVENTORY.md",
-    "totalEntries": 283,
+    "totalEntries": 286,
     "handWrittenDescriptions": 211,
     "autoExtractedDescriptions": 69,
     "fallback": 0,
     "uncovered": 0,
-    "note": "第十四轮 269 + 第十六轮 C-1 新增 4 + 第十七轮 C-2 新增 7 + 第十八轮 C-3 新增 3（src/router.ts、scripts/router-smoke.ts、tests/router.test.ts）；既有文件修改不计新增"
+    "note": "第十四轮 269 + C-1 新增 4 + C-2 新增 7 + C-3 新增 3 + C-4 新增 3（src/agent-registry.ts、scripts/agents-smoke.ts、tests/agent-registry.test.ts）；既有文件修改不计新增"
   },
   "nextSteps": [
     "读 HANDOFF/00-START-HERE.md、06-CURRENT-STATE-AND-NEXT.md、docs/PRD-v0.6.md §10C、07-RULES-AND-BOUNDARIES.md",
-    "跑 HANDOFF/05-VALIDATION-AND-COMMANDS.md 的全套回归确认 362/362、走查 11/11、host:pg 21/21、console:smoke ok:true、router:smoke 31/31",
+    "跑 HANDOFF/05-VALIDATION-AND-COMMANDS.md 的全套回归确认 378/378、走查 11/11、host:pg 21/21、console:smoke ok:true、router:smoke 31/31、agents:smoke 43/43",
     "C-3 已完成：五个派活点共 9 处收敛到单一 Router；默认 flat（1 跳），layered 按业务域最多 2 跳，legacy 可回退；历史路由决策不回溯改写",
-    "C-4（下一步）：可配置角色体系（Agent 实例 + 职责绑定 + 范围 + 版本），验收升格为协作 Agent，接 A2A handoff，禁止同一 Task 自派自验自环",
-    "C-5：按当前配置重跑 assessThreeTier（P3/P4 改按配置判定、接上 C-4 的 Agent 绑定），扁平/分层两种配置各跑真实一单",
+    "C-4 已完成：组织级 Agent 编制（可扩展职责 / 生效范围 / 版本 / 快照）、Router 在岗校验、A2A 在岗交接、验收协作编组；默认空编制不硬造管理层，agents:smoke 真跑 43/43",
+    "C-5（下一步）：按当前配置重跑 assessThreeTier（P3/P4 改按配置判定、接上 C-4 的真实 Agent 绑定），扁平/分层两种配置各跑真实一单",
     "C-6：自查标准回流到交付前强制比对、候选改进经工程闸门+人审版本化生效、可回滚、效果对比",
     "真人业务验收 SUI-129 只能由用户本人在原会话用中文「确认验收」完成"
   ],
@@ -232,7 +244,7 @@
     "国内/海外外部服务是否接通",
     "已取消服务的长期状态",
     "\"pi\" 的指代（当前按 earendil-works/pi 理解）",
-    "Paperclip 去留：第十七轮已按方向 (a) 定调——不引入第 8 个上游，自己做国内化 + 独立控制台；第十八轮 C-3 完成单一 Router，默认底座仍可回退，后续 C-4 起继续去宿主化"
+    "Paperclip 去留：第十七轮已按方向 (a) 定调——不引入第 8 个上游，自己做国内化 + 独立控制台；第十八轮 C-3 完成单一 Router；第十九轮 C-4 落地组织级 Agent 编制，主链路继续去宿主化，默认底座仍可回退"
   ],
   "doNot": [
     "不要重启 4190/4192/4194/9418",
@@ -250,7 +262,7 @@
     "不要把 router:smoke 的隔离合成数据当成产品上放行三层的结论；p8 在 C-4/C-5 前必须保持 false"
   ],
   "finalValidationAtHandoff": {
-    "unitTests": "362/362",
+    "unitTests": "378/378",
     "walkthrough": "11/11, failures 0",
     "consoleSmoke": "ok:true, 6/6 视图, 写动作 403, 零海外文案",
     "routerSmoke": "ok:true, 31/31 checks（三种组织形态，隔离内存 Trace）",
@@ -258,7 +270,8 @@
     "memoryJourney": "ok:true, 9/9 checks, lineageComplete:true（第十四轮历史证据）",
     "upstreamAudit": "clean: true, problems 0",
     "gitDiffCheck": "pass",
-    "note": "第十八轮 C-3 代码与文档同步后重跑全套回归：npm test 362/362、tsc、两构建、425px 响应式、真实浏览器走查 11/11、console:smoke、router:smoke 31/31、host:pg 21/21、host:smoke、routing:status、audit:upstream、git diff --check"
+    "note": "第十九轮 C-4 代码与文档同步后重跑全套回归：npm test 378/378、tsc、两构建、425px 响应式、真实浏览器走查 11/11、console:smoke、router:smoke 31/31、agents:smoke 43/43、host:pg 21/21、host:smoke、routing:status、memory:checkpoint、audit:upstream、git diff --check",
+    "agentsSmoke": "ok:true, 43/43 checks（隔离内存 Trace）"
   },
   "authoritativeOnly": true,
   "portableCopyNote": "WorkBuddy 工作区 handoff/ 与 SuitMe-HANDOFF.zip 已停用、不再维护；唯一权威位置为仓库内 HANDOFF/。"

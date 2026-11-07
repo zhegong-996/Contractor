@@ -74,3 +74,5 @@
 - **第十七轮结论**：用户 2026-11-07 追加「Paperclip 国外元素多、没做国内适配，前端参考 LobeHub 样式与功能」，等价于选 **(a) 不引入第 8 个上游、加速去宿主化**——自己做国内化 + 独立控制台，而不是换 Octop。已落地 `console/` 自研外壳、用户可见层中文化、服务清单去海外一等入口；**未引入新上游、未改上游提交、未复制 LobeHub 代码、未切换默认底座**。后续 C-3 起按 (a) 继续把主链路往 `HostPlatformPort` 与 `PgHostPlatform` 上收。
 
 - **第十八轮进展**：C-3 已把五个派活点共 9 处收敛到单一 Router（`config.router` 决定扁平 / 分层 / legacy），主链路的「谁交给谁」不再由宿主插件决定；默认底座仍 `paperclip` 且可回退，C-4 起继续往 `HostPlatformPort` / `PgHostPlatform` 收。
+
+- **第十九轮进展**：C-4 已落地组织级 Agent 编制（`src/agent-registry.ts`）并接进 Router / A2A / 验收链，「谁有资格接这一棒」不再由宿主或字符串决定；默认空编制保持扁平，主链路继续往 `HostPlatformPort` / `PgHostPlatform` 收。

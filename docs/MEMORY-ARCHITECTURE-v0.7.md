@@ -95,3 +95,5 @@ B1 落地时 `npm test` **315/315**（新增 12 例 B 阶段测试：契约、�
 
 
 > **第十八轮 C-3 补记**：五个派活点已收敛到 `src/router.ts::Router`，决策链由 `config.router` 决定（扁平 1 跳 / 按业务域分层最多 2 跳 / legacy 回退），每条决策带配置 revision 快照。B1/B2 的 append-only 主干与四类投影仍是三层不丢上下文的地基——Router 只改「谁交给谁」的跳数，不另起记忆接口、不复制上下文，交接仍读同一份共享现场。`assessThreeTier` 的 p6 改为按 Trace 证据判定，p8 在 C-4 / C-5 前锁住防跳级闸门；真实历史日志不回溯改写。
+
+> **第十九轮 C-4 补记**：B1 / B2 的 append-only 主干与四类投影仍是唯一共享现场；C-4 的 Agent 编制只决定「谁有资格接这一棒」，不新建第二份记忆、不复制资料正文。A2A handoff 传 `sourceIds / scope / causedBy`，撤权后仍按当前身份重评。
