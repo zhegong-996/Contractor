@@ -195,13 +195,15 @@ flowchart TD
 
 宿主侧新增 `src/platform-port.ts`：`HostPlatformPort` 收拢任务 / 文档 / 身份 / 健康检查 / UI 承载，`PaperclipPlatform` 为默认薄包装，`LocalHostPlatform` 是不依赖 Paperclip 的最小可运行实现（`npm run host:smoke` 真跑）。`config.host.provider` 默认仍是 `paperclip`，**尚未切换底座**；完整替换需先补齐 ACL、cost-ledger、Plugin UI、heartbeat 真实执行与 PG 事务五项，见 `ROUTING-AND-HOST-v0.7.md` 第 5 节。
 
-## 共享记忆主干（方案 B · 第十三轮补）
+## 共享记忆主干（方案 B · 第十三／十四轮）
 
 `src/memory-log.ts` 提供 append-only 事件主干 `.runtime/memory/events.jsonl`；`src/memory-projections.ts` 用纯函数重放 L1 证据图 / L2 组织图 / BM25 向量 / Context Pack 四类投影。真实写入点在 `workspaces`（来源确认 / 撤回、授权撤销）、`v06`（L2 抽取、边状态、Context Pack）、`team-memory`（索引）、`controller`（验收）双写事件，advisory 失败不影响业务；`v06.contextPack` 在构建前按 `sourceRevocations` 剔除撤权来源的证据边，核对失败 fail-closed。
 
 三条验收红线：重放可复现（基准时间取事件流、checksum 稳定）、来源撤权后派生记忆不可召回（`causedBy` lineage 传播 + 投影/召回双层过滤）、确定性链路 `modelCalls=0`（`assertDeterministic` 非零即拒绝）。上一轮的 `routing-decided` 事件经 `readBridgedEvents()` 并入同一重放输入。只读 `memory-replay` 与 `npm run memory:replay` / `npm run memory:smoke` 可复核。详见 `MEMORY-ARCHITECTURE-v0.7.md`。
 
-现有 Cognee / Ladybug / SQLite / Paperclip 存储仍是实际读取源；把检索链正式切换为消费投影属于 B2，尚未开始。
+**B2（第十四轮）已完成读取链切换**：`src/memory-recall.ts` 把 `recallMemory()` 的投影命中作为第三路信号接入 `TeamMemory.search` 融合排序——权限 / 版本重评之后才按 `sourceId@revision` 白名单裁剪，读日志失败 advisory 降级；`grant-revoked` 改为按 principal 精确排除（未指定主体 fail-closed），`source-revoked` 仍全局阻断。`src/memory-checkpoint.ts` 提供 checkpoint + 增量应用，会回溯变化的事件一律回退全量并与全量 checksum 对照。`npm run memory:journey` 用真实 workspace action 跑完整知识事件链与端到端撤权，`npm run memory:checkpoint` 在真实日志上验证增量。
+
+但**原 Cognee / Ladybug / SQLite / Paperclip 存储仍是主读取源**，投影是叠加的第三路证据、不是替换；事件写入失败不影响业务。B 阶段（B1 + B2）已验收，C 仍排队待用户拍板产品形态。
 
 ## 实现指针
 

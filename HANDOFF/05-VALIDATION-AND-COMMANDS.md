@@ -6,7 +6,7 @@
 cd /Users/gong.zhe/Developer/ai-native-collab
 export NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost NODE_USE_ENV_PROXY=0
 
-npm test                    # 315/315（基线）
+npm test                    # 329/329（基线）
 npx tsc --noEmit            # 退出 0
 npm run build:workspaces    # 插件 UI 打包 + 类型检查
 npm run build:chinese-shell # hiddenEntries 4 条、missed []、warning null
@@ -16,35 +16,41 @@ npm run audit:upstream      # clean: true、problems []
 git diff --check            # 退出 0
 ```
 
+> `build:chinese-shell` 在后台沙箱会因 Vite `emptyOutDir` 批量删除触发 `SAFE_DELETE_BULK_CONFIRM_REQUIRED`，**前台已授权环境退出 0**（见 `00` 坑 3）；不是代码问题。
+
 **功能类 CLI / 冒烟（也应全绿）**：
 
 ```sh
 npm run memory:replay       # 只读重放：replayTwiceEqual / deterministic true
 npm run memory:smoke        # 临时目录真跑三条红线，ok:true
+npm run memory:checkpoint   # 真实日志增量应用，checksum 与全量对照
+npm run memory:journey      # 真实 bridge action 全链路 + 端到端撤权（会写真实日志）
 npm run routing:status      # allWired:true、threeTier.recommended:false
 npm run host:smoke          # 非 Paperclip 宿主 ok:true
 npm run cognee:native -- status   # enabled:true, configured:false（缺 4 个环境变量）
 npm run delivery:demo       # 本机 Git 链路；4194/9418 停机时 gitProtocolClonePull 为 false，属预期
 ```
 
-## 2. 交接时的实测结果（第十三轮）
+`memory:journey` 会新建一条专用资料并在末尾撤回，**不是只读检查**；`memory:checkpoint -- --reset` 会全量重建后再按 append-only 前缀增量应用。
+
+## 2. 第十四轮 B2 收尾实测结果（2026-11-07）
 
 | 项 | 结果 |
 |---|---|
-| `npm test` | **315 / 315** |
+| `npm test` | **329 / 329**（B2 新增 12 例 + 收尾 2 例 lineage 回归） |
 | `npx tsc --noEmit` | 通过 |
-| `build:workspaces` / `build:chinese-shell` | 通过 / `hiddenEntries` 4、`missed: []` |
-| `test:responsive` | 425px `393/393`、溢出 0、按钮 44px |
+| `build:workspaces` / `build:chinese-shell` | 通过 / `hiddenEntries` 4、`missed: []`、`warning: null`（前台重跑） |
+| `test:responsive` | 425px `393/393`、溢出 0、按钮 44px、`problems: []` |
 | `test:walkthrough` | **11 / 11**，`failures: []` |
-| `audit:upstream` | `clean: true` |
+| `audit:upstream` | `clean: true`、`problems: []`（7 个上游） |
 | `memory:smoke` | 撤权前 1 命中 → 撤权后 **0 命中**、`excludedByRevocation=4`、`modelCalls=0` |
-| `memory:replay` | `eventCount=5`、`bridgedRoutingEvents=2`、`replayTwiceEqual=true`、`duplicateIds=2`（跨进程重复如实记录）、`logErrors=[]` |
-| 真实 HTTP `POST /workspace/memory-replay` | 200、`ok:true`、`deterministic:true` |
-| `routing:status` | `allWired:true`、三层 `recommended:false` |
-| `host:smoke` | `ok:true` |
+| `memory:journey` | **`ok: true`，9/9 checks**：四类投影 `1/2/1/1 → 0/0/0/0`、召回 `1 → 0`、`lineageInvalidated`、新增 `lineageComplete`（本次资料悬空 lineage 前后均为 0）、`logErrors=0`、两次重放一致 |
+| `memory:checkpoint` | 真实日志 `mode:incremental, applied:1, fallback:null, checksumEqual:true`（全量重建 30 → 增量后 31 事件）；journey 追加撤权事件时按预期 `fallback:retroactive-event` 回退全量，`checksumEqual:true` |
+| `routing:status` | `allWired:true`、三层 `recommended:false`（覆盖率 5/7） |
+| `host:smoke` / `cognee:native status` | `ok:true` / `configured:false`（缺 4 个环境变量，未外发业务材料） |
 | `git diff --check` / staged 敏感扫描 | 通过 / 无 `.runtime`、无真实身份 |
 
-> `memory:replay` 的 `eventCount` 会随真实业务动作增长，`duplicateIds` 也可能变化（append-only 日志允许跨进程重复、重放按 id 去重）。**判定标准是 `replayTwiceEqual` / `deterministic` / `logErrors` 为空，不是固定数字。**
+> `memory:replay` 的 `eventCount` 会随真实业务动作增长，`duplicateIds` / `danglingCausedBy` 也可能保留历史行（append-only 日志不物理删除）。**判定标准是 `replayTwiceEqual` / `deterministic` / `logErrors` 为空，以及 `memory:journey` 的 `lineageComplete`**，不是固定数字。第十四轮修复前真实日志曾有 6 条悬空 lineage，旧行仍在，新链路已为 0。
 
 ## 3. 真实 HTTP 冒烟模板（admin token 从 `.runtime/secrets.json` 读，不入库）
 
@@ -64,7 +70,7 @@ req.on('error', e => console.log('ERR', e.message)); req.end(payload);
 "
 ```
 
-把 path 换成 `routing-status` / `service-status` / `delivery-status` / `system-status` 可查其它只读状态。改过 `src/server.ts` 后先 `npm run restart:bridge`。
+把 path 换成 `routing-status` / `service-status` / `delivery-status` / `system-status` 可查其它只读状态。改过 `src/server.ts` / `src/v06.ts` / `src/workspaces.ts` 等服务端代码后先 `npm run restart:bridge`。
 
 ## 4. 服务端口表
 
@@ -89,6 +95,9 @@ req.on('error', e => console.log('ERR', e.message)); req.end(payload);
 | 测试突然失败且涉及时间 | 硬编码绝对时间过期 | 改相对时间（曾修 `at+8h` 时间炸弹） |
 | 状态接口全是灰字 / 不刷新 | 硬编码一次性快照 | 走 `service-status` / `routing-status` 实时探测 |
 | 真实日志混入测试动作 | `COLLAB_TEST_*` 变量丢了 | 检查 `scripts/test.ts` 的 env 注入 |
+| `memory:journey` 报「知识空间不存在」 | `view.spaces` 是数组，被 `Object.entries` 当字典读成索引 | 脚本已改为 `Array.isArray` 分支 |
+| `v06-l2-extract` 报「边指向不存在的节点」 | `memory-index` 先自动抽过一次，任务级镜像未带入全局已有节点 | `buildTaskGraphMirror()` 补齐，见 `tests/l2-extraction.test.ts` |
+| 真实日志出现 `danglingCausedBy` | `reviewSource` 用评审前 revision，确认事件被幂等去重 | 已改用 `reviewedRevision`；历史行不物理删除，重放如实记录 |
 
 ## 6. 提交前检查（每轮都做）
 

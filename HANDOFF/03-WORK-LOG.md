@@ -1,7 +1,7 @@
-# 03 · 全部工作记录（13 轮 + 基础建设期）
+# 03 · 全部工作记录（14 轮 + 基础建设期）
 
-> 权威逐轮记录：`docs/VALIDATION.md`（验证）与 `docs/ADAPTATION-v0.6.md`（边界声明，**最新边界以 `0.00000000000000` 节为准**）。
-> 完整提交历史共 38 个（交接时 `HEAD = b58631c`）。下表按时间线归纳，`提交` 列可直接 `git show <hash>`。
+> 权威逐轮记录：`docs/VALIDATION.md`（验证）与 `docs/ADAPTATION-v0.6.md`（边界声明，**最新边界以 `0.000000000000000` 节为准**）。
+> 完整提交历史以 `git log --oneline | wc -l` 与 `git rev-parse HEAD` 为准（交接时 `HEAD = b58631c`，其后已多次前进）。下表按时间线归纳，`提交` 列可直接 `git show <hash>`。
 
 ## 0. 基础建设期（前 21 个提交，早于分轮记录）
 
@@ -26,6 +26,7 @@
 | 第十一轮 | `85c03b2` | 用户拍板：允许外部模型 API 并打开 Cognee 原生管线；本机自动合并/自动发布放开（验收仍由人）；统一改写红线文档 | 294/294；`cognify` 真实调用仍未发生 |
 | 第十二轮 | `749e357` | `RoutingDecision` 五维契约 + 5 派活点写同一份 Trace、B 阶段契约复用、LobeHub 三层可执行判断、`HostPlatformPort` 与非 Paperclip 最小宿主 | 303/303；默认底座仍是 Paperclip |
 | 第十三轮 | `b58631c` | **方案 B1**：append-only 记忆事件主干、四类投影重放、撤权 lineage 阻断、8 处双写、Context Pack 运行时过滤、路由契约桥接 | **315/315**、走查 11/11；B2 待做 |
+| 第十四轮 | 本轮提交 | **方案 B2 收尾**：投影召回接入 `TeamMemory.search` 融合排序（权限重评之后才裁剪白名单）、`grant-revoked` 按 principal 精确过滤、真实一单跑完整知识事件链与端到端撤权、checkpoint + 增量应用（checksum 与全量逐字节对照）；修真实链路暴露的「任务级组织图镜像悬空边」与「`reviewSource` 用评审前 revision 造成真实悬空 lineage」两处缺陷，并给 `memory:journey` 加 `lineageComplete` 验收条件 | **329/329**、走查 11/11、`memory:journey ok:true`（四类投影 1/2/1/1 → 0/0/0/0、召回 1→0、本次资料悬空 lineage 0）、真实日志 `memory:checkpoint checksumEqual:true`；B 阶段验收通过，C 仍排队待拍板 |
 
 ## 2. 反复出现的排障模式（接手者可直接复用）
 
@@ -35,6 +36,7 @@
 4. **构建第二次必失败** → 上游 `closeBundle` 就地改写 `dist/sw.js` 占位符；构建前从 `public/sw.js` 恢复。
 5. **状态是硬编码快照** → 「国内服务」曾只探测交付台、其余灰字，改为 `service-status` 实时探测 + 自动刷新。
 6. **真实 HTTP 冒烟比单测更能抓语义冲突**：第十二/十三轮分别抓到路由 `causedBy` 语义冲突与投影/召回双层计数问题。
+7. **真实业务链路才暴露的结构缺陷**：第十四轮 `memory:journey` 抓到 `view.spaces` 是数组被当字典读、以及任务级组织图镜像未带入「全局已有节点」导致 `validateOrgGraph` 报悬空边；`memory-index` 会自动先跑一次 L2 抽取，手工再抽时不能假设任务图已有全部节点。修法 `buildTaskGraphMirror()`。
 
 ## 3. 用户明确做过的决策（不要擅自反转）
 

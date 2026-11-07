@@ -61,16 +61,20 @@
 | `src/graph.ts` | Cognee 子进程 RPC 封装、`CogneeL1Reader`、pin 的 commit。 |
 | `src/ontology.ts` | 知识空间字典（GraphSchema/JSON Schema）与 `automaticExtraction` 状态。 |
 | `src/semantic-recall.ts` | 设备端 Apple NL 词向量、混合召回、语义索引读写。 |
-| `src/team-memory.ts` | 团队记忆索引、BM25 + 语义融合检索、检索时权限/版本重评。 |
+| `src/team-memory.ts` | 团队记忆索引、BM25 + 语义融合检索、检索时权限/版本重评；**B2** 在重评之后叠加投影召回为第三路信号。 |
 | `src/knowledge-edges.ts` | L2 边状态（draft/accepted/reusable）、`invalidateEdges`、`buildContextPack`。 |
-| `src/org-extraction.ts` | 从 L1 投影确定性抽取 L2 组织图（`modelCalls=0`），含 ModelExtractionAdapter。 |
+| `src/org-extraction.ts` | 从 L1 投影确定性抽取 L2 组织图（`modelCalls=0`），含 ModelExtractionAdapter 与 `buildTaskGraphMirror`。 |
 | `src/org-ontology.ts` | 组织图 TBox 校验（常量已上移到 `architecture-contracts.ts`，此处再导出保持兼容）。 |
 | `src/context.ts` | 任务上下文裁剪、InputRef、证据哈希。 |
 | `src/context-grant.ts` | 跨空间 Context Grant（申请/批准/拒绝/撤销/分离审批）。 |
 | `src/evidence.ts` | 证据引用校验（含用户授权的原型移植）。 |
 | **`src/memory-log.ts`** | **B1**：append-only 共享记忆事件主干、幂等、桥接 `routing-decided`。 |
-| **`src/memory-projections.ts`** | **B1**：四类投影纯函数重放、撤权 lineage、稳定 checksum、`recallMemory`、`assertDeterministic`。 |
+| **`src/memory-projections.ts`** | **B1/B2**：四类投影纯函数重放、撤权 lineage、稳定 checksum、`recallMemory`（按 principal 精确过滤）、`assertDeterministic`、`ProjectionState` 可续算。 |
+| **`src/memory-recall.ts`** | **B2**：`projectionRecall` 重放主干、`projectRecallHits` 按 `sourceId@revision` 白名单裁剪、`fuseProjectionHits` 三路融合；读日志失败 advisory 降级。 |
+| **`src/memory-checkpoint.ts`** | **B2**：checkpoint 读写与增量应用；撤权 / 乱序 / 失效祖先 / 已撤回来源回退全量，与全量 checksum 对照。 |
 | `src/memory-contract.ts` | 早期 `memoryAnnotation` schema（概念/关系候选，与 B1 主干不是同一层）。 |
+
+B2 的只读 / 真跑入口：`scripts/memory-replay.ts`、`scripts/memory-smoke.ts`（B1）、`scripts/memory-checkpoint.ts`、`scripts/memory-journey.ts`（**会写真实日志**）。接线硬约束：投影永远不是权限来源，只在 `reusable()` / `allowed()` / hash 版本重评之后消费。
 
 ## 6. Agent 运行时与上游装配
 
@@ -157,6 +161,8 @@
 architecture-contracts.ts（零 IO，最底层）
   ├── routing-decision.ts ──> routing-trace.ts ──> three-tier-assessment.ts
   ├── memory-log.ts ──> memory-projections.ts（纯函数，零 IO）
+  │     ├── memory-recall.ts ──> team-memory.ts（第三路召回信号）
+  │     └── memory-checkpoint.ts（增量应用 / 回退全量）
   └── org-ontology.ts / ontology.ts / org-extraction.ts
 config.ts / store.ts / paperclip.ts
   └── server.ts（组装一切）──> controller / workspaces / v06 / team-memory / service-network

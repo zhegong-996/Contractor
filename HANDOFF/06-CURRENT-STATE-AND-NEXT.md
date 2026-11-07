@@ -1,28 +1,26 @@
 # 06 · 当前状态与下一步（接手者最该看的一份）
 
-## 1. 状态快照（交接时 `b58631c`）
+## 1. 状态快照（第十四轮 B2 收尾）
 
 | 阶段 | 状态 | 交付 |
 |---|---|---|
 | **A 收敛整合** | ✅ 完成 | `architecture-contracts.ts` 统一常量、`RoutingDecision` 五维契约、5 派活点同一份 Trace、FR 覆盖三态口径、平台端口抽象 |
 | **B1 记忆主干** | ✅ 完成并验证 | `memory-log.ts` + `memory-projections.ts`、8 处双写、Context Pack 运行时 lineage 过滤、三条红线真跑证据 |
-| **B2 读取链切换** | ⏳ 待做 | 见第 2 节 |
-| **C 三层 Router + 底座切换** | 🚫 排队，**不得与 B 并行** | 见第 3 节 |
+| **B2 读取链切换** | ✅ **完成并验证** | 见第 2 节：投影召回融合、按主体精确撤权、真实一单端到端撤权、增量 checkpoint |
+| **C 三层 Router + 底座切换** | 🚫 排队（**B 已验收，但需先按 `08` 拍板产品形态**） | 见第 3 节 |
 
-系统能跑、全套回归全绿（315/315 单测、11/11 真实浏览器走查、上游 clean）。工作区干净，`HEAD = origin/main = 远端 main`。
+系统能跑、全套回归全绿（**329/329 单测**、11/11 真实浏览器走查、上游 clean、真实日志增量 checksum 一致）。`HEAD = origin/main = 远端 main`。
 
-## 2. B2 待做清单（建议按顺序，每项都有验收标准）
+## 2. B2 已完成（四项，均带真跑证据）
 
-1. **把 `TeamMemory.search` 的召回结果切到消费投影**：当前仍读 `graph.ladybug` / `chunk-tokens.json` / `semantic-vectors.json`。目标：在不破坏既有权限重评（`reusable()` + `w.allowed()`）的前提下，用 `recallMemory(bundle, query)` 的结果参与融合排序。
-   - 验收：`npm test` 全绿 + 走查 11/11 + 现有 `search` 的权限/版本重评测试不回退。
-2. **`grant-revoked` 按 principal 精确过滤**：当前重放层用严格 `revokedSourceIds`（含授权撤销）做 lineage 阻断，运行时只用 `sourceRevocations`（只资料撤回）。目标：让单主体撤权只影响该主体派生记忆，不放大成全局屏蔽。
-   - 验收：新增测试「A 撤权不影响 B 的同源记忆」，且 `source-revoked` 仍全局阻断。
-3. **真实业务动作产生完整知识类事件并跑端到端撤权**：目前真实日志只有走查触发的 `context-packed` 与桥接的 2 条路由决策。目标：在真实一单上跑 `source-ingested → memory-indexed → edge-drafted → context-packed → source-revoked`，验证投影与检索都不可召回。
-   - 验收：`memory:replay` 显示四类投影曾非零、撤权后归零；`duplicateIds` 只反映跨进程重写。
-4. **投影增量构建 / 压缩**：当前每次全量重放，事件量增大后会变慢。目标：checkpoint + 增量应用，checksum 语义不变。
-   - 验收：全量重放与增量重放 checksum 一致。
+| # | 交付 | 验收证据 |
+|---|---|---|
+| 1 | `src/memory-recall.ts`：投影召回作为**第三路**信号接入 `TeamMemory.search` 融合排序；只在 `reusable()` / `allowed()` / hash 重评**之后**按 `sourceId@revision` 白名单裁剪，读日志失败按 advisory 降级 | `tests/memory-recall.test.ts`；全套 329/329、走查 11/11、既有权限/版本重评测试不回退；`modelCalls=0` |
+| 2 | `grant-revoked` 不再进全局 `revokedSourceIds`，改记 `principalRevocations`；`recallMemory` 按当前 principal 精确排除，未指定主体时 fail-closed；`source-revoked` 仍全局阻断 | 新增「A 撤权不影响 B 的同源记忆」用例，`tests/memory-replay.test.ts` 全绿 |
+| 3 | `npm run memory:journey`：真实 bridge action 跑 `create-source → review confirmed → memory-index → edges-save → l2-extract → context-pack → review withdrawn`；只新建一条专用资料并在末尾撤回，既有资料不动 | `ok:true`；四类投影 before `1/2/1/1` → after `0/0/0/0`，召回 1→0，lineage 失效 4 事件；证据 `.runtime/memory-journey.json`（不入库） |
+| 4 | `src/memory-checkpoint.ts` + `npm run memory:checkpoint`：checkpoint + 增量应用；撤权/乱序/失效祖先等会回溯的情况回退全量，且增量结果始终与全量 checksum 逐字节对照 | 真实日志 `mode:incremental, applied:1, checksumEqual:true`；`tests/memory-checkpoint.test.ts` 6/6（含分批追加、重复行、跨批撤权） |
 
-> B2 全部完成并跑通 `05` 的全套回归后，才算 B 阶段验收通过，才能开始 C。
+> B 阶段（B1 + B2）已验收通过。**这不等于可以自动开始 C**：C 的底座切换与「5 tab 插件式单页」形态冲突，需先按 `08-OPEN-DECISIONS.md` 第 1 条由用户拍板；三层判断当前仍是 `recommended=false`（覆盖率 5/7）。
 
 ## 3. C 排队内容（现在不要动）
 

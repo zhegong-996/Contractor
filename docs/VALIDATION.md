@@ -441,3 +441,57 @@ Cognee `cognify` 的真实外部模型调用未发生（缺端点与凭据）；
 ### 5. 严格边界（未发生，不是 bug）
 
 **B1 已完成**；**B2 尚未做**：把 `TeamMemory.search` 等读取链正式切到投影消费、`grant-revoked` 按 principal 精确过滤、投影增量构建。原 Cognee / Ladybug / SQLite / Paperclip 文档仍是实际读取源，事件写入失败不影响业务。C（三层 Router 与平台底座切换）排在 B2 验收之后，未开始。真人在真实业务单「确认验收」（SUI-129 未核可）、Cognee 原生 `cognify` 真实外部调用、生产发布仍未发生。`.runtime/memory/`、`.runtime/routing/` 不入库，chunk 文本截断 200 字。
+
+> 以上为**第十三轮当时的边界**，B2 已于第十四轮完成并验证；最新边界见下节与 `ADAPTATION-v0.6.md` 的 `0.000000000000000` 节。
+
+---
+
+## 第十四轮：方案 B2 读取链消费投影、精确撤权、真实链路与增量 checkpoint（2026-11-07）
+
+用户指令：从 `HANDOFF/` 继续完成当前真实待办。按 **A → B → C 不并行**，本轮收尾 B 阶段第二阶段并做全量回归、文档同步、提交推送。
+
+### 1. 四项交付与对应验收
+
+| # | 交付 | 验收证据 |
+|---|---|---|
+| 1 | `src/memory-recall.ts`：`projectRecallHits()` 按 `sourceId@revision` 白名单裁剪后，`fuseProjectionHits()` 把投影命中作为**第三路**信号接入 `TeamMemory.search`；`projectionRecall()` 读真实主干重放，`modelCalls=0` | `tests/memory-recall.test.ts` 5 例：白名单裁剪、三路融合、原分数不覆盖、**接线顺序（权限重评之后才消费投影）**、principal 精确撤权；读日志失败 advisory 降级 |
+| 2 | `src/memory-projections.ts`：`grant-revoked` 只登记 `principalRevocations`，`recallMemory(..., { principal })` 精确排除；未指定主体 fail-closed；`source-revoked` 仍全局阻断 | `tests/memory-replay.test.ts` 新增「A 撤权不影响 B 的同源记忆」与分层断言 |
+| 3 | `scripts/memory-journey.ts`：真实 bridge action 跑 8 步完整知识事件链并端到端撤权，只新建一条专用资料、末尾撤回 | `ok:true`、9/9 checks（含 `lineageComplete`）；证据 `.runtime/memory-journey.json`（不入库） |
+| 4 | `src/memory-checkpoint.ts` + `scripts/memory-checkpoint.ts`：checkpoint + 增量应用；撤权 / 乱序 / 失效祖先 / 已撤回来源 / checksum 不一致回退全量 | `tests/memory-checkpoint.test.ts` 6 例；真实日志 `mode:incremental, applied:1, fallback:null, checksumEqual:true` |
+
+### 2. 真跑数据（不是单测模拟）
+
+`npm run memory:journey`（真实 4180 action）：
+
+| | before | `review-source/withdrawn` 后 |
+|---|---|---|
+| 本次资料四类投影 | L1 1 / L2 2 / BM25 1 / Pack 1 | **0 / 0 / 0 / 0** |
+| 召回「验收 知识 来源」 | 1 命中 | **0 命中** |
+| 沿 lineage 失效的事件 | 0 | **5** |
+| 本次资料悬空 lineage | 0 | **0**（`lineageComplete:true`） |
+| `replayTwiceEqual` / `deterministic` / `logErrors` | true / true / 0 | true / true / 0 |
+
+`npm run memory:checkpoint`：`--reset` 全量重建 30 事件后，用真实 `v06-context-pack` HTTP 追加 1 条普通事件，再跑得到 `mode:incremental, applied:1, fallback:null, checksumEqual:true`（31 事件）；journey 追加撤权事件时按预期 `fallback:retroactive-event` 回退全量，`checksumEqual:true`。`tests/memory-checkpoint.test.ts` 另覆盖分批增量、重复行、跨批撤权与全量 checksum 逐字节对照。
+
+### 3. 真跑暴露并修掉的三个真实缺陷
+
+1. `view.spaces` 是数组，脚本用 `Object.entries` 取到索引 `0`，`domain` 变成 `"0"` → 「知识空间不存在」。已改 `Array.isArray` 分支。
+2. `memory-index` 会自动先跑一次 L2 抽取，手工再抽时任务级镜像只补新节点、未带入「全局已有但本任务图没有」的节点 → `validateOrgGraph` 报悬空边。新增 `src/org-extraction.ts::buildTaskGraphMirror()` 并补 `tests/l2-extraction.test.ts`。
+3. 复核真实 `memory:replay` 发现 6 条 `danglingCausedBy`：`knowledge.review()` 会把资料推进到**新 revision**，而 `src/workspaces.ts::reviewSource` 仍用评审前 revision 写来源事件，确认事件与 `createSource` 幂等键相撞被去重，主干缺少派生事件的 `sourceEventId(新版本)` 锚点。已改用评审后的 `reviewedRevision`，补 2 例回归（版本前进后的完整 lineage + 接线守卫），并把 `lineageComplete` 加进 journey 验收条件。**历史 append-only 日志中的旧悬空行不物理删除**，重放如实记录。
+
+### 4. 全套回归结果
+
+| 项 | 结果 |
+|---|---|
+| `npm test` | **329 / 329**（B2 新增 12 例 + 收尾 2 例） |
+| `npx tsc --noEmit` | 通过 |
+| `build:workspaces` / `build:chinese-shell` | 通过 / `hiddenEntries` 4、`missed: []`、`warning: null`（前台重跑，后台沙箱批量删除保护属已知坑） |
+| `test:responsive` | 425px `393/393`、溢出 0、按钮 44px |
+| `test:walkthrough` | **11 / 11**，`failures: []` |
+| `audit:upstream` | `clean: true`、`problems: []` |
+| `memory:replay` / `memory:smoke` / `routing:status` / `host:smoke` | 均 `ok:true`；三层判断仍 `recommended:false`（5/7） |
+| `git diff --check` / staged 敏感扫描 | 通过 / 无 `.runtime`、无真实身份 |
+
+### 5. 严格边界（未发生，不是 bug）
+
+**B 阶段（B1 + B2）已验收通过，但不等于可以自动开始 C**：C 的底座切换与「5 tab 插件式单页」形态冲突，需先由用户拍板；三层判断仍 `recommended=false`。**原 Cognee / Ladybug / SQLite / Paperclip 存储仍是主读取源**，投影是权限重评之后的第三路叠加信号，不是替换底座；事件写入失败不影响业务。真人在真实业务单「确认验收」（SUI-129 未核可）、Cognee 原生 `cognify` 真实外部调用、生产发布、真实外部 PR/CI、全员 SSO、飞书部门 scope 重新登录仍未发生。`.runtime/memory/`、`.runtime/routing/` 不入库，chunk 文本截断 200 字；4190 / 4192 / 4194 / 9418 保持用户取消时的停机状态。

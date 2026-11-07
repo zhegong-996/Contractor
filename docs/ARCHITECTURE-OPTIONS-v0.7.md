@@ -234,9 +234,21 @@ LobeHub 三层的原话依据（赛博禅心《如何让 Super-agent 成为同�
 **完整实现与真跑证据见 [`MEMORY-ARCHITECTURE-v0.7.md`](MEMORY-ARCHITECTURE-v0.7.md)**。三种方案的选择、改动面与风险仍以本文档第 5–6 节为准，路线不变：**A → B → C，不并行**。
 
 - **B1 已完成**：append-only 事件主干（`src/memory-log.ts`）、四类投影纯函数重放（`src/memory-projections.ts`）、8 处真实写入点双写、Context Pack 运行时 lineage 过滤、只读 `memory-replay`、`npm run memory:replay` / `memory:smoke`。三条红线均有可执行验收：两次重放 checksum 一致、撤权后派生记忆 0 召回、`modelCalls=0`。
-- **B2 待做**：把 `TeamMemory.search` 等读取链正式切到投影消费、真实业务动作产生知识类事件、`grant-revoked` 按 principal 精确过滤、投影增量构建。
-- **C 仍未开始**：三层 Router 与平台底座切换排在 B2 验收之后。
+- **B2 待做**（历史记录，已于第十四轮完成，见附录 D）：把 `TeamMemory.search` 等读取链正式切到投影消费、真实业务动作产生知识类事件、`grant-revoked` 按 principal 精确过滤、投影增量构建。
+- **C 仍未开始**：三层 Router 与平台底座切换排在 B 验收之后。
 - **契约复用已兑现**：上一轮 `routing-decided` 事件经 `readBridgedEvents()` 并入同一重放输入，B 阶段没有另造第二套日志格式。
+
+---
+
+## 附录 D · 方案 B2 已落地（2026-11-07 · 第十四轮）
+
+**完整实现与真跑证据见 [`MEMORY-ARCHITECTURE-v0.7.md`](MEMORY-ARCHITECTURE-v0.7.md) 与 `docs/VALIDATION.md` 第十四轮**。三种方案的路线不变：**A → B → C，不并行**。
+
+- **B2-1**：`src/memory-recall.ts` 把投影召回作为第三路信号接入 `TeamMemory.search` 融合排序；只在 `reusable()` / `allowed()` / hash 版本重评之后按 `sourceId@revision` 白名单裁剪，投影不是权限来源。
+- **B2-2**：`grant-revoked` 改记 `principalRevocations`，按当前 principal 精确排除，未指定主体 fail-closed；`source-revoked` 仍全局阻断。
+- **B2-3**：`npm run memory:journey` 用真实 bridge action 跑完整知识事件链与端到端撤权；收尾复核又修掉 `reviewSource` 用评审前 revision 造成的悬空 lineage，并把 `lineageComplete` 加进验收条件。
+- **B2-4**：`src/memory-checkpoint.ts` 的 checkpoint + 增量应用，撤权 / 乱序 / 失效祖先回退全量，增量与全量 checksum 逐字节对照。
+- **边界**：原 Cognee / Ladybug / SQLite / Paperclip 存储仍是主读取源，投影是叠加证据；B 已验收，但 C 的产品形态冲突仍需用户拍板，三层判断仍 `recommended=false`（覆盖率 5/7）。
 
 ---
 

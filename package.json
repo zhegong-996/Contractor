@@ -49,7 +49,9 @@
     "acceptance:serve": "node --import tsx scripts/acceptance-report.ts serve",
     "acceptance:self-check": "node --import tsx scripts/acceptance-report.ts self-check",
     "delivery:serve": "node --import tsx scripts/delivery-server.ts",
-    "delivery:demo": "node --import tsx scripts/delivery-demo.ts"
+    "delivery:demo": "node --import tsx scripts/delivery-demo.ts",
+    "memory:journey": "node --import tsx scripts/memory-journey.ts",
+    "memory:checkpoint": "node --import tsx scripts/memory-checkpoint.ts"
   },
   "dependencies": {
     "@a2a-js/sdk": "1.3.0",

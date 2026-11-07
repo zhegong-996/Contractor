@@ -4,7 +4,7 @@
 > 对象仓库：`/Users/gong.zhe/Developer/ai-native-collab`（`github.com/zhegong-996/suitme-collab`）
 > 依据：`docs/ARCHITECTURE-v0.6.md`（产品架构定稿）、`docs/PRD-v0.6.md`、Codex 会话「研究 AI Native 协作平台融合」、本仓库 `README.md` / `docs/*` / `sources.lock.json` / `src/*` / `git status`
 > 立场：**以 PRD v0.6 为准绳，代码适配产品**。已有实现尽量保留，以「补层」为主，不推倒重来；工程红线见 `PRD-v0.6.md` 第 2.2 节。
-> 状态：**方案已执行十三轮**（底座 `f27a0e1`、功能补全 `7791c7b`、P3 前端增补 `c512c7b`、第四轮 L2 抽取 / P3 后半段 / 独立评审链 `255a5e9`、第五轮收尾 `78201c6`、第六轮 `285b97c`、第七轮 `7f33dd9`、第八轮 `c69e414`；第九轮见 0.0000000000 节，第十轮见 0.00000000000 节，第十一轮见 0.000000000000 节，第十二轮见 0.0000000000000 节，第十三轮见 0.00000000000000 节）。文档按轮次保留历史记录，**最新边界声明以 0.00000000000000 节为准**。
+> 状态：**方案已执行十四轮**（底座 `f27a0e1`、功能补全 `7791c7b`、P3 前端增补 `c512c7b`、第四轮 L2 抽取 / P3 后半段 / 独立评审链 `255a5e9`、第五轮收尾 `78201c6`、第六轮 `285b97c`、第七轮 `7f33dd9`、第八轮 `c69e414`；第九轮见 0.0000000000 节，第十轮见 0.00000000000 节，第十一轮见 0.000000000000 节，第十二轮见 0.0000000000000 节，第十三轮见 0.00000000000000 节，第十四轮见 0.000000000000000 节）。文档按轮次保留历史记录，**最新边界声明以 0.000000000000000 节为准**。
 
 ---
 
@@ -13,6 +13,28 @@
 ---
 
 ---
+
+## 0.000000000000000 方案 B2：读取链消费投影、精确撤权与完整知识事件链（2026-11-07 · 第十四轮）
+
+用户指令：从 `HANDOFF/` 继续完成当前真实待办。按 **A → B → C 不并行**，本轮收尾方案 B 的第二阶段；完整方案见 `docs/MEMORY-ARCHITECTURE-v0.7.md`，真跑证据见 `docs/VALIDATION.md` 第十四轮。
+
+### 1. 四项落地
+
+- **B2-1 读取链**：`src/memory-recall.ts` 把 `recallMemory()` 的投影命中作为**第三路**信号接入 `TeamMemory.search` 融合排序。接线顺序是硬约束：`reusable()` / `allowed()` / hash 版本重评**之后**才按 `sourceId@revision` 白名单裁剪投影命中（`projectRecallHits`），投影永远不是权限来源；读日志失败只按 advisory 降级，不改业务结果；`modelCalls=0`。
+- **B2-2 精确撤权**：`source-revoked`（资料本身撤回）仍全局阻断派生记忆；`grant-revoked`（单主体授权撤销）不再进 `revokedSourceIds`，改记 `principalRevocations`。`recallMemory(..., { principal })` 只排除该主体的同源记忆；**未指定主体时 fail-closed**。
+- **B2-3 真实链路**：`npm run memory:journey` 经真实 bridge action 跑 `view → create-source → review confirmed → memory-index → edges-save → l2-extract → context-pack → review withdrawn`，只新建一条专用资料并在末尾撤回；四类投影 `1/2/1/1 → 0/0/0/0`、召回 `1 → 0`、lineage 失效 4 事件。真跑暴露并修掉两个缺陷：`view.spaces` 是数组被当字典读；L2 自动抽取后任务级镜像未带入「全局已有节点」导致悬空边（`buildTaskGraphMirror()`）。
+- **B2-4 checkpoint**：`src/memory-checkpoint.ts` + `npm run memory:checkpoint` 保存 raw events / logErrors / bundle / checksum，普通新事件增量应用；撤权、乱序、失效祖先、已撤回来源、checksum 不一致等会回溯变化的情况一律**回退全量**，增量结果始终与全量 checksum 逐字节对照。
+
+### 2. 收尾复核时又修的一处真实接线缺陷
+
+复核 `memory:replay` 的真实日志发现 6 条 `danglingCausedBy`：`knowledge.review()` 会把资料推进到**新 revision**，而 `src/workspaces.ts::reviewSource` 仍用评审前的 revision 写来源事件，导致确认事件与 `createSource` 的幂等键相撞被去重，主干里没有派生事件引用的 `sourceEventId(新版本)` 锚点。现已改为使用评审后的 `reviewedRevision`，补 2 例回归（版本前进后的完整 lineage + 接线守卫），并把 `memory:journey` 的验收条件加上 `lineageComplete`（本次资料的悬空 lineage 必须为 0）。**历史 append-only 日志中的旧悬空行不物理删除**，重放会如实记录。
+
+### 最新边界声明（以本节为准）
+
+- **已发生**：B1 主干与四类投影；B2 四项（投影召回融合、按 principal 精确撤权、真实一单端到端撤权、checkpoint 增量）；真实链路完整 lineage 修复；全套回归、真实浏览器走查与真跑脚本证据。
+- **未发生**：C（三层 Router + 平台底座切换，且需先由用户拍板「5 tab 插件式单页」的产品形态冲突）；真人在真实业务单「确认验收」（SUI-129 未核可）；Cognee 原生 `cognify` 真实外部调用；生产发布、真实外部 PR/CI、全员 SSO、飞书部门 scope 重新登录。
+- **原存储仍是主读取源**：Cognee / Ladybug / SQLite / Paperclip 文档照常工作，投影是权限重评之后的第三路叠加证据，**不是替换底座**；事件写入失败不影响业务。
+- **红线不变**：合并 / 发布 / CI / 报告 / 模型判定不替代原发起人在原会话「确认验收」；`.runtime/memory/` 与 `.runtime/routing/` 不入库，chunk 文本截断 200 字；4190 / 4192 / 4194 / 9418 保持用户取消时的停机状态。
 
 ## 0.00000000000000 方案 B1：共享记忆事件主干与四类投影（2026-11-07 · 第十三轮）
 

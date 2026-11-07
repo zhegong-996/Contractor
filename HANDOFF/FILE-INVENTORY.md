@@ -1,30 +1,30 @@
 # FILE-INVENTORY · 逐文件说明（100% 覆盖）
 
-> 生成自 `git ls-files` + `HANDOFF/`，交接时共 **263** 个条目。
+> 生成自 `git ls-files` + `HANDOFF/`，第十四轮 B2 收尾后共 **269** 个条目（新增 6 个 B2 文件）。
 > 列：`路径 | 行数 | 说明`。`upstream/<name>` 是 gitlink（submodule），行数记 `-`。
-> 说明来源：精写字典 194 条、从源码注释/导出/测试名自动提取 69 条、按类型兜底 0 条。
+> 说明来源：精写字典 200 条、从源码注释/导出/测试名自动提取 69 条、按类型兜底 0 条。
 > 需要更详细的「哪些文件一起完成什么」见 `04-CODE-MAP.md`；目录结构见 `DIRECTORY-GUIDE.md`。
 
 ## 交接包 HANDOFF/（14）
 
 | 路径 | 行数 | 说明 |
 |---|---|---|
-| `HANDOFF/00-START-HERE.md` | 80 | 新 Agent 第一份必读：环境、同步状态、干净环境变量、服务端口、首次验证、6 个已知坑。 |
+| `HANDOFF/00-START-HERE.md` | 84 | 新 Agent 第一份必读：环境、同步状态、干净环境变量、服务端口、首次验证、7 个已知坑（含真实链路的图缺陷）。 |
 | `HANDOFF/01-PROJECT-OVERVIEW.md` | 56 | 产品与业务架构：定位、渠道分工、三级 owner、8 步闭环、5 tab 功能地图、成熟度三档、五条红线。 |
-| `HANDOFF/02-ARCHITECTURE.md` | 87 | 技术架构：四层数据流、7 个上游真实引用强度、前端分层、中文壳、路由契约、记忆主干、平台端口、代码交付。 |
-| `HANDOFF/03-WORK-LOG.md` | 50 | 全部 13 轮工作记录（提交号/改动/验证/边界）、反复出现的排障模式、用户明确做过的决策。 |
-| `HANDOFF/04-CODE-MAP.md` | 166 | 按 14 个功能域讲「哪些文件一起完成什么」、关键导出与依赖方向速查。 |
-| `HANDOFF/05-VALIDATION-AND-COMMANDS.md` | 104 | 全套回归命令、交接时实测结果、真实 HTTP 冒烟模板、服务端口表、排障速查、提交前检查。 |
-| `HANDOFF/06-CURRENT-STATE-AND-NEXT.md` | 48 | 当前状态快照、B2 四项待做清单（含验收标准）、C 排队内容、三层判断、去 Paperclip 化路线。 |
+| `HANDOFF/02-ARCHITECTURE.md` | 89 | 技术架构：四层数据流、7 个上游真实引用强度、前端分层、中文壳、路由契约、共享记忆主干（B1+B2）、平台端口、代码交付。 |
+| `HANDOFF/03-WORK-LOG.md` | 52 | 全部 14 轮工作记录（提交号/改动/验证/边界）、7 条反复出现的排障模式、用户明确做过的决策。 |
+| `HANDOFF/04-CODE-MAP.md` | 172 | 按 14 个功能域讲「哪些文件一起完成什么」、关键导出与依赖方向速查。 |
+| `HANDOFF/05-VALIDATION-AND-COMMANDS.md` | 113 | 全套回归命令、第十四轮实测结果（含 memory:journey / memory:checkpoint）、真实 HTTP 冒烟模板、服务端口表、排障速查、提交前检查。 |
+| `HANDOFF/06-CURRENT-STATE-AND-NEXT.md` | 46 | 当前状态快照、B2 四项真跑证据、C 排队为何仍需拍板、三层判断、去 Paperclip 化路线。 |
 | `HANDOFF/07-RULES-AND-BOUNDARIES.md` | 44 | 红线与边界：业务验收身份、隐私与 .runtime、服务约束、许可证、前端入口、工程约束。 |
-| `HANDOFF/08-OPEN-DECISIONS.md` | 50 | 需用户拍板的 8 项：Plugin SDK 冲突、外部模型凭据、真人验收、部门 scope、B2 范围、外部服务、已停服务、pi 指代。 |
-| `HANDOFF/DIRECTORY-GUIDE.md` | 152 | ★ 目录完全指南：完整目录树、每个顶层目录作用与入库状态、7 个 submodule、.runtime 详解、构建产物位置、新文件该放哪。 |
-| `HANDOFF/FILE-INVENTORY.md` | 322 | ★ 本文件：全部入库文件逐文件一行说明（路径 / 行数 / 用途），用于快速定位。 |
+| `HANDOFF/08-OPEN-DECISIONS.md` | 51 | 8 个条目（7 项待拍板 + B2 范围已解决）：Plugin SDK 冲突、外部模型凭据、真人验收、部门 scope、B2 范围、外部服务、已停服务、pi 指代。 |
+| `HANDOFF/DIRECTORY-GUIDE.md` | 154 | ★ 目录完全指南：完整目录树、每个顶层目录作用与入库状态、7 个 submodule、.runtime 详解、构建产物位置、新文件该放哪。 |
+| `HANDOFF/FILE-INVENTORY.md` | 328 | ★ 本文件：全部入库文件逐文件一行说明（路径 / 行数 / 用途），用于快速定位。 |
 | `HANDOFF/README.md` | 50 | 交接包总索引：5 分钟接手路径、包内每个文件的说明、一句话现状与检查清单。 |
 | `HANDOFF/SYNC-STATUS.md` | 54 | ★ 唯一位置声明、代码基线/提交关系、接手校验命令、本目录内阅读顺序。 |
-| `HANDOFF/handoff-manifest.json` | 176 | 机器可读元数据：commit、远端、测试结果、服务状态、包内文件清单、下一步与开放决策。 |
+| `HANDOFF/handoff-manifest.json` | 189 | 机器可读元数据：commit、远端、测试结果、服务状态、包内文件清单、下一步与开放决策。 |
 
-## 后端核心 src/（74）
+## 后端核心 src/（76）
 
 | 路径 | 行数 | 说明 |
 |---|---|---|
@@ -64,13 +64,15 @@
 | `src/local-git.ts` | 269 | ★ 本机 Git 交付：裸仓库、worktree、push、本机 CI、自动合并、固定版本预览、审批与通知；与 Github 同实现 DeliveryAdapter。 |
 | `src/mcp.ts` | 46 | stdio MCP 传输实现，配 tests/mcp.test.ts 真实协议测试。 |
 | `src/members.ts` | 130 | ★ 成员身份解析与权限 gate；成员级 reads / v06Reads 白名单（新增只读 action 必须同步）。 |
+| `src/memory-checkpoint.ts` | 139 | ★ B2 checkpoint：保存 raw events / logErrors / bundle / checksum，普通事件增量应用；撤权 / 乱序 / 失效祖先 / 已撤回来源一律回退全量，增量与全量 checksum 逐字节对照。 |
 | `src/memory-contract.ts` | 5 | 早期 memoryAnnotation schema（概念/关系候选），与 B1 事件主干不是同一层。 |
 | `src/memory-log.ts` | 147 | ★ B1 append-only 共享记忆事件主干：MemoryLog、memoryEvent、幂等、advisory、桥接 routing-decided、坏行报错。 |
-| `src/memory-projections.ts` | 288 | ★ B1 纯函数重放四类投影、撤权 lineage 传播、双层过滤、稳定 checksum、recallMemory、assertDeterministic。 |
+| `src/memory-projections.ts` | 377 | ★ B1/B2 纯函数重放四类投影、撤权 lineage 传播、双层过滤、稳定 checksum、recallMemory（B2 按 principal 精确过滤）、assertDeterministic；拆出 ProjectionState 供 checkpoint 复用。 |
+| `src/memory-recall.ts` | 116 | ★ B2 读取链：projectionRecall 重放主干、projectRecallHits 按 sourceId@revision 白名单裁剪、fuseProjectionHits 三路融合；读日志失败 advisory 降级，modelCalls=0。 |
 | `src/model-settings.ts` | 72 | 模型三档预备策略的配置与保存（不存 API Key，不等于启用）。 |
 | `src/native-worker.ts` | 13 | Autoloop 恢复日志与原生 worker 运行的衔接。 |
 | `src/ontology.ts` | 56 | 知识空间字典（GraphSchema / JSON Schema）校验与保存；automaticExtraction 状态由配置派生。 |
-| `src/org-extraction.ts` | 320 | 从 Cognee L1 投影确定性抽取 L2 组织图（modelCalls=0），含 ModelExtractionAdapter 与拒绝原因。 |
+| `src/org-extraction.ts` | 346 | 从 Cognee L1 投影确定性抽取 L2 组织图（modelCalls=0），含 ModelExtractionAdapter 与拒绝原因；B2 新增 buildTaskGraphMirror 修复任务级镜像悬空边。 |
 | `src/org-ontology.ts` | 102 | 组织图 TBox 校验 validateOrgGraph、责任链/证据/影响面查询；常量从 architecture-contracts 再导出保持兼容。 |
 | `src/organization-signals.ts` | 106 | 组织状态信号（FR-21/03）：评估、聚类、修复回路与复测，只警告不排名。 |
 | `src/paperclip.ts` | 21 | Paperclip REST 薄封装 get/post/patch/document，带乐观修订号与 404 处理。 |
@@ -89,21 +91,21 @@
 | `src/shell-domestic.ts` | 92 | 国内适配：构建期收敛 4 侧栏入口 + 运行时脚本隐藏未连接海外卡片（含 protectedEl/repair 自愈）。 |
 | `src/shell-locale.ts` | 44 | 构建期中文壳：Babel AST 只替换展示文案，不改路由/API enum/业务内容。 |
 | `src/store.ts` | 41 | 本地 SQLite：Task/Delivery 类型、任务投影、事件去重、outbox 通知、audit 表。 |
-| `src/team-memory.ts` | 134 | 团队记忆索引与检索：L1 图/词向量生成、BM25+语义融合、检索时权限与版本重评、8 处 B1 双写之一。 |
+| `src/team-memory.ts` | 152 | 团队记忆索引与检索：L1 图/词向量生成、BM25+语义融合、检索时权限与版本重评；B2 在重评之后叠加投影召回为第三路信号，8 处 B1 双写之一。 |
 | `src/three-tier-assessment.ts` | 87 | 用真实路由 Trace 判断要不要引入 LobeHub 三层（7 条前置条件，当前 recommended=false）。 |
 | `src/trace-bridge.ts` | 66 | 验收证据 Trace 与成本账本 best-effort 写入；失败绝不改变业务结果。 |
 | `src/transfer.ts` | 220 | 责任转移（FR-11/12/13）：createTransfer、assertDispatchAllowed、联签、双段责任链、熔断影响面。 |
 | `src/upstream.ts` | 30 | 上游动态 import 边界：Super Agent 触发/channel、Autoloop contract/agents、Harness session-reference。 |
 | `src/user-language.ts` | 94 | 中文用户语言层：USER_HELP、parseUserCommand、7 条指令与 legacy 斜杠命令兼容。 |
 | `src/v06-store.ts` | 93 | v0.6 存储边界：RuntimeV06Store（Paperclip 文档）与 MemoryV06Store（测试用）。 |
-| `src/v06.ts` | 736 | ★ v0.6 功能编排门面（736 行）：注册表、Transfer、Grant、边状态、Context Pack、L2 抽取、组织信号、验收视图。 |
+| `src/v06.ts` | 735 | ★ v0.6 功能编排门面（736 行）：注册表、Transfer、Grant、边状态、Context Pack、L2 抽取、组织信号、验收视图。 |
 | `src/vendor/prime-query.ts` | 31 | 从 Prime Agent 移植的检索词/近期目标权重（必须保留 Mario Zechner 原始 MIT 版权头）。 |
 | `src/vision-semantics.ts` | 119 | 本机 Apple Vision 语义判定（结构式与模型两档）。 |
 | `src/visual-review.ts` | 246 | 独立视觉评审适配器、reviewerIdFor、acceptanceChainEnabled 与视觉证据绑定。 |
 | `src/workspace-policy.ts` | 100 | Workspace owner 策略（FR-05/20/28）：只能收紧、验证等级、拓扑建议、在途版本校验。 |
-| `src/workspaces.ts` | 735 | ★ 知识空间与授权核心（735 行）：来源、访问申请、快照、撤权、协作任务创建、allowed 权限重评。 |
+| `src/workspaces.ts` | 740 | ★ 知识空间与授权核心：来源、访问申请、快照、撤权、协作任务创建、allowed 权限重评；B2 收尾改用评审后 revision 写来源事件，消除真实链路悬空 lineage。 |
 
-## 脚本与服务 scripts/（44）
+## 脚本与服务 scripts/（46）
 
 | 路径 | 行数 | 说明 |
 |---|---|---|
@@ -124,6 +126,8 @@
 | `scripts/install-upstream.ts` | 25 | 安装/构建上游 Paperclip UI，并在之后自动重建中文壳。 |
 | `scripts/install-wiki.ts` | 30 | 安装 pin 的上游 Wiki 存储与 UI，不重新实现 Wiki、不开启全员摄取。 |
 | `scripts/install-workspace-plugin.ts` | 35 | esbuild 打包并安装工作台插件（--build-only 可只打包）。 |
+| `scripts/memory-checkpoint.ts` | 67 | ★ B2 真实日志 checkpoint CLI：按 append-only 前缀增量应用，`--reset` 全量重建；回退全量时如实给出 fallback 原因。 |
+| `scripts/memory-journey.ts` | 155 | ★ B2 真跑脚本：经真实 bridge action 跑 8 步完整知识事件链与端到端撤权，9 项 checks 含 lineageComplete；会写真实日志，不是只读检查。 |
 | `scripts/memory-replay.ts` | 46 | B1 只读验收 CLI：重放四类投影、checksum、撤权状态与 5 处接线自检。 |
 | `scripts/memory-smoke.ts` | 63 | B1 真跑冒烟：临时目录里「写入 → 重放 → 撤权 → 派生记忆不可召回」。 |
 | `scripts/migrate-workspace-contracts.ts` | 31 | 工作区契约数据迁移脚本。 |
@@ -152,7 +156,7 @@
 | `scripts/vision-server.ts` | 108 | 本机 OpenAI-compatible 视觉端点（4190），当前按用户要求停机。 |
 | `scripts/workbench-walkthrough.mjs` | 181 | ★ 真实浏览器 11 步走查：CDP 驱动 3100 工作台，含白屏守卫、链接白名单、侧栏隐藏断言。 |
 
-## 回归测试 tests/（56）
+## 回归测试 tests/（58）
 
 | 路径 | 行数 | 说明 |
 |---|---|---|
@@ -178,17 +182,19 @@
 | `tests/event-stream.test.ts` | 143 | 回归测试：the three existing evidence sources normalize into one shape；agent-written conclusions stay authored and are never reported as captured evidence；malformed events are rejected with field paths instead of being silently stored… |
 | `tests/feishu-org.test.ts` | 165 | 回归测试：只读预览去重、排除外部租户、部门缺 scope 时给出授权命令；部门字段可用时不报缺 scope；读取失败时返回结构化空草案而不是抛出；补部门权限时携带现有全部 scope，不会把已有授权清空… |
 | `tests/feishu-sources.test.ts` | 40 | 回归测试：losing original source access never falls back to a previously read body… |
-| `tests/fixtures/prime-context-terms.json` | 90 | Prime Agent 检索词权重测试夹具。 |
+| `tests/fixtures/prime-context-terms.json` | 89 | Prime Agent 检索词权重测试夹具。 |
 | `tests/frontend-structure.test.ts` | 102 | 回归测试：index.tsx 只是 SDK 固定入口，业务实现按职责分散；展示原语与 UI 契约只有 foundation 一份来源；依赖单向：视图不反向 import 页面壳，也不形成模块环… |
 | `tests/graph.test.ts` | 41 | 回归测试：graph access rechecks the owning task and source before any graph process can start |
 | `tests/harness-composition.test.ts` | 22 | 回归测试：pinned Harness composes distinct scoped personas and actual callable tools without a model；failed native composition leaves no persona or capability registered for the next build… |
 | `tests/journey-intake.test.ts` | 48 | 回归测试：飞书消息中的「。验收：」必须进入锁定清单，不再静默退化成通用项；独立评审可在运行实例上触发，但只写证据报告，最终核可仍是 /accept；捕获事件只能由可信执行端写入，taskId 取自 URL，字段不完整则拒绝 |
 | `tests/knowledge-governance.test.ts` | 99 | 回归测试：inferred edges without human acceptance cannot be used as a basis；invalidation is a state write with a timestamp and reason, never a physical delete；reuse lineage can be walked backwards to find the blast radius… |
 | `tests/knowledge.test.ts` | 44 | 回归测试：覆盖该模块的契约与失败路径。 |
-| `tests/l2-extraction.test.ts` | 122 | 回归测试：L1 隔离：混入其他来源版本时直接拒绝抽取；确定性抽取：生成草稿边、逐条带 L1 原文证据、零模型调用，且不改 L1；抽取是幂等的：重复运行不新增草稿，已由人验收的边不会被重置… |
+| `tests/l2-extraction.test.ts` | 149 | 回归测试：L1 隔离：混入其他来源版本时直接拒绝抽取；确定性抽取：生成草稿边、逐条带 L1 原文证据、零模型调用，且不改 L1；抽取是幂等的：重复运行不新增草稿，已由人验收的边不会被重置… |
 | `tests/local-delivery.test.ts` | 90 | 回归测试：国内环境默认走本机 Git 交付，GitHub 适配器仍可显式回退；delivery-status 是只读接口，三处白名单一致；本机交付台只绑 loopback，审批不等于业务验收… |
 | `tests/mcp.test.ts` | 36 | 回归测试：覆盖该模块的契约与失败路径。 |
-| `tests/memory-replay.test.ts` | 215 | 回归测试：记忆事件契约：溯源字段强制，modelCalls 只能是非负整数，来源 id 稳定；主干落盘 → 读回 → 幂等，坏行如实报错；重放可复现：两次 checksum 一致，基准时间取事件流而非 Date.now()… |
+| `tests/memory-checkpoint.test.ts` | 127 | ★ B2 回归：checkpoint 读写往返与损坏拒绝、普通增量与全量 checksum 一致、撤权 / 乱序 / 失效祖先 / 已撤回来源回退全量、分批追加、重复行不重复投影。 |
+| `tests/memory-recall.test.ts` | 79 | ★ B2 回归：投影白名单裁剪、三路融合不覆盖原分数、接线顺序（权限重评之后才消费投影）、principal 精确撤权、读日志失败降级。 |
+| `tests/memory-replay.test.ts` | 278 | 回归测试：记忆事件契约：溯源字段强制，modelCalls 只能是非负整数，来源 id 稳定；主干落盘 → 读回 → 幂等，坏行如实报错；重放可复现：两次 checksum 一致；B2 单主体撤权与版本前进后的完整 lineage… |
 | `tests/model-settings.test.ts` | 30 | 回归测试：model drafts cannot enable a provider, carry credentials, or bind an unauthorized identity；model configuration uses exact native revision and refuses agent self-configuration |
 | `tests/ontology-runtime.test.ts` | 77 | 回归测试：default ontology has 16 node kinds and 5 edge families, with typed edge rules；the three organisation questions are answerable from one relation set；attention budget: two-stage filter, self-progress silence, caps and role boundary… |
 | `tests/paperclip.test.ts` | 19 | 回归测试：document updates use the latestRevisionId returned by the real API contract；retrying a delivered document does not create another native revision |
@@ -245,25 +251,25 @@
 
 | 路径 | 行数 | 说明 |
 |---|---|---|
-| `docs/ADAPTATION-v0.6.md` | 586 | ★ 逐轮适配记录与「最新边界声明」（当前以 0.00000000000000 节为准），判断「已发生/未发生」以此为准。 |
+| `docs/ADAPTATION-v0.6.md` | 608 | ★ 逐轮适配记录与「最新边界声明」（当前以 0.000000000000000 节为准），判断「已发生/未发生」以此为准。 |
 | `docs/AGENT-BUILDING.md` | 41 | Agent 构建与能力装配说明。 |
 | `docs/AGENT-SERVICE-NETWORK.md` | 70 | 个人 Agent 服务网的组织方式。 |
-| `docs/ARCHITECTURE-OPTIONS-v0.7.md` | 257 | ★ 架构收敛方案：主流记忆架构、auto-ontology 校正、A/B/C 三方案、缺口清单与许可证边界（含附录 A/B/C）。 |
+| `docs/ARCHITECTURE-OPTIONS-v0.7.md` | 269 | ★ 架构收敛方案：主流记忆架构、auto-ontology 校正、A/B/C 三方案、缺口清单与许可证边界（含附录 A/B/C/D，D 记 B2 已落地）。 |
 | `docs/ARCHITECTURE-v0.6.md` | 546 | ★ 产品架构定稿（546 行）：六层模型、M3 三层路由、M11 责任转移、默认图谱本体；是设计，不等于全部已实现。 |
 | `docs/ASSISTANT-CONTEXT.md` | 80 | 协作 Agent 与上下文工作区设计。 |
 | `docs/AUTONOMOUS-COLLABORATION.md` | 43 | 自主协作运行：事件、判断、工具执行与恢复。 |
 | `docs/FEISHU-SOURCES.md` | 31 | 飞书原始来源证据的读取边界。 |
 | `docs/KNOWLEDGE-AND-ACCESS.md` | 82 | 知识与资料授权模型。 |
 | `docs/KNOWLEDGE-ENGINE.md` | 69 | 知识引擎：Cognee L1 隔离、L2 确定性抽取与语义管线口径。 |
-| `docs/MEMORY-ARCHITECTURE-v0.7.md` | 94 | ★ B1 方案全文：append-only 事件主干、四类投影、撤权 lineage、真跑证据与 B2 边界。 |
+| `docs/MEMORY-ARCHITECTURE-v0.7.md` | 94 | ★ 方案 B 全文：append-only 事件主干、四类投影、撤权 lineage、B2 投影召回 / 精确撤权 / checkpoint 与真跑证据、C 边界。 |
 | `docs/OPEN-SOURCE-COMPLIANCE.md` | 119 | 开源复用与许可证合规说明（已复用/可复用/禁止复用三分类）。 |
-| `docs/PRD-v0.6.md` | 390 | ★ 产品需求文档：FR 编号、R1–R5 红线、§10A 前端形态约束、Q4 复用矩阵。 |
-| `docs/ROUTING-AND-HOST-v0.7.md` | 155 | ★ A 阶段方案全文：RoutingDecision、共享 Trace、三层判断、HostPlatformPort 与开源候选矩阵。 |
+| `docs/PRD-v0.6.md` | 392 | ★ 产品需求文档：FR 编号、R1–R5 红线、§10A 前端形态约束、Q4 复用矩阵。 |
+| `docs/ROUTING-AND-HOST-v0.7.md` | 156 | ★ A 阶段方案全文：RoutingDecision、共享 Trace、三层判断、HostPlatformPort 与开源候选矩阵。 |
 | `docs/SOURCES.md` | 46 | 上游来源与引入方式记录。 |
-| `docs/SYSTEM-ARCHITECTURE.md` | 239 | ★ 「现在是什么」：技术四层、产品与业务架构、前端分层、统一路由 Trace、共享记忆主干。 |
+| `docs/SYSTEM-ARCHITECTURE.md` | 241 | ★ 「现在是什么」：技术四层、产品与业务架构、前端分层、统一路由 Trace、共享记忆主干。 |
 | `docs/TEAM-NETWORK-MEMORY.md` | 70 | 多人服务协作与团队知识记忆。 |
 | `docs/UPSTREAM-ADAPTERS.md` | 54 | 上游适配代码清单与引用边界。 |
-| `docs/VALIDATION.md` | 443 | ★ 逐轮验证记录（含第十三轮全套回归与排障），判断「验证过没有」以此为准。 |
+| `docs/VALIDATION.md` | 497 | ★ 逐轮验证记录（含第十四轮 B2 全套回归、真跑数据与三处真实缺陷修复），判断「验证过没有」以此为准。 |
 | `docs/WORKSPACES.md` | 70 | 知识空间与使用说明。 |
 | `docs/agent-integration.md` | 75 | Agent 接入与 CLI 适配说明。 |
 | `docs/design/workbench.md` | 11 | 工作台视觉/交互设计稿。 |
@@ -292,7 +298,7 @@
 | `README.md` | 189 | 项目主入口：架构与方案导航、实现边界、本地运行、飞书、交付验收、知识与验证。 |
 | `THIRD_PARTY_NOTICES.md` | 212 | 第三方声明与版权信息。 |
 | `package-lock.json` | 2686 | npm 依赖锁定文件。 |
-| `package.json` | 71 | npm scripts 总表与依赖；新增脚本必须指向真实实现文件。 |
+| `package.json` | 73 | npm scripts 总表与依赖；新增脚本必须指向真实实现文件。 |
 | `sources.lock.json` | 39 | ★ 7 个上游 submodule 的 URL / commit / license / 引入方式锁定，audit:upstream 校验。 |
 | `tsconfig.json` | 8 | 主工程 TypeScript 配置。 |
 
@@ -303,7 +309,7 @@
 | `.github/workflows/ci.yml` | 37 | GitHub Actions CI 配置。 |
 | `fixtures/collab-pilot.yml` | 64 | 协作试点配置夹具。 |
 | `fixtures/vision-demo.html` | 15 | 视觉评审演示页面夹具。 |
-| `fixtures/vision-demo.png` | 494 | 视觉评审演示截图夹具。 |
+| `fixtures/vision-demo.png` | 61 | 视觉评审演示截图夹具。 |
 | `fixtures/wait-agent.mjs` | 5 | 协议夹具（刻意不是真实模型或第三方 Agent）。 |
 | `integrations/deepseek/messages.ts` | 3 | 把 Harness 的 LLM 消息/错误工具替换为自研实现，不激活模型 provider。 |
 | `integrations/deepseek/runtime.ts` | 8 | Harness 运行时装配 barrel（esbuild 入口）。 |
@@ -315,8 +321,8 @@
 
 ## 覆盖率
 
-- 总条目：**263**
-- 精写说明：**194**（73.8%）
+- 总条目：**269**（交接时 263 + 第十四轮新增 6 个 B2 文件）
+- 精写说明：**200**（74.3%）
 - 自动提取（源码注释/导出/真实测试名）：**69**
 - 兜底：**0**
 - 未覆盖：**0**

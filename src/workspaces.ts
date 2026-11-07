@@ -208,12 +208,17 @@ export class Workspaces {
     if (this.source(id).external) throw new Error('飞书原始证据不能直接确认成知识，请在任务内提出并审阅结论');
     this.manager(actor);
     const result = await this.knowledge.review(this.source(id).ref, state, revision, actor.userId??'local-operator');
+    // knowledge.review() 返回的是「评审之后」的新 revision。派生记忆（memory-index /
+    // l2-extract / context-pack）都以新版本为 lineage 锚点：causedBy = sourceEventId(新版本)。
+    // 若这里仍写评审前的 revision，确认事件会与 createSource 的幂等键相撞被去重，
+    // 主干里就没有该锚点事件，真实链路会出现悬空 lineage。故统一用评审后的版本。
+    const reviewedRevision = String((result as { revision?: string })?.revision ?? revision);
     // 方案 B：来源确认 / 撤回写同一份事件主干；撤回是状态写入，不是物理删除。
     recordMemory({ kind: state === 'confirmed' ? 'source-ingested' : 'source-revoked',
       actor: actor.userId ?? 'local-operator', projection: 'l1-evidence',
-      sourceRef: { sourceId: id, revision },
-      payload: { sourceId: id, revision, state, taskId: this.source(id).ref.taskId },
-      idempotencyKey: (state === 'confirmed' ? 'source:' : 'source-revoked:') + sourceKey(id, revision) });
+      sourceRef: { sourceId: id, revision: reviewedRevision },
+      payload: { sourceId: id, revision: reviewedRevision, state, taskId: this.source(id).ref.taskId },
+      idempotencyKey: (state === 'confirmed' ? 'source:' : 'source-revoked:') + sourceKey(id, reviewedRevision) });
     return result;
   }
   async updateSource(id: string, input: unknown, revision: string, actor: WorkspaceActor) {

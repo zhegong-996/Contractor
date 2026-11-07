@@ -20,7 +20,8 @@ import { buildContextPack, eligibleForContextPack, acceptEdge, markReusable, inv
 import { evaluateSignals, clusterSignals, openFixLoop, retest, toSignalCard, type Signal, type SignalMetric } from './organization-signals.ts';
 import { TraceEvidenceReviewer, assertReviewerCapable, acceptanceChainReady, type IndependentReviewer } from './independent-review.ts';
 import { validateOrgGraph, responsibilityOf, evidenceOf, influencedBy, reachableFrom, NODE_KINDS, EDGE_RULES, EDGE_FAMILIES, type OrgGraph, type OrgEdge, type OrgNode } from './org-ontology.ts';
-import { runOrgExtraction, DeterministicExtractionAdapter, type L1Reader, type ExtractionAdapter } from './org-extraction.ts';
+import { runOrgExtraction, DeterministicExtractionAdapter, buildTaskGraphMirror,
+  type L1Reader, type ExtractionAdapter } from './org-extraction.ts';
 import { defaultAttentionPolicy, defaultWatchdogPolicy, filterEvent, assertIntervention, inspectRun, recoveryFrom,
   type AttentionPolicy, type WatchdogPolicy } from './runtime-guard.ts';
 import { assertStandardExternalised, readPlan } from './acceptance-plan.ts';
@@ -449,11 +450,9 @@ export class V06Services {
         const freshEdges = result.edges.filter(e => !taskEdges.some(x => x.id === e.id));
         if (freshEdges.length) await this.edgesSave(taskId, [...taskEdges, ...freshEdges], input.actor);
         const taskGraph = await this.ontologyView(taskId);
-        const knownNodes = new Set(taskGraph.nodes.map((n: OrgNode) => n.id));
-        const knownEdges = new Set(taskGraph.edges.map((e: OrgEdge) => e.id));
-        const mirror: OrgGraph = { schemaVersion: 1,
-          nodes: [...taskGraph.nodes, ...result.orgNodes.filter((n: OrgNode) => !knownNodes.has(n.id))],
-          edges: [...taskGraph.edges, ...result.orgEdges.filter((e: OrgEdge) => !knownEdges.has(e.id))] };
+        // 新草稿边可能引用全局图已有、但本任务图还没有的节点（索引时自动抽取
+        // 先跑过一次就会出现）。镜像必须把这些节点一并带入，否则校验会拒绝。
+        const mirror: OrgGraph = buildTaskGraphMirror(taskGraph, globalGraph, result);
         validateOrgGraph(mirror);
         await this.store.writeTaskDoc(taskId, 'org-graph', mirror);
       }

@@ -318,3 +318,29 @@ export async function runOrgExtraction(input: OrgExtractionInput): Promise<OrgEx
     l1: { nodes: input.projection.nodes.length, edges: input.projection.edges.length, modelCalls: input.projection.modelCalls },
   };
 }
+
+/**
+ * B2-3：构建任务级组织图镜像。
+ *
+ * 真实链路里，草稿边可能引用「全局图已经有、但本任务图还没有」的节点——
+ * 索引时自动抽取先跑过一次就会出现这种情况。只补 result.orgNodes 会让
+ * mirror 留下悬空边，validateOrgGraph 因此拒绝整个抽取。这里把新边引用到
+ * 的全局节点一并带入；校验仍由调用方执行，历史脏图不会被静默修复。
+ */
+export function buildTaskGraphMirror(
+  taskGraph: OrgGraph,
+  globalGraph: OrgGraph,
+  drafted: { orgNodes: OrgNode[]; orgEdges: OrgEdge[] },
+): OrgGraph {
+  const knownNodes = new Set(taskGraph.nodes.map(node => node.id));
+  const knownEdges = new Set(taskGraph.edges.map(edge => edge.id));
+  const referenced = new Set(drafted.orgEdges.flatMap(edge => [edge.from, edge.to]));
+  const carried = globalGraph.nodes.filter(node => referenced.has(node.id) && !knownNodes.has(node.id));
+  const introduced = drafted.orgNodes.filter(node => !knownNodes.has(node.id)
+    && !carried.some(item => item.id === node.id));
+  return {
+    schemaVersion: 1,
+    nodes: [...taskGraph.nodes, ...carried, ...introduced],
+    edges: [...taskGraph.edges, ...drafted.orgEdges.filter(edge => !knownEdges.has(edge.id))],
+  };
+}

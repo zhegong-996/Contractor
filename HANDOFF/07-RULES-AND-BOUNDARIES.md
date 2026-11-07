@@ -36,7 +36,7 @@
 
 ## 6. 工程约束
 
-- A → B → C **不并行**；B2 验收前不要开始 C。
+- A → B → C **不并行**；B（B1 + B2）虽已验收，但在用户拍板「5 tab 插件式单页」的产品形态冲突之前不要开始 C。
 - 派活 / 状态判断必须走统一 `RoutingDecision` 与同一份 Trace，不要再各写一套；新增只读 action 必须同步 `server.ts` 的 `readOnly` 与 `members.ts` 的 `reads` / `v06Reads`。
 - Trace 写入是 advisory：**失败不得改变任务、回执或验收结果**。
 - 撤权是状态写入，不是物理删除；`source-revoked` 全局阻断派生记忆，`grant-revoked` 不得放大成全局屏蔽。

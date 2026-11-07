@@ -81,14 +81,14 @@
 
 ## 6. 回归
 
-`npm test` **315/315**（新增 12 例 B 阶段测试：契约、落盘/幂等/坏行、重放可复现、四类投影、撤权不可召回、多级 lineage、确定性、完整性、撤权分层、桥接归一化、路由并入、接线自检）、`tsc --noEmit`、全套构建与走查（见 `VALIDATION.md` 第十三轮）。
+B1 落地时 `npm test` **315/315**（新增 12 例 B 阶段测试：契约、落盘/幂等/坏行、重放可复现、四类投影、撤权不可召回、多级 lineage、确定性、完整性、撤权分层、桥接归一化、路由并入、接线自检）；**B2 收尾后为 329/329**（再增 12 例 B2 与 2 例真实 lineage 回归）。`tsc --noEmit`、全套构建与走查（见 `VALIDATION.md` 第十三／十四轮）。
 
 ## 7. 边界与下一步
 
 **B1（本轮，已完成）**：事件主干、四类投影重放、三条红线的可执行验收口径、8 处双写接线、Context Pack 运行时 lineage 过滤、路由契约桥接。
 
-**B2（尚未做，不是 bug）**：把 `TeamMemory.search` 等读取链路正式切换为「消费投影」而非读原存储；真实业务动作产生知识类事件并验证端到端撤权；把 `grant-revoked` 按 principal 精确过滤（当前运行时只用 `sourceRevocations`）；投影增量构建与压缩（当前每次全量重放）。
+**B2（第十四轮，已完成并验证）**：`src/memory-recall.ts` 把投影召回作为第三路信号接入 `TeamMemory.search`，且只在权限 / 版本重评之后按 `sourceId@revision` 白名单裁剪；`grant-revoked` 改记 `principalRevocations` 并由 `recallMemory(..., { principal })` 精确过滤（未指定主体 fail-closed）；`npm run memory:journey` 用真实 bridge action 产生完整知识类事件并验证端到端撤权；`src/memory-checkpoint.ts` 做 checkpoint + 增量应用，会回溯变化的事件回退全量并与全量 checksum 逐字节对照。**注意原存储仍是主读取源**，投影是叠加信号，不是把读取链整体搬走。收尾复核还修掉 `reviewSource` 使用评审前 revision 造成的真实悬空 lineage，并把 `lineageComplete` 加进 journey 验收条件。
 
-**C 仍未开始**：三层 Router 与平台底座切换排在 B2 验收之后，按用户要求不并行。真人业务验收（SUI-129 未核可）、Cognee 原生 `cognify` 真实外部调用、生产发布仍未发生；4190 / 4192 / 4194 / 9418 保持用户取消时的停机状态。
+**C 仍未开始**：三层 Router 与平台底座切换排在 B 验收之后，按用户要求不并行；B 已验收，但 C 与「5 tab 插件式单页」的产品形态冲突需用户先拍板。真人业务验收（SUI-129 未核可）、Cognee 原生 `cognify` 真实外部调用、生产发布仍未发生；4190 / 4192 / 4194 / 9418 保持用户取消时的停机状态。
 
 **隐私**：`.runtime/memory/`、`.runtime/routing/` 只在本地、不入库；事件 payload 里的 chunk 文本截断到 200 字，真实业务正文不进仓库。

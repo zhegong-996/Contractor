@@ -7,8 +7,8 @@ import { V06Services } from '../src/v06.ts';
 import { MemoryV06Store } from '../src/v06-store.ts';
 import type { Store } from '../src/store.ts';
 import { assertL1Isolated, isolationKey, runOrgExtraction, ModelExtractionAdapter,
-  type L1Projection, type L1Reader } from '../src/org-extraction.ts';
-import { validateOrgGraph } from '../src/org-ontology.ts';
+  buildTaskGraphMirror, type L1Projection, type L1Reader } from '../src/org-extraction.ts';
+import { validateOrgGraph, orgNodeSchema, orgEdgeSchema } from '../src/org-ontology.ts';
 import { acceptEdge, type KnowledgeEdge } from '../src/knowledge-edges.ts';
 
 const at = '2026-11-06T08:00:00.000Z';
@@ -119,4 +119,31 @@ test('抽取不触碰 L1：reader 只收到 sourceId@revision，从不请求 pro
   await service.dispatch('l2-extract', { sourceId, revision }, admin, opts);
   assert.deepEqual(calls, [{ sourceId, revision }]);
   assert.equal((await service.l2Status()).l1Isolation.includes('只读'), true);
+});
+
+test('B2-3 任务级镜像：草稿边引用全局已有节点时不产生悬空边', () => {
+  const nodeA = orgNodeSchema.parse({ id: 'n-a', kind: 'artifact', label: '制品 A', at });
+  const nodeB = orgNodeSchema.parse({ id: 'n-b', kind: 'source-fragment', label: '证据 B', at });
+  const nodeC = orgNodeSchema.parse({ id: 'n-c', kind: 'artifact', label: '制品 C', at });
+  const draft = orgEdgeSchema.parse({ id: 'e-1', family: 'verified_by', from: 'n-a', to: 'n-b',
+    state: 'draft', evidenceRefs: [{ sourceId, revision, excerpt: '验收证据' }], actor: 'l2-extraction', at });
+  const draft2 = orgEdgeSchema.parse({ ...draft, id: 'e-2', from: 'n-c', to: 'n-b' });
+  const globalGraph = { schemaVersion: 1 as const, nodes: [nodeA, nodeB], edges: [] };
+  const emptyTask = { schemaVersion: 1 as const, nodes: [], edges: [] };
+
+  // 真实链路暴露的缺陷：自动抽取先把节点写进全局图，任务图仍为空，
+  // 再抽一次时只补 result.orgNodes 会留下悬空边。
+  const mirror = buildTaskGraphMirror(emptyTask, globalGraph, { orgNodes: [], orgEdges: [draft] });
+  assert.doesNotThrow(() => validateOrgGraph(mirror));
+  assert.equal(mirror.nodes.length, 2);
+  assert.equal(mirror.edges.length, 1);
+
+  const mixed = buildTaskGraphMirror({ schemaVersion: 1, nodes: [nodeA], edges: [] },
+    globalGraph, { orgNodes: [nodeC], orgEdges: [draft, draft2] });
+  assert.equal(mixed.nodes.length, 3, '全局已有节点与新节点各补一次，不重复');
+  assert.doesNotThrow(() => validateOrgGraph(mixed));
+
+  const repeat = buildTaskGraphMirror(mixed, globalGraph, { orgNodes: [], orgEdges: [draft, draft2] });
+  assert.equal(repeat.edges.length, 2, '重复抽取不会重复写入已有边');
+  assert.doesNotThrow(() => validateOrgGraph(repeat));
 });

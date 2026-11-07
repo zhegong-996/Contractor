@@ -16,12 +16,12 @@
 
 | 项 | 值 |
 |---|---|
-| **运行代码基线** | `b58631c`（B1 完成并验证，全套回归全绿） |
-| 交接包首次提交 | `f6611e0`（13 个文档，仅新增 `HANDOFF/`） |
-| 本文件所在提交 | 会再前进一格；**以 `git rev-parse HEAD` 为准**，不要相信写死的 hash |
-| 从代码基线到当前的差异 | 只有 `HANDOFF/` 文档，**没有任何运行代码改动** |
+| **运行代码基线** | 第十四轮 B2 完成；**以 `git rev-parse HEAD` 为准**（交接时的 `b58631c` / `f6611e0` / `4aa6fb0` 均为历史） |
+| 阶段 | A 完成 → B1 完成 → **B2 完成并验证** → C 排队待拍板（严格不并行） |
+| 本文件所在提交 | 随 `main` 前进，clone 后 `git log -1` 即最新 |
+| 同步方式 | 代码与文档一并提交并 push 到 `origin/main`；`HEAD = origin/main = 远端 main` |
 
-交接前重跑全套回归全绿：`npm test` 315/315、`tsc`、两个构建、`test:responsive`、真实浏览器走查 11/11、`audit:upstream clean`、`git diff --check`。
+第十四轮重跑全套回归全绿：`npm test` 329/329、`tsc`、两个构建、`test:responsive`、真实浏览器走查 11/11、`audit:upstream clean`、`git diff --check`，以及 `memory:journey` / `memory:checkpoint` 真跑证据。
 
 ## 3. 接手时先跑这三条
 
@@ -29,7 +29,7 @@
 cd /Users/gong.zhe/Developer/ai-native-collab
 git status --short --branch                    # 应干净且与 origin/main 一致
 git rev-parse HEAD; git rev-parse origin/main; git ls-remote origin main   # 三者应一致
-npm test                                       # 315/315
+npm test                                       # 329/329
 ```
 
 需要本机服务时先设干净环境（见 `00-START-HERE.md` 第 2 节）：
@@ -40,12 +40,12 @@ export NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost NODE_USE_ENV_PR
 ## 4. 阅读顺序（本目录内即可完成）
 
 1. `README.md` — 总索引与包内每个文件的说明
-2. `00-START-HERE.md` — 环境、服务、干净环境变量、6 个已知坑
-3. `06-CURRENT-STATE-AND-NEXT.md` — 现在做到哪、B2 四项待做、C 排队、什么不能动
+2. `00-START-HERE.md` — 环境、服务、干净环境变量、7 个已知坑
+3. `06-CURRENT-STATE-AND-NEXT.md` — 现在做到哪、B2 四项的真跑证据、C 为何仍排队、什么不能动
 4. `05-VALIDATION-AND-COMMANDS.md` — 全套回归、预期输出、排障、提交前检查
 5. `DIRECTORY-GUIDE.md` — 目录树、每个目录作用与入库状态、`.runtime/` 与产物位置
 6. `FILE-INVENTORY.md` — 全部文件逐文件一行说明
-7. `01` / `02` / `03` / `04` — 产品、技术、13 轮工作日志、代码地图（按需查）
+7. `01` / `02` / `03` / `04` — 产品、技术、14 轮工作日志、代码地图（按需查）
 8. `07-RULES-AND-BOUNDARIES.md` / `08-OPEN-DECISIONS.md` — 红线与需用户拍板事项（**动手前必读**）
 9. `handoff-manifest.json` — 机器可读元数据
 

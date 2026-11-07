@@ -129,8 +129,9 @@ Super Agent、Autoloop、LobeHub **不是同类**：触发策略 → 执行循�
 ## 6. A → B → C 路线（不并行）
 
 - **A（已完成）**：统一架构常量（`architecture-contracts.ts`）、FR 覆盖口径、统一 `RoutingDecision`、统一 Trace、5 处接线、平台端口抽象。
-- **B1（第十三轮已完成）**：共享记忆事件主干与四类投影重放已落地，三条红线有真跑证据；`routing-decided` 经 `readBridgedEvents()` 并入同一重放输入，契约复用兑现。详见 `MEMORY-ARCHITECTURE-v0.7.md`。**B2 待做**：读取链正式切到投影消费、真实业务知识类事件、按 principal 精确过滤、投影增量构建。
-- **C（B2 验收通过后）**：把五个调用点收敛成单一 `Router` 类，接 A2A handoff 实现 Personal → Supervisor → Worker 三层；此时才重新跑 `assessThreeTier()`，P1/P3/P4/P6 全绿后再决定是否引入三层实体。**C 阶段同时承载平台底座切换**（先补 5.2 的五个缺口，再移除 Plugin SDK）。
+- **B1（第十三轮已完成）**：共享记忆事件主干与四类投影重放已落地，三条红线有真跑证据；`routing-decided` 经 `readBridgedEvents()` 并入同一重放输入，契约复用兑现。详见 `MEMORY-ARCHITECTURE-v0.7.md`。
+- **B2（第十四轮已完成并验证）**：投影召回融合进 `TeamMemory.search`（权限重评之后裁剪白名单）、`grant-revoked` 按 principal 精确过滤、真实一单完整知识事件链与端到端撤权、checkpoint 增量应用；真跑证据 `npm run memory:journey` / `memory:checkpoint`。原存储仍是主读取源，投影是第三路叠加信号。
+- **C（B 已验收，但仍需用户先拍板）**：把五个调用点收敛成单一 `Router` 类，接 A2A handoff 实现 Personal → Supervisor → Worker 三层；此时才重新跑 `assessThreeTier()`，P1/P3/P4/P6 全绿后再决定是否引入三层实体。**C 阶段同时承载平台底座切换**（先补 5.2 的五个缺口，再移除 Plugin SDK），与「5 tab 插件式单页」形态冲突见 `08-OPEN-DECISIONS.md` 第 1 条；当前三层判断仍是 `recommended=false`。
 
 每阶段验收必须跑：全套回归（303+ 单测、tsc、两个构建、响应式、走查、上游审计、diff-check）+ `npm run routing:status` + `npm run host:smoke`。
 

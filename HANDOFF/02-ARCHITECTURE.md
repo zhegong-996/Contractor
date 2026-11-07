@@ -72,11 +72,13 @@ index.tsx（再导出）
 
 `src/three-tier-assessment.ts` 用真实 Trace 判断要不要引入 LobeHub 三层，当前 `recommended=false`（P1 五阶段覆盖、P3 Personal Agent、P4 主管实体、P6 单一 Router 未满足）。
 
-## 6. 共享记忆主干（B1，第十三轮）
+## 6. 共享记忆主干（B1 + B2，第十三／十四轮）
 
-`src/memory-log.ts` = append-only `.runtime/memory/events.jsonl`（`MemoryEvent` 严格契约，含 `modelCalls`/`projection`/`visibility`/`causedBy`）；`src/memory-projections.ts` = 纯函数重放 **L1 证据图 / L2 组织图 / BM25 向量 / Context Pack**，撤权沿 lineage 传播、双层过滤、稳定 checksum。
+`src/memory-log.ts` = append-only `.runtime/memory/events.jsonl`（`MemoryEvent` 严格契约，含 `modelCalls`/`projection`/`visibility`/`causedBy`）；`src/memory-projections.ts` = 纯函数重放 **L1 证据图 / L2 组织图 / BM25 向量 / Context Pack**，并把构建逻辑抽成可续算的 `ProjectionState`，供 B2 增量复用。撤权沿 lineage 传播、双层过滤、稳定 checksum。
 
-8 处真实写入点双写（advisory），`readBridgedEvents()` 把 `routing-decided` 并入同一重放输入。**原 Cognee/SQLite/Paperclip 存储仍是实际读取源**，切到投影消费属于 B2。
+8 处真实写入点双写（advisory），`readBridgedEvents()` 把 `routing-decided` 并入同一重放输入。**B2 已完成读取链切换**：`src/memory-recall.ts` 把 `recallMemory()` 的投影命中作为第三路信号接入 `TeamMemory.search` 融合排序——权限/版本重评之后才按 `sourceId@revision` 白名单裁剪，读日志失败 advisory 降级；原 Cognee / Ladybug / SQLite / Paperclip 存储仍是**主读取源**，投影是叠加的第三路证据，不是替换。`grant-revoked` 只登记 `principalRevocations`，由 `recallMemory` 按当前 principal 精确排除；`source-revoked` 仍全局阻断。
+
+`src/memory-checkpoint.ts` 提供 checkpoint + 增量应用：会回溯的新事件（撤权 / 乱序 / 失效祖先 / 已撤回来源）一律回退全量，且增量结果始终与全量重放 checksum 逐字节对照。真实验收命令 `npm run memory:journey`（真实业务动作跑完整事件链与端到端撤权）与 `npm run memory:checkpoint`。
 
 ## 7. 平台端口（去 Paperclip 化第一步）
 

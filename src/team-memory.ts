@@ -12,6 +12,7 @@ import { contractProof, type Workspaces, type WorkspaceActor } from './workspace
 import {memoryAnnotation} from './memory-contract.ts';
 import { embedTexts, fuseRecall, readSemanticIndex, type SemanticChunk, type SemanticIndexFile } from './semantic-recall.ts';
 import { recordMemory, sourceEventId, sourceKey } from './memory-log.ts';
+import { projectionRecall, fuseProjectionHits } from './memory-recall.ts';
 export {memoryAnnotation} from './memory-contract.ts';
 export class TeamMemory {
   readonly graph: KnowledgeGraph;
@@ -108,6 +109,23 @@ export class TeamMemory {
     });
     for(const s of sources){const current=await this.w.readMaterial(s.id,task?.agent??(!actor.admin?actor.agent:undefined));if(!reusable(current.value,this.w.config,secrets().jwtSecret)||task&&!await this.w.allowed(task,s.id,task.agent)||!task&&!actor.admin&&!this.w.members(this.w.source(s.id).domain).includes(actor.agent!)||current.hash!==s.hash||path.join(await this.folder(s.id,s.revision),'graph.ladybug')!==s.path)throw new Error('检索期间来源、版本、字典或权限变化，结果已丢弃');}
     if(actor.userId&&actor.userId!=='local-board'){const {TeamMembers}=await import('./members.ts');const current=await new TeamMembers(this.w).resolve(actor.userId);if(current.agent!==actor.agent||current.admin!==actor.admin)throw new Error('成员身份或权限已经变化');}
+    // B2：共享记忆主干的投影召回只作为第三路排序信号。必须在上面的
+    // reusable() / allowed() / hash 重评之后才消费，并只保留已授权的确切修订。
+    // 读日志或重放失败是 advisory，只降级，不改变既有检索结果。
+    let projection:ReturnType<typeof projectionRecall>|undefined;
+    try{
+      projection=projectionRecall({query,allowed:sources.map(s=>({sourceId:s.id,revision:s.revision})),
+        principal:task?.agent??(!actor.admin?actor.agent:undefined)??actor.userId??undefined,limit:8});
+    }catch(error){this.w.store?.audit?.('memory.projection-recall-degraded',taskId??'organization',
+      {reason:String(error).slice(0,200)});}
+    const enhance=(hits:Record<string, unknown>[])=>projection?{
+      hits:fuseProjectionHits(hits,projection.hits,8),projectionRecall:true,
+      projectionHits:projection.hits.length,
+      projectionExcludedByRevocation:projection.excludedByRevocation,
+      projectionDroppedUnauthorized:projection.droppedUnauthorized,
+      projectionLogErrors:projection.logErrors,projectionEvents:projection.events,
+      projectionDeterministic:projection.deterministic,projectionModelCalls:0,
+    }:{hits,projectionRecall:false,projectionDegraded:true};
     if(this.w.config.knowledge?.semanticRecall?.enabled!==false){
       try{
         const chunks:SemanticChunk[]=[];let engine='';
@@ -117,13 +135,13 @@ export class TeamMemory {
           const queryVector=embedTexts([query]).vectors[0]!;
           const hits=fuseRecall({lexicalHits:result.hits??[],chunks,queryVector,
             weight:this.w.config.knowledge?.semanticRecall?.weight??0.45,limit:8});
-          return{...result,engine:`Cognee BM25 + ${engine}（混合）`,semanticRecall:true,
-            localEmbeddingCalls:1,semanticChunks:chunks.length,hits};
+          return{...result,engine:`Cognee BM25 + ${engine} + 共享记忆投影（三路融合）`,semanticRecall:true,
+            localEmbeddingCalls:1,semanticChunks:chunks.length,...enhance(hits)};
         }
       }catch(error){this.w.store.audit('memory.semantic-recall-degraded',taskId??'organization',
-        {reason:String(error).slice(0,200)});return{...result,semanticRecall:false,semanticDegraded:true};}
+        {reason:String(error).slice(0,200)});return{...result,semanticRecall:false,semanticDegraded:true,...enhance(result.hits??[])};}
     }
-    return result;
+    return{...result,...enhance(result.hits??[])};
   }
   async tick(){
     for(const s of this.w.catalog().sources.filter(s=>!s.external)){
