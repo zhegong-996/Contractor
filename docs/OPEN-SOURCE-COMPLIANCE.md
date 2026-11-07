@@ -89,6 +89,7 @@
 | G5 | Alice 研究包 manifest 标 MIT、完整许可未核实 | 静态恢复不等同原厂授权证明 | ✅ 保持「仅设计参考、不复制代码、不宣称已授权」 |
 | G6 | npm 传递依赖未做全量法律审计 | `THIRD_PARTY_NOTICES.md` 已声明该边界 | ⬜ 发行前需单独做一次依赖扫描 |
 | G7 | Acceptance 未引入、协议动作未做 | FR-16~19 目前是自研契约 | ✅ 已引入 submodule `f720feb…` 并按第 4 节补齐全部协议材料；契约映射与导出已可运行 |
+| G8 | C-1 新增 npm 依赖 `pg` 未走 R7 六步 | 发行前缺精确版本、许可证原文与声明 | ✅ 已补：`pg@8.23.1` / `@types/pg@8.23.1` 精确版本 + lockfile integrity、`licenses/pg-MIT.txt`、`THIRD_PARTY_NOTICES.md` 段落、`SOURCES.md` 一行、`audit-upstream.ts` 机器化检查 |
 
 ## 6. 工程红线 R7：新增依赖的检查清单
 
@@ -112,6 +113,7 @@
 | FR-11/12 Transfer 责任链 | `@a2a-js/sdk`（Apache-2.0） | ✅ | 已引入；Transfer 对象自研 |
 | FR-05/23 汇报拓扑、注意力预算 | LobeHub 主仓库（Community License） | ❌ 复制源码不行 / ✅ 借思想可以 | 只做独立实现，保留设计溯源 |
 | FR-01/02 职能注册表 | 无对应开源实现 | — | 自研，不涉及第三方代码 |
+| C-1 事务 / 并发 / 步进队列 | `pg` 8.23.1（MIT） | ✅ | 已引入；`src/pg-host.ts` 自研适配，本机专属库 `npm run host:pg` 真跑 21/21；未引 Redis、未部署远端沙箱 |
 | 权限标签粒度 | Outline (BSL 1.1) / Onyx / OpenFGA | ❌ / 未核实 | 仅设计参考，不引入代码 |
 
 ---

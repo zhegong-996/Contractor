@@ -6,7 +6,7 @@
 cd /Users/gong.zhe/Developer/ai-native-collab
 export NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost NODE_USE_ENV_PROXY=0
 
-npm test                    # 329/329（基线）
+npm test                    # 335/335（基线）
 npx tsc --noEmit            # 退出 0
 npm run build:workspaces    # 插件 UI 打包 + 类型检查
 npm run build:chinese-shell # hiddenEntries 4 条、missed []、warning null
@@ -27,17 +27,18 @@ npm run memory:checkpoint   # 真实日志增量应用，checksum 与全量对�
 npm run memory:journey      # 真实 bridge action 全链路 + 端到端撤权（会写真实日志）
 npm run routing:status      # allWired:true、threeTier.recommended:false
 npm run host:smoke          # 非 Paperclip 宿主 ok:true
+npm run host:pg             # PG 后端 21/21、ok:true（专属库 suitme_collab_c1）
 npm run cognee:native -- status   # enabled:true, configured:false（缺 4 个环境变量）
 npm run delivery:demo       # 本机 Git 链路；4194/9418 停机时 gitProtocolClonePull 为 false，属预期
 ```
 
 `memory:journey` 会新建一条专用资料并在末尾撤回，**不是只读检查**；`memory:checkpoint -- --reset` 会全量重建后再按 append-only 前缀增量应用。
 
-## 2. 第十四轮 B2 收尾实测结果（2026-11-07）
+## 2. 第十六轮 C-1 实测结果（2026-11-07；含第十四轮 B2 历史数据）
 
 | 项 | 结果 |
 |---|---|
-| `npm test` | **329 / 329**（B2 新增 12 例 + 收尾 2 例 lineage 回归） |
+| `npm test` | **335 / 335**（第十四轮 329 + C-1 新增 6 例 PG 契约） |
 | `npx tsc --noEmit` | 通过 |
 | `build:workspaces` / `build:chinese-shell` | 通过 / `hiddenEntries` 4、`missed: []`、`warning: null`（前台重跑） |
 | `test:responsive` | 425px `393/393`、溢出 0、按钮 44px、`problems: []` |
@@ -47,7 +48,8 @@ npm run delivery:demo       # 本机 Git 链路；4194/9418 停机时 gitProtoco
 | `memory:journey` | **`ok: true`，9/9 checks**：四类投影 `1/2/1/1 → 0/0/0/0`、召回 `1 → 0`、`lineageInvalidated`、新增 `lineageComplete`（本次资料悬空 lineage 前后均为 0）、`logErrors=0`、两次重放一致 |
 | `memory:checkpoint` | 真实日志 `mode:incremental, applied:1, fallback:null, checksumEqual:true`（全量重建 30 → 增量后 31 事件）；journey 追加撤权事件时按预期 `fallback:retroactive-event` 回退全量，`checksumEqual:true` |
 | `routing:status` | `allWired:true`、三层 `recommended:false`（覆盖率 5/7） |
-| `host:smoke` / `cognee:native status` | `ok:true` / `configured:false`（缺 4 个环境变量，未外发业务材料） |
+| `host:smoke` / `host:pg` | `ok:true` / **`ok:true`、21/21**（事务、并发领取、步进链、崩溃恢复、token 幂等） |
+| `cognee:native status` | `configured:false`（缺 4 个环境变量，未外发业务材料） |
 | `git diff --check` / staged 敏感扫描 | 通过 / 无 `.runtime`、无真实身份 |
 
 > `memory:replay` 的 `eventCount` 会随真实业务动作增长，`duplicateIds` / `danglingCausedBy` 也可能保留历史行（append-only 日志不物理删除）。**判定标准是 `replayTwiceEqual` / `deterministic` / `logErrors` 为空，以及 `memory:journey` 的 `lineageComplete`**，不是固定数字。第十四轮修复前真实日志曾有 6 条悬空 lineage，旧行仍在，新链路已为 0。
@@ -82,13 +84,14 @@ req.on('error', e => console.log('ERR', e.message)); req.end(payload);
 | 4192 | 验收报告 / 总览 | **停机·不得重启** | — |
 | 4194 | 本机 Git 交付台 | **停机·不得重启** | — |
 | 9418 | git daemon | **停机·不得重启** | — |
+| 5432 | 本机 PG 17 专属库 suitme_collab_c1 | 运行中（用户既有实例） | 不新建服务；只连回环，勿动其它库 |
 
 ## 5. 排障速查
 
 | 现象 | 根因 | 处理 |
 |---|---|---|
 | 走查 11 步全失败、页面 93 字浏览器错误 | 3100 掉线 | 干净环境 `npm run up`，等日志 `Server startup recovery complete` |
-| 页面 `connect failed: Connection refused` / 502 | 旧代理环境变量 | 干净环境重启 3100 与 4180 |
+| 页面 `connect failed: Connection refused` / 502 | 旧代理环境变量，或宿主重启后插件未重挂 | 干净环境 `restart:bridge` + `install:workspaces`，再跑走查；`00` 坑 7 |
 | `npm run up` 报 `did not become ready` | 冷启动 > 45s | 不要重复起；查 `npm run status` 与 health |
 | 后台 `build:chinese-shell` 退出 1 | 批量删除保护（391 文件 > 阈值 50） | 前台已授权环境重跑；非代码问题 |
 | 白屏但无 JS 异常 | 运行时收敛脚本误隐藏宿主外壳 | 查 `[data-suitme-hidden]`；已有 `bodyTextLen`/`shellHidden` 断言守门 |

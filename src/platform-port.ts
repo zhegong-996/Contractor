@@ -18,6 +18,7 @@ import { randomUUID } from 'node:crypto';
 import type { Config } from './config.ts';
 import { runtime } from './config.ts';
 import { Paperclip } from './paperclip.ts';
+import { PgHostPlatform, pgDsn } from './pg-host.ts';
 
 export type HostCapabilities = {
   id: string;
@@ -163,17 +164,20 @@ export class LocalHostPlatform implements HostPlatformPort {
   capabilities(): HostCapabilities {
     return { id: 'local', pluginSdk: false,
       implemented: ['issues(create/get/patch)', 'documents(put/get/revision)', 'comments', 'agents/wakeup', 'heartbeat-runs', 'append-only journal'],
-      // 切换前的真实缺口，供 B/C 阶段逐条补齐，不藏在文档里。
+      // 切换前的真实缺口，供 C 阶段逐条补齐，不藏在文档里。② 下「Plugin SDK」
+      // 不再是缺口：独立应用 UI 承载由 C-2 提供。事务/并发已在 local-pg 后端
+      // 真实实现（见 PgHostPlatform.capabilities()），文件后端仍只适合单进程。
       missing: ['ACL / 成员身份（现由 members.ts + 宿主 actor 提供）',
         'cost-ledger（TraceBridge.flush 依赖）',
-        '插件式 UI 承载与 Plugin SDK（现由 Paperclip 提供）',
         'heartbeat 真实执行与 checkout / retry / runToken 语义',
-        'PostgreSQL 事务与并发控制（现为本地 JSON 文件）'] };
+        '事务与并发控制（单进程文件后端；local-pg 已实现）',
+        '独立应用 UI 承载（② 下由 C-2 提供，不再是 Plugin SDK 缺口）'] };
   }
 }
 
 /** 配置驱动的工厂；默认仍是 Paperclip，切换是显式配置行为。 */
 export function resolvePlatform(config: Config): HostPlatformPort {
+  if (config.host.provider === 'local-pg') return new PgHostPlatform(pgDsn(config), config);
   if (config.host.provider === 'local') return new LocalHostPlatform(runtime('local-host'), config);
   return new PaperclipPlatform(new Paperclip(config.paperclipUrl), config.paperclipUrl);
 }

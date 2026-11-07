@@ -139,7 +139,9 @@ test('五个派活点全部接到同一份 Trace，只读白名单三处一致',
 test('平台端口：默认仍是 Paperclip，非 Paperclip 宿主真跑增删改查并如实列出缺口', async () => {
   const config = read('src/config.ts');
   assert.match(config, /host: z\.object\(/);
-  assert.match(config, /provider: z\.enum\(\['paperclip', 'local'\]\)\.default\('paperclip'\)/);
+  assert.match(config, /provider: z\.enum\(\['paperclip', 'local', 'local-pg'\]\)\.default\('paperclip'\)/);
+  assert.match(config, /pgDsnEnv: z\.string\(\)\.min\(1\)\.default\('COLLAB_PG_DSN'\)/, 'PG 凭据只能来自环境变量');
+  assert.match(read('src/platform-port.ts'), /provider === 'local-pg'/, 'PG 后端必须接进 resolvePlatform 工厂');
   const host = new LocalHostPlatform(mkdtempSync(path.join(os.tmpdir(), 'suitme-host-')));
   assert.equal(host.id(), 'local');
   assert.equal(host.capabilities().pluginSdk, false);

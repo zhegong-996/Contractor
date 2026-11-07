@@ -1,7 +1,7 @@
 # 09 · 目录结构完全指南（接手必读）
 
 > 目标：搞清楚**每个目录是干什么的、哪些入库、产物放哪、新文件该放哪**。
-> 根目录：`/Users/gong.zhe/Developer/ai-native-collab`｜第十四轮 B2 收尾后 `git ls-files` 共 **269** 个入库文件（含 `HANDOFF/` 14 个）。
+> 根目录：`/Users/gong.zhe/Developer/ai-native-collab`｜第十六轮 C-1 收尾后 `git ls-files` 共 **273** 个入库文件（含 `HANDOFF/` 14 个）。
 
 ## 1. 完整目录树（带说明）
 
@@ -12,22 +12,24 @@ ai-native-collab/                       仓库根（main 分支）
 │   ├── 00-START-HERE.md               接手第一步（环境/服务/坑）
 │   ├── 01-PROJECT-OVERVIEW.md         产品与业务架构
 │   ├── 02-ARCHITECTURE.md             技术架构与真实引用关系
-│   ├── 03-WORK-LOG.md                 14 轮工作记录与用户决策
+│   ├── 03-WORK-LOG.md                 16 轮工作记录与用户决策
 │   ├── 04-CODE-MAP.md                 按功能域的代码地图
 │   ├── 05-VALIDATION-AND-COMMANDS.md  回归命令、预期输出、排障
 │   ├── 06-CURRENT-STATE-AND-NEXT.md   B2 证据；C-0~C-6 清单与产品原则
 │   ├── 07-RULES-AND-BOUNDARIES.md     红线与边界
-│   ├── 08-OPEN-DECISIONS.md           6 项待拍板 + 3 条已解决
+│   ├── 08-OPEN-DECISIONS.md           7 项待拍板 + 3 条已解决
 │   ├── DIRECTORY-GUIDE.md             ★ 本文件：目录完全指南
 │   ├── SYNC-STATUS.md                 ★ 唯一位置声明、commit 与接手校验
 │   ├── FILE-INVENTORY.md               ★ 逐文件一行说明（100% 覆盖入库文件）
 │   └── handoff-manifest.json           ★ 机器可读元数据
-├── src/                               ★ 后端核心（75 个 .ts，全部入库）
+├── src/                               ★ 后端核心（77 个 .ts，全部入库）
 │   ├── memory-recall.ts / memory-checkpoint.ts    B2 读取链投影召回、checkpoint 增量应用
+│   └── pg-host.ts                              C-1 PostgreSQL 宿主：事务 / 步进队列 / 状态外置
 │   └── vendor/prime-query.ts           从 Prime Agent 移植的检索权重（必须保留 MIT 版权头）
-├── scripts/                           ★ CLI / 服务 / 构建 / 冒烟（46 个文件，含 .py/.swift/.mjs）
-│   └── memory-journey.ts / memory-checkpoint.ts  B2 真跑脚本（会写 .runtime/memory/）
-├── tests/                             ★ 回归测试（57 个 .test.ts，node:test）
+├── scripts/                           ★ CLI / 服务 / 构建 / 冒烟（47 个文件，含 .py/.swift/.mjs）
+│   ├── memory-journey.ts / memory-checkpoint.ts  B2 真跑脚本（会写 .runtime/memory/）
+│   └── host-pg-smoke.ts                        C-1 PG 真跑 21/21（专属库 suitme_collab_c1）
+├── tests/                             ★ 回归测试（58 个 .test.ts，node:test）
 │   └── fixtures/                       测试夹具（prime-context-terms.json）
 ├── plugins/
 │   └── knowledge-workspaces/           ★ 中文工作台插件（唯一插件）

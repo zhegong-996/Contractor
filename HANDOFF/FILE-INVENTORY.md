@@ -1,20 +1,20 @@
 # FILE-INVENTORY · 逐文件说明（100% 覆盖）
 
-> 生成自 `git ls-files` + `HANDOFF/`，第十四轮 B2 收尾后共 **269** 个条目（新增 6 个 B2 文件）。
+> 生成自 `git ls-files` + `HANDOFF/`，第十六轮 C-1 收尾后共 **273** 个条目（第十四轮 269 + C-1 新增 4 个入库文件）。
 > 列：`路径 | 行数 | 说明`。`upstream/<name>` 是 gitlink（submodule），行数记 `-`。
-> 说明来源：精写字典 200 条、从源码注释/导出/测试名自动提取 69 条、按类型兜底 0 条。
+> 说明来源：精写字典 204 条、从源码注释/导出/测试名自动提取 69 条、按类型兜底 0 条。
 > 需要更详细的「哪些文件一起完成什么」见 `04-CODE-MAP.md`；目录结构见 `DIRECTORY-GUIDE.md`。
 
 ## 交接包 HANDOFF/（14）
 
 | 路径 | 行数 | 说明 |
 |---|---|---|
-| `HANDOFF/00-START-HERE.md` | 84 | 新 Agent 第一份必读：环境、同步状态、干净环境变量、服务端口、首次验证、7 个已知坑（含真实链路的图缺陷）。 |
+| `HANDOFF/00-START-HERE.md` | 88 | 新 Agent 第一份必读：环境、同步状态、干净环境变量、服务端口（含 5432 PG）、首次验证、8 个已知坑（含宿主重启后插件重挂）。 |
 | `HANDOFF/01-PROJECT-OVERVIEW.md` | 56 | 产品与业务架构：定位、渠道分工、三级 owner、8 步闭环、5 tab 功能地图、成熟度三档、五条红线。 |
 | `HANDOFF/02-ARCHITECTURE.md` | 89 | 技术架构：四层数据流、7 个上游真实引用强度、前端分层、中文壳、路由契约、共享记忆主干（B1+B2）、平台端口、代码交付。 |
-| `HANDOFF/03-WORK-LOG.md` | 54 | 全部 15 轮工作记录（含第十五轮补遗）、7 条反复出现的排障模式、用户明确做过的决策（② 拍板、可配置组织形态、沉淀自演进）。 |
+| `HANDOFF/03-WORK-LOG.md` | 55 | 全部 16 轮工作记录（含第十五轮补遗、第十六轮 C-1）、7 条排障模式、用户明确做过的决策。 |
 | `HANDOFF/04-CODE-MAP.md` | 172 | 按 14 个功能域讲「哪些文件一起完成什么」、关键导出与依赖方向速查。 |
-| `HANDOFF/05-VALIDATION-AND-COMMANDS.md` | 113 | 全套回归命令、第十四轮实测结果（含 memory:journey / memory:checkpoint）、真实 HTTP 冒烟模板、服务端口表、排障速查、提交前检查。 |
+| `HANDOFF/05-VALIDATION-AND-COMMANDS.md` | 117 | 全套回归命令、第十六轮 C-1 实测结果（含 host:pg 21/21）、真实 HTTP 冒烟模板、服务端口表、排障速查、提交前检查。 |
 | `HANDOFF/06-CURRENT-STATE-AND-NEXT.md` | 61 | 当前状态快照、B2 四项真跑证据、C-0~C-6 分步清单（含两条新增产品原则）、按配置的三层判断、去 Paperclip 化路线。 |
 | `HANDOFF/07-RULES-AND-BOUNDARIES.md` | 44 | 红线与边界：业务验收身份、隐私与 .runtime、服务约束、许可证、前端入口、工程约束。 |
 | `HANDOFF/08-OPEN-DECISIONS.md` | 58 | 9 个条目（6 项待拍板 + 产品形态 ②、B2 范围、组织形态可配置与自演进三条已解决历史记录）：外部模型凭据、真人验收、部门 scope、外部服务、已停服务、pi 指代。 |
@@ -24,7 +24,7 @@
 | `HANDOFF/SYNC-STATUS.md` | 55 | ★ 唯一位置声明、代码基线/提交关系、接手校验命令、本目录内阅读顺序。 |
 | `HANDOFF/handoff-manifest.json` | 203 | 机器可读元数据：commit、远端、测试结果、服务状态、包内文件清单、下一步与开放决策。 |
 
-## 后端核心 src/（76）
+## 后端核心 src/（77）
 
 | 路径 | 行数 | 说明 |
 |---|---|---|
@@ -76,6 +76,7 @@
 | `src/org-ontology.ts` | 102 | 组织图 TBox 校验 validateOrgGraph、责任链/证据/影响面查询；常量从 architecture-contracts 再导出保持兼容。 |
 | `src/organization-signals.ts` | 106 | 组织状态信号（FR-21/03）：评估、聚类、修复回路与复测，只警告不排名。 |
 | `src/paperclip.ts` | 21 | Paperclip REST 薄封装 get/post/patch/document，带乐观修订号与 404 处理。 |
+| `src/pg-host.ts` | 475 | C-1 PostgreSQL 宿主后端：事务、ACL、成本账本、heartbeat checkout/retry/runToken、SKIP LOCKED 步进队列、崩溃恢复、状态外置；assertLocalPgDsn 只允许回环。 |
 | `src/platform-evidence.ts` | 48 | 平台指纹与测试证据生成，防止换机器后仍声称已验证。 |
 | `src/platform-port.ts` | 193 | ★ 去 Paperclip 化第一步：HostPlatformPort + PaperclipPlatform（默认）+ LocalHostPlatform（可运行最小实现）。 |
 | `src/roles.ts` | 187 | 职能注册表（FR-01/02/03/28）：主职能、邻接能力、能力派生与路由建议。 |
@@ -105,7 +106,7 @@
 | `src/workspace-policy.ts` | 100 | Workspace owner 策略（FR-05/20/28）：只能收紧、验证等级、拓扑建议、在途版本校验。 |
 | `src/workspaces.ts` | 740 | ★ 知识空间与授权核心：来源、访问申请、快照、撤权、协作任务创建、allowed 权限重评；B2 收尾改用评审后 revision 写来源事件，消除真实链路悬空 lineage。 |
 
-## 脚本与服务 scripts/（46）
+## 脚本与服务 scripts/（47）
 
 | 路径 | 行数 | 说明 |
 |---|---|---|
@@ -122,6 +123,7 @@
 | `scripts/delivery-server.ts` | 199 | 本机代码交付台 4194 HTTP + git daemon 9418，只绑 127.0.0.1；当前按用户要求停机。 |
 | `scripts/doctor.ts` | 17 | 环境自检 CLI（依赖、配置、服务状态）。 |
 | `scripts/export-acceptance.ts` | 19 | 把一次锁定的验收轮次导出为可摄取格式（acceptance 互操作）。 |
+| `scripts/host-pg-smoke.ts` | 156 | C-1 真跑脚本 npm run host:pg：拒绝非专属库、21 项 checks、报告写 .runtime/host-pg-smoke.json（不入库）。 |
 | `scripts/host-smoke.ts` | 58 | 真跑不依赖 Paperclip 的 LocalHostPlatform：增删改查、幂等、文档修订、未实现 route 明确报错。 |
 | `scripts/install-upstream.ts` | 25 | 安装/构建上游 Paperclip UI，并在之后自动重建中文壳。 |
 | `scripts/install-wiki.ts` | 30 | 安装 pin 的上游 Wiki 存储与 UI，不重新实现 Wiki、不开启全员摄取。 |
@@ -156,7 +158,7 @@
 | `scripts/vision-server.ts` | 108 | 本机 OpenAI-compatible 视觉端点（4190），当前按用户要求停机。 |
 | `scripts/workbench-walkthrough.mjs` | 181 | ★ 真实浏览器 11 步走查：CDP 驱动 3100 工作台，含白屏守卫、链接白名单、侧栏隐藏断言。 |
 
-## 回归测试 tests/（58）
+## 回归测试 tests/（59）
 
 | 路径 | 行数 | 说明 |
 |---|---|---|
@@ -198,6 +200,7 @@
 | `tests/model-settings.test.ts` | 30 | 回归测试：model drafts cannot enable a provider, carry credentials, or bind an unauthorized identity；model configuration uses exact native revision and refuses agent self-configuration |
 | `tests/ontology-runtime.test.ts` | 77 | 回归测试：default ontology has 16 node kinds and 5 edge families, with typed edge rules；the three organisation questions are answerable from one relation set；attention budget: two-stage filter, self-progress silence, caps and role boundary… |
 | `tests/paperclip.test.ts` | 19 | 回归测试：document updates use the latestRevisionId returned by the real API contract；retrying a delivered document does not create another native revision |
+| `tests/pg-host.test.ts` | 62 | C-1 纯函数契约 6 例：DSN 回环白名单、外部主机拒绝、pgDsn 环境变量、capabilities 如实区分；不连库也不假绿。 |
 | `tests/platform-evidence.test.ts` | 25 | 回归测试：execution evidence reads only exact-SHA hashed delivery files and rejects tampering |
 | `tests/policy-signals.test.ts` | 76 | 回归测试：verification level has a floor the owner cannot lower；owner may tighten; topology is configurable but event direct-routing is not；topology advice is read-only and comes from observed density… |
 | `tests/responsive-layout.test.ts` | 48 | 回归测试：v0.6 三个面板都带 sm-v06 作用域，不污染上游页面样式；425px 规则：容器不设硬宽、表格在自身容器滚动、按钮 ≥44px、长文本可断行；窄屏走查脚本按 1280 与 425 两个视口测量，并保留审计产物… |
@@ -302,7 +305,7 @@
 | `sources.lock.json` | 39 | ★ 7 个上游 submodule 的 URL / commit / license / 引入方式锁定，audit:upstream 校验。 |
 | `tsconfig.json` | 8 | 主工程 TypeScript 配置。 |
 
-## 其它目录（配置/许可/夹具/集成）（12）
+## 其它目录（配置/许可/夹具/集成）（13）
 
 | 路径 | 行数 | 说明 |
 |---|---|---|
@@ -317,12 +320,13 @@
 | `licenses/acceptance-APACHE-2.0.txt` | 201 | lobehub/acceptance 的 Apache-2.0 许可证全文。 |
 | `licenses/cognee-APACHE-2.0.txt` | 201 | Cognee 的 Apache-2.0 许可证全文。 |
 | `licenses/harness-vendor-MIT.txt` | 21 | DeepSeek Harness 及 vendored 依赖的 MIT 声明。 |
+| `licenses/pg-MIT.txt` | 21 | pg@8.23.1 的 MIT LICENSE 原文（含 @types/pg 同版本），R7 新增依赖登记凭证。 |
 | `locales/shell.zh-CN.json` | 13 | 构建期中文壳词典（展示文案替换表）。 |
 
 ## 覆盖率
 
-- 总条目：**269**（交接时 263 + 第十四轮新增 6 个 B2 文件）
-- 精写说明：**200**（74.3%）
+- 总条目：**273**（第十四轮 269 + 第十六轮 C-1 新增 4 个入库文件）
+- 精写说明：**204**（74.7%）
 - 自动提取（源码注释/导出/真实测试名）：**69**
 - 兜底：**0**
 - 未覆盖：**0**

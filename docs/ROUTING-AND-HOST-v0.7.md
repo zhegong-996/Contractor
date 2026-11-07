@@ -142,7 +142,15 @@ Super Agent、Autoloop、LobeHub **不是同类**：触发策略 → 执行循�
 - **评估口径改造**：`assessThreeTier()` 的 P3 / P4 改为按当前配置判定，扁平配置下不要求出现 supervisor；否则小团队为凑绿会被逼着硬造管理层。L1–L5 水位单独只读呈现，不与 `recommended` 混为一谈。
 - **C 分步清单因此扩展为 C-0 → C-6 + 收尾**：新增 C-6「沉淀回流与自演进闭环」，C-3 / C-4 / C-5 的验收标准同步改写，见 `HANDOFF/06-CURRENT-STATE-AND-NEXT.md`。
 
-每阶段验收必须跑：全套回归（303+ 单测、tsc、两个构建、响应式、走查、上游审计、diff-check）+ `npm run routing:status` + `npm run host:smoke`。
+### 6.2 C-1：PG 后端与步进队列（第十六轮 · 用户改口允许本机引入 PG）
+
+- **撤回上一轮「本机不引入 PostgreSQL」**：本机 PG 17.10 已在 `127.0.0.1:5432` 运行，本轮新建专属库 `suitme_collab_c1`，未触碰已有 `geo_flow`。`config.host.provider` 增加 `local-pg`，`resolvePlatform()` 已接线；DSN 只从 `COLLAB_PG_DSN` 环境变量读取，`assertLocalPgDsn()` 拒绝非回环地址。
+- **`src/pg-host.ts::PgHostPlatform`** 实现同一 `HostPlatformPort`：issues / 文档事务递增修订 / append-only journal、ACL 成员身份（`assertMember` 拒绝未知主体）、`cost_events` 账本、heartbeat `checkout / retry / runToken`，以及 `steps` 队列表。
+- **循环与状态分离**：`enqueueSteps()` 只让第 1 步 `ready`、其余 `queued`；`claimStep()` 用 `FOR UPDATE SKIP LOCKED` + `runToken` 原子领取；`completeStep()` 在同一事务里写结果并**原子激活下一棒**；`recoverStaleSteps()` 回收超时步骤并让旧 token 作废；每步记 `modelCalls` 与 checkpoint。同一个 run 不会出现两步并跑。
+- **取舍如实**：本机不引 Redis（PG `SKIP LOCKED` 等价，切换点为 `claimStep / completeStep / recoverStaleSteps`）；不部署远端工具沙箱 / 多机 Remote Tool Calling；默认底座仍 `paperclip`；`runner.ts` 的常驻 `while` 循环尚未切成单步。三项仍缺都写在 `capabilities().missing`，不假装完成。
+- **证据**：`npm run host:pg` 在本机真跑 **21/21、`ok:true`**（含并发领取、崩溃恢复、事务回滚、token 幂等）；`tests/pg-host.test.ts` 6 例纯函数契约；`audit-upstream.ts` 按 R7 纳入 `pg` 精确版本 / integrity / 许可证 / 声明检查。
+
+每阶段验收必须跑：全套回归（当前 335 例单测、tsc、两个构建、响应式、走查、上游审计、diff-check）+ `npm run routing:status` + `npm run host:smoke` + `npm run host:pg`。
 
 ---
 

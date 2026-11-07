@@ -117,14 +117,17 @@ export const configSchema = z.object({
   }).default(() => ({ provider: 'local' as const, port: 4194, gitPort: 9418,
     repoName: 'suitme-collab', feishuNotify: false, autoMerge: true, autoPublish: true })),
   /**
-   * 宿主平台选择（v0.7 · 去 Paperclip 化第一步）。默认仍用 Paperclip，
-   * 保证现有主链路不回退；`local` 走 LocalHostPlatform（本地文件 + append-only
-   * journal），只实现 route 子集，用于证明切换路径与暴露待补齐清单。
-   * 完整切换需先补 platform-port.ts capabilities().missing 列出的能力。
+   * 宿主平台选择（v0.7 · 去 Paperclip 化第一步；第十六轮 C-1 扩展）。默认仍用
+   * Paperclip，保证现有主链路不回退；`local` 走 LocalHostPlatform（本地文件 +
+   * append-only journal），`local-pg` 走 PgHostPlatform（PostgreSQL 事务、并发
+   * 领取、步进队列与状态外置）。用户 2026-11-07 明确「本机可以引入 pgsql 数据库
+   * 去测试」，所以 PG 是真实可跑的后端，不是被排除的方案。
+   * **DSN 只从 pgDsnEnv 指定的环境变量读取，凭据绝不写入 config.json / 仓库。**
    */
   host: z.object({
-    provider: z.enum(['paperclip', 'local']).default('paperclip'),
-  }).default(() => ({ provider: 'paperclip' as const })),
+    provider: z.enum(['paperclip', 'local', 'local-pg']).default('paperclip'),
+    pgDsnEnv: z.string().min(1).default('COLLAB_PG_DSN'),
+  }).default(() => ({ provider: 'paperclip' as const, pgDsnEnv: 'COLLAB_PG_DSN' as const })),
 });
 export type Config = z.infer<typeof configSchema>;
 export type Agent = Config['agents'][string];

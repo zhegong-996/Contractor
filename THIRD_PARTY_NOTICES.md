@@ -209,4 +209,12 @@ Full review and the actionable checklist: `docs/OPEN-SOURCE-COMPLIANCE.md`. The 
 
 `src/evidence.ts` ports reference-validation and invalidation-projection logic from the user's own prototypes `ai_bridge.py` / `knowledge.py`, with the user's authorisation; no prototype database, model environment, business data or third-party code was transferred. The Alice research package remains a design reference only (manifest says MIT; the complete licence is unverified, and static recovery is not treated as proof of upstream authorisation).
 
+## node-postgres (`pg`) — MIT（第十六轮 C-1 新增）
+
+Pinned `pg@8.23.1` (runtime) and `@types/pg@8.23.1` (types only), from https://github.com/brianc/node-postgres. Versions are exact in `package.json` and fixed by registry integrity in `package-lock.json`. `Copyright (c) 2010 - 2021 Brian Carlson`; LICENSE retained verbatim in `licenses/pg-MIT.txt`.
+
+Actually reused: the PostgreSQL client driver only, for `src/pg-host.ts` (`PgHostPlatform`) — issues / document revisions / append-only journal, ACL members, cost ledger, heartbeat `checkout / retry / runToken`, and the step queue (`FOR UPDATE SKIP LOCKED`, atomic next-step activation, stale-step recovery) on the dedicated local database `suitme_collab_c1`. No upstream source is copied, modified or bundled.
+
+Preserved boundaries: **no Redis**, **no remote tool sandbox / multi-machine Remote Tool Calling**, and no tool calls sent to AWS or any external host. `assertLocalPgDsn()` accepts loopback addresses only and the DSN is read solely from the `COLLAB_PG_DSN` environment variable (no credentials in `config.json` or the repository). The default host is still `paperclip`; `local-pg` is an explicit opt-in. Production multi-instance scaling and a real remote execution environment have not happened.
+
 This notice is not a legal audit of transitive npm dependencies; each published package retains its own licence.

@@ -18,6 +18,7 @@
     "cognee:native": "node --import tsx scripts/cognee-native.ts",
     "routing:status": "node --import tsx scripts/routing-status.ts",
     "host:smoke": "node --import tsx scripts/host-smoke.ts",
+    "host:pg": "node --import tsx scripts/host-pg-smoke.ts",
     "memory:replay": "node --import tsx scripts/memory-replay.ts",
     "memory:smoke": "node --import tsx scripts/memory-smoke.ts",
     "test:cross-role": "node --import tsx scripts/smoke-cross-role.ts --run",
@@ -60,6 +61,7 @@
     "culori": "4.0.2",
     "d3-force-3d": "3.0.6",
     "esbuild": "0.28.2",
+    "pg": "8.23.1",
     "react-force-graph-2d": "1.29.2",
     "tsx": "4.23.15",
     "uuid": "13.0.0",
@@ -68,6 +70,7 @@
   "devDependencies": {
     "@babel/parser": "8.1.0",
     "@types/node": "24.0.0",
+    "@types/pg": "8.23.1",
     "typescript": "7.0.2"
   }
 }

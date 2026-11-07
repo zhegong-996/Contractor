@@ -1,4 +1,4 @@
-# 03 · 全部工作记录（15 轮 + 基础建设期）
+# 03 · 全部工作记录（16 轮 + 基础建设期）
 
 > 权威逐轮记录：`docs/VALIDATION.md`（验证）与 `docs/ADAPTATION-v0.6.md`（边界声明，**最新边界以 `0.0000000000000000` 节为准**）。
 > 完整提交历史以 `git log --oneline | wc -l` 与 `git rev-parse HEAD` 为准（交接时 `HEAD = b58631c`，其后已多次前进）。下表按时间线归纳，`提交` 列可直接 `git show <hash>`。
@@ -29,6 +29,7 @@
 | 第十四轮 | `8d3c455` | **方案 B2 收尾**：投影召回接入 `TeamMemory.search` 融合排序（权限重评之后才裁剪白名单）、`grant-revoked` 按 principal 精确过滤、真实一单跑完整知识事件链与端到端撤权、checkpoint + 增量应用（checksum 与全量逐字节对照）；修真实链路暴露的「任务级组织图镜像悬空边」与「`reviewSource` 用评审前 revision 造成真实悬空 lineage」两处缺陷，并给 `memory:journey` 加 `lineageComplete` 验收条件 | **329/329**、走查 11/11、`memory:journey ok:true`（四类投影 1/2/1/1 → 0/0/0/0、召回 1→0、本次资料悬空 lineage 0）、真实日志 `memory:checkpoint checksumEqual:true`；B 阶段验收通过，C 仍排队待拍板 |
 | 第十五轮 | 本轮提交 | **方案 C 启动（C-0）**：用户拍板 **② 独立前端应用**，废弃 `PRD §10A` 的 S5/S6、保留 S1–S4 与飞书唯一入口；产品思路复盘（LobeHub 三层 = 组织维度、腾讯 Siboot 上下文论 = 信息维度；**三层 = 同一份共享现场的三种座位，不靠摘要转发**）；建立 C-0~C-5 分步任务清单 | **仅文档与任务清单，未改运行代码**；运行基线仍 329/329、走查 11/11；默认底座仍 `paperclip`，三层判断仍 `recommended=false`（5/7） |
 | 第十五轮补遗 | 同轮后一提交 | **C-0b 产品约束固化**：用户确认配置粒度（业务域 / 组织单元生效、允许一个 Agent 兼任多职责、禁止同一 Task 自派自验自环）并追加「组织形态可配置 + 沉淀自演进」；核对赛博禅心 LobeHub 同篇后半段（Acceptance / Agent Vent / L1–L5 / harness 成本）与现有代码地基；新增 `PRD §10C` 的 C-P1~C-P5、ADAPTATION 最新边界第 6 小节、ROUTING-AND-HOST 6.1；C 清单扩为 C-0~C-6 + 收尾，C-3/4/5 验收口径改写 | **仅文档与任务清单，未改运行代码**；manifest JSON 解析、`git diff --check`、敏感扫描；运行基线沿用第十四轮 329/329、走查 11/11（C-1 起每次代码改动重跑全套） |
+| 第十六轮 | 本轮提交 | **方案 C-1：本机 PG 真跑与长程执行地基**：用户允许本机引入 PostgreSQL，并要求把 Agent 的循环 / 会话状态 / 执行环境拆开、每一步单独调用、步间靠队列推进；新增 `src/pg-host.ts`（事务 / ACL / 成本账本 / heartbeat `checkout-retry-runToken` / `SKIP LOCKED` 步进队列 / 崩溃恢复 / 状态外置）、`config.host.provider=local-pg` 与 `resolvePlatform` 接线、`npm run host:pg` 21 项真跑、`pg@8.23.1` 走 R7 协议登记；PRD 新增 C-P6，ADAPTATION 撤回「不引入 PG」的旧判断；另把「Paperclip 去留」登记为 `08` 第 10 项待拍板 | **335/335**、tsc、两构建、425px 响应式、走查 11/11、`host:pg` **21/21 ok:true**、`audit:upstream clean`；边界：未引 Redis、未部署远端工具沙箱、未切换默认底座、未改上游 |
 
 ## 2. 反复出现的排障模式（接手者可直接复用）
 

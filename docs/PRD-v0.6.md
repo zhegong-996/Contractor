@@ -394,10 +394,11 @@
 | C-P3 | **判断分三层，模型只用在必要处** | 确定性工程层（规则过滤 / 权限重评 / 注意力预算 / 周期巡检 / 清单校验）先处理且 `modelCalls=0`；AI 层只接工程层判不准的少数并记证据与成本，能本机不外部；人层保留定目标、划边界、高风险联签与最终核可；人必达消息不受任何过滤影响 |
 | C-P4 | **沉淀回流，自演进按 L 级渐进不跳级** | 打回原因 → 自查标准 → 下次交付前强制先自查；异常 / 打回 → 候选改进 → 工程闸门（回放验证）+ 人审 → 版本 / 灰度 / 可回滚 → 效果对比（通过率、返工率、单任务成本、人被打断次数）；自我改进**不得自动改写**已锁定清单、权限规则、人签红线或历史任务 |
 | C-P5 | **评估检查配置是否被正确执行，不逼组织长成固定层数** | `assessThreeTier()` 的 P3 / P4 改为按当前配置判定，扁平配置下不要求出现 supervisor；L1–L5 水位单独只读呈现，不与 `recommended` 混为一谈 |
+| C-P6 | **循环 / 会话状态 / 执行环境三者分离，长程任务不绑机器** | 每一步（一次模型或工具调用）是一次可独立重跑的短执行单元；步号、材料、checkpoint、`modelCalls` 外置到事务库，下一棒由队列**原子激活**；同一 run 同时只有一个 ready 步；领取带 `runToken`，进程崩溃可回收且旧凭据失效；换机器只是换「执行工具的地方」，不重建会话；Agent 感知不到环境差异，但权限仍按当前身份逐步重评，已锁定清单 / 人签 / 历史任务不回溯 |
 
-**参考来源**：赛博禅心《如何让 Super-agent 成为同事：LobeHub 的组织实验》（2026-11-01）**后半段**——Acceptance（拆检查项 → 真实产品逐项跑 → 整体通过 / 部分打回 → 每次打回沉淀成标准，下次交付前先自查）、「先通过规则过滤再交给模型判断」、Agent Vent 聚类建 Task 次日对比、L1–L5 组织自动驾驶分级、harness 自主优化后的通过率与单任务成本中位数。**只借产品思想**：LobeHub 主仓库 Community License 禁止复制代码；`lobehub/acceptance` 已作为 Apache-2.0 固定 submodule 引入，只作只读格式契约，见 `OPEN-SOURCE-COMPLIANCE.md`。
+**参考来源**：赛博禅心《如何让 Super-agent 成为同事：LobeHub 的组织实验》（2026-11-01）**后半段**——Acceptance（拆检查项 → 真实产品逐项跑 → 整体通过 / 部分打回 → 每次打回沉淀成标准，下次交付前先自查）、「先通过规则过滤再交给模型判断」、Agent Vent 聚类建 Task 次日对比、L1–L5 组织自动驾驶分级、harness 自主优化后的通过率与单任务成本中位数；**同篇中间段**「如何保持 Agent 的持续在线」补充 C-P6——LobeHub 与 DeepSeek 都把 Agent 循环、会话状态、执行环境拆开，Vercel 单次 300 秒不够跑长程调用，于是「每一步（调一次模型或工具）都拆成一次单独调用，步和步之间靠队列和 Redis 推进」，工具调用发往 AWS 沙箱或用户自己的电脑，Agent 察觉不到执行环境差异，换机器只是换一个执行工具的地方。**只借产品思想**：LobeHub 主仓库 Community License 禁止复制代码；`lobehub/acceptance` 已作为 Apache-2.0 固定 submodule 引入，只作只读格式契约，见 `OPEN-SOURCE-COMPLIANCE.md`。
 
-**已落地的地基（如实标注，不冒充已完成）**：`acceptance-plan.ts` 开工前锁定清单、`acceptance-round.ts` 逐项判定 / 部分打回 / `selfCheckStandards()`、`acceptance-report.ts` 的 `recordSelfCheck()`（幂等原子写、明确不改写已锁定清单）、`independent-review.ts` 评审者独立性、`runtime-guard.ts` 的 fast → semantic → budget 两级过滤、`runtime-bridge.ts` 的 `enforce` 与必达消息保护、B1/B2 的 `modelCalls` 记账与确定性重放。**尚未落地**：验收作为可配置协作 Agent、自查标准回流到交付前强制比对、候选改进的评估 / 人审 / 版本 / 灰度 / 回滚、成本与效果看板、按配置的评估口径。
+**已落地的地基（如实标注，不冒充已完成）**：`acceptance-plan.ts` 开工前锁定清单、`acceptance-round.ts` 逐项判定 / 部分打回 / `selfCheckStandards()`、`acceptance-report.ts` 的 `recordSelfCheck()`（幂等原子写、明确不改写已锁定清单）、`independent-review.ts` 评审者独立性、`runtime-guard.ts` 的 fast → semantic → budget 两级过滤、`runtime-bridge.ts` 的 `enforce` 与必达消息保护、B1/B2 的 `modelCalls` 记账与确定性重放；**第十六轮 C-1** 新增 `PgHostPlatform` 与 `npm run host:pg`，在本机 PostgreSQL 17 真跑事务 / 并发领取 / 步进队列 / 崩溃恢复 21/21，把「状态外置 + 下一棒原子激活」变成可验证能力。**尚未落地**：把 `src/runner.ts` / `assistant-runner.ts` 的常驻 `while` 循环切成单步执行、真实远端工具沙箱与多机切换、验收作为可配置协作 Agent、自查标准回流到交付前强制比对、候选改进的评估 / 人审 / 版本 / 灰度 / 回滚、成本与效果看板、按配置的评估口径。
 
 ---
 

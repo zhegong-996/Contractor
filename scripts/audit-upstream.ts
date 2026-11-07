@@ -67,8 +67,17 @@ for (const submodulePath of paths) {
 }
 
 for (const file of ['THIRD_PARTY_NOTICES.md', 'licenses/cognee-APACHE-2.0.txt',
-  'licenses/a2a-js-APACHE-2.0.txt', 'licenses/harness-vendor-MIT.txt', 'licenses/acceptance-APACHE-2.0.txt'])
+  'licenses/a2a-js-APACHE-2.0.txt', 'licenses/harness-vendor-MIT.txt', 'licenses/acceptance-APACHE-2.0.txt',
+  'licenses/pg-MIT.txt'])
   if (!existsSync(path.join(root, file))) problems.push(`缺少声明/许可证文件 ${file}`);
+
+// R7：C-1 新增的 npm 依赖必须精确锁版本、留许可证原文、写进声明。
+const packageJson = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8'));
+const npmLock = JSON.parse(readFileSync(path.join(root, 'package-lock.json'), 'utf8'));
+if (packageJson.dependencies?.pg !== '8.23.1') problems.push('pg 依赖未按精确版本锁定');
+if (!npmLock.packages?.['node_modules/pg']?.integrity) problems.push('pg 缺少 package-lock integrity');
+if (!flat(notices).includes(flat('node-postgres'))) problems.push('THIRD_PARTY_NOTICES.md 未声明 node-postgres (pg)');
+notes.push('npm: pg@8.23.1 MIT · licenses/pg-MIT.txt · package-lock integrity');
 for (const file of readdirSync(path.join(root, 'licenses'))) {
   const text = readFileSync(path.join(root, 'licenses', file), 'utf8');
   if (/\b(AGPL|SSPL|GPLv3|GNU General Public License version 3)\b/i.test(text))

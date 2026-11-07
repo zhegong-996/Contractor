@@ -541,3 +541,37 @@ Cognee `cognify` 的真实外部模型调用未发生（缺端点与凭据）；
 | 全套回归 | **未重跑**（无运行代码改动，沿用第十四轮 329/329、走查 11/11）；**C-1 起每次代码改动必须重跑全套并在此追加新记录** |
 
 **未落地（已排期 C-4 / C-5 / C-6，不算 bug 也不冒充已完成）**：验收作为可配置协作 Agent、自查标准回流到交付前强制比对、候选改进的评估 / 人审 / 版本 / 灰度 / 回滚、单任务成本与效果看板、`assessThreeTier()` 按当前配置判定。
+
+
+---
+
+## 第十六轮：C-1 本机 PG 真跑与长程执行地基（2026-11-07）
+
+**性质**：运行代码 + 测试 + 文档 + 开源协议登记；默认底座仍 `paperclip`，未改上游源码。用户允许本机引入 PostgreSQL，并明确「循环 / 会话状态 / 执行环境三者分离，每一步（一次模型或工具调用）单独调用，步间靠队列推进」。
+
+### 1. 交付
+
+- `src/pg-host.ts`：`PgHostPlatform` 实现 `HostPlatformPort`；`write()` 事务化，DDL 用 `pg_advisory_xact_lock` 防并发；`claimStep()` 用 `FOR UPDATE SKIP LOCKED` 原子领取，同一 run 只有一个 ready 步；`runToken` 领取、`recoverStaleSteps()` 崩溃回收且旧凭据失效；`capabilities()` 如实列出仍缺的 3 项（独立应用 UI 承载、远端工具沙箱、Redis 横向扩展）。
+- `src/config.ts` / `src/platform-port.ts`：`host.provider` 增加 `local-pg`，DSN 只从 `COLLAB_PG_DSN` 读，`assertLocalPgDsn()` 拒绝一切非回环地址。
+- `scripts/host-pg-smoke.ts`：只准在专属库 `suitme_collab_c1` 上跑，21 项 checks 覆盖幂等、文档修订、ACL、成本账本、heartbeat、队列顺序、并发领取、步进链 `modelCalls=3`、checkpoint 外置、崩溃恢复 / 旧 token 失效、事务回滚、capabilities。
+- `tests/pg-host.test.ts`：6 例纯函数契约，不连库也不假绿；`tests/routing-decision.test.ts` 接线断言同步为 3 个 provider。
+- R7：`pg@8.23.1` / `@types/pg@8.23.1` 精确版本 + lockfile integrity + `licenses/pg-MIT.txt` + `THIRD_PARTY_NOTICES.md` + `SOURCES.md` + `audit-upstream.ts` 机器化检查。
+
+### 2. 全套回归结果（本轮重跑）
+
+| 项 | 结果 |
+|---|---|
+| `npm test` | **335 / 335**（第十四轮 329 + C-1 新增 6 例） |
+| `npx tsc --noEmit` | 通过 |
+| `build:workspaces` / `build:chinese-shell` | 通过 / `hiddenEntries` 4、`missed: []`、`warning: null` |
+| `test:responsive` | 425px 无溢出、按钮 44px、`problems: []` |
+| `test:walkthrough` | **11 / 11**，`failures: []` |
+| `audit:upstream` | `clean: true`、`problems: []`（含 `pg@8.23.1 MIT` 登记） |
+| `npm run host:pg` | **`ok:true`、21/21**，PostgreSQL 17.10 专属库 `suitme_collab_c1`；`capabilities.missing` 3 项如实声明 |
+| `host:smoke` / `routing:status` / `memory:checkpoint` | `ok:true` / `allWired:true`、三层 `recommended:false` / 增量应用 `checksumEqual:true` |
+| `cognee:native status` | `configured:false`（缺 4 个环境变量，未外发业务材料） |
+| `git diff --check` | 通过 |
+
+### 3. 严格边界（未发生，不是 bug）
+
+本轮**未引入 Redis**（用 PG `SKIP LOCKED` 等价）、**未部署远端工具沙箱 / 多机 Remote Tool Calling**（只验证循环与状态分离）、**未把 `runner.ts` / `assistant-runner.ts` 的常驻 `while` 切成单步**、**未切换默认底座**、**未改上游源码**。C-P6 的产品约束已固化，但长程执行尚未接到真实 Agent 循环上。真人业务验收（SUI-129 未核可）、Cognee 原生 `cognify` 真实调用、生产发布、真实外部 PR·CI、全员 SSO、飞书部门 scope 重新登录仍未发生。4190 / 4192 / 4194 / 9418 保持用户取消时的停机状态；5432 是用户既有本机 PG，只连回环、只用专属库，不动 `geo_flow` 等其它库。
