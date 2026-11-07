@@ -1,0 +1,170 @@
+{
+  "schemaVersion": 1,
+  "purpose": "SuitMe 协作台项目交接包：让下一位 Agent 无需对话历史即可安全继续",
+  "generatedAt": "2026-11-07T18:20:49+08:00",
+  "authoritativeLocation": "/Users/gong.zhe/Developer/ai-native-collab/HANDOFF/",
+  "portableCopy": "/Users/gong.zhe/WorkBuddy/2026-11-05-18-10-52/handoff/",
+  "repository": {
+    "path": "/Users/gong.zhe/Developer/ai-native-collab",
+    "remote": "https://github.com/zhegong-996/suitme-collab.git",
+    "branch": "main",
+    "codeBaseCommit": "b58631c7c98bd863a17dcfd346ae657d8e59c2f4",
+    "originMainAtGeneration": "b58631c7c98bd863a17dcfd346ae657d8e59c2f4",
+    "remoteMainAtGeneration": "b58631c7c98bd863a17dcfd346ae657d8e59c2f4",
+    "note": "codeBaseCommit 是被交接的运行代码状态（b58631c）；交接包本身会再形成一个仅含 HANDOFF/ 文档的提交，最终 HEAD 用 git rev-parse HEAD 查看。",
+    "handoffCommit": "包含本交接包的提交；clone 后 git log -1 即为该提交（交接包只新增文档，不改运行代码）",
+    "workingTreeCodeClean": true
+  },
+  "phase": {
+    "order": "A -> B -> C（严格不并行）",
+    "A": "completed",
+    "B1": "completed-and-validated",
+    "B2": "pending",
+    "C": "queued",
+    "currentBoundary": "docs/ADAPTATION-v0.6.md 0.00000000000000 节"
+  },
+  "validation": {
+    "unitTests": "315/315",
+    "typecheck": "pass",
+    "buildWorkspaces": "pass",
+    "buildChineseShell": "pass (hiddenEntries 4, missed 0)",
+    "responsive": "pass (425px, 0 overflow, 44px buttons)",
+    "walkthrough": "11/11, failures 0",
+    "upstreamAudit": "clean: true",
+    "cli": {
+      "memory:replay": "ok",
+      "memory:smoke": "ok",
+      "routing:status": "ok",
+      "host:smoke": "ok"
+    },
+    "gitDiffCheck": "pass",
+    "reference": "HANDOFF/05-VALIDATION-AND-COMMANDS.md"
+  },
+  "services": {
+    "3100": {
+      "name": "Paperclip 工作台 + 插件宿主",
+      "state": "running",
+      "action": "可按需用 npm run up 恢复"
+    },
+    "4180": {
+      "name": "Bridge workspace action",
+      "state": "running",
+      "action": "改服务端代码后 npm run restart:bridge"
+    },
+    "4190": {
+      "name": "Apple Vision 本机端点",
+      "state": "stopped",
+      "action": "DO NOT RESTART（用户取消）"
+    },
+    "4192": {
+      "name": "验收报告/总览服务",
+      "state": "stopped",
+      "action": "DO NOT RESTART（用户取消）"
+    },
+    "4194": {
+      "name": "本机 Git 交付台",
+      "state": "stopped",
+      "action": "DO NOT RESTART（用户取消）"
+    },
+    "9418": {
+      "name": "git daemon",
+      "state": "stopped",
+      "action": "DO NOT RESTART（用户取消）"
+    }
+  },
+  "handoffFiles": [
+    {
+      "path": "HANDOFF/README.md",
+      "purpose": "交接包总索引与 5 分钟接手路径"
+    },
+    {
+      "path": "HANDOFF/00-START-HERE.md",
+      "purpose": "环境、服务、干净环境变量、首次验证、6 个已知坑"
+    },
+    {
+      "path": "HANDOFF/01-PROJECT-OVERVIEW.md",
+      "purpose": "产品与业务架构、角色、闭环、5 tab、成熟度三档"
+    },
+    {
+      "path": "HANDOFF/02-ARCHITECTURE.md",
+      "purpose": "技术四层、上游引用强度、前端分层、记忆主干、平台端口"
+    },
+    {
+      "path": "HANDOFF/03-WORK-LOG.md",
+      "purpose": "13 轮工作记录、提交号、排障模式、用户决策"
+    },
+    {
+      "path": "HANDOFF/04-CODE-MAP.md",
+      "purpose": "按功能域的代码地图与依赖方向"
+    },
+    {
+      "path": "HANDOFF/05-VALIDATION-AND-COMMANDS.md",
+      "purpose": "全套回归命令、预期输出、排障、提交前检查"
+    },
+    {
+      "path": "HANDOFF/06-CURRENT-STATE-AND-NEXT.md",
+      "purpose": "状态快照、B2 待做、C 排队、去 Paperclip 化"
+    },
+    {
+      "path": "HANDOFF/07-RULES-AND-BOUNDARIES.md",
+      "purpose": "红线、隐私、许可证、服务与工程约束"
+    },
+    {
+      "path": "HANDOFF/08-OPEN-DECISIONS.md",
+      "purpose": "需用户拍板的 8 项事项"
+    },
+    {
+      "path": "HANDOFF/DIRECTORY-GUIDE.md",
+      "purpose": "目录完全指南（目录树/入库状态/.runtime/产物位置）"
+    },
+    {
+      "path": "HANDOFF/FILE-INVENTORY.md",
+      "purpose": "全部入库文件逐文件一行说明"
+    },
+    {
+      "path": "HANDOFF/handoff-manifest.json",
+      "purpose": "本文件：机器可读交接元数据"
+    }
+  ],
+  "fileInventory": {
+    "path": "HANDOFF/FILE-INVENTORY.md",
+    "totalEntries": 262,
+    "handWrittenDescriptions": 194,
+    "autoExtractedDescriptions": 68,
+    "fallback": 0,
+    "uncovered": 0
+  },
+  "nextSteps": [
+    "读 HANDOFF/00-START-HERE.md 与 06-CURRENT-STATE-AND-NEXT.md",
+    "跑 HANDOFF/05-VALIDATION-AND-COMMANDS.md 的全套回归确认基线",
+    "B2-1: TeamMemory.search 接入 recallMemory 投影融合（不破坏 reusable/allowed 重评）",
+    "B2-2: grant-revoked 按 principal 精确过滤",
+    "B2-3: 真实业务动作产生完整知识类事件并跑端到端撤权",
+    "B2-4: 投影增量构建/压缩（全量重放与增量 checksum 一致）",
+    "B2 验收通过后才能开始 C（单一 Router + A2A handoff + 平台底座切换）"
+  ],
+  "openDecisions": [
+    "Plugin SDK 移除 vs 5 tab 插件式单页的产品形态冲突",
+    "外部模型端点与凭据（Cognee cognify 真跑）",
+    "真人业务验收 SUI-129 只能由用户本人在原会话完成",
+    "飞书部门 scope 授权需本人确认",
+    "B2 范围与优先级确认",
+    "国内/海外外部服务是否接通",
+    "已取消服务的长期状态",
+    "\"pi\" 的指代（当前按 earendil-works/pi 理解）"
+  ],
+  "doNot": [
+    "不要重启 4190/4192/4194/9418",
+    "不要改 upstream/ 上游源码",
+    "不要把 .runtime/ 的真实身份/密钥/业务正文提交进仓库",
+    "不要用报告/模型判定/CI/合并审批代替真人「确认验收」",
+    "不要在 B2 验收前开始 C"
+  ],
+  "finalValidationAtHandoff": {
+    "unitTests": "315/315",
+    "walkthrough": "11/11",
+    "upstreamAudit": "clean",
+    "gitDiffCheck": "pass",
+    "note": "交接包仅新增文档后重跑全套回归"
+  }
+}
