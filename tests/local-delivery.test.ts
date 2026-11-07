@@ -68,3 +68,23 @@ test('组织 owner 决策与 scope 授权链路已落地到脚本', () => {
   assert.match(orgAuthCommand(granted), /im:message/);
   assert.match(orgAuthCommand(granted), /contact:department\.organize:readonly/);
 });
+
+test('合并与发布已自动化，但业务验收红线不动', () => {
+  const cfg = read('src/config.ts');
+  assert.match(cfg, /autoMerge: z\.boolean\(\)\.default\(true\)/);
+  assert.match(cfg, /autoPublish: z\.boolean\(\)\.default\(true\)/);
+  const git = read('src/local-git.ts');
+  assert.match(git, /private async mergeNow/);
+  assert.match(git, /merge-base', '--is-ancestor/);
+  assert.match(git, /update-ref', 'refs\/heads\/main'/);
+  assert.match(git, /private async publishNow/);
+  assert.match(git, /config\.delivery\.autoMerge && record\.ci === 'passed'/);
+  assert.match(git, /自动合并未完成/);
+  // 自动合并失败必须留可见记录，不能静默吞掉；验收仍明确由人完成。
+  assert.match(git, /业务验收仍需原发起人在原会话确认/);
+  assert.match(git, /业务验收仍走 Controller\.accept \/ confirmAcceptance/);
+  const page = read('scripts/delivery-server.ts');
+  assert.match(page, /已自动发布/);
+  assert.doesNotMatch(page, /预览只固定到确切提交，不自动合并、不自动发布/);
+  assert.match(page, /业务验收仍须由原发起人在原会话/);
+});

@@ -68,7 +68,7 @@ flowchart LR
 | 档位 | 范围 | 证据 |
 |---|---|---|
 | 已跑通、可回归 | 中文指令、派单与交接、限时授权、Context Pack、知识候选→采用/撤回、开工前锁定清单 + 逐项报告 + Trace、本机 Git 交付全链（clone/push/CI/合并审批/固定提交预览）、组织映射 3 人导入、国内服务实时探测 | 283 项单测、11/11 真实浏览器走查、`delivery:demo` 真跑 |
-| 预备配置，**不等于启用** | 模型三档策略（不存 Key、不接外部网关）、Cognee 原生 LLM / embedding / cognify 管线、L2 组织图草稿（待人工审阅）、飞书部门 scope 授权命令（需本人在飞书确认） | 设置页明确标注「保存但未启用」 |
+| 预备配置，**不等于启用** | 模型三档策略（不存 Key）、L2 组织图草稿（待人工审阅）、飞书部门 scope 授权命令（需本人在飞书确认） | 设置页明确标注「保存但未启用」。Cognee 原生管线已于 2026-11-07 打开，属「链路已实现、待外部端点配置」，不再是预备配置 |
 | 未接通 / 未发生 | 企业微信 / 腾讯文档 / 钉钉 / 国内代码托管 / 公有云 CI / Slack、GitHub、Linear、Notion、Vercel、Zapier；全员 SSO 与真实员工入驻；生产发布；真人在真实业务单「确认验收」（SUI-129 仍未核可）；4190 视觉端点与 4192 报告服务当前停机 | 「国内服务」页逐项标注状态来源与接通步骤 |
 
 ### 业务红线（不得因重构或新功能冲掉）
@@ -107,7 +107,7 @@ flowchart TD
   Model[Flash/Lite · 通用 · 编码模型配置] -.预备策略，未启用新服务.-> Exec
   Cognee --> Memory[已确认知识 / BM25 持久记忆 / 人审概念]
   Cognee -->|op=read 只读投影| L2[L2 组织图 · 确定性抽取 / 草稿边 / 人审后才生效]
-  Cognee -.仍未启用.-> Semantic[Cognee 原生 LLM 实体抽取 / embedding / cognify]
+  Cognee -.已打开·外部模型 API·待端点配置.-> Semantic[Cognee 原生 LLM 实体抽取 / embedding / cognify]
   Cognee --> Recall[BM25 检索 + Apple NL 设备端词向量语义加权 · 本机]
   Recall --> Vision[Apple Vision 本机端点 · 截图 OCR / 分类 → 独立视觉评审]
 ```
@@ -124,7 +124,7 @@ flowchart TD
 | 协作与开发执行 | 真实 Codex CLI + 原版 Autoloop worker；SUI-74、SUI-81、SUI-85 已运行 | 协作按证据调用工具、提问等待并接续；开发 PR #3 已交付且 CI 通过。旧项目访问失败不通过扩大授权解决 |
 | 服务 Agent | 原生成员归属、Harness 构建、A2A 子任务、澄清、回传与取消；独立 3110 实例具有三套 operator 账号和三个资料身份 | 业务与成员为模拟角色；主实例仍为本机管理员模式，不能替代真实员工生产验证 |
 | 其他 Agent | 通用 CLI / MCP / 人工接单接入合同 | 注册名称不等于云端自动执行已验证；WorkBuddy、豆包等逐端核实 |
-| 模型设置 | 轻量、通用、编码三档与动态执行身份绑定已保存到私有原生文档 | 仅预备配置，不存 API Key；**不接入任何外部 / 云端模型网关**。例外是两套 macOS 设备端能力：Apple NaturalLanguage 词向量（recall 语义加权）与 Apple Vision（截图 OCR / 分类，独立视觉评审），均只监听 `127.0.0.1`、不外发业务材料、不下载模型 |
+| 模型设置 | 轻量、通用、编码三档与动态执行身份绑定已保存到私有原生文档 | 2026-11-07 起 Cognee 原生管线允许外部 OpenAI-compatible 模型 API（凭据只走进程环境变量、不入库，材料会外发）；模型三档仍是预备配置。另有两套 macOS 设备端能力：Apple NaturalLanguage 词向量（recall 语义加权）与 Apple Vision（截图 OCR / 分类，独立视觉评审），均只监听 `127.0.0.1`、不外发业务材料、不下载模型 |
 | Cognee + Ladybug | 固定 1.6.6；持久 chunk、BM25 检索、原文概念与关系候选、人审图版本、原版图谱 | 已确认知识持续索引，当前权限和版本前后复查；**Cognee 原生** LLM / embedding / cognify 与向量语义检索仍未启用；另有不写入 Cognee 的 Apple NL 设备端词向量用于 recall 加权 |
 | 知识字典 | Cognee 原生 GraphSchema / reducer / JSON Schema 转换 | 概念、定义、文本/数字/布尔/日期/枚举/关系；按空间配置，尚未驱动自动抽取 |
 | Wiki 插件 | 原版插件已安装，本地 Markdown 目录 | 自动摄取关闭，未把共享 Wiki 空间字段当作可靠私有 ACL |
@@ -138,7 +138,7 @@ flowchart TD
 - **资料层**：飞书保留实时引用，内部内容使用 Paperclip 文档与原生修订。非结构化正文与有类型的事实字段共同版本化，可编辑、搜索、筛选、审阅和撤回。
 - **知识引擎层**：直接集成 Cognee 的 DataPoint、Ladybug、来源追踪、图谱渲染与 GraphSchema。图引擎、字典模型和序列化不重写；SuitMe 只负责现有身份、确切资料版本和原生权限的衔接。
 - **当前图层**：已确认内部知识按当前修订持续建立文档、字段、片段和关系索引；Agent 按原文和字典准备概念关系，人审后进入图谱。按来源修订物理隔离；旧修订、过期权限或已验收任务不能用来读取当前上下文。生成图不会确认候选，也不会复活旧授权。
-- **当前记忆与后续扩展**：Cognee 原版 BM25 已用于获准来源和已采用概念的持久检索；另有 Apple NaturalLanguage 设备端 300 维中英文词向量（`scripts/apple-embedding.swift`、`src/semantic-recall.ts`）对 recall 结果做语义加权——设备端计算、不下载模型、不写 Cognee、不外发材料，与 Cognee 原生管线无关。跨来源自动消歧、**Cognee 原生** embedding 语义检索与 LLM cognify 管线仍未启用；按用户选择不接入任何外部 / 云端模型服务。
+- **当前记忆与后续扩展**：Cognee 原版 BM25 已用于获准来源和已采用概念的持久检索；另有 Apple NaturalLanguage 设备端 300 维中英文词向量（`scripts/apple-embedding.swift`、`src/semantic-recall.ts`）对 recall 结果做语义加权——设备端计算、不下载模型、不写 Cognee、不外发材料，与 Cognee 原生管线无关。跨来源自动消歧、**Cognee 原生** embedding / LLM cognify 管线已于 2026-11-07 按用户决策打开，允许外部模型 API；设备端语义加权仍是独立、不外发的链路，两者并存。
 
 生命周期为来源 → 获准用于本任务 → 工作稿 → 人审候选 → 确认/采用 → 可复用知识。一次任务中出现过不代表可以成为长期记忆；模型不能自行批准授权、采用知识或最终验收。临时访问也不包含将别人的资料永久发布为知识的权限；专业负责人在其有权负责的空间审阅采用。修改内容后进入新的候选修订，确认不能跨版本沿用。
 

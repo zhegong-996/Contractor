@@ -37,6 +37,10 @@ export interface LocalDeliveryRecord {
   approvals: { actor: string; decision: 'approved' | 'rejected'; at: string; note: string }[];
   notifications: { at: string; kind: string; text: string }[];
   url: string;
+  /** 自动合并 / 自动发布后的确切版本，供交付台与预览页核对。 */
+  mergeSha?: string;
+  publishedAt?: string;
+  previewUrl?: string;
 }
 
 const recordFile = (id: number) => runtime('git', 'deliveries', `${id}.json`);
@@ -185,19 +189,63 @@ export class LocalGitDelivery implements DeliveryAdapter {
       deployedSha: record.headSha, previewUrl: `http://127.0.0.1:${this.port}/preview/${record.id}` };
   }
 
-  /** 交付台的合并审批；业务验收仍走 Controller.accept / confirmAcceptance。 */
+  /**
+   * 真正把交付分支推进到本机 main（只做 fast-forward，冲突时明确报错，
+   * 不自动做三方合并），并按配置自动发布固定版本预览制品。
+   * 只作用于本机裸仓库与本机预览目录，不发布业务仓库、不触发云端 CI。
+   */
+  private async mergeNow(record: LocalDeliveryRecord, actor: string): Promise<void> {
+    const mainSha = (await command('git', ['--git-dir', this.bare, 'rev-parse', 'refs/heads/main'])).trim();
+    const branchSha = (await command('git', ['--git-dir', this.bare, 'rev-parse', `refs/heads/${record.branch}`])).trim();
+    const fastForward = await command('git', ['--git-dir', this.bare, 'merge-base', '--is-ancestor', mainSha, branchSha])
+      .then(() => true).catch(() => false);
+    if (!fastForward) throw new Error('本机 main 已有新提交，无法 fast-forward 自动合并；请先人工处理该分支');
+    await command('git', ['--git-dir', this.bare, 'update-ref', 'refs/heads/main', branchSha, mainSha]);
+    record.status = 'merged';
+    record.mergeSha = branchSha;
+    this.pushNotification(record, '合并', `${actor} 已合并到本机 main（fast-forward ${branchSha.slice(0, 12)}）；业务验收仍需原发起人在原会话确认。`);
+    if (this.config.delivery.autoPublish) await this.publishNow(record, branchSha);
+  }
+
+  private async publishNow(record: LocalDeliveryRecord, sha: string): Promise<void> {
+    const dir = runtime('previews', record.taskId, sha);
+    await mkdir(dir, { recursive: true });
+    await writeFile(path.join(dir, 'version.json'), JSON.stringify({
+      commit: sha, kind: 'files', provider: 'local-git', environment: 'local-artifact-preview',
+      published: true, at: now(),
+    }, null, 2), { mode: 0o600 });
+    await writeFile(path.join(dir, 'index.html'),
+      `<!DOCTYPE html><html lang="zh-CN"><meta charset="utf-8"><title>本机交付预览</title><body><h1>本机交付预览</h1><p>已自动发布确切提交 ${sha}</p><ul>${record.changedFiles.map(f => `<li>${f}</li>`).join('')}</ul></body></html>`,
+      { mode: 0o600 });
+    record.publishedAt = now();
+    record.previewUrl = `http://127.0.0.1:${this.port}/preview/${record.id}`;
+    this.pushNotification(record, '发布', `已自动发布本机预览制品（确切提交 ${sha.slice(0, 12)}）；不发布业务仓库、不触发云端 CI。`);
+  }
+
+  /**
+   * 交付台的合并审批。用户 2026-11-07 放开「合并与发布」：审批同意且本机 CI 通过时
+   * 自动 fast-forward 合并并自动发布预览；人工点「合并」也走同一条真实合并路径。
+   * **业务验收仍走 Controller.accept / confirmAcceptance，红线不变。**
+   */
   async decide(id: number, decision: 'approved' | 'rejected' | 'merge', actor: string, note = ''): Promise<LocalDeliveryRecord> {
     const record = this.read(id);
     if (!record) throw new Error(`本机没有这个交付请求：${id}`);
     if (decision === 'merge') {
+      if (record.status === 'merged') throw new Error('这个交付已合并到本机 main');
       if (record.ci !== 'passed' || record.status !== 'approved') throw new Error('必须先通过本机 CI 并取得合并审批');
-      record.status = 'merged';
-      this.pushNotification(record, '合并', `${actor} 已登记本机合并（不自动改写业务验收状态）。`);
+      await this.mergeNow(record, actor);
     } else {
       if (record.status === 'merged') throw new Error('已合并的交付不能撤回审批');
       record.status = decision;
       record.approvals.push({ actor, decision, at: now(), note });
       this.pushNotification(record, '审批', `${actor} ${decision === 'approved' ? '同意合并' : '打回'}：${note || '无补充说明'}`);
+      if (decision === 'approved' && this.config.delivery.autoMerge && record.ci === 'passed') {
+        try { await this.mergeNow(record, '本机交付台（自动）'); }
+        catch (error) {
+          // 审批本身已成功；自动合并失败必须留下可见记录，由人工点「合并」重试。
+          this.pushNotification(record, '合并', `自动合并未完成：${String((error as Error).message).slice(0, 200)}；请人工核对后重试。`);
+        }
+      }
     }
     record.updatedAt = now();
     this.save(record);

@@ -52,13 +52,42 @@ export const configSchema = z.object({
     enforce: z.boolean().default(true),
     protectHumanNotifications: z.boolean().default(true),
   }).default(() => ({ enforce: true, protectHumanNotifications: true })),
-  // Local, on-device semantic recall. No external model API is started.
+  // 设备端语义加权；Cognee 原生管线单列在 cogneeNative，两者互不替代。
   knowledge: z.object({
     semanticRecall: z.object({
       enabled: z.boolean().default(true),
       weight: z.number().min(0).max(1).default(0.45),
     }).default(() => ({ enabled: true, weight: 0.45 })),
-  }).default(() => ({ semanticRecall: { enabled: true, weight: 0.45 } })),
+    /**
+     * Cognee 原生 LLM 实体抽取 / embedding / cognify（用户 2026-11-07 明确打开）。
+     * 允许外部 OpenAI-compatible 模型 API：这里只存**环境变量名**，凭据与
+     * 端点值只在进程环境里，绝不写进 .runtime/config.json 或仓库。
+     * 业务材料会发往所配置的外部模型服务；未配置时明确报错，不静默降级成设备端能力。
+     */
+    cogneeNative: z.object({
+      enabled: z.boolean().default(true),
+      llm: z.object({
+        baseUrlEnv: z.string().min(1).default('COGNEE_LLM_BASE_URL'),
+        apiKeyEnv: z.string().min(1).default('COGNEE_LLM_API_KEY'),
+        modelEnv: z.string().min(1).default('COGNEE_LLM_MODEL'),
+        defaultModel: z.string().min(1).default('openai/gpt-4o-mini'),
+      }).default(() => ({ baseUrlEnv: 'COGNEE_LLM_BASE_URL', apiKeyEnv: 'COGNEE_LLM_API_KEY',
+        modelEnv: 'COGNEE_LLM_MODEL', defaultModel: 'openai/gpt-4o-mini' })),
+      embedding: z.object({
+        baseUrlEnv: z.string().min(1).default('COGNEE_EMBEDDING_BASE_URL'),
+        apiKeyEnv: z.string().min(1).default('COGNEE_EMBEDDING_API_KEY'),
+        modelEnv: z.string().min(1).default('COGNEE_EMBEDDING_MODEL'),
+        defaultModel: z.string().min(1).default('openai/text-embedding-3-small'),
+        dimensions: z.number().int().min(1).default(1536),
+      }).default(() => ({ baseUrlEnv: 'COGNEE_EMBEDDING_BASE_URL', apiKeyEnv: 'COGNEE_EMBEDDING_API_KEY',
+        modelEnv: 'COGNEE_EMBEDDING_MODEL', defaultModel: 'openai/text-embedding-3-small', dimensions: 1536 })),
+    }).default(() => ({ enabled: true,
+      llm: { baseUrlEnv: 'COGNEE_LLM_BASE_URL', apiKeyEnv: 'COGNEE_LLM_API_KEY', modelEnv: 'COGNEE_LLM_MODEL', defaultModel: 'openai/gpt-4o-mini' },
+      embedding: { baseUrlEnv: 'COGNEE_EMBEDDING_BASE_URL', apiKeyEnv: 'COGNEE_EMBEDDING_API_KEY', modelEnv: 'COGNEE_EMBEDDING_MODEL', defaultModel: 'openai/text-embedding-3-small', dimensions: 1536 } })),
+  }).default(() => ({ semanticRecall: { enabled: true, weight: 0.45 },
+    cogneeNative: { enabled: true,
+      llm: { baseUrlEnv: 'COGNEE_LLM_BASE_URL', apiKeyEnv: 'COGNEE_LLM_API_KEY', modelEnv: 'COGNEE_LLM_MODEL', defaultModel: 'openai/gpt-4o-mini' },
+      embedding: { baseUrlEnv: 'COGNEE_EMBEDDING_BASE_URL', apiKeyEnv: 'COGNEE_EMBEDDING_API_KEY', modelEnv: 'COGNEE_EMBEDDING_MODEL', defaultModel: 'openai/text-embedding-3-small', dimensions: 1536 } } })),
   // L2 organisation-graph extraction. The default adapter is deterministic:
   // no model service is started and Cognee L1 stays read-only and isolated.
   orgExtraction: z.object({
@@ -77,8 +106,16 @@ export const configSchema = z.object({
     repoName: z.string().regex(/^[a-z0-9][a-z0-9._-]*$/).default('suitme-collab'),
     /** 审批时是否自动给飞书 allowlist 本人发通知；默认关闭，避免未经确认的消息。 */
     feishuNotify: z.boolean().default(false),
+    /**
+     * 本机 Git 交付自动化（用户 2026-11-07 明确放开）：CI 通过 + 审批齐全后
+     * 自动 fast-forward 合并到本机 main，并自动发布固定版本预览 / 制品。
+     * 只作用于本机裸仓库与本机预览，不发布业务仓库、不触发云端 CI。
+     * **业务验收仍必须由原发起人在原会话「确认验收」，红线不变。**
+     */
+    autoMerge: z.boolean().default(true),
+    autoPublish: z.boolean().default(true),
   }).default(() => ({ provider: 'local' as const, port: 4194, gitPort: 9418,
-    repoName: 'suitme-collab', feishuNotify: false })),
+    repoName: 'suitme-collab', feishuNotify: false, autoMerge: true, autoPublish: true })),
 });
 export type Config = z.infer<typeof configSchema>;
 export type Agent = Config['agents'][string];

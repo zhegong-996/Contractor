@@ -22,7 +22,7 @@
 - **Super-agent 原版模块**：飞书消息归一化、幂等回复，以及原版策略门控和需求范围判断。
 - **DeepSeek Harness 原版模块**：Agent 身份与工作方法的作用域装配、提示词与工具限制、原生工具执行管线；[构建与执行边界](docs/AGENT-BUILDING.md)。
 - **Autoloop 原版模块**：原版 worker、Codex/Claude/通用命令/ACP 适配器、进程与结果日志、会话接续和回执恢复。
-- **Cognee 原版模块**：Ladybug 图存储、DataPoint、来源追踪、图谱渲染与知识字典模型；**L2 组织图只读自动抽取**（确定性、0 模型调用）已接入，Cognee 原生 LLM 实体抽取、embedding 与语义记忆管线暂不启用。详见 [上游适配清单](docs/UPSTREAM-ADAPTERS.md)。
+- **Cognee 原版模块**：Ladybug 图存储、DataPoint、来源追踪、图谱渲染与知识字典模型；**L2 组织图只读自动抽取**（确定性、0 模型调用）已接入；2026-11-07 起 Cognee 原生 LLM 实体抽取 / embedding / cognify 已打开（`npm run cognee:native`），允许外部 OpenAI-compatible 模型 API，需在进程环境配置 `COGNEE_LLM_*` / `COGNEE_EMBEDDING_*`，业务材料会外发、凭据不入库。详见 [上游适配清单](docs/UPSTREAM-ADAPTERS.md)。
 - **本仓库接入层**：原系统之间的身份和任务映射、交接包、限定范围的本机 Git 代码交付、版本证据和业务验收。
 
 上游作为 Git submodule 固定到提交，不复制整套调度器。实际复用文件和版本见 [来源记录](docs/SOURCES.md)。

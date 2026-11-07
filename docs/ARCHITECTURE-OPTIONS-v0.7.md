@@ -33,7 +33,7 @@
 | **Agent Autoloop** MIT | worker 契约、原生进程执行与回执恢复、CLI 适配器 | `native-worker.ts`、`assistant-turn.ts` | 已接，执行层 |
 | **DeepSeek Harness** MIT | persona / scope / 工具管线 / 输入保留与序列化 | `harness-composition.ts` | 已接，装配层 |
 | **Prime Agent** MIT | 检索词权重、近期目标权重 | `vendor/prime-query.ts`、`team-memory.ts` | 代码移植（需保留版权头） |
-| **Cognee 1.6.6** Apache-2.0 | DataPoint / Ladybug / provenance / GraphSchema / BM25 / 图谱渲染 | `graph.ts`、`ontology.ts`、`team-memory.ts`、`org-extraction.ts`、`scripts/cognee-*.py` | 已接 L1 投影与 L2 确定性草稿抽取；**原生 LLM / embedding / cognify / 向量语义检索全部关闭** |
+| **Cognee 1.6.6** Apache-2.0 | DataPoint / Ladybug / provenance / GraphSchema / BM25 / 图谱渲染 | `graph.ts`、`ontology.ts`、`team-memory.ts`、`org-extraction.ts`、`scripts/cognee-*.py` | 已接 L1 投影与 L2 确定性草稿抽取；**2026-11-07 起原生 LLM 实体抽取 / embedding / cognify 已打开**（`scripts/cognee-native.py`，外部 OpenAI-compatible API，待端点配置） |
 | **Acceptance** Apache-2.0 | 验收计划 / 报告 / 产物格式的**契约与文件布局** | `acceptance-interop.ts`、`export-acceptance.ts` | 已接格式；**CLI 与云端报告服务未启动** |
 
 npm 侧另有 `@a2a-js/sdk` 1.3.0（Apache-2.0，服务 Agent 委派）、`@modelcontextprotocol/sdk` 1.31.0、Zod。
@@ -58,7 +58,7 @@ npm 侧另有 `@a2a-js/sdk` 1.3.0（Apache-2.0，服务 Agent 委派）、`@mode
 | 8 | **事件溯源记忆主干** | `event-stream.ts` 是事件流，`trace-bridge.ts` 是 best-effort，未成为 system-of-record | 源码 | 自研（主流框架无满足团队权限的版本）；复用 `trace-bridge` 已有事件形状 |
 | 9 | **Acceptance CLI / 云端报告服务** | 只复用格式契约 | `UPSTREAM-ADAPTERS.md` §2 | `lobehub/acceptance` Apache-2.0（**代码可复用，需单独评估运行时依赖**） |
 | 10 | **独立视觉评审端点** | 4190 Apple Vision 已跑通但当前停机（用户取消） | VALIDATION 第十轮 | 本机 `vision-server.ts`（自研）+ Acceptance 证据格式 |
-| 11 | **Cognee 原生 LLM / embedding / cognify** | 按用户选择关闭 | `PRODUCT.md` | 保持关闭，等选定模型服务；不因「补齐」而擅自启用 |
+| 11 | ~~Cognee 原生 LLM / embedding / cognify~~ | **已按 2026-11-07 用户决策打开** | `src/cognee-native.ts`、`scripts/cognee-native.py`、`npm run cognee:native` | 链路已实现并真跑状态检查；真跑 cognify 仍需外部端点与凭据，缺配置明确报错 |
 | 12 | **L1–L5 自主度 / Agent Vent / harness 自优化 / 组织体温闭环** | 未实现（仅设计参考） | `ARCHITECTURE-v0.6.md` §14 | LobeHub 只借思想；不复制代码 |
 | 13 | **全员 SSO / 真实员工入驻 / 生产发布** | 未发生 | VALIDATION 第十轮 | Paperclip 原生 authenticated 模式（MIT，可复用） |
 | 14 | **真人在真实业务单确认验收** | 未发生（SUI-129 未核可） | 同上 | 不是代码缺口，是流程红线，不能由补代码替代 |
@@ -154,7 +154,7 @@ LobeHub 三层的原话依据（赛博禅心《如何让 Super-agent 成为同�
 | **P0 · 对齐**（对应方案 A） | 统一类型契约 + FR 覆盖对照表 + 文档指针收敛到本文件 | 对照表每条可指向源码行号；`npm test` / `tsc` / `audit:upstream` 全绿 | 运行形态、前端、数据库 |
 | **P1 · 记忆主干**（方案 B 前半） | 记忆事件日志 + 投影重放 + ontology 统一写入校验 | 重放可复现；越权用例回归；`modelCalls=0` 边界不破 | 用户入口、派单链路 |
 | **P2 · 权限与 lineage**（方案 B 后半） | 检索时重评权限、bi-temporal 失效、Cognee `annotate` grounding | 来源撤权后派生记忆不可召回；未匹配节点标 `ontology_valid=false` 供人审 | 不启用 cognify / 外部模型 |
-| **P3 · 三层 router**（方案 C） | Personal / 主管 / 执行三层 + A2A handoff + 前端二级视图 | 真实一单端到端、Trace 可回放、`legacy` 可回退、验收身份不变 | 不新增 tab、不改上游、不自动合并/发布 |
+| **P3 · 三层 router**（方案 C） | Personal / 主管 / 执行三层 + A2A handoff + 前端二级视图 | 真实一单端到端、Trace 可回放、`legacy` 可回退、验收身份不变 | 不新增 tab、不改上游；本机合并与发布已自动化，但仍不发布业务仓库 |
 
 ---
 
@@ -185,8 +185,9 @@ LobeHub 三层的原话依据（赛博禅心《如何让 Super-agent 成为同�
 
 **C 类 · 明确不补齐（产品红线或用户已决定）**
 
-- Cognee 原生 LLM / embedding / cognify 与向量语义管线：按用户选择保持关闭。
-- 自动合并 PR / 自动发布 / 无人值守最终验收 / 知识自动采用：PRD §1.3 明确不做。
+- ~~Cognee 原生 LLM / embedding / cognify 与向量语义管线~~：2026-11-07 已按用户决策打开（允许外部模型 API）。
+- ~~自动合并 / 自动发布~~：2026-11-07 已按用户决策放开，仅限本机裸仓库与本机预览制品；业务仓库仍不发布。
+- **仍不做（红线）**：无人值守最终验收、知识自动采用、真人在真实业务单「确认验收」由代码替代。
 - 真人在真实业务单「确认验收」：不是代码缺口，不能靠复用补齐。
 - 组织体温用于人员考核 / KPI：明确不做。
 

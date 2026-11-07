@@ -15,6 +15,7 @@
     "build:workspaces": "node --import tsx scripts/install-workspace-plugin.ts --build-only && tsc --noEmit -p plugins/knowledge-workspaces/tsconfig.json",
     "build:chinese-shell": "node --import tsx scripts/build-chinese-shell.ts",
     "setup:graph": "node --import tsx scripts/setup-graph.ts",
+    "cognee:native": "node --import tsx scripts/cognee-native.ts",
     "test:cross-role": "node --import tsx scripts/smoke-cross-role.ts --run",
     "install:upstream": "node --import tsx scripts/install-upstream.ts",
     "install:wiki": "node --import tsx scripts/install-wiki.ts",

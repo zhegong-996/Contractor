@@ -41,7 +41,7 @@
 ### 1.3 不做什么（Out of Scope，本版）
 
 - 生产部署、全员 SSO、企业多租户、公网 Agent 服务发现。
-- 自动合并 PR / 自动发布业务仓库、无人值守的最终验收与知识采用。
+- 无人值守的最终验收与知识采用（**仍为红线**）。**2026-11-07 修订**：原「不自动合并 / 不自动发布」已放开——本机 Git 交付在 CI 通过且审批齐全后自动 fast-forward 合并到本机 main 并自动发布本机预览制品；仍不发布业务仓库、不触发云端 CI，业务验收仍由原发起人在原会话「确认验收」。
 - 自研图数据库、实体抽取器、图查询语言、Agent 记忆引擎、第二套任务调度器。
 - 用「组织体温」做人员考核或排名；不设 KPI/OKR。
 - 启用新模型服务、LLM 实体抽取 / embedding 语义检索（保留配置入口，等用户选定服务）。
@@ -72,7 +72,7 @@
 | R2 | 固定 submodule、不改上游源码；一个任务调度核心，不启动第二 hub | 新增能力走适配层或新增模块，不 fork Paperclip |
 | R3 | **Agent「完成」≠ 业务验收**；`completed` 只结束本轮 | M9 人核可、Acceptance Plan 锁定 |
 | R4 | 授权、知识采用、最终验收由人决定，模型不得自批 | M4 闸门、M13 owner 审批、M14 写入门槛、D9 底线 |
-| R5 | 只用获准的测试仓库，不合并/不发布业务仓库，本地预览标 `local-pr-preview` | M4 高风险动作必须真人签字 |
+| R5（2026-11-07 修订） | 只用获准的测试仓库；**不发布业务仓库**；本机裸仓库的合并与本机预览制品发布已自动化（`delivery.autoMerge/autoPublish`）；本地预览标 `local-artifact-preview` | M4 高风险动作仍必须真人签字；自动合并 / 发布不改变业务验收身份 |
 | R6 | 运行时状态、凭据、真实正文不提交 GitHub；测试通过不等于真实 journey 通过 | X2 Trace 与第 7 节验收口径 |
 | R7 | 上游许可证与归属保留；新增依赖须写入 `THIRD_PARTY_NOTICES.md` 与 `licenses/`；非 MIT/Apache-2.0 协议先评审再引入 | 第 10 节复用矩阵、`OPEN-SOURCE-COMPLIANCE.md` |
 
@@ -170,7 +170,7 @@
 | ID | 需求 | 验收标准 | 优先级 | 现有 |
 |---|---|---|---|---|
 | FR-14 | **制品三态与 lineage**：草稿 / 已验收 / 可复用，带版本 diff | ① 只有已验收能进共享上下文；② 熔断可沿复用边反查影响面并回滚到上一已验收版本 | P1 | 部分：候选→确认→撤回→采用新物理图版本，对象级而非边级 |
-| FR-15 | **代码交付与版本证据** | ① 同 SHA 的 CI 产物 + `version.json` 校验；② 不自动合并/发布；③ 本地预览明确标 `local-pr-preview` | P0 | 原 GitHub 链路已跑通（PR #2/#3、Actions、同 SHA 预览）；**第八轮起默认改为本机 Git 交付**（`DeliveryAdapter` + `src/local-git.ts`）：确切提交、本机 CI、合并审批与固定版本预览，GitHub 适配器保留可回退。契约①~③不变，实现不再依赖海外服务 |
+| FR-15 | **代码交付与版本证据** | ① 同 SHA 的 CI 产物 + `version.json` 校验；② 本机合并与预览发布可自动执行（不发布业务仓库）；③ 本地预览明确标 `local-artifact-preview` | P0 | 原 GitHub 链路已跑通（PR #2/#3、Actions、同 SHA 预览）；**第八轮起默认改为本机 Git 交付**（`DeliveryAdapter` + `src/local-git.ts`）：确切提交、本机 CI、合并审批与固定版本预览，GitHub 适配器保留可回退。契约①③不变、②按 2026-11-07 决策修订，实现不再依赖海外服务 |
 
 ### F 验收（模块 F）—— 本版最大增量
 
@@ -284,7 +284,7 @@
 | **Agent Autoloop** `ba8cf6d` / MIT | `createWorker`、Codex/Claude/command/ACP 适配器、进程与回执、会话接续 | J 执行适配层、等待时释放执行 | 保留；回执补 Trace 字段（FR-25） |
 | **DeepSeek Harness** `fcc0ad4` / MIT | output-retention、session-reference、Cordis Context/scope、system-prompt、ToolsService、tool-executor-native、persona | J 运行时、Agent 身份与工具限制、FR-25 事件流来源 | 保留；**评估启用完整 AgentLoop / checkpoint** 作为 B2 准入，不启第二调度器 |
 | **Prime Agent** `74591cd` / MIT | `harness.py` query runs/terms、`harness_digest.rs` 目标/近期上下文权重 → `src/vendor/prime-query.ts` | C 上下文裁剪的权重策略 | 保留；不启 daemon / 全局 refinement |
-| **Cognee** `525b1d1` (1.6.6) / Apache-2.0 | LadybugAdapter、DataPoint、provenance、GraphVisualization、GraphSchema reducer / JSON Schema、BM25ChunksRetriever | **K 知识底座的文档/语料图谱引擎**、FR-06/08 | 保留；**新增边状态与有效期适配层**（FR-09）与 **L2 只读自动抽取管线**（`src/org-extraction.ts`，确定性、0 模型调用）；LLM/embedding/cognify 管线继续关闭 |
+| **Cognee** `525b1d1` (1.6.6) / Apache-2.0 | LadybugAdapter、DataPoint、provenance、GraphVisualization、GraphSchema reducer / JSON Schema、BM25ChunksRetriever | **K 知识底座的文档/语料图谱引擎**、FR-06/08 | 保留；**新增边状态与有效期适配层**（FR-09）与 **L2 只读自动抽取管线**（`src/org-extraction.ts`，确定性、0 模型调用）；LLM/embedding/cognify 管线已于 2026-11-07 打开（外部模型 API，见 ADAPTATION 第十一轮） |
 | **Graphiti (Zep)** / Apache-2.0 | 会话中已作为对照核读：Episode、类型化实体、**边的 valid_at / invalid_at 双时间有效性**、增量图谱 | 借鉴 **supersession 语义**，解决「撤权/来源变版/验收打回后旧事实失效」 | **不部署整套**（需 Neo4j/FalkorDB）；只借时间边模型；Cognee 官方有 `GraphitiSource` 适配器，未来可平滑导入 |
 | **LightRAG** / MIT、**KAG / OpenSPG** / Apache-2.0 | 会话中已对照：GraphRAG 编辑与合并、概念/Schema/约束/词典 | 知识字典与图谱编辑的参考 | 仅参考，不叠加第二套索引与运行服务 |
 | **@a2a-js/sdk** 1.3.0 / Apache-2.0 | `DefaultRequestHandler`、`JsonRpcTransportHandler`、`TaskStore`、`ServerCallContext`；`delegate_service` 已跑通 SUI-103/106 | D 交织与 A2A 委派 | 保留；补 Transfer 生成与联签路由（FR-11/12） |
@@ -349,7 +349,7 @@
 | 工作台哪里留痕 | 组织级配置落本地配置层 + SQLite 审计；任务级事实（Transfer / Grant / 边状态）落 **Paperclip 原生任务文档修订**；全部经 `/workspace/v06-*` action 调用，未新建第二业务库 |
 | 签字人是谁 | Transfer 双段责任链：承接人负执行责任、目标职能 owner 负兜底责任并起草验收标准；对外 / 资金 / 客户可见等动作强制 owner 联签；最终业务验收仍是**原发起人在原会话 `/accept`** |
 
-**FR 覆盖状态（2026-11-06 第五轮收尾更新，详见 `ADAPTATION-v0.6.md` 0.000000 节与 `docs/VALIDATION.md`）**：FR-01/02/03/05/06/07/08/09/10/11/12/13/14/16/17/18/19/20/21/22/23/24/26/28/29/30/31 已具备契约、API 与可运行链路；三个 v0.6 视图长在现有 5 tab 内。第四轮列出的「仍未做」已全部补齐：**FR-18 真实本机视觉语义模型**（macOS Apple Vision 设备端 OCR + 图像分类，端点只监听 `127.0.0.1`、不外发材料、不下载模型）、**`lobehub/acceptance` submodule 与 Acceptance 格式互操作导出**、**真实「飞书 → Paperclip → Transfer → Trace → 独立视觉评审 → Acceptance 导出 → GitHub issue」跨职能一单 SUI-129**、**宿主实例全流程浏览器验收**（10/10 视图通过 + 425px 窄屏 0 溢出）、**`runtimeGuard.enforce` 默认开启与人工必达通知保护**、**Apple NaturalLanguage 设备端词向量接入 recall 语义加权**、L2 抽取闭环与本地演示。**保留边界**：Cognee 原生 LLM / embedding / cognify 与向量语义管线仍全部关闭；真实业务最终 `/accept` 未由发起人执行；真实员工多租户、飞书组织映射与生产发布仍未部署；`.runtime` 运行证据不入库，不冒充生产或真实业务验收；仓库默认仍可用 `acceptance.mode=legacy` 一行回退旧 `/accept`。
+**FR 覆盖状态（2026-11-06 第五轮收尾更新，详见 `ADAPTATION-v0.6.md` 0.000000 节与 `docs/VALIDATION.md`）**：FR-01/02/03/05/06/07/08/09/10/11/12/13/14/16/17/18/19/20/21/22/23/24/26/28/29/30/31 已具备契约、API 与可运行链路；三个 v0.6 视图长在现有 5 tab 内。第四轮列出的「仍未做」已全部补齐：**FR-18 真实本机视觉语义模型**（macOS Apple Vision 设备端 OCR + 图像分类，端点只监听 `127.0.0.1`、不外发材料、不下载模型）、**`lobehub/acceptance` submodule 与 Acceptance 格式互操作导出**、**真实「飞书 → Paperclip → Transfer → Trace → 独立视觉评审 → Acceptance 导出 → GitHub issue」跨职能一单 SUI-129**、**宿主实例全流程浏览器验收**（10/10 视图通过 + 425px 窄屏 0 溢出）、**`runtimeGuard.enforce` 默认开启与人工必达通知保护**、**Apple NaturalLanguage 设备端词向量接入 recall 语义加权**、L2 抽取闭环与本地演示。**保留边界（第五轮历史，2026-11-07 口径变更见 `ADAPTATION-v0.6.md` 第十一轮）**：当时 Cognee 原生 LLM / embedding / cognify 与向量语义管线全部关闭，现已按用户决策打开；真实业务最终 `/accept` 未由发起人执行；真实员工多租户、飞书组织映射与生产发布仍未部署；`.runtime` 运行证据不入库，不冒充生产或真实业务验收；仓库默认仍可用 `acceptance.mode=legacy` 一行回退旧 `/accept`。
 
 > 协议约束同步见 `OPEN-SOURCE-COMPLIANCE.md`：LobeHub 主仓库为 Community License（只借思想、不复制源码）、Acceptance 为独立 Apache-2.0、Outline 为 BSL 1.1（禁止引入代码）。第五轮**新增 1 个 submodule**（`lobehub/acceptance` Apache-2.0 `f720feb…`），已按该文档第 4 节补齐 LICENSE 原文 / NOTICE 检查 / `THIRD_PARTY_NOTICES.md` 专节 / `docs/SOURCES.md` / `sources.lock.json` / `audit:upstream`；除此之外未新增其他开源依赖。Apple Vision 与 Apple NaturalLanguage 是 macOS 系统框架，不引入第三方代码。
 
@@ -386,5 +386,5 @@
 | Q1 | 职能具体分几摊 | 由 Role Registry 配置，产品不预设（D11 已定） |
 | Q2 | Transfer 授权是否放宽 | 默认 L0 仅本 Task，跑一段后按数据放宽（D12 已定） |
 | Q3 | 图谱全局一份 vs 每空间一份 | 建议「证据图按来源修订物理隔离 + 上层全局组织图带边级标签」双层，见适配方案 C1 |
-| Q4 | 是否启用新模型服务 / LLM 抽取 / 向量检索 | **L2 抽取不依赖模型**（第四轮已用确定性投影闭环）；Cognee 原生 LLM/embedding/向量检索与视觉语义模型仍保留配置入口、暂不启用；启用前需绑定用户选定服务与资料许可 |
+| Q4 | 是否启用新模型服务 / LLM 抽取 / 向量检索 | **L2 抽取不依赖模型**（第四轮已用确定性投影闭环）；Cognee 原生 LLM/embedding/cognify 已按 2026-11-07 用户决策启用（外部 OpenAI-compatible API，凭据走进程环境）；视觉语义模型仍为本机端点 |
 | Q5 | 是否引入 Acceptance 作为新 submodule | 建议引入（Apache-2.0）；若不引入，FR-16~19 需自研同等契约并说明不复用理由 |

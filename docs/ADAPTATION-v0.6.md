@@ -4,9 +4,47 @@
 > 对象仓库：`/Users/gong.zhe/Developer/ai-native-collab`（`github.com/zhegong-996/suitme-collab`）
 > 依据：`docs/ARCHITECTURE-v0.6.md`（产品架构定稿）、`docs/PRD-v0.6.md`、Codex 会话「研究 AI Native 协作平台融合」、本仓库 `README.md` / `docs/*` / `sources.lock.json` / `src/*` / `git status`
 > 立场：**以 PRD v0.6 为准绳，代码适配产品**。已有实现尽量保留，以「补层」为主，不推倒重来；工程红线见 `PRD-v0.6.md` 第 2.2 节。
-> 状态：**方案已执行十轮**（底座 `f27a0e1`、功能补全 `7791c7b`、P3 前端增补 `c512c7b`、第四轮 L2 抽取 / P3 后半段 / 独立评审链 `255a5e9`、第五轮收尾 `78201c6`、第六轮 `285b97c`、第七轮 `7f33dd9`、第八轮 `c69e414`；第九轮见 0.0000000000 节，第十轮见 0.00000000000 节）。文档按轮次保留历史记录，**最新边界声明以 0.00000000000 节为准**。
+> 状态：**方案已执行十一轮**（底座 `f27a0e1`、功能补全 `7791c7b`、P3 前端增补 `c512c7b`、第四轮 L2 抽取 / P3 后半段 / 独立评审链 `255a5e9`、第五轮收尾 `78201c6`、第六轮 `285b97c`、第七轮 `7f33dd9`、第八轮 `c69e414`；第九轮见 0.0000000000 节，第十轮见 0.00000000000 节，第十一轮见 0.000000000000 节）。文档按轮次保留历史记录，**最新边界声明以 0.000000000000 节为准**。
 
 ---
+
+---
+
+## 0.000000000000 方案 A 落地、Cognee 原生管线打开、合并与发布自动化（2026-11-07 · 第十一轮）
+
+用户在本轮明确三项决策：**① 允许外部模型 API，`Cognee 原生 LLM / embedding / cognify` 打开并实现好；② 本机合并与发布都放开，但「真人业务验收」仍是红线；③ `A → B → C` 分阶段落地，不并行。** 另要求补齐 `sources.lock.json` 缺登记。
+
+### 1. 先纠正一个事实
+
+核对 `.gitmodules`、`git ls-files -s` 与 `sources.lock.json` 后确认：**Harness 与 Prime Agent 两条登记早已存在**（`fcc0ad46…` / `74591cdd…`），`audit:upstream` 输出 `clean: true`。「缺两条」来自 `OPEN-SOURCE-COMPLIANCE.md` 表格里两行过时的 ⚠️ 标记（同文档第 4 节已记「✅ 已补齐」）。本轮修正这两行与 `ARCHITECTURE-OPTIONS-v0.7.md` 的引用，并在 `tests/architecture-contracts.test.ts` 加机器化断言（7 个 gitlink 与锁文件逐条一致、合规文档不再出现过时告警）。**没有重复补登记，也没有假装补了。**
+
+### 2. 方案 A 落地（顺序上的第一阶段）
+
+新增 `src/architecture-contracts.ts` 作为唯一常量来源：组织本体 16 类节点 / 5 边族 / domain-range 规则（从 `org-ontology.ts` 上移并再导出保持兼容）、ontology 三层分工、三层 Agent 角色、四套运行时来源、共享记忆投影与 `memoryEventSchema`。`ARCHITECTURE-OPTIONS-v0.7.md` 增附录 A 统一 FR 覆盖三态口径。零运行行为变化，`npm test` 288/288。
+
+### 3. Cognee 原生管线打开（允许外部模型 API · 隐私边界已变更）
+
+- `src/config.ts` 新增 `knowledge.cogneeNative`（默认 `enabled: true`），只存**环境变量名**；`src/cognee-native.ts` 解析 `COGNEE_LLM_*` / `COGNEE_EMBEDDING_*`，凭据只经 `spawn` 的进程环境传给 `scripts/cognee-native.py`，不写 `.runtime/config.json` / `secrets.json` / 仓库。
+- Python 侧走 Cognee 原版 `add → cognify(extractor='llm') → search`，通过 `LLM_PROVIDER=custom` + `LLM_ENDPOINT` / `EMBEDDING_*` 接外部 OpenAI-compatible 服务；数据目录固定到 `.runtime/cognee-native/`。`npm run cognee:native status|cognify|search` 为入口。
+- **未配置端点时明确报中文错，不静默降级成设备端能力**；设备端 Apple NL 语义加权是独立、不外发的链路，两者并存。`ontology.ts` 的 `automaticExtraction` 与 `system-status` / 设置页状态均改为从配置派生，不再写死关闭。
+- 真跑：`npm run cognee:native -- status` 返回 `enabled:true, configured:false, missing:[4 个环境变量]`。**真跑 cognify 仍需用户提供外部端点与凭据**；本轮没有外发任何业务材料。
+
+### 4. 本机合并与发布自动化（业务验收红线不变）
+
+- `delivery.autoMerge` / `autoPublish` 默认 `true`。`LocalGitDelivery.decide('approved')` 在本机 CI 通过后自动 `merge-base --is-ancestor` 校验并 `update-ref` fast-forward 推进本机 main，随后自动写固定版本预览制品（`version.json` + `index.html`）；非 fast-forward 明确报错并留可见通知，由人工点「合并」重试，不做自动三方合并。
+- 真跑 `npm run delivery:demo`：`ci: passed` → `status: merged`、`mergeSha: c777106e2e7e`（与 `mainSha` 一致）、`publishedAt` 已写入、5 条通知；`git daemon` 未启动故跳过 `git://` 拉取验证（用户已取消 4194/9418，本轮未重启）。
+- **仍不做**：发布业务仓库、触发云端 CI、无人值守最终验收、知识自动采用。`local-git.ts` 与交付台页面都明确写着「业务验收仍须由原发起人在原会话『确认验收』」。
+
+### 5. 红线文档同步改写
+
+按用户决策改写了 `PRODUCT.md`、`README.md`、`PRD-v0.6.md`（§1.3 / R5 / FR-15 / 复用矩阵 / Q4）、`ARCHITECTURE-OPTIONS-v0.7.md`（缺口 11 与 C 类清单）、`SYSTEM-ARCHITECTURE.md`、`KNOWLEDGE-ENGINE.md`、`UPSTREAM-ADAPTERS.md`、`VALIDATION.md` 中的旧表述；历史轮次记录保留但统一标注「当时 / 历史，2026-11-07 已变更」，不再把旧口径当作现状。
+
+### 最新边界声明（以本节为准）
+
+- **已发生**：方案 A 统一契约与 FR 口径；Cognee 原生管线代码链路与 CLI 已实现并真跑状态检查；本机自动合并与自动发布真跑通；文档口径统一；`sources.lock.json` 一致性有回归断言。
+- **未发生**：Cognee `cognify` 的真实外部模型调用（缺端点与凭据，本轮没有外发材料）；**方案 B 记忆主干重构与方案 C 三层 router 尚未开始**（按 A→B→C 顺序排队，不并行）；真人在真实业务单「确认验收」（SUI-129 未核可）；生产发布与业务仓库发布；4190 / 4192 / 4194 / 9418 保持用户取消时的停机状态。
+- **红线不变**：`Agent 完成 ≠ 业务验收`；合并 / 发布 / CI / 报告 / 模型判定都不替代原发起人在原会话「确认验收」；上游源码不改；真实姓名、`open_id`、密钥与业务正文只在 `.runtime`。
+- **隐私新边界**：Cognee 原生管线启用后，业务材料会发往用户配置的外部模型服务；这是用户 2026-11-07 的明确决策，配置里不保存凭据。
 
 ## 0.00000000000 前端分层重构、产品与业务架构梳理（2026-11-07 · 第十轮）
 
@@ -36,7 +74,7 @@
 - **截图复核补修**：宿主侧栏 `/SUI/skills` `/SUI/apps` 带公司前缀，原运行时路由正则漏匹配，已改为覆盖前缀并同时隐藏 `li` 容器，走查加禁用缓存与 `hostNavHidden` 断言；自动轮询瞬时失败改为静默保留旧数据、只在状态行标注，手动刷新失败才提示。
 - **验证**：`npm test` **278/278**、`tsc`、`build:workspaces`、中文壳连续两次构建、`test:responsive`、`audit:upstream`、`git diff --check` 全绿；`test:walkthrough` **11/11**，真实浏览器测得国内服务页 12 行、仅 2 个 loopback 链接、0 个坏链接、侧栏两个未接通入口已隐藏。真实 HTTP 冒烟三个状态接口均 200。详见 `docs/VALIDATION.md` 第九轮。
 
-### 边界声明（历史记录，最新以 0.00000000000 节为准）
+### 边界声明（历史记录，最新以 0.000000000000 节为准）
 
 - **已发生**：服务清单改为实时探测并可自动刷新；构建幂等与时间炸弹修复；状态字段与界面文案不再与配置矛盾；新增 12 例状态层测试与 1 个浏览器走查步骤。
 - **未发生**：真人在真实业务单上「确认验收」（SUI-129 未核可）；部门 scope 本人在飞书确认；企业微信 / 腾讯文档 / 钉钉 / 国内代码托管 / 公有云 CI / 海外 SaaS 的实际连接；生产发布、真实外部 PR / CI、真人多租户、Cognee 原生模型管线、`lobehub/acceptance` CLI 与云端服务；4190 / 4192 保持用户取消时的停机状态。
@@ -53,7 +91,7 @@
 - **本机代码交付**：`DeliveryAdapter` 抽象 + `src/local-git.ts` 实现，`delivery.provider` 默认 `local`。`npm run delivery:serve` 提供 `git://127.0.0.1:9418`（clone / pull / push）与 `127.0.0.1:4194` 中文交付台（提交、本机 CI、合并审批、通知记录、确切提交预览）；`npm run delivery:demo` 真跑通全流程。GitHub 适配器保留，可显式回退。
 - **验证**：`npm test` 266/266、`tsc`、`build:workspaces`、`build:chinese-shell`、`test:walkthrough` 10/10、`test:responsive`、`audit:upstream`、`git diff --check` 全绿。完整记录见 `docs/VALIDATION.md` 第八轮。
 
-### 边界声明（历史记录，最新以 0.00000000000 节为准）
+### 边界声明（历史记录，最新以 0.000000000000 节为准）
 
 - **已发生**：组织 owner 完成成员核对并导入 3 人（只登记派单候选，不等于真人登录或资料权限）；部门 scope 授权命令已生成但**仍需本人在飞书确认**；本机 Git 交付台真跑通 clone/pull/push、本机 CI、合并审批与预览；前端入口收敛与中文壳默认生效。
 - **未发生**：真人在真实业务单上执行「确认验收」（SUI-129 仍未最终核可）；企业微信 / 腾讯文档 / 钉钉 / 国内代码托管平台 / 公有云 CI 的实际连接；生产发布、真实外部 PR / CI、真实员工多租户、飞书进群；Cognee 原生模型管线、L2 在真实新资料上的端到端触发；`lobehub/acceptance` 的 CLI 与云端报告服务。
@@ -111,7 +149,7 @@
 - 真实 bridge 实测：`v06-acceptance-report-view` 返回 `available: true / verdict: pass / 2 cases / 1 归档轮次 / 1 条自查标准`；`v06-org-mapping-view` 返回草案与注册表版本；`v06-org-overview` 十段齐全且 `feishuOrg.ok: true`。本机报告服务 `/health` 返回 `loopback-only`，索引与报告页均含中文边界声明。
 - 环境备注：本轮首次跑宿主走查时 9/10 步失败，截图为 `connect failed: Connection refused`；查 `.runtime/logs/` 后确认是**宿主服务继承了已失效的旧代理端口**（本机插件 worker 连 `127.0.0.1:4180` 被旧 `HTTP_PROXY` 劫持），不是前端或 action 回归。以干净的本机连接环境重启 3100 / 4180 后复跑 10/10 通过。
 
-### 边界声明（历史记录，最新以 0.00000000000 节为准）
+### 边界声明（历史记录，最新以 0.000000000000 节为准）
 
 - **已实现**：中文用户指令与中文帮助 / 报告 / 通知（旧英文命令仅内部兼容）、按锁定清单的确认验收路径与全套闸门（含端到端单测）、飞书真实成员的只读组织草案与人工确认导入通道、本机中文验收报告服务与自查标准沉淀、两个新增只读视图接线、全套回归与宿主走查。
 - **仍未实现 / 不得宣称**：真人未在真实业务单上执行最终确认验收；飞书组织草案未导入注册表，真实员工多租户 / 第二位真人登录仍未部署；生产发布、真实 PR 与 CI 交付；**Cognee 原生** LLM / embedding / cognify / 自动实体抽取与向量语义管线；L2 自动抽取在真实新确认资料上的端到端触发（`lastRun` 仍为空）；`lobehub/acceptance` 的 CLI 与云端报告服务（本机服务不替代它们，也不等于上游能力已启用）；把单测或浏览器截图冒充生产验收。
@@ -137,10 +175,10 @@
 
 **验证**：最终全量回归见 `docs/VALIDATION.md` 第五轮；`npm test`、`tsc --noEmit`、`npm run build:workspaces`、`npm run test:responsive`、`npm run test:walkthrough`、`npm run audit:upstream`、`git diff --check` 全部通过。
 
-### 第五轮边界声明（历史记录，最新边界以 0.00000000000 节为准）
+### 第五轮边界声明（历史记录，最新边界以 0.000000000000 节为准）
 
 - **已实现**：开工前锁清单、独立评审（真实本机视觉）、逐项判定、Acceptance 格式导出、Transfer / 责任链、统一 Trace（含缺口如实提示）、L2 组织图确定性抽取与状态视图、runtimeGuard 强制、本机语义加权、三个 v0.6 视图、真实一单与全流程浏览器走查、本地演示、GitHub 推送合并。
-- **仍未实现 / 不得宣称**：真实业务最终 `/accept` 未由发起人执行；真实员工多租户与飞书组织映射；生产发布 / 真实 PR 与 CI 交付；**Cognee 原生** LLM / embedding / cognify / 自动实体抽取与向量语义管线（仍关闭）；L2 自动抽取在真实新确认资料上的端到端触发（`lastRun` 仍为空，只有契约与状态验证）；Acceptance 的 CLI 与云端报告服务；把 `.runtime` 截图或单测冒充生产验收。
+- **当时仍未实现 / 不得宣称（历史轮次，2026-11-07 口径变更见第十一轮）**：真实业务最终 `/accept` 未由发起人执行；真实员工多租户与飞书组织映射；生产发布 / 真实 PR 与 CI 交付；**Cognee 原生** LLM / embedding / cognify 与向量语义管线（当时关闭，现已打开）；L2 自动抽取在真实新确认资料上的端到端触发（`lastRun` 仍为空，只有契约与状态验证）；Acceptance 的 CLI 与云端报告服务；把 `.runtime` 截图或单测冒充生产验收。
 - **可回退**：仓库默认仍可用 `acceptance.mode=legacy` 一行回到原 `/accept`；只有本机 `.runtime/config.json` 开了 `independent`，该文件不入库。
 
 ---
@@ -176,7 +214,7 @@
 
 ### 第四轮当时的仍未做（已在 0.000000 节逐条补齐，勿再按本条对外表述）
 
-真实视觉模型的语义判定（当时本机无模型，结构式评审只核验证据绑定）；`lobehub/acceptance` submodule 引入；真实「飞书 + Paperclip + GitHub」跨职能一单；`runtimeGuard.enforce` 开启；宿主实例的完整浏览器流程走查。**保留下来仍然成立的只有两条**：Cognee 原生 LLM/embedding/cognify 与向量语义检索**仍全部关闭**（L2 抽取是确定性投影，不是语义抽取）；上游冗余适配代码本轮只做了清单与边界审计，未做实际重构 / 替换。
+真实视觉模型的语义判定（当时本机无模型，结构式评审只核验证据绑定）；`lobehub/acceptance` submodule 引入；真实「飞书 + Paperclip + GitHub」跨职能一单；`runtimeGuard.enforce` 开启；宿主实例的完整浏览器流程走查。**当时保留下来的两条（历史，2026-11-07 已变更其一）**：Cognee 原生 LLM/embedding/cognify 与向量语义检索当时全部关闭（L2 抽取是确定性投影，不是语义抽取），现原生管线已打开；上游冗余适配代码本轮只做了清单与边界审计，未做实际重构 / 替换。
 
 ---
 

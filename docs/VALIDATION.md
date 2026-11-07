@@ -99,10 +99,10 @@ Wiki 原生 `bootstrap-root` 在这个固定版本会创建带不兼容设置的
 - Acceptance 导出：`npm run acceptance:export -- SUI-129` 产出 `result.json`（`verdict: pass`，2 cases）、`report.md` 与 assets；同一 Trace event 被两个检查项引用时资产去重，无重复文件。
 - GitHub：私有仓库联调 [issue #1](https://github.com/zhegong-996/suitme-collab/issues/1) 已创建并关闭（state `CLOSED`）。**没有合并试点 PR、没有生产部署、没有由发起人对该单执行最终 `/accept`**。
 
-### 2. 本机能力（不接入任何外部 / 云端模型服务）
+### 2. 本机能力（历史轮次口径：当时不接入任何外部 / 云端模型服务；2026-11-07 已变更，见第十一轮）
 
 - `scripts/apple-vision.swift` 用 macOS Vision 设备端 OCR + 图像分类；`scripts/vision-server.ts` 只绑定 `127.0.0.1:4190` 提供 OpenAI 兼容端点；`src/vision-semantics.ts` 按期望文本逐项判定；`LocalModelVisionAdapter` 拒绝非本机 / https 地址，并用 `node:http` 直连避开 `HTTP_PROXY`（修复 `fetch failed / bad port`）。业务材料不外发。
-- `scripts/apple-embedding.swift` + `src/semantic-recall.ts` 用 Apple NaturalLanguage 设备端 300 维中英文词向量为 recall 加权；实测「验收 / 审核」≈ 0.573、「验收 / 香蕉」≈ -0.05。`system-status` 显示 `embedding: Apple NL 设备端词向量（本机）`、`vectorSearch: true`、`modelApi: false`、`externalLlmCalls: 0`。**Cognee 原生 LLM / embedding / cognify / 自动实体抽取仍全部关闭**（`automaticExtraction: false`），两者不是同一件事。
+- `scripts/apple-embedding.swift` + `src/semantic-recall.ts` 用 Apple NaturalLanguage 设备端 300 维中英文词向量为 recall 加权；实测「验收 / 审核」≈ 0.573、「验收 / 香蕉」≈ -0.05。`system-status` 显示 `embedding: Apple NL 设备端词向量（本机）`、`vectorSearch: true`、`modelApi: false`、`externalLlmCalls: 0`。**当时** Cognee 原生 LLM / embedding / cognify / 自动实体抽取全部关闭（`automaticExtraction: false`）；**2026-11-07 已按用户决策打开**，见本文档第十一轮与 `docs/ADAPTATION-v0.6.md` 第十一轮。
 - `runtimeGuard.enforce` 默认开启，注意力预算与 Watchdog 从「只观测」切到实际生效；`protectHumanNotifications` 保护人工介入 / 结果 / 验收 / 授权等必达通知。真实 SUI-128 审计显示 `enforced: true` 且人工接单通知 `mustDeliver: true`。
 - L2 组织图：`l2-status` 显示 `connected: true`、`adapter: deterministic-l1-projection`、`modelCalls: 0`、L1 仍按 `sha256(sourceId@revision)` 隔离；**`lastRun` 仍为 `null`**——真实 journey 中没有新确认资料触发索引，因此不宣称 L2 自动抽取已在真实业务资料上跑过端到端，这一条仍属契约与状态验证。
 - 合规：`lobehub/acceptance` 以 Apache-2.0 submodule `f720feb…`（v0.10.0）引入，LICENSE 原文、`THIRD_PARTY_NOTICES.md` 专节、`docs/SOURCES.md`、`sources.lock.json` 与 `audit:upstream` 均已补齐；只复用契约与报告格式，其 CLI / 云端报告服务未启动。
@@ -140,7 +140,7 @@ Wiki 原生 `bootstrap-root` 在这个固定版本会创建带不兼容设置的
 - `confirmAcceptance` 是已实现且有端到端单测的代码路径，**没有由真人在真实业务单上执行**；第五轮 SUI-129 仍保持未最终核可。仓库默认 `acceptance.mode=legacy`，中文「确认验收」在该模式下仍需交付提交号并由系统核对 CI 与部署版本。
 - 飞书组织草案未导入，成员映射不等于真人登录或真实员工多租户，仍无第二位真人登录证据；真实姓名与 open_id 不入库。
 - 本机报告服务只读取已归档结果、只绑 loopback；`lobehub/acceptance` 的 CLI 与云端报告服务仍未启动，报告与自查标准都只是证据，不代替人签字。
-- Cognee 原生 LLM / embedding / cognify、L2 自动抽取在真实新确认资料上的端到端触发（`lastRun` 仍为空）、生产发布与真实 PR / CI 交付仍未发生；`.runtime` 证据不入库。
+- （历史轮次）Cognee 原生 LLM / embedding / cognify 当时未启用、L2 自动抽取在真实新确认资料上的端到端触发（`lastRun` 仍为空）、生产发布与真实 PR / CI 交付仍未发生；`.runtime` 证据不入库。
 
 ## 2026-11-06：本机 independent 链路恢复、视觉评审复验与成果总览（第七轮）
 
@@ -282,3 +282,47 @@ Wiki 原生 `bootstrap-root` 在这个固定版本会创建带不兼容设置的
 ### 5. 严格边界（未发生，不是 bug）
 
 本轮是结构重构 + 文档，**没有新增业务功能、tab 或路由**；真人在真实业务单上「确认验收」仍未发生（SUI-129 未核可）；部门 scope 授权仍需本人在飞书确认；企业微信 / 腾讯文档 / 钉钉 / 国内代码托管 / 公有云 CI 及海外 SaaS 均未接通，按约定没有入口；4190 / 4192 保持用户取消时的停机状态；生产发布、真实外部 PR / CI、真人多租户、Cognee 原生模型管线仍未发生。合并审批 ≠ 业务验收，报告 / 模型判定 / CI 通过都不替代原发起人在原会话「确认验收」。
+
+---
+
+## 第十一轮：方案 A 落地、Cognee 原生管线打开、合并与发布自动化（2026-11-07）
+
+### 1. 用户决策与事实校正
+
+用户明确：允许外部模型 API 并打开 Cognee 原生 LLM / embedding / cognify；本机合并与发布都放开但真人业务验收仍是红线；`A → B → C` 分阶段不并行；补齐 `sources.lock.json` 缺登记。
+
+核对结论：`sources.lock.json` **早已登记** Harness `fcc0ad46…` 与 Prime Agent `74591cdd…`，`audit:upstream` `clean: true`。「缺两条」来自 `OPEN-SOURCE-COMPLIANCE.md` 两行过时 ⚠️ 标记。本轮修正文档并加机器化断言（`tests/architecture-contracts.test.ts` 逐条比对 7 个 gitlink 与锁文件、且合规文档不得再出现过时告警），**没有重复补登记**。
+
+### 2. 方案 A（第一阶段，已完成）
+
+`src/architecture-contracts.ts` 成为组织本体常量、ontology 三层分工、Agent 角色、记忆投影与 `memoryEventSchema` 的单一来源；`org-ontology.ts` 改为引入并再导出，行为不变（原有 `validateOrgGraph` 5 个函数与 16 类节点 / 5 边族全部回归通过）。`docs/ARCHITECTURE-OPTIONS-v0.7.md` 增附录 A 统一 FR 覆盖三态口径。
+
+### 3. Cognee 原生管线（允许外部模型 API）
+
+- 配置 `knowledge.cogneeNative`（默认打开）只存环境变量名；`src/cognee-native.ts` → `scripts/cognee-native.py` 走 Cognee 原版 `add / cognify(extractor='llm') / search`，provider 为 `custom` + 外部 OpenAI-compatible 端点；数据目录固定 `.runtime/cognee-native/`。
+- 凭据仅经 `spawn` 环境传递，不写 `.runtime/config.json`、`secrets.json` 或仓库；`cogneeNativeStatus()` 只返回布尔与模型名，不返回 Key / 端点值。
+- 真跑 `npm run cognee:native -- status`：`enabled: true, configured: false, missing: [COGNEE_LLM_BASE_URL, COGNEE_LLM_API_KEY, COGNEE_EMBEDDING_BASE_URL, COGNEE_EMBEDDING_API_KEY]`。**真跑 cognify 需要用户提供外部端点与凭据；本轮未向任何外部服务发送业务材料。**
+- `ontology.ts` 的 `automaticExtraction`、`system-status` 的 `modelApi / cogneeNative / externalLlmCallsNote`、设置页「Cognee 原生管线」一行均改为配置派生，不再写死关闭或「不调用外部模型」。
+
+### 4. 本机自动合并与自动发布
+
+- `delivery.autoMerge / autoPublish` 默认 `true`；`decide('approved')` 在 `ci === 'passed'` 时自动校验 fast-forward 并 `update-ref` 推进本机 main，随后写固定版本预览制品；非 fast-forward 明确报错并留可见通知。
+- 真跑 `npm run delivery:demo`：`ci: "passed"` → `approvalStatus: "merged"`、`mergeSha: c777106e2e7e`（与 `mainSha` 一致）、`publishedAt: 2026-11-07T08:10:14.480Z`、`notifications: 5`。`git daemon` 未启动，`gitProtocolClonePull: false`（用户已取消 4194/9418，本轮未重启）。
+- 业务验收红线未动：`local-git.ts`、交付台预览页与 demo 输出均写明「业务验收仍须由原发起人在原会话『确认验收』」；仍不发布业务仓库、不触发云端 CI、不做无人值守验收。
+
+### 5. 回归结果
+
+| 项 | 结果 |
+|---|---|
+| `npm test` | **294/294**（新增 5 例架构契约、5 例 Cognee 原生、1 例自动合并发布） |
+| `npx tsc --noEmit` | 通过 |
+| `npm run build:workspaces` / `build:chinese-shell` | 通过 |
+| `npm run test:responsive` / `test:walkthrough` | 通过 / **11/11** |
+| `npm run audit:upstream` | `clean: true` |
+| `git diff --check` | 通过 |
+
+排障记录：全套回归首次 `test:walkthrough` 11 步全失败，页面正文仅 93 字；根因是 **3100 Paperclip 服务意外停机**（`status: paperclip: stopped`）与 4180 Bridge 继承失效代理导致 `connect failed: Connection refused` / 502。按既有流程用干净环境 `npm run up` 恢复 3100、`npm run restart:bridge` 重启 4180 后复跑 11/11 通过。**不是代码回退**，4190 / 4192 / 4194 / 9418 保持用户取消时的停机状态，未重启。
+
+### 6. 严格边界（未发生，不是 bug）
+
+Cognee `cognify` 的真实外部模型调用未发生（缺端点与凭据）；**方案 B 记忆主干重构与方案 C 三层 router 尚未开始**，按 A → B → C 排队；真人在真实业务单「确认验收」仍未发生（SUI-129 未核可）；生产发布 / 业务仓库发布、无人值守最终验收、知识自动采用仍不做；`.runtime` 运行证据不入库。

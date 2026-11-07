@@ -43,9 +43,12 @@ try {
     console.log('git daemon 未启动，跳过 git:// 拉取验证：', String((error as Error).message).slice(0, 120));
   }
 
-  // 5) 合并审批 + 本机预览版本固定。
+  // 5) 合并审批。配置默认 autoMerge/autoPublish：CI 通过后自动 fast-forward 合并
+  //    并发布固定版本预览制品；若被显式关闭，则退回手动 preview 验证旧链路。
   const approved = await service.decide(inspected.pr, 'approved', 'organization-owner', '冒烟验证：同意合并');
-  const preview = await service.preview({ ...task, delivery: inspected } as Task);
+  const preview = approved.previewUrl
+    ? { previewUrl: approved.previewUrl, deployedSha: approved.mergeSha, automated: true }
+    : { ...await service.preview({ ...task, delivery: inspected } as Task), automated: false };
 
   console.log(JSON.stringify({
     ok: true, repo: service.repoName, cloneUrl: service.cloneUrl,
@@ -54,6 +57,9 @@ try {
     pushedFiles: record.changedFiles,
     ci: inspected.ci, ciNote: service.read(inspected.pr)?.ciNote,
     approvalStatus: approved.status, notifications: approved.notifications.length,
+    autoMerge: config.delivery.autoMerge, autoPublish: config.delivery.autoPublish,
+    merged: approved.status === 'merged', mergeSha: approved.mergeSha?.slice(0, 12),
+    publishedAt: approved.publishedAt,
     gitProtocolClonePull: gitProtocolOk,
     previewUrl: preview.previewUrl, deployedSha: preview.deployedSha?.slice(0, 12),
     deliveryUrl: service.deliveryUrl(inspected.pr),

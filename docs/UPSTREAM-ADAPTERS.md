@@ -16,7 +16,7 @@
 | **Agent Autoloop** MIT `ba8cf6d8cf24` | worker 契约、原生进程执行与回执恢复、CLI 适配器 | `src/upstream.ts`、`src/native-worker.ts`、`src/assistant-turn.ts` | 否 |
 | **Prime Agent** MIT `74591cddef28` | 检索词权重、近期目标权重 | `src/vendor/prime-query.ts`、消费方 `src/team-memory.ts` | 否 |
 | **DeepSeek Harness** MIT `fcc0ad462172` | 输入保留与序列化、参考信封序列化 | `src/upstream.ts`、`src/harness-composition.ts`；动态包边界避免把未使用的宿主及 peer 依赖拉进类型检查 | 否 |
-| **Cognee 1.6.6** Apache-2.0 `525b1d1179c5` | DataPoint、Ladybug 图存储、provenance、GraphSchema/JSON Schema、BM25 检索 | ① 运行时：`src/graph.ts`、`src/ontology.ts`、`src/team-memory.ts`；② Python RPC：`scripts/cognee-graph.py`、`scripts/cognee-recall.py`；③ 安装：`scripts/setup-graph.ts`；④ **新增 L2 抽取**：`src/org-extraction.ts` | 否 |
+| **Cognee 1.6.6** Apache-2.0 `525b1d1179c5` | DataPoint、Ladybug 图存储、provenance、GraphSchema/JSON Schema、BM25 检索；**2026-11-07 起原生 LLM/embedding/cognify 管线已打开**（`src/cognee-native.ts`、`scripts/cognee-native.py`） | ① 运行时：`src/graph.ts`、`src/ontology.ts`、`src/team-memory.ts`；② Python RPC：`scripts/cognee-graph.py`、`scripts/cognee-recall.py`；③ 安装：`scripts/setup-graph.ts`；④ **新增 L2 抽取**：`src/org-extraction.ts` | 否 |
 | **Acceptance** Apache-2.0 `f720feb862bd` | 开工前锁定验收计划、证据来源分类、逐项判定与报告/产物格式的**契约与文件布局** | `src/acceptance-interop.ts`（计划/报告映射、校验、bundle 写入）、`scripts/export-acceptance.ts`（`npm run acceptance:export`）；上游 `plugin.json` / `report-schema.md` 只作格式参照 | 否 |
 
 另有 npm 依赖 `@a2a-js/sdk` 1.3.0（Apache-2.0，服务 Agent 网络）、`@modelcontextprotocol/sdk` 1.31.0、Zod 等，许可证原文保留在 `licenses/`，声明在 `THIRD_PARTY_NOTICES.md`。

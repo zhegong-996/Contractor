@@ -20,6 +20,7 @@ import { Workspaces } from './workspaces.ts';
 import { WorkspaceAssistant } from './assistant.ts';
 import { z } from 'zod';
 import { withFeishuReads } from './feishu-sources.ts';
+import { cogneeNativeStatus } from './cognee-native.ts';
 import { CollaborationIntake } from './collaboration-intake.ts';
 import { ModelSettingsService } from './model-settings.ts';
 import { KnowledgeGraph, CogneeL1Reader, cogneeCommit } from './graph.ts';
@@ -197,11 +198,12 @@ const server = createServer(async (req, res) => {
         if (action === 'system-status') {
           workspaces.manager(workspaceActor);
           const health = await workspaces.pc.get('/health');
+          const cogneeNative = cogneeNativeStatus(config);
           return { services: { paperclip: health.status, bridge: 'ok', feishu: feishuState }, deploymentMode: health.deploymentMode,
             storage: { primary: 'PostgreSQL（本机持久化）', events: 'SQLite', configuration: '本机配置文件', wiki: '本机 Markdown 目录',
               databaseBackup: health.databaseBackup?.status ?? 'unknown', offsiteRestoreVerified: false },
             records: Object.fromEntries(['tasks', 'events', 'outbox', 'audit'].map(table => [table, store.db.prepare('SELECT COUNT(*) n FROM ' + table).get()!.n])),
-            integrations: { modelApi: false, embedding: 'Apple NL 设备端词向量（本机）',
+            integrations: { modelApi: cogneeNative.configured, embedding: 'Apple NL 设备端词向量（本机）+ Cognee 原生 embedding（外部模型服务）',
               vectorSearch: config.knowledge.semanticRecall.enabled,
               vectorSearchNote: '设备端词向量 + 本机 BM25；降级与否取决于运行时，此值来自配置而非实时探测',
               visionReviewer: config.acceptance?.mode === 'independent'
@@ -212,10 +214,12 @@ const server = createServer(async (req, res) => {
             knowledgeEngine: { name: 'Cognee', commit: cogneeCommit, storage: 'Ladybug', installed: existsSync(runtime('cognee-venv', 'bin', 'python')),
               sourceRevisionGraphs: existsSync(runtime('knowledge-graph')) ? readdirSync(runtime('knowledge-graph')).filter(name => /^[a-f0-9]{64}$/.test(name) && existsSync(runtime('knowledge-graph', name, 'ready.json'))).length : 0,
               automaticExtraction: config.orgExtraction.enabled && config.orgExtraction.autoRunOnIndex,
-              automaticExtractionNote: '指资料入库时的 L2 组织图谱确定性抽取；知识字典的实体自动抽取仍为关闭，两者不是同一件事',
+              automaticExtractionNote: '指资料入库时的 L2 组织图谱确定性抽取；Cognee 原生 LLM 实体抽取由 cogneeNative 单独控制，两条链路并存',
+              cogneeNative,
               semanticRecall: config.knowledge.semanticRecall.enabled,
               semanticEngine: 'Apple NaturalLanguage 设备端中英文词向量 + Cognee BM25 混合（降级：本地字符二元组哈希向量）',
               externalLlmCalls: 0,
+              externalLlmCallsNote: '仅统计适配层自身调用；Cognee 原生管线的外部模型调用尚未接入成本账本，不能据此宣称「没有调用外部模型」',
               lexicalRecall: true, reviewedConceptRelations: true, automaticConfirmedKnowledgeIndexing:true,
               runtimeGuardEnforced: config.runtimeGuard.enforce,
               l2OrganisationExtraction: { enabled: config.orgExtraction.enabled, mode: config.orgExtraction.mode,

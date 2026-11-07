@@ -59,8 +59,9 @@ export function Settings({ ui }: { ui: UI }) {
       <tr><th>Paperclip / 协作服务</th><td>{system.services.paperclip === 'ok' && system.services.bridge === 'ok' ? '运行中' : '待恢复'}</td></tr><tr><th>飞书事件通道</th><td>{system.services.feishu === 'ready' ? '已连接' : '未连接'}</td></tr>
       <tr><th>业务数据</th><td>{system.storage.primary}</td></tr><tr><th>事件、去重与回执</th><td>SQLite（本机持久化）</td></tr><tr><th>数据库备份</th><td>{system.storage.databaseBackup === 'ok' ? '本机备份正常；异机恢复尚未验证' : '待核对'}</td></tr>
       <tr><th>知识引擎</th><td>{system.knowledgeEngine?.installed ? `Cognee · Ladybug；${system.knowledgeEngine.sourceRevisionGraphs} 个来源版本图谱` : 'Cognee 尚未安装'}</td></tr>
-      <tr><th>自动知识处理</th><td>{system.knowledgeEngine?.automaticExtraction ? '资料入库时确定性抽取 L2 组织图谱（不调用外部模型）；知识字典实体自动抽取仍关闭' : '未启用自动抽取；已有 Agent 可整理有据概念关系，人审后建立记忆索引'}</td></tr>
-      <tr><th>模型 API / 对象存储</th><td>未接入（不调用任何外部或云端模型网关）</td></tr>
+      <tr><th>自动知识处理</th><td>{system.knowledgeEngine?.automaticExtraction ? '资料入库时确定性抽取 L2 组织图谱；' : '未启用确定性抽取；'}{system.knowledgeEngine?.cogneeNative?.enabled ? 'Cognee 原生 LLM 实体抽取 / embedding / cognify 已打开' : 'Cognee 原生抽取关闭'}</td></tr>
+      <tr><th>Cognee 原生管线</th><td>{system.knowledgeEngine?.cogneeNative?.configured ? `已配置 · ${system.knowledgeEngine.cogneeNative.llmModel} / ${system.knowledgeEngine.cogneeNative.embeddingModel}` : `未就绪 · 缺少环境变量 ${(system.knowledgeEngine?.cogneeNative?.missing ?? []).join('、') || '无'}`}{system.knowledgeEngine?.cogneeNative?.privacy ? ' · ' + system.knowledgeEngine.cogneeNative.privacy : ''}</td></tr>
+      <tr><th>模型 API / 对象存储</th><td>{system.integrations?.modelApi ? '已接入外部 OpenAI-compatible 模型服务（Cognee 原生管线）；对象存储未接入' : '外部模型服务未配置；对象存储未接入'}</td></tr>
       <tr><th>本机向量检索</th><td>{system.integrations?.vectorSearch ? '已启用 · 设备端词向量 + Cognee BM25 混合' : '未启用'}{system.integrations?.vectorSearchNote ? ' · ' + system.integrations.vectorSearchNote : ''}</td></tr>
       <tr><th>独立视觉评审</th><td>{system.integrations?.visionReviewer ?? '未挂接'}</td></tr>
       <tr><th>团队登录</th><td>当前单机受信任模式；已适配原生成员登录与个人 Agent 绑定</td></tr></tbody></table></div>

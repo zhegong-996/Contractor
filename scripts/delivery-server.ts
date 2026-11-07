@@ -138,7 +138,8 @@ async function renderPreview(id: number): Promise<string> {
   if (!r) return page('预览', '<div class="card">该交付请求不存在。</div>');
   return page(`预览 #${id}`, `<div class="card"><h2>本机预览版本</h2>
     <p>提交 <code>${esc(r.headSha)}</code> · 状态 ${esc(label(r.status))} · 本机 CI ${esc(ciLabel(r.ci))}</p>
-    <p class="sub">预览只固定到确切提交，不自动合并、不自动发布；业务验收须由原发起人在原会话确认。</p>
+    <p class="sub">预览固定到确切提交；合并与发布按配置自动执行，只作用于本机裸仓库与本机预览制品，不发布业务仓库、不触发云端 CI。业务验收仍须由原发起人在原会话「确认验收」。</p>
+    ${r.publishedAt ? `<p class="sub">已自动发布 ${esc(r.publishedAt)} · 确切提交 <code>${esc(r.mergeSha ?? r.headSha)}</code></p>` : ''}
     <h2>本次改动</h2><ul>${r.changedFiles.map(f => `<li><code>${esc(f)}</code></li>`).join('') || '<li>无</li>'}</ul>
     <p><a href="/delivery/${id}">← 返回交付详情</a></p></div>`);
 }

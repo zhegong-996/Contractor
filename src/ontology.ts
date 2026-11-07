@@ -45,10 +45,12 @@ export class OntologyService {
     if (!current.issueId) { const issue = await this.w.pc.post('/companies/' + this.w.config.companyId + '/issues', {
       projectId: c.spaces[space]!.projectId, title: this.w.spaceName(space) + '｜知识字典', visibility: 'private', status: 'backlog',
       allowDuplicate: true, idempotencyKey: 'ontology:' + space }); c.ontologyIssues[space] = issue.id; this.w.saveCatalog(c); }
+    // 用户 2026-11-07 打开 Cognee 原生管线；自动抽取状态从配置派生，不再写死关闭。
+    const automaticExtraction = this.w.config.knowledge.cogneeNative.enabled;
     await this.w.pc.request('PUT', '/issues/' + c.ontologyIssues[space] + '/documents/ontology', {
-      title: '知识字典与图谱模型', format: 'markdown', body: JSON.stringify({ ...data, engine: 'cognee', commit: cogneeCommit, automaticExtraction: false }, null, 2), baseRevisionId: revision,
+      title: '知识字典与图谱模型', format: 'markdown', body: JSON.stringify({ ...data, engine: 'cognee', commit: cogneeCommit, automaticExtraction }, null, 2), baseRevisionId: revision,
     });
-    this.w.store.audit('knowledge.ontology-saved', c.ontologyIssues[space]!, { space, entities: data.schema.entities.length, automaticExtraction: false });
+    this.w.store.audit('knowledge.ontology-saved', c.ontologyIssues[space]!, { space, entities: data.schema.entities.length, automaticExtraction });
     return this.read(space, actor);
   }
 }
