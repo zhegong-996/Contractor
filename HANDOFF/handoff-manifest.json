@@ -1,14 +1,14 @@
 {
   "schemaVersion": 1,
   "purpose": "SuitMe 协作台项目交接包：让下一位 Agent 无需对话历史即可安全继续",
-  "generatedAt": "2026-11-07T22:45:00+08:00",
+  "generatedAt": "2026-11-08T00:40:00+08:00",
   "authoritativeLocation": "/Users/gong.zhe/Developer/ai-native-collab/HANDOFF/",
   "portableCopy": null,
   "repository": {
     "path": "/Users/gong.zhe/Developer/ai-native-collab",
     "remote": "https://github.com/zhegong-996/suitme-collab.git",
     "branch": "main",
-    "codeBaseCommit": "以 git rev-parse HEAD 为准（第十八轮 C-3 代码与文档一并提交推送；HEAD = origin/main = 远端 main）",
+    "codeBaseCommit": "以 git rev-parse HEAD 为准（第二十轮 C-5 代码与文档一并提交推送；HEAD = origin/main = 远端 main）",
     "originMainAtGeneration": "same-as-HEAD",
     "remoteMainAtGeneration": "same-as-HEAD",
     "note": "不再写死 hash：交接包生成时的 b58631c / f6611e0 / 4aa6fb0 / 8d3c455 / c27d7c0 / 3a563d3 均为历史。代码与文档在同一提交里一并推送。",
@@ -21,7 +21,7 @@
     "B1": "completed-and-validated",
     "B2": "completed-and-validated",
     "C": "in-progress-stepwise",
-    "currentBoundary": "docs/ADAPTATION-v0.6.md 0.00000000000000000000 节（第十九轮 C-4：组织级 Agent 编制、验收协作与 A2A 在岗交接）；C 产品约束见 docs/PRD-v0.6.md §10C（C-P1~C-P8）；验证见 docs/VALIDATION.md 第十九轮",
+    "currentBoundary": "docs/ADAPTATION-v0.6.md 0.000000000000000000000 节（第二十轮 C-5：按当前配置重跑三层评估、两种形态各跑真实一单）；C 产品约束见 docs/PRD-v0.6.md §10C（C-P1~C-P8，其中 C-P5 已由 C-5 落地）；验证见 docs/VALIDATION.md 第二十轮",
     "userDecision": "② 改成独立前端应用（废弃 PRD §10A 的 S5/S6，保留 S1–S4，飞书 IM 仍是唯一发起入口）；补遗：组织形态必须可配置（按业务域/组织单元生效、允许一个 Agent 兼任多职责、禁止同一 Task 自派自验自环），Agent 靠沉淀自我改进但核心决策仍由人做，判断是工程能力 + AI 能力组合，验收本身也是一个可与产品/技术/运营协作的 Agent",
     "cProductConstraints": [
       "C-P1 组织形态可配置：层不是产品骨架；Agent 实例与职责绑定/生效范围/版本分离；组织级唯一、项目只引用不覆写、变更留快照不回溯",
@@ -40,11 +40,11 @@
       "C-2 国内适配 + 自研独立控制台（完成：console/ 六视图 / 明暗主题 / 425px；13 项只读白名单；console:smoke 真跑）",
       "C-3 单一 Router 与可配置组织形态（完成：src/router.ts / config.router / 9 处接线 / router:smoke 31/31 / p8 闸门）",
       "C-4 可配置角色体系 + 验收 Agent + A2A handoff（完成：src/agent-registry.ts / config.agentRegistry / Router 在岗校验 / agents:smoke 43/43 / p8 真实在岗数）",
-      "C-5 按配置重跑三层评估 + 扁平/分层两种配置各跑真实一单（下一步）",
-      "C-6 沉淀回流与自演进闭环",
+      "C-5 按配置重跑三层评估 + 扁平/分层两种配置各跑真实一单（完成：shapeOptions 按当前配置取口径、P3/P4 按形态判定、shape.ready 与 recommended 分离、shapes:smoke 36/36）",
+      "C-6 沉淀回流与自演进闭环（下一步）",
       "C 收尾：全量回归、文档同步、提交推送"
     ],
-    "note": "B 阶段已验收；第十五轮用户拍板 ② 解除产品形态冲突，C 正式启动且严格分步不并行。三层判断仍 recommended=false（8 项前置条件，p8 在 C-4/C-5 前恒 false）；C-3 真跑发现只按角色名判定 P3/P4 会被合成数据凑齐，已补闸门。第十七轮按用户新要求选定 08 第 10 项方向 (a)：不引入第 8 个上游，自己做国内化 + 独立控制台；第十八轮 C-3 完成单一 Router；第十九轮 C-4 落地组织级 Agent 编制、验收协作与 A2A 在岗交接，p8 改用真实在岗数判定（默认空编制 0 → false），默认底座仍可回退。",
+    "note": "B 阶段已验收；第十五轮用户拍板 ② 解除产品形态冲突，C 正式启动且严格分步不并行。C-3 真跑发现只按角色名判定 P3/P4 会被合成数据凑齐，p8 闸门已焊死；第二十轮 C-5 已按当前配置重跑评估：扁平不要求主管、分层主管须真实在岗，recommended 只表示当前分层配置可正式启用三层，默认扁平配置下仍 recommended=false。第十七轮按 08 第 10 项方向 (a) 不引入第 8 个上游，自己做国内化 + 独立控制台；默认底座仍 paperclip、可回退。",
     "c1Deliverables": [
       "src/pg-host.ts：PgHostPlatform，事务 / ACL / 成本账本 / heartbeat checkout-retry-runToken / FOR UPDATE SKIP LOCKED 步进队列 / 崩溃恢复 / 状态外置",
       "scripts/host-pg-smoke.ts：本机专属库 suitme_collab_c1 真跑，21 项 checks 全绿，报告 .runtime/host-pg-smoke.json（不入库）",
@@ -80,6 +80,16 @@
       "console/app.js + scripts/console-server.ts：中文「Agent 编制」卡片与 v06-agent-registry-view 只读白名单；控制台无输入框 / 无写动作",
       "scripts/agents-smoke.ts + npm run agents:smoke：隔离内存 Trace 真跑 43/43，报告 .runtime/agent-registry-smoke.json（不入库）",
       "tests/agent-registry.test.ts：14 例注册表契约；tests/console-shell.test.ts 补 2 例编制视图契约；两处 C-3 守门断言同步为「Router 与注册表同时装配」"
+    ],
+    "c5Deliverables": [
+      "src/three-tier-assessment.ts：OrgShape / ORG_SHAPE_LABELS / shapeOptions(router, registry) 从当前真实配置 + 在岗编制取口径；P3/P4 按形态判定（扁平 directDispatches 不要求主管，分层 boundSupervisorDispatches 须配置登记 + 真实在岗）",
+      "ThreeTierAssessment 新增 shape { mode, label, ready, applicable } 与 observed.directDispatches / boundSupervisorDispatches；recommended 收窄为「当前分层配置可正式启用三层」，未声明配置时保守兼容",
+      "p8 保持防跳级闸门；扁平 evidence 明确「本形态不需要三层」；verdict / reasons 按形态分叉并如实列出未齐项数",
+      "src/server.ts / scripts/routing-status.ts：routing-status 统一改调 shapeOptions(getRouter(), getAgentRegistry())；真实 HTTP 200 与 CLI 口径一致",
+      "console/app.js：「组织形态」卡新增「形态判定」「三层结论」两行中文白话，仍只读 routing-status，无写动作",
+      "scripts/shapes-smoke.ts + npm run shapes:smoke：隔离内存 Trace 扁平 / 分层各跑一单五阶段，36/36 checks，每步可回放，报告 .runtime/shapes-smoke.json（不入库）",
+      "tests/shape-assessment.test.ts：10 例契约（按配置判定 / 真实在岗主管 / 四类防跳级反例 / 形态闭环与启用三层分离 / 接线守门）；全套 388/388",
+      "无新增依赖、无第 8 个上游、未改上游提交、未复制 LobeHub 代码；docs 与 HANDOFF 同步到第二十轮最新边界"
     ]
   },
   "b2Deliverables": [
@@ -90,7 +100,7 @@
     "收尾修复：reviewSource 改用评审后 revision，消除真实链路悬空 lineage；历史 append-only 日志中的旧行不物理删除"
   ],
   "validation": {
-    "unitTests": "378/378",
+    "unitTests": "388/388",
     "typecheck": "pass",
     "buildWorkspaces": "pass",
     "buildChineseShell": "pass (hiddenEntries 4, missed 0, warning null；前台重跑，后台沙箱批量删除保护为已知坑)",
@@ -104,20 +114,22 @@
       "memory:smoke": "ok",
       "memory:journey": "ok",
       "memory:checkpoint": "ok",
-      "routing:status": "ok (allWired:true, router.mode=flat, routerCoverage total=65/routed=7, threeTier.recommended=false)",
+      "routing:status": "ok (allWired:true, router.mode=flat, routerCoverage total=65/routed=7, shape.mode=flat, P3/P4 按扁平口径, p8=false, recommended=false；真实 HTTP 200 与 CLI 一致)",
       "host:smoke": "ok",
       "cognee:native status": "configured:false（缺 4 个环境变量，未外发业务材料）",
       "host:pg": "ok:true, 21/21（PostgreSQL 17.10 专属库 suitme_collab_c1）",
       "console": "按需启动 http://127.0.0.1:4200/（只绑回环，非常驻服务）",
       "console:smoke": "ok:true，6/6 视图、真实任务 10 条、主题持久化、425px 425/425、零海外文案、写动作 403；C-3 起只读请求去重后协作视图不再超时",
-      "router:smoke": "ok:true, 31/31 checks；legacy 5 / flat 5 / layered 10 跳；p8 未放行"
+      "router:smoke": "ok:true, 31/31 checks；legacy 5 / flat 5 / layered 10 跳；p8 未放行",
+      "shapes:smoke": "ok:true, 36/36 checks；扁平 shape.ready=true/recommended=false，分层 true/true；隔离内存 Trace，不写真实日志"
     },
     "gitDiffCheck": "pass",
-    "reference": "HANDOFF/05-VALIDATION-AND-COMMANDS.md 与 docs/VALIDATION.md 第十八轮",
+    "reference": "HANDOFF/05-VALIDATION-AND-COMMANDS.md 与 docs/VALIDATION.md 第二十轮",
     "hostPgSmoke": "ok:true, checks 21, failed []；事务回滚不变、并发领取不重复、崩溃回收旧 token 失效、步进链 modelCalls=3",
     "consoleSmoke": "ok:true；检查项含 index/styles/script/realTasks/writeBlocked/readOnlyAllowlist/6 个视图/themeToggle/noOverseasCopy/noWebIntake/feishuNotice/serviceConnected/responsive425",
     "routerSmoke": "ok:true, checks 31, failed []；隔离内存 Trace，未写真实 .runtime/routing/events.jsonl",
-    "agentsSmoke": "ok:true, 43/43 checks（隔离内存 Trace，不写真实 .runtime/routing/events.jsonl）"
+    "agentsSmoke": "ok:true, 43/43 checks（隔离内存 Trace，不写真实 .runtime/routing/events.jsonl）",
+    "shapesSmoke": "ok:true, checks 36, failed []；两种形态各跑一单五阶段，每步带 Router / 在岗快照，真实日志行数前后不变"
   },
   "services": {
     "3100": {
@@ -180,7 +192,7 @@
     },
     {
       "path": "HANDOFF/03-WORK-LOG.md",
-      "purpose": "19 轮工作记录（含第十五轮补遗、第十六轮 C-1、第十七轮 C-2、第十八轮 C-3）、提交号、排障模式、用户决策"
+      "purpose": "20 轮工作记录（含第十五轮补遗、第十六轮 C-1、第十七轮 C-2、第十八轮 C-3、第十九轮 C-4、第二十轮 C-5）、提交号、排障模式、用户决策"
     },
     {
       "path": "HANDOFF/04-CODE-MAP.md",
@@ -188,7 +200,7 @@
     },
     {
       "path": "HANDOFF/05-VALIDATION-AND-COMMANDS.md",
-      "purpose": "全套回归命令、第十八轮 C-3 实测结果（含 host:pg 21/21、console:smoke、router:smoke 31/31）、真实 HTTP 冒烟、排障、提交前检查"
+      "purpose": "全套回归命令、第二十轮 C-5 实测结果（含 host:pg 21/21、console:smoke、router:smoke 31/31、agents:smoke 43/43、shapes:smoke 36/36）、真实 HTTP 冒烟、排障、提交前检查"
     },
     {
       "path": "HANDOFF/06-CURRENT-STATE-AND-NEXT.md",
@@ -212,7 +224,7 @@
     },
     {
       "path": "HANDOFF/handoff-manifest.json",
-      "purpose": "本文件：机器可读交接元数据（含 C-P1~C-P8）"
+      "purpose": "本文件：机器可读交接元数据（含 C-P1~C-P8 与 C-5 交付）"
     },
     {
       "path": "HANDOFF/SYNC-STATUS.md",
@@ -221,20 +233,20 @@
   ],
   "fileInventory": {
     "path": "HANDOFF/FILE-INVENTORY.md",
-    "totalEntries": 286,
+    "totalEntries": 288,
     "handWrittenDescriptions": 211,
     "autoExtractedDescriptions": 69,
     "fallback": 0,
     "uncovered": 0,
-    "note": "第十四轮 269 + C-1 新增 4 + C-2 新增 7 + C-3 新增 3 + C-4 新增 3（src/agent-registry.ts、scripts/agents-smoke.ts、tests/agent-registry.test.ts）；既有文件修改不计新增"
+    "note": "第十四轮 269 + C-1 新增 4 + C-2 新增 7 + C-3 新增 3 + C-4 新增 3 + C-5 新增 2（scripts/shapes-smoke.ts、tests/shape-assessment.test.ts）；既有文件修改不计新增"
   },
   "nextSteps": [
     "读 HANDOFF/00-START-HERE.md、06-CURRENT-STATE-AND-NEXT.md、docs/PRD-v0.6.md §10C、07-RULES-AND-BOUNDARIES.md",
-    "跑 HANDOFF/05-VALIDATION-AND-COMMANDS.md 的全套回归确认 378/378、走查 11/11、host:pg 21/21、console:smoke ok:true、router:smoke 31/31、agents:smoke 43/43",
+    "跑 HANDOFF/05-VALIDATION-AND-COMMANDS.md 的全套回归确认 388/388、走查 11/11、host:pg 21/21、console:smoke ok:true、router:smoke 31/31、agents:smoke 43/43、shapes:smoke 36/36",
     "C-3 已完成：五个派活点共 9 处收敛到单一 Router；默认 flat（1 跳），layered 按业务域最多 2 跳，legacy 可回退；历史路由决策不回溯改写",
     "C-4 已完成：组织级 Agent 编制（可扩展职责 / 生效范围 / 版本 / 快照）、Router 在岗校验、A2A 在岗交接、验收协作编组；默认空编制不硬造管理层，agents:smoke 真跑 43/43",
-    "C-5（下一步）：按当前配置重跑 assessThreeTier（P3/P4 改按配置判定、接上 C-4 的真实 Agent 绑定），扁平/分层两种配置各跑真实一单",
-    "C-6：自查标准回流到交付前强制比对、候选改进经工程闸门+人审版本化生效、可回滚、效果对比",
+    "C-5 已完成：按当前配置重跑 assessThreeTier（P3/P4 按形态判定、接上 C-4 真实 Agent 绑定）、shape.ready 与 recommended 分离、扁平/分层各跑真实一单 36/36；默认扁平配置仍 recommended=false",
+    "C-6（下一步）：自查标准回流到交付前强制比对、候选改进经工程闸门+人审版本化生效、可回滚、效果对比",
     "真人业务验收 SUI-129 只能由用户本人在原会话用中文「确认验收」完成"
   ],
   "openDecisions": [
@@ -244,25 +256,26 @@
     "国内/海外外部服务是否接通",
     "已取消服务的长期状态",
     "\"pi\" 的指代（当前按 earendil-works/pi 理解）",
-    "Paperclip 去留：第十七轮已按方向 (a) 定调——不引入第 8 个上游，自己做国内化 + 独立控制台；第十八轮 C-3 完成单一 Router；第十九轮 C-4 落地组织级 Agent 编制，主链路继续去宿主化，默认底座仍可回退"
+    "Paperclip 去留：第十七轮已按方向 (a) 定调——不引入第 8 个上游，自己做国内化 + 独立控制台；第十八轮 C-3 单一 Router、第十九轮 C-4 组织级 Agent 编制、第二十轮 C-5 按配置评估口径均已去宿主化，默认底座仍 paperclip、可回退"
   ],
   "doNot": [
     "不要重启 4190/4192/4194/9418",
     "不要改 upstream/ 上游源码",
     "不要把 .runtime/ 的真实身份/密钥/业务正文提交进仓库",
     "不要用报告/模型判定/CI/合并审批代替真人「确认验收」",
-    "不要跳过 C 的分步验收、并行推进 C-1~C-6，或在 C-5 之前放开主管 Agent 自主派活",
+    "不要跳过 C 的分步验收、并行推进 C-1~C-6；C-5 已完成，但不得因此放开主管 Agent 自主派活或把 recommended 当成「建议所有团队升级三层」",
     "不要把投影当成权限来源或替换主读取源",
-    "不要为凑 assessThreeTier 转绿而逼扁平配置硬造管理层；P3/P4 必须按当前配置判定",
+    "不要为凑 assessThreeTier 转绿而逼扁平配置硬造管理层；P3/P4 必须按当前配置判定，分层主管派活必须对应真实在岗编制",
     "不要让 Agent 自动改写已锁定清单、权限规则、人签红线或历史任务；改进须过工程闸门 + 人审 + 版本 + 可回滚",
     "不要为长程执行引入 Redis 或远端工具沙箱之外的隐含假设：本机 PG SKIP LOCKED 只覆盖单机，capabilities().missing 如实列出仍缺项",
     "不要复制 LobeHub 主仓库源码或分发衍生作品；引入 @lobehub/ui 前必须重新评估 React 19 / ESM 约束并走 R7 六步",
     "不要让独立控制台出现网页发起入口、写动作或常驻端口；飞书仍是唯一发起入口",
     "不要绕过 Router 直接构造 routingDecision 并写 Trace；五个派活点必须经 getRouter().route()，legacy 回退只能由 config.router.mode 控制",
-    "不要把 router:smoke 的隔离合成数据当成产品上放行三层的结论；p8 在 C-4/C-5 前必须保持 false"
+    "不要把 router:smoke / shapes:smoke 的隔离真跑数据当成产品上已放行三层的结论；p8 只在真实分层配置 + 在岗编制下才可为 true",
+    "不要把 shapes:smoke 中分层 recommended=true 解读为「建议所有团队升级三层」或「组织已配置管理层」；默认配置仍是扁平"
   ],
   "finalValidationAtHandoff": {
-    "unitTests": "378/378",
+    "unitTests": "388/388",
     "walkthrough": "11/11, failures 0",
     "consoleSmoke": "ok:true, 6/6 视图, 写动作 403, 零海外文案",
     "routerSmoke": "ok:true, 31/31 checks（三种组织形态，隔离内存 Trace）",
@@ -270,8 +283,9 @@
     "memoryJourney": "ok:true, 9/9 checks, lineageComplete:true（第十四轮历史证据）",
     "upstreamAudit": "clean: true, problems 0",
     "gitDiffCheck": "pass",
-    "note": "第十九轮 C-4 代码与文档同步后重跑全套回归：npm test 378/378、tsc、两构建、425px 响应式、真实浏览器走查 11/11、console:smoke、router:smoke 31/31、agents:smoke 43/43、host:pg 21/21、host:smoke、routing:status、memory:checkpoint、audit:upstream、git diff --check",
-    "agentsSmoke": "ok:true, 43/43 checks（隔离内存 Trace）"
+    "note": "第二十轮 C-5 代码与文档同步后重跑全套回归：npm test 388/388、tsc、两构建、425px 响应式、真实浏览器走查 11/11、console:smoke、router:smoke 31/31、agents:smoke 43/43、shapes:smoke 36/36、host:pg 21/21、host:smoke、routing:status（CLI + HTTP）、memory:checkpoint、audit:upstream、git diff --check",
+    "agentsSmoke": "ok:true, 43/43 checks（隔离内存 Trace）",
+    "shapesSmoke": "ok:true, 36/36 checks（扁平 shape.ready=true/recommended=false；分层 true/true）"
   },
   "authoritativeOnly": true,
   "portableCopyNote": "WorkBuddy 工作区 handoff/ 与 SuitMe-HANDOFF.zip 已停用、不再维护；唯一权威位置为仓库内 HANDOFF/。"

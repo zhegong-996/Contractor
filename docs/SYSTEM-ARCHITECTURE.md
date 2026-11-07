@@ -195,7 +195,7 @@ flowchart TD
 
 派活判断此前分散在 `controller.ts`（入口 / 建单 / 交接）、`coordination.ts`（Super Agent 策略准入）、`assistant.ts`（整理 Agent 调度）、`service-network.ts`（A2A 服务委派）、`v06.ts`（职能责任转移）。第十二轮把它们收敛为 `src/routing-decision.ts` 的 `RoutingDecision`（调用方 / 目标角色 / 依据 / 资料范围 / 是否需人签字 + stage / outcome / causedBy），五个点经 `src/routing-trace.ts` 的单例写**同一份** append-only 日志 `.runtime/routing/events.jsonl`，每行是严谨的 `MemoryEvent`（kind `routing-decided`），并投影进 SQLite `audit` 表。
 
-这条链同时是 B 阶段共享记忆的地基：`toMemoryEvent()` / `replayRouting()` 已给出「同一日志两次重放一致、去重、按时间有序、坏行报错」的验收口径。`src/three-tier-assessment.ts` 用真实 Trace 判断要不要引入 LobeHub 三层，当前结论仍是**不引入**：C-3 已让 P6 按 Trace 里的 Router 快照如实判定，但 P3 / P4 仍是 Agent 实体缺口，并新增 p8 闸门锁到 C-4 / C-5。只读 `routing-status` 与 `npm run routing:status` 可随时复核。
+这条链同时是 B 阶段共享记忆的地基：`toMemoryEvent()` / `replayRouting()` 已给出「同一日志两次重放一致、去重、按时间有序、坏行报错」的验收口径。`src/three-tier-assessment.ts` 从当前真实 Router 配置 + 在岗编制取口径（C-5 的 `shapeOptions()`）：P3 / P4 按当前形态判定，`recommended` 只表示「当前分层配置可正式启用三层」，`shape.ready` 单独说明本形态是否闭环；默认扁平配置下结论仍是**不引入三层**，p8 是防跳级闸门。只读 `routing-status` 与 `npm run routing:status` 可随时复核。
 
 宿主侧新增 `src/platform-port.ts`：`HostPlatformPort` 收拢任务 / 文档 / 身份 / 健康检查 / UI 承载，`PaperclipPlatform` 为默认薄包装，`LocalHostPlatform` 是不依赖 Paperclip 的最小可运行实现（`npm run host:smoke` 真跑）。`config.host.provider` 默认仍是 `paperclip`，**尚未切换底座**；完整替换需先补齐 ACL、cost-ledger、Plugin UI、heartbeat 真实执行与 PG 事务五项，见 `ROUTING-AND-HOST-v0.7.md` 第 5 节。
 
@@ -249,3 +249,7 @@ flowchart TD
 宿主侧栏的「技能 / 连接服务」链接带公司前缀（实测 `/SUI/skills`、`/SUI/apps`），构建期 4 条规则覆盖不到这种运行时拼接的路径；运行时脚本改用 `ROUTE = /^\/(?:[A-Za-z0-9_-]+\/)?(skills|apps)(\/|$)/`，同时隐藏链接与其 `li` 容器，并在真实浏览器走查中断言这两个入口已隐藏、插件页与面包屑不受影响。自动刷新失败静默保留上次结果并在状态行标注，只有手动刷新或首次加载失败才提示，避免瞬时网络抖动弹出误导性的红色错误框。
 
 > **第十九轮 C-4 补记**：新增 `src/agent-registry.ts` 作为组织形态的真相源（Agent 实例 / 可扩展职责 / 生效范围 / 版本 / 快照），`config.agentRegistry` 默认空编制。`planRoute` 显式装配后校验主管在岗；`service-network` 的 A2A 交接校验目标职责与范围；`v06` 增加 `agent-registry-view` / `acceptance-crew` 只读动作；控制台「协作」视图显示中文编制卡。与 `agent-services.ts` 的运行时服务目录分工不变：注册表说「谁在什么范围担什么职责」，服务目录说「用什么工具 / 模型干活」。默认底座仍 `paperclip`，飞书仍是唯一发起入口。真跑 `npm run agents:smoke` 43/43。
+
+---
+
+> **第二十轮 C-5 补记**：三层评估的口径来源改为当前真实配置——`shapeOptions(getRouter(), getAgentRegistry())`，服务端 `routing-status` 与 CLI 共用；扁平形态按「人机入口直达执行者」判定，不要求主管，也不因历史 supervisor 角色记录而失败；分层形态的主管派活必须同时命中 `config.router.domains[].supervisorAgentKey` 与 `onDuty()` 中带 supervisor 职责的 Agent。`recommended` 与 `shape.ready` 分离，避免把「扁平跑通了」误报成「该升级三层」。B1 / B2 的 append-only 主干仍是三种形态共享的同一份现场，C-5 未新建第二份记忆、未改变读取链与撤权规则。

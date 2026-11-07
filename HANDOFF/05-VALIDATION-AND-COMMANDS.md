@@ -6,12 +6,13 @@
 cd /Users/gong.zhe/Developer/ai-native-collab
 export NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost NODE_USE_ENV_PROXY=0
 
-npm test                    # 378/378（基线）
+npm test                    # 388/388（基线）
 npx tsc --noEmit            # 退出 0
 npm run build:workspaces    # 插件 UI 打包 + 类型检查
 npm run build:chinese-shell # hiddenEntries 4 条、missed []、warning null
 npm run test:responsive     # 425px 无溢出、按钮 44px
 npm run agents:smoke        # C-4 Agent 编制隔离真跑 43/43
+npm run shapes:smoke        # C-5 扁平 / 分层各跑真实一单 36/36（隔离内存 Trace）
 npm run test:walkthrough    # 11/11、failures []
 npm run audit:upstream      # clean: true、problems []
 git diff --check            # 退出 0
@@ -31,6 +32,7 @@ npm run host:smoke          # 非 Paperclip 宿主 ok:true
 npm run host:pg             # PG 后端 21/21、ok:true（专属库 suitme_collab_c1）
 npm run console             # 自研独立控制台（按需启动，非常驻；默认 4200，只绑回环）
 npm run router:smoke        # C-3 三种形态 31/31（隔离内存 Trace，不写真实日志）
+npm run shapes:smoke        # C-5 扁平 / 分层各跑真实一单 36/36（隔离内存 Trace，不写真实日志）
 npm run console:smoke       # 临时端口 + Chrome 真跑，输出 .runtime/console-smoke.json
 npm run cognee:native -- status   # enabled:true, configured:false（缺 4 个环境变量）
 npm run delivery:demo       # 本机 Git 链路；4194/9418 停机时 gitProtocolClonePull 为 false，属预期
@@ -38,23 +40,25 @@ npm run delivery:demo       # 本机 Git 链路；4194/9418 停机时 gitProtoco
 
 `memory:journey` 会新建一条专用资料并在末尾撤回，**不是只读检查**；`memory:checkpoint -- --reset` 会全量重建后再按 append-only 前缀增量应用。
 
-## 2. 第十九轮 C-4 实测结果（2026-11-07；含第十四轮 B2、第十六轮 C-1、第十七轮 C-2、第十八轮 C-3 历史数据）
+## 2. 第二十轮 C-5 实测结果（2026-11-08；含第十四轮 B2、第十六轮 C-1、第十七轮 C-2、第十八轮 C-3、第十九轮 C-4 历史数据）
 
 | 项 | 结果 |
 |---|---|
-| `npm test` | **378 / 378**（第十四轮 329 + C-1 6 例 PG 契约 + C-2 14 例控制台与国内化契约 + C-3 13 例 Router / 控制台契约 + C-4 16 例注册表 / 编制视图契约） |
+| `npm test` | **388 / 388**（第十九轮 378 + C-5 新增 10 例按配置评估契约） |
 | `npx tsc --noEmit` | 通过 |
 | `build:workspaces` / `build:chinese-shell` | 通过 / `hiddenEntries` 4、`missed: []`、`warning: null`（前台重跑） |
 | `test:responsive` | 425px `393/393`、溢出 0、按钮 44px、`problems: []` |
 | `test:walkthrough` | **11 / 11**，`failures: []`（旧插件工作台未回退） |
+| `console` 只读超时 | 真实浏览器测得 `view` 415KB / 10~12 秒；改为按动作区分超时（`view` 30 秒、其余 8 秒），保留去重与短缓存，截图 `errorCards:0`；**服务端分页未做**，列为后续性能项 |
 | `console:smoke` | **`ok:true`**：6/6 视图、真实任务 10 条、主题切换持久化、425px `425/425`、可见文案零海外品牌、无输入框、写动作 403 |
 | `audit:upstream` | `clean: true`、`problems: []`（7 个上游） |
+| `shapes:smoke` | **36/36 `ok:true`**：扁平 `shape.ready=true / recommended=false`、分层 `true / true`；每步带 Router / 在岗快照、两次重放一致、因果链闭合、人签只在末跳、真实日志行数不变；报告 `.runtime/shapes-smoke.json` 不入库 |
 | `agents:smoke` | **43/43 `ok:true`**：C-3 兼容、空编制降级、在岗 2 跳、停用 / 职责 / 范围降级、自环留痕、验收编组、A2A 六类失败、快照不回溯、五处接线守门 |
 | `memory:smoke` | 撤权前 1 命中 → 撤权后 **0 命中**、`excludedByRevocation=4`、`modelCalls=0` |
 | `memory:journey` | **`ok: true`，9/9 checks**：四类投影 `1/2/1/1 → 0/0/0/0`、召回 `1 → 0`、`lineageInvalidated`、新增 `lineageComplete`（本次资料悬空 lineage 前后均为 0）、`logErrors=0`、两次重放一致 |
 | `memory:checkpoint` | 真实日志 `mode:incremental, applied:1, fallback:null, checksumEqual:true`（全量重建 30 → 增量后 31 事件）；journey 追加撤权事件时按预期 `fallback:retroactive-event` 回退全量，`checksumEqual:true` |
 | `router:smoke` | **`ok:true`、31/31**：legacy 5 跳 / flat 5 跳 / layered 10 跳、五阶段覆盖、因果链闭合、人签不扩散、p6 按证据、p8 未放行、未登记业务域降级、自环留痕 |
-| `routing:status` | `allWired:true`；`router.mode=flat`、`domains=[]`；`routerCoverage total=65 / routed=7`；p6 false、p8 false、`recommended:false` |
+| `routing:status` | `allWired:true`；`router.mode=flat`、`domains=[]`、`onDuty=0`；`routerCoverage total=65 / routed=7`；`shape.mode=flat`、P3/P4 按扁平口径、p6 false、p8 false、`recommended:false`；CLI 与真实 HTTP 200 一致 |
 | `host:smoke` / `host:pg` | `ok:true` / **`ok:true`、21/21**（事务、并发领取、步进链、崩溃恢复、token 幂等） |
 | `cognee:native status` | `configured:false`（缺 4 个环境变量，未外发业务材料） |
 | `git diff --check` / staged 敏感扫描 | 通过 / 无 `.runtime`、无真实身份 |

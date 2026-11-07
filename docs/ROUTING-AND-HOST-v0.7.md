@@ -166,6 +166,12 @@ Super Agent、Autoloop、LobeHub **不是同类**：触发策略 → 执行循�
 - **验收是一等公民**：`reviewCrew()` 按职责解析逐项判定 / 标准起草 / 周期巡检，逐个排除已用主体与产出方，并与自定义职责 Agent 协作；`v06` 增加两个只读动作、控制台显示中文「Agent 编制」卡片。三条红线不变。
 - **证据**：`npm run agents:smoke` 隔离真跑 **43/43**；`tests/agent-registry.test.ts` 14 例；全套 378/378。
 
+### 6.5 C-5：按当前配置重跑三层评估（第二十轮）
+
+- `shapeOptions(router, registry)` 从当前真实 Router 配置 + `onDuty()` 在岗编制取口径，服务端 / CLI / 真跑共用；P3 / P4 不再固定要求三层。
+- 扁平：P4 看 `directDispatches`，不要求主管；`shape.ready` 可为 true 而 `recommended` 恒 false。分层：P4 看 `boundSupervisorDispatches`，主管必须同时「配置登记」且「真实在岗带 supervisor 职责」。
+- `npm run shapes:smoke` 两种形态各跑一单五阶段，**36/36**；Trace 每步带 Router / 编制快照、可逐步回放；全套 **388/388**。真实服务端因历史决策不回溯，p6 仍 false、`shape.ready=false`，如实呈现。
+
 每阶段验收必须跑：全套回归（当前 378 例单测、tsc、两个构建、响应式、走查、上游审计、diff-check）+ `npm run routing:status` + `npm run host:smoke` + `npm run host:pg` + `npm run console:smoke` + `npm run router:smoke` + `npm run agents:smoke`。
 
 ---

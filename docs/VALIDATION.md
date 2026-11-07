@@ -616,7 +616,7 @@ Cognee `cognify` 的真实外部模型调用未发生（缺端点与凭据）；
 - **单一 Router**：新增 `src/router.ts`（`planRoute()` 纯函数 + `Router` 唯一写入口 + `getRouter()` 单例 + `routerRevision()` 配置快照 + `planCoverage()`）；`config.router` 支持 `legacy / flat / layered`、按业务域的 `domains`、`defaultDomain`、`maxHops`，默认 `flat`。
 - **9 处接线**：`controller`(3) / `coordination`(1) / `assistant`(1) / `service-network`(2) / `v06`(2) 全部改为 `getRouter().route({...})`；`server.ts` 启动时 `configureRouter(config.router)`；`routing-status` 与 CLI 返回 `router` / `routerCoverage`；控制台「协作」视图新增「组织形态」「怎么派活」。
 - **红线**：`legacy` 逐字回退；未配主管的业务域、被拒 / 待定派活、主管即承接人都退回 1 跳并标注降级；自派自验自环被拦且写 `rejected` 留痕；人签只在最后一跳；幂等键与改造前一致；历史决策不回溯。
-- **评估闸门**：`assessThreeTier` 的 p6 改为按 Trace 中的 Router 快照如实判定，新增 p8（Agent 实例 + 职责绑定 + 分层配置，C-4 / C-5 前恒 false），修掉「合成五阶段数据即可让 `recommended=true`」的口径缺口。
+- **评估闸门**：`assessThreeTier` 的 p6 改为按 Trace 中的 Router 快照如实判定，新增 p8（Agent 实例 + 职责绑定 + 分层配置；第十八轮当时恒 false，C-5 后改为只在「真实分层配置 + 在岗编制 + 已配置业务域」下放行），修掉「合成五阶段数据即可让 `recommended=true`」的口径缺口。
 - **真跑**：`npm run router:smoke` 隔离内存 Trace 跑三种形态 **31/31 `ok:true`**；`tests/router.test.ts` 11 例契约；`tests/routing-decision.test.ts` 守门改为「9 处经 Router、零直写」。
 - **顺带修掉的真实问题**：真实浏览器截图发现协作视图稳定出现「暂时无法读取 / signal timed out」。测量 `view` 单次约 5.2 秒，而视图渲染与顶部状态条并发重复请求同一只读动作，三次并发 12 秒仍全部超时。在 `console/app.js` 加 **in-flight 去重 + 1.5 秒成功结果短缓存**（失败不缓存、超时保护不变），同一时刻相同只读请求只发一次；`tests/console-shell.test.ts` 补 2 例契约（组织形态卡片 + 去重）。修复后 `console:smoke ok:true`、协作视图 4 张卡片无错误提示。
 
@@ -664,3 +664,31 @@ Cognee `cognify` 的真实外部模型调用未发生（缺端点与凭据）；
 ### 3. 严格边界（未发生，不是 bug）
 
 默认编制为空，所以真实服务端 p8 仍 `false`、三层判断 `recommended=false`；`agents:smoke` 的「在岗 2 跳」是隔离合成编制，不代表组织已配置管理层。C-5 / C-6 未做；`assessThreeTier()` 的 P3 / P4 仍按角色名判定；默认底座仍 `paperclip`；飞书仍是唯一发起入口；未引入第 8 个上游、未改上游提交、未复制 LobeHub 代码。`.runtime/agent-registry-smoke.json` 不入库。
+
+---
+
+## 第二十轮：C-5 按配置重跑三层评估与两种形态真实一单（2026-11-08）
+
+### 1. 交付
+
+- **评估口径**：`src/three-tier-assessment.ts` 新增 `OrgShape` / `shapeOptions(router, registry)`；P3 / P4 由固定三层口径改为按当前 `config.router.mode` 判定。扁平 P4 用 `directDispatches`（人 / 助手直达执行者），不要求 supervisor；分层 P4 用 `boundSupervisorDispatches`，要求派活方同时命中配置登记与真实在岗主管职责。新增 `observed.directDispatches` / `observed.boundSupervisorDispatches`。
+- **结论分离**：新增 `shape: { mode, label, ready, applicable }`；`shape.ready` 表示当前形态按自身配置是否闭环（扁平不计 p8），`recommended` 只在 `layered` 且八项全绿时为 true。未声明 `routerMode` 的旧调用保持最保守固定口径（`routing-decision.test.ts` / `router:smoke` 不回退）。
+- **接线**：`server.ts` 与 `scripts/routing-status.ts` 改用 `shapeOptions(getRouter(), getAgentRegistry())`；`console/app.js`「组织形态」卡加「形态判定」「三层结论」两行中文白话。服务端已 `restart:bridge`，真实 HTTP `routing-status` 返回 200 且口径一致。
+- **真实浏览器修复**：演示截图复验时发现 `view` 返回整个工作区快照已增长到 **415KB / 10~12 秒**（C-3 时约 5 秒），前端统一 8 秒只读超时会稳定超时并渲染错误卡片；改为**按动作区分超时**（`view` 30 秒、其余只读仍 8 秒快速失败），保留 in-flight 去重与 1.5 秒成功结果短缓存。`tests/console-shell.test.ts` 的 C-3 契约同步守住；`console:smoke` 全绿、协作视图截图 `errorCards:0`、任务列表与「Agent 编制」卡片均正常。**未做服务端分页 / 裁剪**，如实列为后续性能项。
+- **真跑**：新增 `scripts/shapes-smoke.ts` + `npm run shapes:smoke`，隔离内存 Trace 上扁平 / 分层各跑一单五阶段；`tests/shape-assessment.test.ts` 10 例契约。
+
+### 2. 全套回归结果（本轮重跑）
+
+| 项 | 结果 |
+|---|---|
+| `npm test` | **388 / 388**（第十九轮 378 + C-5 新增 10 例按配置评估契约） |
+| `npx tsc --noEmit` | `TSC_OK` |
+| `shapes:smoke` | **36/36 `ok:true`**：扁平 `shape.ready=true / recommended=false`；分层 `shape.ready=true / recommended=true`；每步带配置与在岗快照、两次重放一致、因果链闭合、人签只在末跳、真实日志行数不变 |
+| `router:smoke` / `agents:smoke` | **31/31** / **43/43 `ok:true`**，不传 `routerMode` 时走保守口径，不回退 |
+| `console:smoke` | `ok:true`、`failed: []`（6 视图 / 主题 / 425px / 零海外文案 / 只读边界） |
+| `routing:status`（CLI + 真实 HTTP） | `allWired:true`；`shape.mode=flat`、P3/P4 按扁平口径、p8 false、`recommended:false`；服务端 `shape.ready=false` 因历史决策不带 Router 快照（p6 如实 false，不回溯改写） |
+| `git diff --check` | 通过 |
+
+### 3. 严格边界（未发生，不是 bug）
+
+默认 `config.router.mode=flat`、默认编制为空，真实服务端仍 `recommended=false`；`shapes:smoke` 中分层 `recommended=true` 是**隔离真跑里的分层配置 + 真实在岗编制**，只说明「按该配置可正式启用三层」，不代表组织已配置管理层，也不代表建议所有团队升级。C-6 自演进闭环未做；默认底座仍 `paperclip`；`runner.ts` 常驻 `while` 未切单步；真人业务验收 SUI-129 仍未发生；4190 / 4192 / 4194 / 9418 保持停机。飞书仍是唯一发起入口，控制台只读白名单未放宽；未引入第 8 个上游、未改上游提交、未复制 LobeHub 代码。`.runtime/shapes-smoke.json` 与 `.runtime/console/*.png` 不入库。

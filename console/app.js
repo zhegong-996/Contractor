@@ -58,11 +58,14 @@
   const $ = id => document.getElementById(id);
 
   // 只读请求的 in-flight 去重 + 短缓存：视图本身和顶部状态条会同时请求同一个
-  // action（例如 view 单次约 5 秒），并发重复请求会在 8 秒超时下一起挂掉。
-  // 只合并同一时刻的相同只读请求，不改变任何数据、不缓存失败结果。
+  // action，并发重复请求会在超时边界下一起挂掉。只合并同一时刻的相同只读请求，
+  // 不改变任何数据、不缓存失败结果。
+  // view 会带回整个工作区快照，真实浏览器实测 10~12 秒 / 400KB+（宿主数据增长后
+  // 从约 5 秒退化），单独给宽限；其余只读动作仍 8 秒快速失败，不让一个慢请求拖住整页。
   const inFlight = new Map();
   const readCache = new Map();
   const CACHE_MS = 1500;
+  const READ_TIMEOUT = { view: 30000 };
   async function api(action, payload = {}) {
     const key = action + ':' + JSON.stringify(payload);
     const hit = readCache.get(key);
@@ -71,7 +74,7 @@
     const task = (async () => {
       const response = await fetch('/api/' + action, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ payload }), signal: AbortSignal.timeout(8000),
+        body: JSON.stringify({ payload }), signal: AbortSignal.timeout(READ_TIMEOUT[action] ?? 8000),
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || '读取失败');
@@ -147,6 +150,8 @@
         ['业务域', domains.length ? domains.map(item => clean(item.label)).join('、') : '未配置中间决策层'],
         ['最多跳数', router.maxHops ?? 1],
         ['入口收敛', routing.routerCoverage?.singleRouterEntry ? '是，留痕都带配置快照' : '改造前的历史留痕不回溯改写'],
+        ['形态判定', routing.threeTier?.shape?.ready ? '按当前配置闭环' : '按当前配置逐项判定，未齐项如实列出'],
+        ['三层结论', routing.threeTier?.recommended ? '当前分层配置已可正式启用' : '当前形态不需要三层，不硬造管理层'],
       ]));
     const explain = card('怎么派活', '同一份共享现场，不靠摘要转发；没配主管的业务域不会硬造管理层',
       listRows([

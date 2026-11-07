@@ -34,9 +34,9 @@ import { V06Services } from './v06.ts';
 import { RuntimeGuardBridge } from './runtime-bridge.ts';
 import { collectServiceStatus, type ServiceStatusReport } from './service-status.ts';
 import { getRoutingTrace, readRoutingEvents, replayRouting } from './routing-trace.ts';
-import { assessThreeTier } from './three-tier-assessment.ts';
+import { assessThreeTier, shapeOptions } from './three-tier-assessment.ts';
 import { configureRouter, getRouter, planCoverage } from './router.ts';
-import { configureAgentRegistry, getAgentRegistry, onDuty } from './agent-registry.ts';
+import { configureAgentRegistry, getAgentRegistry } from './agent-registry.ts';
 import { getMemoryLog, readBridgedEvents } from './memory-log.ts';
 import { memoryReplayReport } from './memory-projections.ts';
 
@@ -191,8 +191,7 @@ const server = createServer(async (req, res) => {
           const {events,errors}=readRoutingEvents();const projection=replayRouting(events);
           return {ok:true,log:'.runtime/routing/events.jsonl',eventCount:events.length,logErrors:errors,
             projection,threeTier:assessThreeTier(events,projection,errors,
-              {routerMode:getRouter().status().mode,configuredDomains:getRouter().status().domains.length,
-                agentBindings:onDuty(getAgentRegistry()).length}),
+              shapeOptions(getRouter(),getAgentRegistry())),
             router:getRouter().status(),routerCoverage:planCoverage(events)};
         }
         if(action==='development-start')return development.start(payload,workspaceActor);

@@ -16,12 +16,12 @@
 
 | 项 | 值 |
 |---|---|
-| **运行代码基线** | 第十八轮 C-3 完成（含运行代码：单一 Router / 组织形态配置 / 状态视图 / 新契约测试；C-1 的 PG 宿主与 C-2 的独立控制台已在前两轮）；**以 `git rev-parse HEAD` 为准**（交接时的 `b58631c` / `f6611e0` / `4aa6fb0` 均为历史） |
-| 阶段 | A 完成 → B1 完成 → **B2 完成并验证** → **C 进行中（② 已拍板，C-0 / C-0b / C-1 / C-2 / C-3 / C-4 完成 / C-5 为下一步）**（严格不并行，C-0 → C-6 + 收尾） |
+| **运行代码基线** | 第二十轮 C-5 完成（含运行代码：单一 Router / 组织形态配置 / 状态视图 / 新契约测试；C-1 的 PG 宿主与 C-2 的独立控制台已在前两轮）；**以 `git rev-parse HEAD` 为准**（交接时的 `b58631c` / `f6611e0` / `4aa6fb0` 均为历史） |
+| 阶段 | A 完成 → B1 完成 → **B2 完成并验证** → **C 进行中（② 已拍板，C-0 / C-0b / C-1 / C-2 / C-3 / C-4 / C-5 完成 / C-6 为下一步）**（严格不并行，C-0 → C-6 + 收尾） |
 | 本文件所在提交 | 随 `main` 前进，clone 后 `git log -1` 即最新 |
 | 同步方式 | 代码与文档一并提交并 push 到 `origin/main`；`HEAD = origin/main = 远端 main` |
 
-第十九轮 C-4 已重跑全套回归全绿：`npm test` 378/378、`tsc`、两个构建、`test:responsive`、真实浏览器走查 11/11、`console:smoke ok:true`、`router:smoke` 31/31、`agents:smoke` 43/43、`audit:upstream clean`、`git diff --check`、`host:pg` 21/21。第十五轮 C-0 / C-0b 为文档改动；第十六轮 C-1 落地 PG 宿主与步进队列；第十七轮 C-2 落地自研独立控制台与全量国内化；第十八轮 C-3 落地单一 Router；第十九轮 C-4 落地组织级 Agent 编制、验收协作与 A2A 在岗交接。最新结果以 `05` 与 `docs/VALIDATION.md` 第十九轮为准。
+第二十轮 C-5 已重跑全套回归全绿：`npm test` 388/388、`tsc`、两个构建、`test:responsive`、真实浏览器走查 11/11、`console:smoke ok:true`、`router:smoke` 31/31、`agents:smoke` 43/43、`shapes:smoke` 36/36、`audit:upstream clean`、`git diff --check`、`host:pg` 21/21。第十五轮 C-0 / C-0b 为文档改动；第十六轮 C-1 落地 PG 宿主与步进队列；第十七轮 C-2 落地自研独立控制台与全量国内化；第十八轮 C-3 落地单一 Router；第十九轮 C-4 落地组织级 Agent 编制、验收协作与 A2A 在岗交接；第二十轮 C-5 落地按当前配置重跑三层评估与两种形态真实一单。最新结果以 `05` 与 `docs/VALIDATION.md` 第二十轮为准。
 
 ## 3. 接手时先跑这三条
 
@@ -30,7 +30,7 @@ cd /Users/gong.zhe/Developer/ai-native-collab
 git status --short --branch                    # 应干净且与 origin/main 一致
 git rev-parse HEAD; git rev-parse origin/main; git ls-remote origin main   # 三者应一致
 npm run agents:smoke                            # C-4 编制真跑 43/43
-npm test                                       # 378/378
+npm test                                       # 388/388
 ```
 
 需要本机服务时先设干净环境（见 `00-START-HERE.md` 第 2 节）：
@@ -47,7 +47,7 @@ export NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost NODE_USE_ENV_PR
 5. `05-VALIDATION-AND-COMMANDS.md` — 全套回归、预期输出、排障、提交前检查
 6. `DIRECTORY-GUIDE.md` — 目录树、每个目录作用与入库状态、`.runtime/` 与产物位置
 7. `FILE-INVENTORY.md` — 全部文件逐文件一行说明
-8. `01` / `02` / `03` / `04` — 产品、技术、19 轮工作日志、代码地图（按需查）
+8. `01` / `02` / `03` / `04` — 产品、技术、20 轮工作日志、代码地图（按需查）
 9. `07-RULES-AND-BOUNDARIES.md` / `08-OPEN-DECISIONS.md` — 红线与需用户拍板事项（**动手前必读**）
 10. `handoff-manifest.json` — 机器可读元数据
 

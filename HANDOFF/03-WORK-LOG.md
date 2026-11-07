@@ -1,6 +1,6 @@
-# 03 · 全部工作记录（19 轮 + 基础建设期）
+# 03 · 全部工作记录（20 轮 + 基础建设期）
 
-> 权威逐轮记录：`docs/VALIDATION.md`（验证）与 `docs/ADAPTATION-v0.6.md`（边界声明，**最新边界以 `0.00000000000000000000` 节为准**）。
+> 权威逐轮记录：`docs/VALIDATION.md`（验证）与 `docs/ADAPTATION-v0.6.md`（边界声明，**最新边界以 `0.000000000000000000000` 节为准**）。
 > 完整提交历史以 `git log --oneline | wc -l` 与 `git rev-parse HEAD` 为准（交接时 `HEAD = b58631c`，其后已多次前进）。下表按时间线归纳，`提交` 列可直接 `git show <hash>`。
 
 ## 0. 基础建设期（前 21 个提交，早于分轮记录）
@@ -34,6 +34,7 @@
 | 第十八轮 | 本轮提交 | **方案 C-3：单一 Router 与可配置组织形态**：按已拍板分步清单推进 C-3；新增 `src/router.ts`（`planRoute()` 纯函数 + `Router` 唯一写入口 + 配置 revision 快照 + `planCoverage()`）、`config.router`（legacy / flat / layered + 按业务域 domains）；五个派活点共 9 处改为 `getRouter().route()`，服务端 `configureRouter(config.router)` 装配；`routing-status` 与控制台「协作」视图可见当前组织形态；p6 改为按 Trace 证据判定，新增 p8 防跳级闸门（C-3 真跑发现合成数据可凑齐旧 P3/P4）；`router:smoke` 隔离真跑、11 例 Router 契约 + 2 例控制台契约 | **362/362**、tsc、两构建、425px 响应式、走查 11/11、`router:smoke` **31/31 ok:true**、`console:smoke ok:true`、`host:pg` 21/21、`routing:status allWired:true`、`audit:upstream clean`；边界：C-4/C-5/C-6 未做、默认底座仍 `paperclip`、历史路由决策不回溯、飞书仍是唯一发起入口、未引入新上游 |
 
 | 第十九轮 | 本轮提交 | **方案 C-4：组织级 Agent 编制、验收协作与 A2A 在岗交接**：用户说「请继续完成未完成的任务」，按已拍板分步清单推进 C-4；新增 `src/agent-registry.ts`（Agent 实例 / 可扩展职责槽位 / 生效范围 / 内容哈希版本 / `registryRevision` 快照 / `resolveAssignment` / `handoffEnvelope` / `reviewCrew` / 单例）、`config.agentRegistry`（默认空编制）；`planRoute` 第 3 参数显式装配后校验主管在岗 / 职责 / 范围，未传与 C-3 逐字等价；`server.ts` 装配注册表并把真实 `onDuty()` 传给 p8；`service-network` 的 A2A `route/start` 加在岗校验与 `handoff:` 留痕；`v06` 新增 `agent-registry-view` / `acceptance-crew` 只读动作、`org-overview` 扩为 11 段；控制台「协作」视图新增中文「Agent 编制」卡片；`agents:smoke` 隔离真跑 43/43、14 例注册表契约 + 2 例控制台契约 | **378/378**、tsc、两构建、425px 响应式、走查 11/11、`router:smoke` 31/31、`agents:smoke` **43/43 ok:true**、`console:smoke ok:true` 19 项、`host:pg` 21/21、`routing:status allWired:true`、`audit:upstream clean`；边界：C-5/C-6 未做、默认底座仍 `paperclip`、默认空编制故 p8 仍 false、飞书仍是唯一发起入口、未引入新上游 |
+| 第二十轮 | 本轮提交 | **方案 C-5：按当前配置重跑三层评估、两种形态各跑真实一单**：用户说「请继续完成未完成的任务」，按已拍板分步清单推进 C-5；`src/three-tier-assessment.ts` 新增 `shapeOptions(router, registry)`，P3 / P4 由固定三层口径改为按当前 `config.router.mode` 判定（扁平看「直达派活」不要求主管；分层要求派活方同时是配置登记且真实在岗的 supervisor Agent）；新增 `shape.ready` 与 `recommended` 分离，`recommended` 只表示当前分层配置可正式启用三层；`server.ts` / `routing-status.ts` 共用 shapeOptions，控制台「组织形态」卡加中文白话结论；新增 `scripts/shapes-smoke.ts`（扁平 / 分层各跑一单五阶段，每步可回放）与 `tests/shape-assessment.test.ts` 10 例契约 | **388/388**、tsc、`shapes:smoke` **36/36 ok:true**（扁平 `shape.ready=true / recommended=false`、分层 `true / true`）、`router:smoke` 31/31、`agents:smoke` 43/43、`console:smoke ok:true`、真实服务端 `routing-status` 200 且 CLI/HTTP 口径一致；边界：C-6 未做、默认底座仍 `paperclip`、默认扁平且真实日志含改造前决策故 p6 仍 false（历史不回溯）、飞书仍是唯一发起入口、未引入新上游 |
 
 ## 2. 反复出现的排障模式（接手者可直接复用）
 

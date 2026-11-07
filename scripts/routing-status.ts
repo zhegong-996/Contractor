@@ -4,10 +4,10 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { root, loadConfig, defaultRouterConfig } from '../src/config.ts';
 import { readRoutingEvents, replayRouting } from '../src/routing-trace.ts';
-import { assessThreeTier } from '../src/three-tier-assessment.ts';
+import { assessThreeTier, shapeOptions } from '../src/three-tier-assessment.ts';
 import { platformSwitchChecklist } from '../src/platform-port.ts';
 import { getRouter, configureRouter, planCoverage } from '../src/router.ts';
-import { configureAgentRegistry, defaultAgentRegistry, getAgentRegistry, onDuty } from '../src/agent-registry.ts';
+import { configureAgentRegistry, defaultAgentRegistry, getAgentRegistry } from '../src/agent-registry.ts';
 
 const WIRING = [
   ['src/controller.ts', '入口路由 / 建单 / 交接'],
@@ -40,9 +40,9 @@ try {
 const { events, errors } = readRoutingEvents();
 const projection = replayRouting(events);
 const routerStatus = getRouter().status();
+// C-5：口径一律从当前真实 Router 配置 + 在岗编制提取，不在这里手写魔数。
 const threeTier = assessThreeTier(events, projection, errors,
-  { routerMode: routerStatus.mode, configuredDomains: routerStatus.domains.length,
-    agentBindings: onDuty(getAgentRegistry()).length });
+  shapeOptions(getRouter(), getAgentRegistry()));
 
 console.log(JSON.stringify({
   ok: true,

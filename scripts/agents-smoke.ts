@@ -229,7 +229,8 @@ const server = src('src/server.ts');
 check('C-4 服务端、Router、A2A、v06、控制台五处接线齐全',
   /configureAgentRegistry\(config\.agentRegistry\)/.test(server)
   && /configureRouter\(config\.router, undefined, getAgentRegistry\(\)\)/.test(server)
-  && /agentBindings:onDuty\(getAgentRegistry\(\)\)\.length/.test(server)
+  // C-5：p8 的真实在岗数改由 shapeOptions() 从当前配置 + 编制统一提取。
+  && /shapeOptions\(getRouter\(\),getAgentRegistry\(\)\)/.test(server)
   && /handoffEnvelope\(/.test(src('src/service-network.ts'))
   && /case 'agent-registry-view'/.test(src('src/v06.ts'))
   && /case 'acceptance-crew'/.test(src('src/v06.ts'))

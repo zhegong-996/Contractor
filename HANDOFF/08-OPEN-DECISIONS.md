@@ -75,4 +75,6 @@
 
 - **第十八轮进展**：C-3 已把五个派活点共 9 处收敛到单一 Router（`config.router` 决定扁平 / 分层 / legacy），主链路的「谁交给谁」不再由宿主插件决定；默认底座仍 `paperclip` 且可回退，C-4 起继续往 `HostPlatformPort` / `PgHostPlatform` 收。
 
+- **第二十轮进展**：C-5 已按当前配置重跑三层评估（扁平不要求主管、分层主管须真实在岗、`shape.ready` 与 `recommended` 分离），两种形态各跑真实一单 36/36；评估层不再依赖宿主，主链路继续往 `HostPlatformPort` / `PgHostPlatform` 收，默认底座仍可回退。
+
 - **第十九轮进展**：C-4 已落地组织级 Agent 编制（`src/agent-registry.ts`）并接进 Router / A2A / 验收链，「谁有资格接这一棒」不再由宿主或字符串决定；默认空编制保持扁平，主链路继续往 `HostPlatformPort` / `PgHostPlatform` 收。

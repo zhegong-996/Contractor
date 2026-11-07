@@ -116,6 +116,7 @@
 | FR-01/02 职能注册表 | 无对应开源实现 | — | 自研，不涉及第三方代码 |
 | C-1 事务 / 并发 / 步进队列 | `pg` 8.23.1（MIT） | ✅ | 已引入；`src/pg-host.ts` 自研适配，本机专属库 `npm run host:pg` 真跑 21/21；未引 Redis、未部署远端沙箱 |
 | C-3 单一 Router / 可配置组织形态 | 无新增依赖（自研 `src/router.ts`） | — | 只借 Super Agent 的 policyVersion / ruleId、DeepSeek Harness 的 scope 隔离、A2A 的 Link 映射与 LobeHub 三层汇报的产品思想；**未引入第 8 个上游、未复制任何上游代码**；`npm run router:smoke` 真跑 31/31 |
+| C-5 按配置重跑三层评估 / 两种形态真实一单 | 无新增依赖（自研 `src/three-tier-assessment.ts` / `scripts/shapes-smoke.ts`） | — | 只复用既有 `Router` / `AgentRegistry` 字段语义与 LobeHub 三层汇报的产品思想；**未引入第 8 个上游、未改上游提交、未复制任何上游代码**；`npm run shapes:smoke` 真跑 36/36 |
 | C-4 组织级 Agent 编制 / 验收协作 / A2A 在岗交接 | 无新增依赖（自研 `src/agent-registry.ts`） | — | 只复用既有 `RoutingDecision` / A2A Link 的字段语义与 LobeHub 三层汇报的产品思想；**未引入第 8 个上游、未改上游提交、未复制任何上游代码**；`npm run agents:smoke` 真跑 43/43 |
 | 权限标签粒度 | Outline (BSL 1.1) / Onyx / OpenFGA | ❌ / 未核实 | 仅设计参考，不引入代码 |
 

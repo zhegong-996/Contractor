@@ -95,7 +95,10 @@ test('C-3 只读请求做 in-flight 去重并短缓存，避免并发重复请�
   assert.match(app, /if \(inFlight\.has\(key\)\) return inFlight\.get\(key\)/);
   assert.ok(app.includes('readCache.set(key, { at: Date.now(), value: data })'), '只缓存成功结果');
   assert.match(app, /finally\(\(\) => inFlight\.delete\(key\)\)/, '失败也要释放 in-flight');
-  assert.match(app, /signal: AbortSignal\.timeout\(8000\)/, '超时保护不能丢');
+  // C-5：真实浏览器测得 view 返回 415KB / 10~12 秒，统一 8 秒会稳定超时，
+  // 因此按动作区分超时，重快照单独宽限、其余只读仍快速失败。
+  assert.match(app, /const READ_TIMEOUT = \{ view: 30000 \}/, '工作区快照要有单独宽限');
+  assert.match(app, /signal: AbortSignal\.timeout\(READ_TIMEOUT\[action\] \?\? 8000\)/, '超时保护不能丢，且按动作区分');
   assert.match(app, /const CACHE_MS = 1500/);
 });
 
