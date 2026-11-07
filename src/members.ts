@@ -85,7 +85,7 @@ export class TeamMembers {
   async gate(action: string, payload: any, actor: WorkspaceActor): Promise<WorkspaceActor> {
     if(actor.agent&&!actor.userId)await this.checkAgentOwner(actor.agent);
     if (actor.admin || !actor.userId) return actor;
-    const reads = ['view', 'agent-services', 'agent-build', 'development-view', 'delivery-status', 'service-status', 'routing-status', 'trace-view', 'team-members', 'member-pair-code', 'network-view', 'memory-search', 'memory-status', 'memory-annotations', 'context-pack', 'context-record', 'context-search', 'knowledge-graph'];
+    const reads = ['view', 'agent-services', 'agent-build', 'development-view', 'delivery-status', 'service-status', 'routing-status', 'memory-replay', 'trace-view', 'team-members', 'member-pair-code', 'network-view', 'memory-search', 'memory-status', 'memory-annotations', 'context-pack', 'context-record', 'context-search', 'knowledge-graph'];
     if (reads.includes(action)) return actor;
     // v0.6: owner-level permissions are enforced inside V06Services (org owner /
     // workspace owner / function owner). Keep the original admin flag intact so

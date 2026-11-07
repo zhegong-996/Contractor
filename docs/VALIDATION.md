@@ -381,3 +381,63 @@ Cognee `cognify` 的真实外部模型调用未发生（缺端点与凭据）；
 ### 6. 严格边界（未发生，不是 bug）
 
 本轮**没有改运行路由判断、没新增 tab / 路由、没切换默认底座、没改上游源码、没引入任何新上游依赖**；`config.host.provider` 默认仍是 `paperclip`，Plugin SDK 未移除（完整切换需补齐 ACL / cost-ledger / Plugin UI / heartbeat 真实执行 / PG 事务五项，且与 PRD §10A「5 tab 插件单页」存在产品形态冲突，待用户确认）。方案 B 记忆主干与 C 三层 router 尚未开始；真人在真实业务单「确认验收」（SUI-129 未核可）、Cognee 原生 `cognify` 真实外部调用、生产发布均未发生。`.runtime/routing/`、`.runtime/local-host/` 与真实身份信息不入库。
+
+---
+
+## 第十三轮：方案 B1 共享记忆事件主干与四类投影（2026-11-07）
+
+### 1. 用户决策与范围
+
+「开始 b 阶段吧」。按 **A → B → C 不并行**，落地方案 B 的主干与验收口径。三条红线：重放可复现、来源撤权后派生记忆不可召回、确定性链路 `modelCalls=0` 不破。完整方案见 `docs/MEMORY-ARCHITECTURE-v0.7.md`。
+
+### 2. 落地内容
+
+| 文件 | 内容 |
+|---|---|
+| `src/architecture-contracts.ts` | `memoryEventSchema` 增 `modelCalls` / `projection` / `visibility`；新增 `source-revoked` / `grant-revoked` / `memory-indexed` / `projection-rebuilt`（共 12 种 kind） |
+| `src/memory-log.ts` | append-only `.runtime/memory/events.jsonl`、幂等、advisory 双写、SQLite audit 投影、坏行报错；`readBridgedEvents()` 并入 `routing-decided`；`bridgeRoutingEvent()` 归一化业务 causedBy |
+| `src/memory-projections.ts` | 纯函数重放 L1 证据图 / L2 组织图 / BM25 向量 / Context Pack；稳定 checksum；撤权沿 `causedBy` lineage 传播；投影 + 召回双层过滤；`sourceRevocations` 与严格 `revokedSourceIds` 分层；`assertDeterministic()` |
+| `scripts/memory-replay.ts` / `scripts/memory-smoke.ts` | 只读重放报告 / 临时目录真跑完整链路 |
+| `src/server.ts` / `src/members.ts` | 只读 `memory-replay` 与两处白名单；`getMemoryLog().attachAudit` |
+| `scripts/test.ts` | `COLLAB_TEST_MEMORY=memory` 隔离测试动作 |
+
+**8 处真实写入点双写**：`workspaces`（createSource / reviewSource / revoke，3）、`v06`（l2Extract / edgeAccept / edgeInvalidate / contextPack，4）、`team-memory.index`（1）、`controller`（accept / confirmAcceptance，2）。全部 advisory，原存储照常工作。`v06.contextPack` 构建前按 `sourceRevocations` 剔除撤权来源证据边，核对失败 **fail-closed**。
+
+### 3. 真跑证据（不是单测模拟）
+
+`npm run memory:smoke`（`ok: true`，临时日志）：
+
+| | 撤权前 | `source-revoked` 后 |
+|---|---|---|
+| 事件数 | 5 | 6 |
+| 四类投影 | L1 1 / L2 1 / BM25 2 / Pack 1 | 派生投影全部 0 |
+| 召回「验收 知识」 | 1 命中 | **0 命中** |
+| `excludedByRevocation` | 0 | **4** |
+| `modelCalls` / `replayTwiceEqual` | 0 / true | 0 / true |
+
+`npm run memory:replay`：`allWired: true`（5 文件）、`eventCount: 5`、`bridgedRoutingEvents: 2`、`replayTwiceEqual: true`、`deterministic: true`、`modelCalls: 0`、`contextPacks: 1`、`logErrors: []`、`danglingCausedBy: []`、`duplicateIds: 2`。
+
+**真实业务动作已触发双写**：走查的真实 workspace action 调用了 `v06.contextPack`，日志产生 3 条 `context-packed`（同 id、不同进程各写一次）。桥接层**不去重**，由 `replayMemory` 如实记入 `integrity.duplicateIds` 再去重为 1 个 Context Pack——append-only 日志的标准做法，没有把跨进程重复悄悄藏起来。
+
+真实 HTTP `POST /workspace/memory-replay` → `200`、`ok: true`、`eventCount: 5`、`replayTwiceEqual: true`、`deterministic: true`、`modelCalls: 0`、`duplicateIds: 2`、`logErrors: 0`。
+
+**真实 HTTP 冒烟抓到的两个语义冲突（已修）**：① 路由事件的 `causedBy` 是业务标识（triggerId / phase），并入主干会误报悬空 lineage → `bridgeRoutingEvent()` 归一化到 `payload.routingCausedBy`；② 投影层已排除失效事件时召回层无对象可计数 → `suppressedByRevocation` 让两层拦截量都如实上报。
+
+### 4. 回归结果
+
+| 项 | 结果 |
+|---|---|
+| `npm test` | **315/315**（新增 12 例 B 阶段测试） |
+| `npx tsc --noEmit` | 通过 |
+| `npm run build:workspaces` / `build:chinese-shell` | 通过（`hiddenEntries` 4、`missed: []`） |
+| `npm run test:responsive` | 通过，425px 0 溢出、按钮 44px |
+| `npm run test:walkthrough` | **11/11**，`failures: []` |
+| `npm run audit:upstream` | `clean: true` |
+| `npm run host:smoke` / `routing:status` / `memory:replay` / `memory:smoke` | 均 `ok: true` |
+| `git diff --check` | 通过 |
+
+排障：本轮 3100 再次意外停机，`npm run up` 因 Paperclip 冷启动超过 45 秒报 `did not become ready`；随后 `npm run status` 显示 `paperclip: running`、日志 `Server startup recovery complete`、health 200，属既有冷启动超时而非服务故障。4190 / 4192 / 4194 / 9418 复核仍全为 000，保持用户取消时的停机状态。
+
+### 5. 严格边界（未发生，不是 bug）
+
+**B1 已完成**；**B2 尚未做**：把 `TeamMemory.search` 等读取链正式切到投影消费、`grant-revoked` 按 principal 精确过滤、投影增量构建。原 Cognee / Ladybug / SQLite / Paperclip 文档仍是实际读取源，事件写入失败不影响业务。C（三层 Router 与平台底座切换）排在 B2 验收之后，未开始。真人在真实业务单「确认验收」（SUI-129 未核可）、Cognee 原生 `cognify` 真实外部调用、生产发布仍未发生。`.runtime/memory/`、`.runtime/routing/` 不入库，chunk 文本截断 200 字。

@@ -2,7 +2,7 @@
 
 核验日期：2026-11-05（北京时间），第十轮补充产品与业务架构于 2026-11-07。依据本机运行服务、数据库只读查询及固定版本源码。当前是本机试点，包含开发和联调记录；不是已经部署到全体员工的生产系统。
 
-> **文档分工**：本文件描述「现在是什么」；`ARCHITECTURE-v0.6.md` 是产品架构定稿（不等于全部已实现）；`ARCHITECTURE-OPTIONS-v0.7.md` 是三种收敛方案、主流架构分析与未实现能力清单；`ROUTING-AND-HOST-v0.7.md` 是统一路由契约、共享 Trace、三层判断与去 Paperclip 化路线。判断「哪些还没做、该用哪个开源项目补」以两份 v0.7 文档为准。
+> **文档分工**：本文件描述「现在是什么」；`ARCHITECTURE-v0.6.md` 是产品架构定稿（不等于全部已实现）；`ARCHITECTURE-OPTIONS-v0.7.md` 是三种收敛方案、主流架构分析与未实现能力清单；`ROUTING-AND-HOST-v0.7.md` 是统一路由契约、共享 Trace、三层判断与去 Paperclip 化路线；`MEMORY-ARCHITECTURE-v0.7.md` 是方案 B 的共享记忆事件主干与四类投影。判断「哪些还没做、该用哪个开源项目补」以三份 v0.7 文档为准。
 
 ## 产品与业务架构（业务视角，第十轮补）
 
@@ -194,6 +194,14 @@ flowchart TD
 这条链同时是 B 阶段共享记忆的地基：`toMemoryEvent()` / `replayRouting()` 已给出「同一日志两次重放一致、去重、按时间有序、坏行报错」的验收口径。`src/three-tier-assessment.ts` 用真实 Trace 判断要不要引入 LobeHub 三层，当前结论是**不引入**（P1 五阶段覆盖、P3 Personal Agent、P4 主管实体、P6 单一 Router 未满足）。只读 `routing-status` 与 `npm run routing:status` 可随时复核。
 
 宿主侧新增 `src/platform-port.ts`：`HostPlatformPort` 收拢任务 / 文档 / 身份 / 健康检查 / UI 承载，`PaperclipPlatform` 为默认薄包装，`LocalHostPlatform` 是不依赖 Paperclip 的最小可运行实现（`npm run host:smoke` 真跑）。`config.host.provider` 默认仍是 `paperclip`，**尚未切换底座**；完整替换需先补齐 ACL、cost-ledger、Plugin UI、heartbeat 真实执行与 PG 事务五项，见 `ROUTING-AND-HOST-v0.7.md` 第 5 节。
+
+## 共享记忆主干（方案 B · 第十三轮补）
+
+`src/memory-log.ts` 提供 append-only 事件主干 `.runtime/memory/events.jsonl`；`src/memory-projections.ts` 用纯函数重放 L1 证据图 / L2 组织图 / BM25 向量 / Context Pack 四类投影。真实写入点在 `workspaces`（来源确认 / 撤回、授权撤销）、`v06`（L2 抽取、边状态、Context Pack）、`team-memory`（索引）、`controller`（验收）双写事件，advisory 失败不影响业务；`v06.contextPack` 在构建前按 `sourceRevocations` 剔除撤权来源的证据边，核对失败 fail-closed。
+
+三条验收红线：重放可复现（基准时间取事件流、checksum 稳定）、来源撤权后派生记忆不可召回（`causedBy` lineage 传播 + 投影/召回双层过滤）、确定性链路 `modelCalls=0`（`assertDeterministic` 非零即拒绝）。上一轮的 `routing-decided` 事件经 `readBridgedEvents()` 并入同一重放输入。只读 `memory-replay` 与 `npm run memory:replay` / `npm run memory:smoke` 可复核。详见 `MEMORY-ARCHITECTURE-v0.7.md`。
+
+现有 Cognee / Ladybug / SQLite / Paperclip 存储仍是实际读取源；把检索链正式切换为消费投影属于 B2，尚未开始。
 
 ## 实现指针
 

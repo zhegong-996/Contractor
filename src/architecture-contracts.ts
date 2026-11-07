@@ -73,6 +73,8 @@ export const MEMORY_EVENT_KINDS = [
   // 方案 B 的事件主干同时承载「谁把任务交给谁」：RoutingDecision 通过
   // toMemoryEvent() 变成 append-only 事件，B 阶段重放时不必另造一套日志。
   'routing-decided',
+  // B 阶段补充：撤权是状态写入而非物理删除，索引与投影重建也要留痕。
+  'source-revoked', 'grant-revoked', 'memory-indexed', 'projection-rebuilt',
 ] as const;
 export type MemoryEventKind = typeof MEMORY_EVENT_KINDS[number];
 
@@ -82,9 +84,16 @@ export const memoryEventSchema = z.object({
   kind: z.enum(MEMORY_EVENT_KINDS),
   actor: z.string().min(1),
   at: z.string().min(1),
+  /** 派生自哪条事件；撤权沿这条链向前传播失效。 */
   causedBy: z.string().optional(),
   sourceRef: z.object({ sourceId: z.string().min(1), revision: z.string().min(1) }).optional(),
   policyVersion: z.string().optional(),
+  /** 本次事件调用外部模型的次数；确定性链路必须为 0。 */
+  modelCalls: z.number().int().nonnegative().optional(),
+  /** 事件归属的投影（用于快速分组，不参与重放判定）。 */
+  projection: z.enum(MEMORY_PROJECTIONS).optional(),
+  /** 资料可见性标签，召回时按当前身份重评。 */
+  visibility: z.enum(['private', 'space', 'shared']).optional(),
   payload: z.record(z.string(), z.unknown()).default({}),
 }).strict();
 export type MemoryEvent = z.infer<typeof memoryEventSchema>;

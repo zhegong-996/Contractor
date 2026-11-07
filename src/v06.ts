@@ -29,6 +29,8 @@ import type { CollabEvent } from './event-stream.ts';
 import { renderForChannel, endpointCapabilities, PLAIN_TEXT, type ChannelId, type SemanticObject, type RenderedMessage } from './channels.ts';
 import { routingDecision, signatureFor } from './routing-decision.ts';
 import { getRoutingTrace } from './routing-trace.ts';
+import { recordMemory, readBridgedEvents, sourceEventId, sourceKey } from './memory-log.ts';
+import { replayMemory } from './memory-projections.ts';
 
 export interface V06Options {
   workbenchUrl: string;
@@ -283,6 +285,13 @@ export class V06Services {
     if (next.every(e => e.id !== edgeId)) throw new Error('边不存在');
     await this.edgesSave(taskId, next, actor);
     this.localStore.audit('v06.edge-accepted', taskId, { edgeId, actor });
+    const accepted = edges.find(e => e.id === edgeId);
+    recordMemory({ kind: 'edge-accepted', actor, projection: 'l2-organization',
+      ...(accepted?.evidenceRefs[0] ? { sourceRef: { sourceId: accepted.evidenceRefs[0].sourceId,
+        revision: accepted.evidenceRefs[0].revision } } : {}),
+      payload: { taskId, edgeId, state: 'accepted',
+        edges: [{ id: edgeId, kind: accepted?.kind ?? '', from: accepted?.from ?? '', to: accepted?.to ?? '' }] },
+      idempotencyKey: 'edge-accepted:' + taskId + ':' + edgeId });
     return next;
   }
   async edgeReusable(taskId: string, edgeId: string, actor: string) {
@@ -295,13 +304,32 @@ export class V06Services {
     const edges = await this.edgesView(taskId);
     const next = invalidateEdges(edges, reason, new Date().toISOString(), predicate);
     await this.edgesSave(taskId, next, actor);
+    recordMemory({ kind: 'edge-invalidated', actor, projection: 'l2-organization',
+      payload: { taskId, reason, edgeIds: next.filter((e, i) => e.invalidAt && !edges[i]?.invalidAt).map(e => e.id) },
+      idempotencyKey: 'edge-invalidated:' + taskId + ':' + reason });
     return next;
   }
   async edgeImpact(taskId: string, edgeId: string) { return impactOf(await this.edgesView(taskId), edgeId); }
   async contextPack(input: { taskId: string; registryVersion: number; visibilityFilter: (v: KnowledgeEdge['visibility']) => boolean; ttlHours?: number; at?: string }) {
-    const edges = await this.edgesView(input.taskId);
+    const allEdges = await this.edgesView(input.taskId);
+    // 方案 B：资料被撤回后，其证据边不得进入 Context Pack。
+    // 只按 source-revoked 过滤，避免把单主体授权撤销放大成全局屏蔽；
+    // 过滤状态无法核对时 fail-closed，不静默放行。
+    let revokedSources: Set<string>;
+    try { revokedSources = new Set(replayMemory(readBridgedEvents().events).sourceRevocations); }
+    catch (error) { throw new Error('无法核对资料撤权状态，已拒绝构建上下文包：' + String(error).slice(0, 160)); }
+    const edges = allEdges.filter(e => !e.evidenceRefs.some(ref => revokedSources.has(ref.sourceId)));
+    if (edges.length !== allEdges.length) this.localStore.audit('v06.memory-lineage-filtered', input.taskId,
+      { excludedEdges: allEdges.length - edges.length, revokedSources: [...revokedSources] });
     const pack = buildContextPack({ ...input, edges });
     this.localStore.audit('v06.context-pack-built', input.taskId, { refs: pack.refs.length, usable: eligibleForContextPack(edges).length, expiresAt: pack.expiresAt });
+    const first = pack.refs[0];
+    recordMemory({ kind: 'context-packed', actor: 'organization', projection: 'context-pack',
+      ...(first ? { sourceRef: { sourceId: first.sourceId, revision: first.revision },
+        causedBy: sourceEventId(first.sourceId, first.revision) } : {}),
+      payload: { taskId: input.taskId, refs: pack.refs.map(r => sourceKey(r.sourceId, r.revision)),
+        ...(pack.expiresAt ? { expiresAt: pack.expiresAt } : {}) },
+      idempotencyKey: 'context-pack:' + input.taskId + ':' + pack.refs.map(r => sourceKey(r.sourceId, r.revision)).join(',') });
     return pack;
   }
   async labelCheck(input: Parameters<typeof assertLabelAccess>[0]) { return assertLabelAccess(input); }
@@ -437,6 +465,16 @@ export class V06Services {
     const lastRevision = (await this.store.readConfig('l2-extraction:last'))?.revision ?? null;
     await this.store.writeConfig('l2-extraction:last', summary, lastRevision);
     this.localStore.audit('v06.l2-extracted', taskId || 'organization', summary);
+    // 方案 B：确定性抽取的模型调用数必须如实进事件流（modelCalls=0 是验收红线）。
+    recordMemory({ kind: 'edge-drafted', actor: input.actor, projection: 'l2-organization',
+      sourceRef: { sourceId: input.sourceId, revision: input.revision },
+      causedBy: sourceEventId(input.sourceId, input.revision),
+      modelCalls: result.modelCalls,
+      policyVersion: 'l2-extraction:' + result.adapterId,
+      payload: { sourceId: input.sourceId, revision: input.revision, taskId,
+        edges: result.edges.map(e => ({ id: e.id, kind: e.kind, from: e.from, to: e.to })),
+        drafted: result.edges.length, rejected: result.rejected.length },
+      idempotencyKey: 'l2:' + sourceKey(input.sourceId, input.revision) + ':' + result.isolationKey });
     return { ...summary, edges: result.edges, orgEdges: result.orgEdges, orgNodes: result.orgNodes };
   }
 

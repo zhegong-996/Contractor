@@ -229,6 +229,17 @@ LobeHub 三层的原话依据（赛博禅心《如何让 Super-agent 成为同�
 
 ---
 
+## 附录 C · 方案 B1 已落地（2026-11-07 · 第十三轮）
+
+**完整实现与真跑证据见 [`MEMORY-ARCHITECTURE-v0.7.md`](MEMORY-ARCHITECTURE-v0.7.md)**。三种方案的选择、改动面与风险仍以本文档第 5–6 节为准，路线不变：**A → B → C，不并行**。
+
+- **B1 已完成**：append-only 事件主干（`src/memory-log.ts`）、四类投影纯函数重放（`src/memory-projections.ts`）、8 处真实写入点双写、Context Pack 运行时 lineage 过滤、只读 `memory-replay`、`npm run memory:replay` / `memory:smoke`。三条红线均有可执行验收：两次重放 checksum 一致、撤权后派生记忆 0 召回、`modelCalls=0`。
+- **B2 待做**：把 `TeamMemory.search` 等读取链正式切到投影消费、真实业务动作产生知识类事件、`grant-revoked` 按 principal 精确过滤、投影增量构建。
+- **C 仍未开始**：三层 Router 与平台底座切换排在 B2 验收之后。
+- **契约复用已兑现**：上一轮 `routing-decided` 事件经 `readBridgedEvents()` 并入同一重放输入，B 阶段没有另造第二套日志格式。
+
+---
+
 ## 7. 参考来源
 
 **本项目内部（一手）**：`docs/ARCHITECTURE-v0.6.md`（§1 六层、§13 三项目速览、§14 对照、§15 职能轴、§17 能力契约、§18 默认图谱本体）、`docs/PRD-v0.6.md`（§10A 形态约束、FR 覆盖状态）、`docs/UPSTREAM-ADAPTERS.md`、`docs/OPEN-SOURCE-COMPLIANCE.md`、`docs/VALIDATION.md` 第十轮、`src/org-ontology.ts` / `ontology.ts` / `memory-contract.ts`。

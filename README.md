@@ -9,7 +9,8 @@
 - **当前实现**：[架构与接入核验](docs/SYSTEM-ARCHITECTURE.md)——技术四层、产品与业务架构、前端模块分层。
 - **产品架构定稿**：[ARCHITECTURE-v0.6.md](docs/ARCHITECTURE-v0.6.md)——六层模型、M3 三层路由、M11 责任转移、K 知识底座与默认图谱本体；**这是设计定稿，不等于全部已实现**。
 - **收敛方案与缺口清单**：[ARCHITECTURE-OPTIONS-v0.7.md](docs/ARCHITECTURE-OPTIONS-v0.7.md)——三种可选方案、主流 Agent 记忆 / ontology / router 架构分析、未实现功能逐条对应的开源复用动作、许可证边界。**判断「哪些还没做、该用哪个项目补」以这份为准**。
-- **统一路由契约与宿主解耦**：[ROUTING-AND-HOST-v0.7.md](docs/ROUTING-AND-HOST-v0.7.md)——`RoutingDecision` 五维契约、5 个派活点接同一份 Trace、B 阶段记忆事件复用、LobeHub 三层可执行判断、去 Paperclip 化的 `HostPlatformPort` 与开源候选矩阵。
+- **统一路由契约与宿主解耦**：[ROUTING-AND-HOST-v0.7.md](docs/ROUTING-AND-HOST-v0.7.md)——`RoutingDecision` 五维契约、5 个派活点接同一份 Trace、LobeHub 三层可执行判断、去 Paperclip 化的 `HostPlatformPort` 与开源候选矩阵。
+- **共享记忆架构（方案 B）**：[MEMORY-ARCHITECTURE-v0.7.md](docs/MEMORY-ARCHITECTURE-v0.7.md)——append-only 事件主干、四类投影重放、来源撤权沿 lineage 阻断、`modelCalls=0` 确定性链路、8 处双写接线与真跑证据。
 - **复用与合规**：[上游适配清单](docs/UPSTREAM-ADAPTERS.md)、[来源记录](docs/SOURCES.md)、[开源合规](docs/OPEN-SOURCE-COMPLIANCE.md)。
 - **验证与最新边界**：[验证记录](docs/VALIDATION.md)、[轮次与边界声明](docs/ADAPTATION-v0.6.md)。
 
@@ -128,6 +129,8 @@ npm run typecheck
 npm run doctor
 npm run routing:status   # 统一路由 Trace、5 处接线自检、三层判断与平台切换清单
 npm run host:smoke       # 真跑不依赖 Paperclip 的最小宿主（临时目录，无副作用）
+npm run memory:replay    # 只读重放共享记忆四类投影、checksum 与撤权状态
+npm run memory:smoke     # 临时目录真跑「写入 → 重放 → 撤权 → 不可召回」
 ```
 
 自动测试使用临时状态和模拟接口，覆盖去重、并发签出、过期回执、部分失败重试、交付范围、版本验收及真实 stdio MCP 协议。真实飞书消息、模型执行、本机 CI、预览与人工验收应分别记录；通过单元测试不等于真实全流程通过。

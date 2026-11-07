@@ -17,6 +17,7 @@ import{acceptanceChainEnabled,reviewerIdFor,type VisualArtifact}from'./visual-re
 import{assertReviewerCapable}from'./independent-review.ts';
 import { routingDecision } from './routing-decision.ts';
 import { getRoutingTrace } from './routing-trace.ts';
+import { recordMemory } from './memory-log.ts';
 import type { V06Services } from './v06.ts';
 
 /**
@@ -340,6 +341,9 @@ export class Controller {
     await this.pc.document(task.id, 'decisions', '已采用结论', `本任务在 ${receipt.environment} 的 ${sha} 版本通过所列验收。\n\n仅适用于本任务及所列用例；不代表生产发布或其他功能通过。`);
     await this.pc.patch(`/issues/${task.id}`, { status: 'done' });
     current.phase = 'accepted'; this.store.save(current); this.store.audit('task.accepted', task.id, receipt);
+    recordMemory({ kind: 'acceptance-recorded', actor,
+      payload: { taskId: id, mode: 'code-delivery', sha, cases: cases.map(c => c.name) },
+      idempotencyKey: 'accept:' + id + ':' + sha });
     await this.trace.flush(id, current.agent);
     await this.trace.append(id, capture({
       taskId: id, at: new Date().toISOString(), kind: 'acceptance', actor,
@@ -380,6 +384,9 @@ export class Controller {
     const current = this.store.get(id);
     current.phase = 'accepted'; this.store.save(current);
     this.store.audit('task.confirm-accepted', id, receipt);
+    recordMemory({ kind: 'acceptance-recorded', actor,
+      payload: { taskId: id, mode: 'sealed-plan', planHash: sealed.plan.hash, cases: cases.map(c => c.name) },
+      idempotencyKey: 'confirm:' + id + ':' + sealed.plan.hash });
     await this.trace.append(id, capture({
       taskId: id, at: receipt.confirmedAt, kind: 'acceptance', actor,
       provenance: 'originator', evidenceKind: 'authored', checkpoint: CONFIRM_ACCEPT,

@@ -4,13 +4,37 @@
 > 对象仓库：`/Users/gong.zhe/Developer/ai-native-collab`（`github.com/zhegong-996/suitme-collab`）
 > 依据：`docs/ARCHITECTURE-v0.6.md`（产品架构定稿）、`docs/PRD-v0.6.md`、Codex 会话「研究 AI Native 协作平台融合」、本仓库 `README.md` / `docs/*` / `sources.lock.json` / `src/*` / `git status`
 > 立场：**以 PRD v0.6 为准绳，代码适配产品**。已有实现尽量保留，以「补层」为主，不推倒重来；工程红线见 `PRD-v0.6.md` 第 2.2 节。
-> 状态：**方案已执行十二轮**（底座 `f27a0e1`、功能补全 `7791c7b`、P3 前端增补 `c512c7b`、第四轮 L2 抽取 / P3 后半段 / 独立评审链 `255a5e9`、第五轮收尾 `78201c6`、第六轮 `285b97c`、第七轮 `7f33dd9`、第八轮 `c69e414`；第九轮见 0.0000000000 节，第十轮见 0.00000000000 节，第十一轮见 0.000000000000 节，第十二轮见 0.0000000000000 节）。文档按轮次保留历史记录，**最新边界声明以 0.0000000000000 节为准**。
+> 状态：**方案已执行十三轮**（底座 `f27a0e1`、功能补全 `7791c7b`、P3 前端增补 `c512c7b`、第四轮 L2 抽取 / P3 后半段 / 独立评审链 `255a5e9`、第五轮收尾 `78201c6`、第六轮 `285b97c`、第七轮 `7f33dd9`、第八轮 `c69e414`；第九轮见 0.0000000000 节，第十轮见 0.00000000000 节，第十一轮见 0.000000000000 节，第十二轮见 0.0000000000000 节，第十三轮见 0.00000000000000 节）。文档按轮次保留历史记录，**最新边界声明以 0.00000000000000 节为准**。
 
 ---
 
 ---
 
 ---
+
+---
+
+## 0.00000000000000 方案 B1：共享记忆事件主干与四类投影（2026-11-07 · 第十三轮）
+
+用户指令：「开始 b 阶段吧」。按 **A → B → C 不并行**，本轮落地方案 B 的主干与验收口径，完整方案见 `docs/MEMORY-ARCHITECTURE-v0.7.md`。
+
+### 1. 落地内容
+
+- `architecture-contracts.ts`：`memoryEventSchema` 增 `modelCalls` / `projection` / `visibility`，新增 `source-revoked` / `grant-revoked` / `memory-indexed` / `projection-rebuilt` 四种 kind（共 12 种）。
+- `src/memory-log.ts`：append-only `.runtime/memory/events.jsonl`、幂等、advisory 双写、SQLite audit 投影、坏行如实报错；`COLLAB_TEST_MEMORY=memory` 隔离测试动作。`readBridgedEvents()` 把上一轮 `routing-decided` 并入同一重放输入，`bridgeRoutingEvent()` 归一化业务 causedBy（真实 HTTP 冒烟抓到的语义冲突）。
+- `src/memory-projections.ts`：纯函数重放 L1 证据图 / L2 组织图 / BM25 向量 / Context Pack；基准时间取事件流而非 `Date.now()`、稳定 checksum；撤权沿 `causedBy` lineage 传播，投影 + 召回双层过滤；`sourceRevocations` 与严格 `revokedSourceIds` 分层，避免把单主体授权撤销放大成全局屏蔽；`assertDeterministic()` 在 `modelCalls≠0` 时明确拒绝。
+- 8 处真实写入点双写（`workspaces` 3、`v06` 4、`team-memory` 1、`controller` 2，含 `l2Extract` 的 `result.modelCalls`）；`v06.contextPack` 运行时按 `sourceRevocations` 剔除撤权来源证据边，核对失败 fail-closed。只读 `memory-replay` 与 `npm run memory:replay` / `memory:smoke`。
+
+### 2. 真跑证据（三条红线）
+
+`npm run memory:smoke` `ok:true`：撤权前四类投影 L1 1 / L2 1 / BM25 2 / Pack 1、召回 1 命中；`source-revoked` 后四类派生投影全部归零、召回 **0 命中**、`excludedByRevocation=4`、`modelCalls=0`、两次重放 checksum 各自一致。`npm run memory:replay`：`allWired:true`、`eventCount=2`（桥接真实路由决策）、`replayTwiceEqual:true`、`deterministic:true`、`logErrors:[]`、`danglingCausedBy:[]`。真实 HTTP `POST /workspace/memory-replay` 200 同结果。
+
+### 最新边界声明（以本节为准）
+
+- **已发生**：方案 B1（事件主干、四类投影、三条红线可执行验收、8 处双写、Context Pack 运行时 lineage 过滤、路由契约桥接）；全套回归与真实 HTTP 冒烟。
+- **未发生**：B2（读取链正式切到投影消费、真实业务知识类事件、按 principal 精确过滤、投影增量构建）；C（三层 Router 与平台底座切换）；真人在真实业务单「确认验收」（SUI-129 未核可）；Cognee 原生 `cognify` 真实外部调用；生产发布。
+- **真实业务知识类事件当前为 0**：主干刚接入，日志里 2 条是上一轮真实策略准入路由决策，不是造数据补齐。
+- **红线不变**：原存储（Cognee / Ladybug / SQLite / Paperclip 文档）仍是实际读取源，事件写入失败不影响业务；合并 / 发布 / CI / 报告 / 模型判定不替代原发起人在原会话「确认验收」；`.runtime/memory/` 与 `.runtime/routing/` 不入库，chunk 文本截断 200 字；4190 / 4192 / 4194 / 9418 保持用户取消时的停机状态。
 
 ## 0.0000000000000 统一路由契约、共享 Trace 与宿主解耦（2026-11-07 · 第十二轮）
 
@@ -102,7 +126,7 @@
 - **截图复核补修**：宿主侧栏 `/SUI/skills` `/SUI/apps` 带公司前缀，原运行时路由正则漏匹配，已改为覆盖前缀并同时隐藏 `li` 容器，走查加禁用缓存与 `hostNavHidden` 断言；自动轮询瞬时失败改为静默保留旧数据、只在状态行标注，手动刷新失败才提示。
 - **验证**：`npm test` **278/278**、`tsc`、`build:workspaces`、中文壳连续两次构建、`test:responsive`、`audit:upstream`、`git diff --check` 全绿；`test:walkthrough` **11/11**，真实浏览器测得国内服务页 12 行、仅 2 个 loopback 链接、0 个坏链接、侧栏两个未接通入口已隐藏。真实 HTTP 冒烟三个状态接口均 200。详见 `docs/VALIDATION.md` 第九轮。
 
-### 边界声明（历史记录，最新以 0.0000000000000 节为准）
+### 边界声明（历史记录，最新以 0.00000000000000 节为准）
 
 - **已发生**：服务清单改为实时探测并可自动刷新；构建幂等与时间炸弹修复；状态字段与界面文案不再与配置矛盾；新增 12 例状态层测试与 1 个浏览器走查步骤。
 - **未发生**：真人在真实业务单上「确认验收」（SUI-129 未核可）；部门 scope 本人在飞书确认；企业微信 / 腾讯文档 / 钉钉 / 国内代码托管 / 公有云 CI / 海外 SaaS 的实际连接；生产发布、真实外部 PR / CI、真人多租户、Cognee 原生模型管线、`lobehub/acceptance` CLI 与云端服务；4190 / 4192 保持用户取消时的停机状态。
@@ -119,7 +143,7 @@
 - **本机代码交付**：`DeliveryAdapter` 抽象 + `src/local-git.ts` 实现，`delivery.provider` 默认 `local`。`npm run delivery:serve` 提供 `git://127.0.0.1:9418`（clone / pull / push）与 `127.0.0.1:4194` 中文交付台（提交、本机 CI、合并审批、通知记录、确切提交预览）；`npm run delivery:demo` 真跑通全流程。GitHub 适配器保留，可显式回退。
 - **验证**：`npm test` 266/266、`tsc`、`build:workspaces`、`build:chinese-shell`、`test:walkthrough` 10/10、`test:responsive`、`audit:upstream`、`git diff --check` 全绿。完整记录见 `docs/VALIDATION.md` 第八轮。
 
-### 边界声明（历史记录，最新以 0.0000000000000 节为准）
+### 边界声明（历史记录，最新以 0.00000000000000 节为准）
 
 - **已发生**：组织 owner 完成成员核对并导入 3 人（只登记派单候选，不等于真人登录或资料权限）；部门 scope 授权命令已生成但**仍需本人在飞书确认**；本机 Git 交付台真跑通 clone/pull/push、本机 CI、合并审批与预览；前端入口收敛与中文壳默认生效。
 - **未发生**：真人在真实业务单上执行「确认验收」（SUI-129 仍未最终核可）；企业微信 / 腾讯文档 / 钉钉 / 国内代码托管平台 / 公有云 CI 的实际连接；生产发布、真实外部 PR / CI、真实员工多租户、飞书进群；Cognee 原生模型管线、L2 在真实新资料上的端到端触发；`lobehub/acceptance` 的 CLI 与云端报告服务。
@@ -177,7 +201,7 @@
 - 真实 bridge 实测：`v06-acceptance-report-view` 返回 `available: true / verdict: pass / 2 cases / 1 归档轮次 / 1 条自查标准`；`v06-org-mapping-view` 返回草案与注册表版本；`v06-org-overview` 十段齐全且 `feishuOrg.ok: true`。本机报告服务 `/health` 返回 `loopback-only`，索引与报告页均含中文边界声明。
 - 环境备注：本轮首次跑宿主走查时 9/10 步失败，截图为 `connect failed: Connection refused`；查 `.runtime/logs/` 后确认是**宿主服务继承了已失效的旧代理端口**（本机插件 worker 连 `127.0.0.1:4180` 被旧 `HTTP_PROXY` 劫持），不是前端或 action 回归。以干净的本机连接环境重启 3100 / 4180 后复跑 10/10 通过。
 
-### 边界声明（历史记录，最新以 0.0000000000000 节为准）
+### 边界声明（历史记录，最新以 0.00000000000000 节为准）
 
 - **已实现**：中文用户指令与中文帮助 / 报告 / 通知（旧英文命令仅内部兼容）、按锁定清单的确认验收路径与全套闸门（含端到端单测）、飞书真实成员的只读组织草案与人工确认导入通道、本机中文验收报告服务与自查标准沉淀、两个新增只读视图接线、全套回归与宿主走查。
 - **仍未实现 / 不得宣称**：真人未在真实业务单上执行最终确认验收；飞书组织草案未导入注册表，真实员工多租户 / 第二位真人登录仍未部署；生产发布、真实 PR 与 CI 交付；**Cognee 原生** LLM / embedding / cognify / 自动实体抽取与向量语义管线；L2 自动抽取在真实新确认资料上的端到端触发（`lastRun` 仍为空）；`lobehub/acceptance` 的 CLI 与云端报告服务（本机服务不替代它们，也不等于上游能力已启用）；把单测或浏览器截图冒充生产验收。
@@ -203,7 +227,7 @@
 
 **验证**：最终全量回归见 `docs/VALIDATION.md` 第五轮；`npm test`、`tsc --noEmit`、`npm run build:workspaces`、`npm run test:responsive`、`npm run test:walkthrough`、`npm run audit:upstream`、`git diff --check` 全部通过。
 
-### 第五轮边界声明（历史记录，最新边界以 0.0000000000000 节为准）
+### 第五轮边界声明（历史记录，最新边界以 0.00000000000000 节为准）
 
 - **已实现**：开工前锁清单、独立评审（真实本机视觉）、逐项判定、Acceptance 格式导出、Transfer / 责任链、统一 Trace（含缺口如实提示）、L2 组织图确定性抽取与状态视图、runtimeGuard 强制、本机语义加权、三个 v0.6 视图、真实一单与全流程浏览器走查、本地演示、GitHub 推送合并。
 - **当时仍未实现 / 不得宣称（历史轮次，2026-11-07 口径变更见第十一轮）**：真实业务最终 `/accept` 未由发起人执行；真实员工多租户与飞书组织映射；生产发布 / 真实 PR 与 CI 交付；**Cognee 原生** LLM / embedding / cognify 与向量语义管线（当时关闭，现已打开）；L2 自动抽取在真实新确认资料上的端到端触发（`lastRun` 仍为空，只有契约与状态验证）；Acceptance 的 CLI 与云端报告服务；把 `.runtime` 截图或单测冒充生产验收。

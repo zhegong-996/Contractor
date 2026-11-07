@@ -11,6 +11,7 @@ import { primeQueryTerms } from './vendor/prime-query.ts';
 import { contractProof, type Workspaces, type WorkspaceActor } from './workspaces.ts';
 import {memoryAnnotation} from './memory-contract.ts';
 import { embedTexts, fuseRecall, readSemanticIndex, type SemanticChunk, type SemanticIndexFile } from './semantic-recall.ts';
+import { recordMemory, sourceEventId, sourceKey } from './memory-log.ts';
 export {memoryAnnotation} from './memory-contract.ts';
 export class TeamMemory {
   readonly graph: KnowledgeGraph;
@@ -71,6 +72,14 @@ export class TeamMemory {
     // L2 organisation-graph extraction is best-effort: a failure is audited
     // and must never roll back a verified L1 projection or knowledge indexing.
     if(this.w.config.orgExtraction?.autoRunOnIndex!==false&&this.w.onSourceIndexed)try{await this.w.onSourceIndexed(id,record.revision);}catch(error){this.w.store.audit('v06.l2-auto-extract-failed',id,{revision:record.revision,reason:String(error).slice(0,300)});}
+    // 方案 B：索引产物写同一份事件主干；设备端词向量不调用模型，modelCalls 恒为 0。
+    recordMemory({kind:'memory-indexed',actor:actor.userId??'local-operator',projection:'bm25-vector',modelCalls:0,
+      sourceRef:{sourceId:id,revision:record.revision},causedBy:sourceEventId(id,record.revision),
+      payload:{sourceId:id,revision:record.revision,title:record.value.title,
+        chunks:result.nodes.filter((n:any)=>n.type==='MemoryChunk').length,
+        concepts:result.nodes.filter((n:any)=>n.type==='KnowledgeConcept').length,
+        chunkTexts:nodes.slice(0,12).map((n:any)=>({id:String(n.id),text:textOf(n).slice(0,200)}))},
+      idempotencyKey:'index:'+sourceKey(id,record.revision)});
     return{sourceId:id,revision:record.revision,chunks:result.nodes.filter((n:any)=>n.type==='MemoryChunk').length,concepts:result.nodes.filter((n:any)=>n.type==='KnowledgeConcept').length};
   }
   async status(actor:WorkspaceActor){

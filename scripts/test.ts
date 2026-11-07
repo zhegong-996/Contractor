@@ -5,7 +5,8 @@ import { root, runtime } from '../src/config.ts';
 const fingerprint = platformFingerprint(), files = readdirSync('tests').filter(f => f.endsWith('.test.ts')).sort().map(f => 'tests/' + f);
 // 测试进程统一把路由决策写进内存，不污染 .runtime/routing/events.jsonl（真实业务 Trace）。
 const child = spawn(process.execPath, ['--import', 'tsx', '--test', ...files],
-  { cwd: root, stdio: ['inherit', 'pipe', 'pipe'], env: { ...process.env, COLLAB_TEST_TRACE: 'memory' } });
+  { cwd: root, stdio: ['inherit', 'pipe', 'pipe'],
+    env: { ...process.env, COLLAB_TEST_TRACE: 'memory', COLLAB_TEST_MEMORY: 'memory' } });
 let output = '';
 child.stdout.on('data', b => { output += b; process.stdout.write(b); });
 child.stderr.on('data', b => process.stderr.write(b));
