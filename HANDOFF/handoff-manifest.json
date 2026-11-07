@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "purpose": "SuitMe 协作台项目交接包：让下一位 Agent 无需对话历史即可安全继续",
-  "generatedAt": "2026-11-07T19:54:43+08:00",
+  "generatedAt": "2026-11-07T20:32:54+08:00",
   "authoritativeLocation": "/Users/gong.zhe/Developer/ai-native-collab/HANDOFF/",
   "portableCopy": null,
   "repository": {
@@ -20,9 +20,11 @@
     "A": "completed",
     "B1": "completed-and-validated",
     "B2": "completed-and-validated",
-    "C": "queued-pending-user-decision",
-    "currentBoundary": "docs/ADAPTATION-v0.6.md 0.000000000000000 节（第十四轮）；验证见 docs/VALIDATION.md 第十四轮",
-    "note": "B 阶段已验收，但 C 的平台底座切换与「5 tab 插件式单页」形态冲突，需先按 08-OPEN-DECISIONS.md 第 1 条由用户拍板；三层判断仍 recommended=false（覆盖率 5/7）"
+    "C": "in-progress-stepwise",
+    "currentBoundary": "docs/ADAPTATION-v0.6.md 0.0000000000000000 节（第十五轮 C-0）；验证见 docs/VALIDATION.md 第十四轮（C-0 只改文档，运行基线不变）",
+    "userDecision": "② 改成独立前端应用：废弃 PRD §10A 的 S5/S6，保留 S1–S4；飞书 IM 仍是唯一发起入口，工作台仍只做授权/留痕/签字",
+    "cSteps": ["C-0 决策固化与产品思路复盘（完成）", "C-1 按独立应用形态补齐本地宿主能力（下一步）", "C-2 独立应用外壳", "C-3 单一 Router", "C-4 三层角色与 A2A handoff（带 legacy 回退）", "C-5 重跑三层评估与真实一单", "C 收尾：全量回归、文档同步、提交推送"],
+    "note": "B 阶段已验收；第十五轮用户拍板 ② 解除产品形态冲突，C 正式启动且严格分步不并行。三层判断仍 recommended=false（覆盖率 5/7），C-5 前不把三层当默认答案、不放开主管自主派活"
   },
   "b2Deliverables": [
     "B2-1 src/memory-recall.ts：投影召回作为第三路信号接入 TeamMemory.search，权限/版本重评之后才按 sourceId@revision 白名单裁剪",
@@ -104,7 +106,7 @@
     },
     {
       "path": "HANDOFF/03-WORK-LOG.md",
-      "purpose": "14 轮工作记录、提交号、7 条排障模式、用户决策"
+      "purpose": "15 轮工作记录、提交号、排障模式、用户决策（含 ② 拍板与 C 启动）"
     },
     {
       "path": "HANDOFF/04-CODE-MAP.md",
@@ -116,7 +118,7 @@
     },
     {
       "path": "HANDOFF/06-CURRENT-STATE-AND-NEXT.md",
-      "purpose": "A/B1/B2 已完成证据、C 排队需拍板、三层判断、去 Paperclip 化"
+      "purpose": "A/B1/B2 已完成证据、C 分步清单（② 已拍板）、三层判断、去 Paperclip 化"
     },
     {
       "path": "HANDOFF/07-RULES-AND-BOUNDARIES.md",
@@ -154,12 +156,12 @@
   "nextSteps": [
     "读 HANDOFF/00-START-HERE.md、06-CURRENT-STATE-AND-NEXT.md、07-RULES-AND-BOUNDARIES.md",
     "跑 HANDOFF/05-VALIDATION-AND-COMMANDS.md 的全套回归确认 329/329 与走查 11/11",
-    "B 阶段（B1+B2）已验收，不要在用户拍板前自动开始 C：先按 08-OPEN-DECISIONS.md 第 1 条确认「保持 5 tab 插件式单页 / 改独立前端应用 / 暂不切换」",
-    "若拍板继续 C：把 5 个派活点收敛成单一 Router、接 A2A handoff 三层判断、补齐 HostPlatformPort 的 5 项缺口后再移除 Plugin SDK",
+    "C-1：按 ② 独立应用形态重新定义并逐条补齐本地宿主 5 项能力（ACL/成员身份、cost-ledger、独立应用 UI 承载、heartbeat 真实执行、原子写+文件锁并发），不引入 PostgreSQL 与 Plugin SDK",
+    "C-2：独立应用外壳，保留 5 tab 职能，移除 Plugin SDK 编译期依赖；飞书仍是唯一发起入口",
+    "C-3：五个派活点收敛为单一 Router（保留 legacy 回退）→ C-4：三层实体 + A2A handoff → C-5：重跑 assessThreeTier 与真实一单",
     "真人业务验收 SUI-129 只能由用户本人在原会话用中文「确认验收」完成"
   ],
   "openDecisions": [
-    "Plugin SDK 移除 vs 5 tab 插件式单页的产品形态冲突（C 的前置）",
     "外部模型端点与凭据（Cognee cognify 真跑）",
     "真人业务验收 SUI-129 只能由用户本人在原会话完成",
     "飞书部门 scope 授权需本人确认",
@@ -172,7 +174,7 @@
     "不要改 upstream/ 上游源码",
     "不要把 .runtime/ 的真实身份/密钥/业务正文提交进仓库",
     "不要用报告/模型判定/CI/合并审批代替真人「确认验收」",
-    "不要在用户拍板产品形态前开始 C",
+    "不要跳过 C 的分步验收、并行推进 C-1~C-5，或在 C-5 之前放开主管 Agent 自主派活",
     "不要把投影当成权限来源或替换主读取源"
   ],
   "finalValidationAtHandoff": {
@@ -182,7 +184,7 @@
     "memoryCheckpoint": "incremental applied:1, checksumEqual:true",
     "upstreamAudit": "clean",
     "gitDiffCheck": "pass",
-    "note": "第十四轮 B2 代码与文档同步后重跑全套回归"
+    "note": "第十四轮 B2 代码与文档同步后重跑全套回归；第十五轮 C-0 仅文档改动，运行基线不变，C-1 起需要新的回归记录"
   },
   "authoritativeOnly": true,
   "portableCopyNote": "WorkBuddy 工作区 handoff/ 与 SuitMe-HANDOFF.zip 已停用、不再维护；唯一权威位置为仓库内 HANDOFF/。"

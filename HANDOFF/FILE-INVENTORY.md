@@ -12,17 +12,17 @@
 | `HANDOFF/00-START-HERE.md` | 84 | 新 Agent 第一份必读：环境、同步状态、干净环境变量、服务端口、首次验证、7 个已知坑（含真实链路的图缺陷）。 |
 | `HANDOFF/01-PROJECT-OVERVIEW.md` | 56 | 产品与业务架构：定位、渠道分工、三级 owner、8 步闭环、5 tab 功能地图、成熟度三档、五条红线。 |
 | `HANDOFF/02-ARCHITECTURE.md` | 89 | 技术架构：四层数据流、7 个上游真实引用强度、前端分层、中文壳、路由契约、共享记忆主干（B1+B2）、平台端口、代码交付。 |
-| `HANDOFF/03-WORK-LOG.md` | 52 | 全部 14 轮工作记录（提交号/改动/验证/边界）、7 条反复出现的排障模式、用户明确做过的决策。 |
+| `HANDOFF/03-WORK-LOG.md` | 53 | 全部 14 轮工作记录（提交号/改动/验证/边界）、7 条反复出现的排障模式、用户明确做过的决策。 |
 | `HANDOFF/04-CODE-MAP.md` | 172 | 按 14 个功能域讲「哪些文件一起完成什么」、关键导出与依赖方向速查。 |
 | `HANDOFF/05-VALIDATION-AND-COMMANDS.md` | 113 | 全套回归命令、第十四轮实测结果（含 memory:journey / memory:checkpoint）、真实 HTTP 冒烟模板、服务端口表、排障速查、提交前检查。 |
-| `HANDOFF/06-CURRENT-STATE-AND-NEXT.md` | 46 | 当前状态快照、B2 四项真跑证据、C 排队为何仍需拍板、三层判断、去 Paperclip 化路线。 |
+| `HANDOFF/06-CURRENT-STATE-AND-NEXT.md` | 53 | 当前状态快照、B2 四项真跑证据、C 分步清单（② 已拍板，C-0 完成 / C-1 为下一步）、三层判断、去 Paperclip 化路线。 |
 | `HANDOFF/07-RULES-AND-BOUNDARIES.md` | 44 | 红线与边界：业务验收身份、隐私与 .runtime、服务约束、许可证、前端入口、工程约束。 |
-| `HANDOFF/08-OPEN-DECISIONS.md` | 51 | 8 个条目（7 项待拍板 + B2 范围已解决）：Plugin SDK 冲突、外部模型凭据、真人验收、部门 scope、B2 范围、外部服务、已停服务、pi 指代。 |
+| `HANDOFF/08-OPEN-DECISIONS.md` | 49 | 8 个条目（6 项待拍板 + 产品形态 ② 与 B2 范围两条已解决的历史记录）：外部模型凭据、真人验收、部门 scope、外部服务、已停服务、pi 指代。 |
 | `HANDOFF/DIRECTORY-GUIDE.md` | 154 | ★ 目录完全指南：完整目录树、每个顶层目录作用与入库状态、7 个 submodule、.runtime 详解、构建产物位置、新文件该放哪。 |
 | `HANDOFF/FILE-INVENTORY.md` | 328 | ★ 本文件：全部入库文件逐文件一行说明（路径 / 行数 / 用途），用于快速定位。 |
 | `HANDOFF/README.md` | 50 | 交接包总索引：5 分钟接手路径、包内每个文件的说明、一句话现状与检查清单。 |
 | `HANDOFF/SYNC-STATUS.md` | 54 | ★ 唯一位置声明、代码基线/提交关系、接手校验命令、本目录内阅读顺序。 |
-| `HANDOFF/handoff-manifest.json` | 189 | 机器可读元数据：commit、远端、测试结果、服务状态、包内文件清单、下一步与开放决策。 |
+| `HANDOFF/handoff-manifest.json` | 191 | 机器可读元数据：commit、远端、测试结果、服务状态、包内文件清单、下一步与开放决策。 |
 
 ## 后端核心 src/（76）
 
@@ -251,7 +251,7 @@
 
 | 路径 | 行数 | 说明 |
 |---|---|---|
-| `docs/ADAPTATION-v0.6.md` | 608 | ★ 逐轮适配记录与「最新边界声明」（当前以 0.000000000000000 节为准），判断「已发生/未发生」以此为准。 |
+| `docs/ADAPTATION-v0.6.md` | 679 | ★ 逐轮适配记录与「最新边界声明」（当前以 0.000000000000000 节为准），判断「已发生/未发生」以此为准。 |
 | `docs/AGENT-BUILDING.md` | 41 | Agent 构建与能力装配说明。 |
 | `docs/AGENT-SERVICE-NETWORK.md` | 70 | 个人 Agent 服务网的组织方式。 |
 | `docs/ARCHITECTURE-OPTIONS-v0.7.md` | 269 | ★ 架构收敛方案：主流记忆架构、auto-ontology 校正、A/B/C 三方案、缺口清单与许可证边界（含附录 A/B/C/D，D 记 B2 已落地）。 |
@@ -263,13 +263,13 @@
 | `docs/KNOWLEDGE-ENGINE.md` | 69 | 知识引擎：Cognee L1 隔离、L2 确定性抽取与语义管线口径。 |
 | `docs/MEMORY-ARCHITECTURE-v0.7.md` | 94 | ★ 方案 B 全文：append-only 事件主干、四类投影、撤权 lineage、B2 投影召回 / 精确撤权 / checkpoint 与真跑证据、C 边界。 |
 | `docs/OPEN-SOURCE-COMPLIANCE.md` | 119 | 开源复用与许可证合规说明（已复用/可复用/禁止复用三分类）。 |
-| `docs/PRD-v0.6.md` | 392 | ★ 产品需求文档：FR 编号、R1–R5 红线、§10A 前端形态约束、Q4 复用矩阵。 |
+| `docs/PRD-v0.6.md` | 394 | ★ 产品需求文档：FR 编号、R1–R5 红线、§10A 前端形态约束、Q4 复用矩阵。 |
 | `docs/ROUTING-AND-HOST-v0.7.md` | 156 | ★ A 阶段方案全文：RoutingDecision、共享 Trace、三层判断、HostPlatformPort 与开源候选矩阵。 |
 | `docs/SOURCES.md` | 46 | 上游来源与引入方式记录。 |
 | `docs/SYSTEM-ARCHITECTURE.md` | 241 | ★ 「现在是什么」：技术四层、产品与业务架构、前端分层、统一路由 Trace、共享记忆主干。 |
 | `docs/TEAM-NETWORK-MEMORY.md` | 70 | 多人服务协作与团队知识记忆。 |
 | `docs/UPSTREAM-ADAPTERS.md` | 54 | 上游适配代码清单与引用边界。 |
-| `docs/VALIDATION.md` | 497 | ★ 逐轮验证记录（含第十四轮 B2 全套回归、真跑数据与三处真实缺陷修复），判断「验证过没有」以此为准。 |
+| `docs/VALIDATION.md` | 528 | ★ 逐轮验证记录（含第十四轮 B2 全套回归、真跑数据与三处真实缺陷修复），判断「验证过没有」以此为准。 |
 | `docs/WORKSPACES.md` | 70 | 知识空间与使用说明。 |
 | `docs/agent-integration.md` | 75 | Agent 接入与 CLI 适配说明。 |
 | `docs/design/workbench.md` | 11 | 工作台视觉/交互设计稿。 |

@@ -248,7 +248,7 @@ LobeHub 三层的原话依据（赛博禅心《如何让 Super-agent 成为同�
 - **B2-2**：`grant-revoked` 改记 `principalRevocations`，按当前 principal 精确排除，未指定主体 fail-closed；`source-revoked` 仍全局阻断。
 - **B2-3**：`npm run memory:journey` 用真实 bridge action 跑完整知识事件链与端到端撤权；收尾复核又修掉 `reviewSource` 用评审前 revision 造成的悬空 lineage，并把 `lineageComplete` 加进验收条件。
 - **B2-4**：`src/memory-checkpoint.ts` 的 checkpoint + 增量应用，撤权 / 乱序 / 失效祖先回退全量，增量与全量 checksum 逐字节对照。
-- **边界**：原 Cognee / Ladybug / SQLite / Paperclip 存储仍是主读取源，投影是叠加证据；B 已验收，但 C 的产品形态冲突仍需用户拍板，三层判断仍 `recommended=false`（覆盖率 5/7）。
+- **边界**：原 Cognee / Ladybug / SQLite / Paperclip 存储仍是主读取源，投影是叠加证据；B 已验收；**第十五轮用户已拍板 ② 解除产品形态冲突，C 正式启动**（C-0 完成，见 `ADAPTATION-v0.6.md` `0.0000000000000000` 节），三层判断仍 `recommended=false`（覆盖率 5/7）。
 
 ---
 

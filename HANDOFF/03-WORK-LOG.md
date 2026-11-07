@@ -1,6 +1,6 @@
-# 03 · 全部工作记录（14 轮 + 基础建设期）
+# 03 · 全部工作记录（15 轮 + 基础建设期）
 
-> 权威逐轮记录：`docs/VALIDATION.md`（验证）与 `docs/ADAPTATION-v0.6.md`（边界声明，**最新边界以 `0.000000000000000` 节为准**）。
+> 权威逐轮记录：`docs/VALIDATION.md`（验证）与 `docs/ADAPTATION-v0.6.md`（边界声明，**最新边界以 `0.0000000000000000` 节为准**）。
 > 完整提交历史以 `git log --oneline | wc -l` 与 `git rev-parse HEAD` 为准（交接时 `HEAD = b58631c`，其后已多次前进）。下表按时间线归纳，`提交` 列可直接 `git show <hash>`。
 
 ## 0. 基础建设期（前 21 个提交，早于分轮记录）
@@ -26,7 +26,8 @@
 | 第十一轮 | `85c03b2` | 用户拍板：允许外部模型 API 并打开 Cognee 原生管线；本机自动合并/自动发布放开（验收仍由人）；统一改写红线文档 | 294/294；`cognify` 真实调用仍未发生 |
 | 第十二轮 | `749e357` | `RoutingDecision` 五维契约 + 5 派活点写同一份 Trace、B 阶段契约复用、LobeHub 三层可执行判断、`HostPlatformPort` 与非 Paperclip 最小宿主 | 303/303；默认底座仍是 Paperclip |
 | 第十三轮 | `b58631c` | **方案 B1**：append-only 记忆事件主干、四类投影重放、撤权 lineage 阻断、8 处双写、Context Pack 运行时过滤、路由契约桥接 | **315/315**、走查 11/11；B2 待做 |
-| 第十四轮 | 本轮提交 | **方案 B2 收尾**：投影召回接入 `TeamMemory.search` 融合排序（权限重评之后才裁剪白名单）、`grant-revoked` 按 principal 精确过滤、真实一单跑完整知识事件链与端到端撤权、checkpoint + 增量应用（checksum 与全量逐字节对照）；修真实链路暴露的「任务级组织图镜像悬空边」与「`reviewSource` 用评审前 revision 造成真实悬空 lineage」两处缺陷，并给 `memory:journey` 加 `lineageComplete` 验收条件 | **329/329**、走查 11/11、`memory:journey ok:true`（四类投影 1/2/1/1 → 0/0/0/0、召回 1→0、本次资料悬空 lineage 0）、真实日志 `memory:checkpoint checksumEqual:true`；B 阶段验收通过，C 仍排队待拍板 |
+| 第十四轮 | `8d3c455` | **方案 B2 收尾**：投影召回接入 `TeamMemory.search` 融合排序（权限重评之后才裁剪白名单）、`grant-revoked` 按 principal 精确过滤、真实一单跑完整知识事件链与端到端撤权、checkpoint + 增量应用（checksum 与全量逐字节对照）；修真实链路暴露的「任务级组织图镜像悬空边」与「`reviewSource` 用评审前 revision 造成真实悬空 lineage」两处缺陷，并给 `memory:journey` 加 `lineageComplete` 验收条件 | **329/329**、走查 11/11、`memory:journey ok:true`（四类投影 1/2/1/1 → 0/0/0/0、召回 1→0、本次资料悬空 lineage 0）、真实日志 `memory:checkpoint checksumEqual:true`；B 阶段验收通过，C 仍排队待拍板 |
+| 第十五轮 | 本轮提交 | **方案 C 启动（C-0）**：用户拍板 **② 独立前端应用**，废弃 `PRD §10A` 的 S5/S6、保留 S1–S4 与飞书唯一入口；产品思路复盘（LobeHub 三层 = 组织维度、腾讯 Siboot 上下文论 = 信息维度；**三层 = 同一份共享现场的三种座位，不靠摘要转发**）；建立 C-0~C-5 分步任务清单 | **仅文档与任务清单，未改运行代码**；运行基线仍 329/329、走查 11/11；默认底座仍 `paperclip`，三层判断仍 `recommended=false`（5/7） |
 
 ## 2. 反复出现的排障模式（接手者可直接复用）
 

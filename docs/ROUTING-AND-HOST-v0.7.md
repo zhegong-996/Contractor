@@ -104,7 +104,7 @@ Super Agent、Autoloop、LobeHub **不是同类**：触发策略 → 执行循�
 4. heartbeat 真实执行与 `checkout / retry / runToken` 语义
 5. PostgreSQL 事务与并发控制（现为本地 JSON 文件）
 
-**产品形态冲突需用户确认**：移除 Plugin SDK 意味着 5 tab 插件单页要改成独立前端或换宿主插件机制；这与 PRD §10A 的既有约束相反。本轮不动前端，`config.host.provider` 默认保持 `paperclip`，切换是显式配置行为。
+**产品形态冲突需用户确认**（第十二轮当时状态）：移除 Plugin SDK 意味着 5 tab 插件单页要改成独立前端或换宿主插件机制；这与 PRD §10A 的既有约束相反。本轮不动前端，`config.host.provider` 默认保持 `paperclip`，切换是显式配置行为。**后续**：第十五轮用户已拍板 ② 独立前端应用，§10A 的 S5/S6 废弃、S1–S4 保留，详见 `ADAPTATION-v0.6.md` `0.0000000000000000` 节。
 
 ### 5.3 开源候选矩阵（可复用 / 可参考 / 禁止复制）
 
@@ -131,7 +131,7 @@ Super Agent、Autoloop、LobeHub **不是同类**：触发策略 → 执行循�
 - **A（已完成）**：统一架构常量（`architecture-contracts.ts`）、FR 覆盖口径、统一 `RoutingDecision`、统一 Trace、5 处接线、平台端口抽象。
 - **B1（第十三轮已完成）**：共享记忆事件主干与四类投影重放已落地，三条红线有真跑证据；`routing-decided` 经 `readBridgedEvents()` 并入同一重放输入，契约复用兑现。详见 `MEMORY-ARCHITECTURE-v0.7.md`。
 - **B2（第十四轮已完成并验证）**：投影召回融合进 `TeamMemory.search`（权限重评之后裁剪白名单）、`grant-revoked` 按 principal 精确过滤、真实一单完整知识事件链与端到端撤权、checkpoint 增量应用；真跑证据 `npm run memory:journey` / `memory:checkpoint`。原存储仍是主读取源，投影是第三路叠加信号。
-- **C（B 已验收，但仍需用户先拍板）**：把五个调用点收敛成单一 `Router` 类，接 A2A handoff 实现 Personal → Supervisor → Worker 三层；此时才重新跑 `assessThreeTier()`，P1/P3/P4/P6 全绿后再决定是否引入三层实体。**C 阶段同时承载平台底座切换**（先补 5.2 的五个缺口，再移除 Plugin SDK），与「5 tab 插件式单页」形态冲突见 `08-OPEN-DECISIONS.md` 第 1 条；当前三层判断仍是 `recommended=false`。
+- **C（B 已验收；第十五轮用户拍板 ②，已启动）**：把五个调用点收敛成单一 `Router` 类，接 A2A handoff 实现 Personal → Supervisor → Worker 三层；此时才重新跑 `assessThreeTier()`，P1/P3/P4/P6 全绿后再决定是否引入三层实体。**C 阶段同时承载平台底座切换**（先按 ② 重新定义并补齐 5.2 的五项缺口，再移除 Plugin SDK），按 C-0 → C-5 分步不并行；原「5 tab 插件式单页」约束已随 §10A 的 S5/S6 一并废弃，S1–S4 与飞书唯一入口保留。当前三层判断仍是 `recommended=false`。
 
 每阶段验收必须跑：全套回归（303+ 单测、tsc、两个构建、响应式、走查、上游审计、diff-check）+ `npm run routing:status` + `npm run host:smoke`。
 
