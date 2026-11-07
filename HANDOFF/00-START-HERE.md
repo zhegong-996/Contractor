@@ -10,6 +10,7 @@
 | 运行时 | 实测 Node **22.22.2**（`~/.workbuddy/binaries/node/...`）；`package.json` 声明 `>=24.11.0`，但构建与测试在 22 上能跑通 |
 | 包管理 | npm（`package-lock.json` 已入库），`node --import tsx` 直跑 TS |
 | 状态目录 | `.runtime/`（被 `.gitignore` 忽略，**任何运行证据都不入库**） |
+| 交接文档 | 仓库内 `HANDOFF/` 是**唯一位置**，不依赖外部副本（见 `SYNC-STATUS.md`） |
 
 ```sh
 cd /Users/gong.zhe/Developer/ai-native-collab

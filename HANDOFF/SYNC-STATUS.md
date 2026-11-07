@@ -1,0 +1,54 @@
+# 10 · 唯一位置声明与接手校验
+
+> 用户要求：**所有相关说明只放在 `/Users/gong.zhe/Developer/ai-native-collab/HANDOFF/`**，直接处理这个目录即可。本文件把原先分散在外部副本里的「来源 / commit / 阅读顺序」信息收拢进来，并明确其它位置已停用。
+
+## 1. 唯一权威位置
+
+| 项 | 值 |
+|---|---|
+| 唯一权威目录 | `/Users/gong.zhe/Developer/ai-native-collab/HANDOFF/` |
+| 同步方式 | 随 `main` 分支提交推送到 `https://github.com/zhegong-996/suitme-collab.git`；clone 仓库即得 |
+| 手工修改 | **只改本目录**，然后 `git add -A && git commit && git push origin main` |
+| 已停用（不再维护） | WorkBuddy 工作区 `handoff/` 副本、`SuitMe-HANDOFF.zip` — 内容可能落后，**不要作为依据** |
+| 项目原文档 | `docs/`、`README.md` 仍有效；本包是导航与现状归纳，冲突时以 `docs/ADAPTATION-v0.6.md` 最新边界、`docs/VALIDATION.md` 最新验证为准 |
+
+## 2. 提交与同步状态
+
+| 项 | 值 |
+|---|---|
+| **运行代码基线** | `b58631c`（B1 完成并验证，全套回归全绿） |
+| 交接包首次提交 | `f6611e0`（13 个文档，仅新增 `HANDOFF/`） |
+| 本文件所在提交 | 会再前进一格；**以 `git rev-parse HEAD` 为准**，不要相信写死的 hash |
+| 从代码基线到当前的差异 | 只有 `HANDOFF/` 文档，**没有任何运行代码改动** |
+
+交接前重跑全套回归全绿：`npm test` 315/315、`tsc`、两个构建、`test:responsive`、真实浏览器走查 11/11、`audit:upstream clean`、`git diff --check`。
+
+## 3. 接手时先跑这三条
+
+```sh
+cd /Users/gong.zhe/Developer/ai-native-collab
+git status --short --branch                    # 应干净且与 origin/main 一致
+git rev-parse HEAD; git rev-parse origin/main; git ls-remote origin main   # 三者应一致
+npm test                                       # 315/315
+```
+
+需要本机服务时先设干净环境（见 `00-START-HERE.md` 第 2 节）：
+```sh
+export NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost NODE_USE_ENV_PROXY=0
+```
+
+## 4. 阅读顺序（本目录内即可完成）
+
+1. `README.md` — 总索引与包内每个文件的说明
+2. `00-START-HERE.md` — 环境、服务、干净环境变量、6 个已知坑
+3. `06-CURRENT-STATE-AND-NEXT.md` — 现在做到哪、B2 四项待做、C 排队、什么不能动
+4. `05-VALIDATION-AND-COMMANDS.md` — 全套回归、预期输出、排障、提交前检查
+5. `DIRECTORY-GUIDE.md` — 目录树、每个目录作用与入库状态、`.runtime/` 与产物位置
+6. `FILE-INVENTORY.md` — 全部文件逐文件一行说明
+7. `01` / `02` / `03` / `04` — 产品、技术、13 轮工作日志、代码地图（按需查）
+8. `07-RULES-AND-BOUNDARIES.md` / `08-OPEN-DECISIONS.md` — 红线与需用户拍板事项（**动手前必读**）
+9. `handoff-manifest.json` — 机器可读元数据
+
+## 5. 本文件的说明
+
+`SYNC-STATUS.md` 自身：声明唯一权威位置、记录代码基线/提交关系、给出接手校验命令与阅读顺序；是纯文档，不参与任何构建或运行。若后续新增交接文件，记得同步更新 `README.md` 的文件表、`DIRECTORY-GUIDE.md` 的目录树、`handoff-manifest.json` 的 `handoffFiles`，并重新生成 `FILE-INVENTORY.md`（生成方式：读 `git ls-files` + `HANDOFF/`，按源码注释/导出/真实测试名补齐说明）。

@@ -7,7 +7,7 @@
 
 ```
 ai-native-collab/                       仓库根（main 分支）
-├── HANDOFF/                           ★ 本交接包（入库、随 commit 推送）——权威版本
+├── HANDOFF/                           ★ 本交接包（入库、随 commit 推送）——唯一位置
 │   ├── README.md                      总索引 + 包内每个文件的说明
 │   ├── 00-START-HERE.md               接手第一步（环境/服务/坑）
 │   ├── 01-PROJECT-OVERVIEW.md         产品与业务架构
@@ -19,6 +19,7 @@ ai-native-collab/                       仓库根（main 分支）
 │   ├── 07-RULES-AND-BOUNDARIES.md     红线与边界
 │   ├── 08-OPEN-DECISIONS.md           需用户拍板的事项
 │   ├── DIRECTORY-GUIDE.md             ★ 本文件：目录完全指南
+│   ├── SYNC-STATUS.md                 ★ 唯一位置声明、commit 与接手校验
 │   ├── FILE-INVENTORY.md               ★ 逐文件一行说明（100% 覆盖入库文件）
 │   └── handoff-manifest.json           ★ 机器可读元数据
 ├── src/                               ★ 后端核心（73 个 .ts，全部入库）
@@ -64,7 +65,7 @@ ai-native-collab/                       仓库根（main 分支）
 
 | 目录 | 作用 | 入库 | 备注 |
 |---|---|---|---|
-| `HANDOFF/` | 交接包（本套文档） | ✅ | **权威版本**，改这里 |
+| `HANDOFF/` | 交接包（本套文档） | ✅ | **唯一权威位置**，只改这里，直接处理这个目录 |
 | `src/` | 后端全部 TypeScript 业务代码 | ✅ | 新后端模块放这里，测试同步放 `tests/` |
 | `scripts/` | 可执行入口：服务、CLI、构建、冒烟、Swift/Python 辅助 | ✅ | 新 npm script 必须有对应实现文件 |
 | `tests/` | `node:test` 回归测试 | ✅ | `scripts/test.ts` 自动发现 `tests/*.test.ts` |
@@ -144,8 +145,8 @@ ai-native-collab/                       仓库根（main 分支）
 
 | 路径 | 说明 |
 |---|---|
-| `/Users/gong.zhe/Developer/ai-native-collab/HANDOFF/` | **权威交接包**（入库、随 push 同步到 GitHub） |
-| `/Users/gong.zhe/WorkBuddy/2026-11-05-18-10-52/handoff/` | 可携带副本（内容一致，附 `SOURCE.txt` 标注来源 commit）。**手工修改请改仓库内版本**，副本可重新生成 |
+| `/Users/gong.zhe/Developer/ai-native-collab/HANDOFF/` | **唯一权威位置**（入库、随 push 同步到 GitHub）。所有说明只放这里，直接处理即可 |
+| `/Users/gong.zhe/WorkBuddy/2026-11-05-18-10-52/handoff/`、`SuitMe-HANDOFF.zip` | **已停用、不再维护**的历史副本，内容可能落后，不要作为依据 |
 | `/Users/gong.zhe/WorkBuddy/2026-11-05-18-10-52/.workbuddy/memory/` | 本助手的工作记忆日志（项目外，仅本机） |
 
-下一位 Agent 只要拿到仓库（或 `HANDOFF/` 目录），从 `README.md` → `00` → `06` 开始即可。
+下一位 Agent 只要拿到仓库（或 `HANDOFF/` 目录），从 `README.md` → `00` → `06` 开始即可；唯一位置与同步校验见 `SYNC-STATUS.md`。

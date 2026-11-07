@@ -3,7 +3,7 @@
   "purpose": "SuitMe 协作台项目交接包：让下一位 Agent 无需对话历史即可安全继续",
   "generatedAt": "2026-11-07T18:20:49+08:00",
   "authoritativeLocation": "/Users/gong.zhe/Developer/ai-native-collab/HANDOFF/",
-  "portableCopy": "/Users/gong.zhe/WorkBuddy/2026-11-05-18-10-52/handoff/",
+  "portableCopy": null,
   "repository": {
     "path": "/Users/gong.zhe/Developer/ai-native-collab",
     "remote": "https://github.com/zhegong-996/suitme-collab.git",
@@ -124,13 +124,17 @@
     {
       "path": "HANDOFF/handoff-manifest.json",
       "purpose": "本文件：机器可读交接元数据"
+    },
+    {
+      "path": "HANDOFF/SYNC-STATUS.md",
+      "purpose": "唯一位置声明、代码基线/提交关系、接手校验命令与阅读顺序"
     }
   ],
   "fileInventory": {
     "path": "HANDOFF/FILE-INVENTORY.md",
-    "totalEntries": 262,
+    "totalEntries": 263,
     "handWrittenDescriptions": 194,
-    "autoExtractedDescriptions": 68,
+    "autoExtractedDescriptions": 69,
     "fallback": 0,
     "uncovered": 0
   },
@@ -166,5 +170,7 @@
     "upstreamAudit": "clean",
     "gitDiffCheck": "pass",
     "note": "交接包仅新增文档后重跑全套回归"
-  }
+  },
+  "authoritativeOnly": true,
+  "portableCopyNote": "WorkBuddy 工作区 handoff/ 与 SuitMe-HANDOFF.zip 已停用、不再维护；唯一权威位置为仓库内 HANDOFF/。"
 }
