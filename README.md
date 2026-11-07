@@ -4,6 +4,14 @@
 
 当前系统的数据库、服务、模型和知识管理状态见[架构与接入核验](docs/SYSTEM-ARCHITECTURE.md)。后台主入口包含知识库和设置；轻量模型配置按用户选择保留为预备策略，暂不启用新服务。
 
+## 架构与方案导航（先看这里）
+
+- **当前实现**：[架构与接入核验](docs/SYSTEM-ARCHITECTURE.md)——技术四层、产品与业务架构、前端模块分层。
+- **产品架构定稿**：[ARCHITECTURE-v0.6.md](docs/ARCHITECTURE-v0.6.md)——六层模型、M3 三层路由、M11 责任转移、K 知识底座与默认图谱本体；**这是设计定稿，不等于全部已实现**。
+- **收敛方案与缺口清单**：[ARCHITECTURE-OPTIONS-v0.7.md](docs/ARCHITECTURE-OPTIONS-v0.7.md)——三种可选方案、主流 Agent 记忆 / ontology / router 架构分析、未实现功能逐条对应的开源复用动作、许可证边界。**判断「哪些还没做、该用哪个项目补」以这份为准**。
+- **复用与合规**：[上游适配清单](docs/UPSTREAM-ADAPTERS.md)、[来源记录](docs/SOURCES.md)、[开源合规](docs/OPEN-SOURCE-COMPLIANCE.md)。
+- **验证与最新边界**：[验证记录](docs/VALIDATION.md)、[轮次与边界声明](docs/ADAPTATION-v0.6.md)。
+
 基于 Paperclip 的团队协作工作台。飞书发起开发任务，人在自己使用的 Agent 中接单，或由后台调用已配置的 CLI；成果默认进入本机 Git 代码交付台，按确切提交与本机 CI 结果验收（可显式回退到 GitHub 适配器）。知识空间按项目、主题或组织需要配置，在同一任务中申请资料、授权、交接、撤权并采用专业结论。
 
 本仓库是协作平台代码。`zhegong-996/desktop-tutorial` 是当前获准的流程联调仓库，SuitMe 业务仓库不在本轮写入范围。
