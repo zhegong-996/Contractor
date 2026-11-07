@@ -198,8 +198,22 @@ LobeHub 三层的原话依据（赛博禅心《如何让 Super-agent 成为同�
 - **Outline**：BSL 1.1，source-available 非 OSI，明确禁止引入代码。→ 只参考。
 - **`lobehub/acceptance`**：独立仓库、独立 Apache-2.0，不受上述附加条件约束，已 pin `f720feb…`；CLI / 云端服务未启动。→ 可复用代码。
 - **Cognee / A2A SDK**：Apache-2.0，须保留 NOTICE、对被修改文件显著标注；当前做法是「固定 commit + 不改上游 + 适配层独立」，规避修改标注义务。→ 保持这个做法。
-- **Prime Agent 移植文件** `src/vendor/prime-query.ts`：须保留原 MIT 版权头；`sources.lock.json` 目前缺该条目与 Harness 条目，P0 阶段应补齐。
+- **Prime Agent 移植文件** `src/vendor/prime-query.ts`：须保留原 MIT 版权头。核对结论（2026-11-07）：`sources.lock.json` **已登记** Harness `fcc0ad46…` 与 Prime Agent `74591cdd…` 两条，`audit:upstream` 输出 `clean: true`、7 个 gitlink 与锁文件一致；此前「缺两条登记」的说法来自 `OPEN-SOURCE-COMPLIANCE.md` 的过时 ⚠️ 标记，已一并修正并补回归断言，P0 不再需要补登记。
 - 任何新增上游：先跑 `audit:upstream` 清单（gitlink / LICENSE / NOTICE / THIRD_PARTY_NOTICES / sources.lock / 声明），非 MIT/Apache-2.0 协议先评审再引入（PRD R7）。
+
+---
+
+## 附录 A · FR 覆盖口径（消除多份文档互相矛盾）
+
+`PRD-v0.6.md` §5 的「现状」列与 §10A 第 352 行的说明是**第五轮历史记录**，其中「已具备契约、API 与可运行链路」容易被读成「功能已完成」；`VALIDATION.md` 第十轮又列出一批「未发生」。二者并不矛盾，只是口径不同。本仓库今后统一为三态：
+
+| 状态 | 定义 | 判定依据 |
+|---|---|---|
+| **已端到端** | 真实一单 / 真实浏览器 / 真实服务链路跑通 | `VALIDATION.md` 第十轮、`delivery:demo`、SUI-129 2/2 逐项判定、`test:walkthrough` 11/11 |
+| **契约 + API** | 有类型契约、只读 action 与单测覆盖，但没有真实业务 journey | `tests/` 288 例、`service-status` / `trace-view` / `context-pack` 等接口 |
+| **设计未实现** | 只有 PRD / 架构文档描述，无对应代码路径 | 本文件 §1.3 的 14 项缺口清单 |
+
+按此口径，`ADAPTATION-v0.6.md` 0.00000000000 节（第十轮）是**最新边界声明**；本文件 §1.3 是**最新缺口清单**；`PRD-v0.6.md` §5 与 §10A 保留为设计历史，不再作为「现在支持什么」的判断依据。方案 A 落地后，`src/architecture-contracts.ts` 是节点类型 / 边族 / Agent 角色 / 记忆事件的**唯一常量来源**，`tests/architecture-contracts.test.ts` 守门其一致性、`validateOrgGraph` 行为不变、7 个 gitlink 与 `sources.lock.json` 一致、且合规文档不再出现过时告警。
 
 ---
 

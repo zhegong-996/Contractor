@@ -1,32 +1,18 @@
-// v0.6 FR-08 — default organisation ontology for the L2 graph.
+// v0.6 FR-08 — organisation graph (L2) built on the shared architecture contract.
 //
 // This is NOT src/ontology.ts (which validates a Cognee GraphSchema dictionary
 // for one knowledge space). It describes cross-source organisation facts:
 // who was responsible for what, which evidence a deliverable relied on, and
 // which tasks a bad judgement influenced.
 //
-// Five edge kinds mirror the five families in the architecture draft. One set
-// of relations serves precise routing, reachability checks, lineage circuit
-// breaking and evidence tracing at the same time.
+// 方案 A（v0.7）：节点类型、边族与 domain/range 规则已上移到
+// src/architecture-contracts.ts 作为单一来源；本文件保留 L2 图特有的
+// schema、校验与查询函数，并再导出常量以兼容既有 import。
 import { z } from 'zod';
+import { NODE_KINDS, EDGE_FAMILIES, EDGE_RULES } from './architecture-contracts.ts';
 
-export const NODE_KINDS = [
-  'person', 'role', 'workspace', 'project', 'task', 'thread', 'message',
-  'context-pack', 'source', 'source-fragment', 'artifact', 'evidence',
-  'acceptance-plan', 'acceptance-round', 'transfer', 'signal',
-] as const;
-export type NodeKind = typeof NODE_KINDS[number];
-
-export const EDGE_FAMILIES = ['belongs_to_role', 'participated_in', 'verified_by', 'responsible_for', 'reused_by'] as const;
-export type EdgeFamily = typeof EDGE_FAMILIES[number];
-
-export const EDGE_RULES: Record<EdgeFamily, { from: NodeKind[]; to: NodeKind[]; purpose: string }> = {
-  belongs_to_role: { from: ['person', 'transfer'], to: ['role'], purpose: '归属职责：主职能与责任锚点' },
-  participated_in: { from: ['person', 'role'], to: ['task', 'project', 'thread', 'source'], purpose: '参与派生：领域与邻接能力从真实参与长出' },
-  verified_by: { from: ['artifact', 'acceptance-plan', 'acceptance-round'], to: ['evidence', 'source-fragment', 'source'], purpose: '验收证据：制品依据哪条证据' },
-  responsible_for: { from: ['person', 'role', 'transfer'], to: ['task', 'artifact', 'acceptance-plan'], purpose: '责任链：执行责任与兜底责任' },
-  reused_by: { from: ['artifact', 'source', 'source-fragment', 'context-pack'], to: ['task', 'artifact', 'context-pack'], purpose: '复用影响：熔断时反查影响面' },
-};
+export { NODE_KINDS, EDGE_FAMILIES, EDGE_RULES } from './architecture-contracts.ts';
+export type { NodeKind, EdgeFamily } from './architecture-contracts.ts';
 
 export const orgNodeSchema = z.object({
   id: z.string().min(1),

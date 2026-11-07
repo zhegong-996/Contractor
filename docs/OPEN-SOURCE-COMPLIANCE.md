@@ -21,8 +21,8 @@
 | Paperclip LLM Wiki + Plugin SDK | MIT（同提交） | 同上 | 上游子目录 | 原版 Wiki UI/worker、插件导航、私有项目与审批 API | ✅ 随 Paperclip 声明 |
 | DSH Super-agent (`dsh-superagent-prototype`) | MIT | `8c32a9dc…` | submodule | `feishu-trigger.ts`、`feishu-channel.ts`、`settingsPolicy` / `assessmentOutcome` | ✅ 全文 |
 | Agent Autoloop | MIT | `ba8cf6d8…` | submodule | `createWorker`、Codex/Claude/command/ACP 适配器、回执与会话接续 | ✅ 全文 |
-| DeepSeek Harness | MIT | `fcc0ad46…` | submodule | output-retention、session-reference、Cordis/scope/ToolsService/tool-executor-native/persona | ✅ 全文 + `licenses/harness-vendor-MIT.txt`（含 vendored deps 声明）｜⚠️ **缺 `sources.lock.json` 条目** |
-| Prime Agent | MIT | `74591cdd…` | submodule + **代码移植** | `harness.py` query runs/terms、`harness_digest.rs` 权重 → `src/vendor/prime-query.ts` | ✅ 全文（含 Mario Zechner 原始 MIT 声明）｜⚠️ **缺 `sources.lock.json` 条目**；移植文件须保留版权头 |
+| DeepSeek Harness | MIT | `fcc0ad46…` | submodule | output-retention、session-reference、Cordis/scope/ToolsService/tool-executor-native/persona | ✅ 全文 + `licenses/harness-vendor-MIT.txt`（含 vendored deps 声明）；`sources.lock.json` 已登记 `fcc0ad462172522aaf5c93a7b2e01f6b9f0b0159`，`audit:upstream` 已核验 |
+| Prime Agent | MIT | `74591cdd…` | submodule + **代码移植** | `harness.py` query runs/terms、`harness_digest.rs` 权重 → `src/vendor/prime-query.ts` | ✅ 全文（含 Mario Zechner 原始 MIT 声明）；`sources.lock.json` 已登记 `74591cddef28d11249c3171112114fc4755375d7`，`audit:upstream` 已核验；移植文件须保留版权头 |
 | Cognee 1.6.6 | **Apache-2.0** | `525b1d11…` | submodule | LadybugAdapter、DataPoint/provenance、GraphVisualization、GraphSchema、BM25ChunksRetriever | ✅ `upstream/cognee/LICENSE` + `licenses/cognee-APACHE-2.0.txt` |
 | `@a2a-js/sdk` 1.3.0 | **Apache-2.0** | npm，gitHead `29417a5b…` | npm 依赖 | `DefaultRequestHandler`、`TaskStore`、`delegate_service` 原生委派 | ✅ `licenses/a2a-js-APACHE-2.0.txt` + lockfile 完整性 |
 | `lobehub/acceptance` | **Apache-2.0** | `f720feb…`（v0.10.0） | submodule | **验收计划 / 报告格式的契约与文件布局**；`src/acceptance-interop.ts`、`scripts/export-acceptance.ts` 做映射；不启动其 CLI / 云端报告服务 | ✅ `licenses/acceptance-APACHE-2.0.txt` + `THIRD_PARTY_NOTICES.md` 专节 + lock 条目 |
