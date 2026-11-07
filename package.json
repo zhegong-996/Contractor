@@ -17,6 +17,7 @@
     "setup:graph": "node --import tsx scripts/setup-graph.ts",
     "cognee:native": "node --import tsx scripts/cognee-native.ts",
     "routing:status": "node --import tsx scripts/routing-status.ts",
+    "router:smoke": "node --import tsx scripts/router-smoke.ts",
     "host:smoke": "node --import tsx scripts/host-smoke.ts",
     "host:pg": "node --import tsx scripts/host-pg-smoke.ts",
     "memory:replay": "node --import tsx scripts/memory-replay.ts",

@@ -6,7 +6,7 @@
 |---|---|
 | 仓库路径 | `/Users/gong.zhe/Developer/ai-native-collab` |
 | 远端 | `https://github.com/zhegong-996/suitme-collab.git`，分支 `main` |
-| 运行代码基线 | **随 `main` 前进，以 `git rev-parse HEAD` 为准**；交接包生成时是 `b58631c`，其后已有 `f6611e0` / `4aa6fb0` / `8d3c455` / `c27d7c0` / `3a563d3` 与第十六轮 C-1、第十七轮 C-2 提交 |
+| 运行代码基线 | **随 `main` 前进，以 `git rev-parse HEAD` 为准**；交接包生成时是 `b58631c`，其后已有 `f6611e0` / `4aa6fb0` / `8d3c455` / `c27d7c0` / `3a563d3` 与第十六轮 C-1、第十七轮 C-2、第十八轮 C-3 提交 |
 | 运行时 | 实测 Node **22.22.2**（`~/.workbuddy/binaries/node/...`）；`package.json` 声明 `>=24.11.0`，但构建与测试在 22 上能跑通 |
 | 包管理 | npm（`package-lock.json` 已入库），`node --import tsx` 直跑 TS |
 | 状态目录 | `.runtime/`（被 `.gitignore` 忽略，**任何运行证据都不入库**） |
@@ -16,7 +16,7 @@
 cd /Users/gong.zhe/Developer/ai-native-collab
 git status --short --branch       # 应为干净且与 origin/main 一致
 git log -3 --oneline
-npm test                          # 基线：349/349
+npm test                          # 基线：362/362
 ```
 
 ## 2. 干净环境（很重要）
@@ -47,7 +47,7 @@ export NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost NODE_USE_ENV_PR
 
 ```sh
 export NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost NODE_USE_ENV_PROXY=0
-npm test                    # 349/349
+npm test                    # 362/362
 npx tsc --noEmit
 npm run build:workspaces
 npm run build:chinese-shell
@@ -60,6 +60,7 @@ npm run memory:checkpoint   # 真实日志增量应用，checksum 与全量对�
 npm run routing:status      # 5 处接线 + 三层判断
 npm run host:smoke          # 非 Paperclip 最小宿主
 npm run host:pg             # PG 后端真跑 21/21（需本机 PG 17 + 专属库 suitme_collab_c1）
+npm run router:smoke        # C-3 三种组织形态真跑 31/31（隔离内存 Trace，不写真实日志）
 npm run console:smoke       # 自研独立控制台 6 视图 + 主题 + 425px + 只读边界（临时端口，跑完即关）
 git diff --check
 ```
@@ -85,4 +86,4 @@ git diff --check
 - 不要改 `upstream/` 下任何上游源码（审计 `audit:upstream` 会报）。
 - 不要把 `.runtime/` 里的真实姓名、`open_id`、密钥、业务正文提交进仓库。
 - 不要用报告 / 模型判定 / CI 通过 / 合并审批代替真人在原会话「确认验收」。
-- **C 已按 ② 启动，严格分步不跳步**：第十五轮用户拍板「独立前端应用」，产品形态冲突已解除（§10A 的 S5/S6 废弃、S1–S4 与飞书唯一入口保留）。按 `06` 第 3 节的 **C-0 → C-6 + 收尾**推进（C-0 / C-0b / C-1 已完成，C-3 为下一步）；动手前读 `docs/PRD-v0.6.md` §10C（C-P1~C-P7：组织形态可配置、长程执行三者分离、用户可见层国内化、验收是一等公民 Agent、工程+AI 分层判断、沉淀回流与自演进、评估按配置判定）与 `docs/ADAPTATION-v0.6.md` 最新边界（三层 = 同一份共享现场的三种座位，且层是配置不是骨架）。三层判断仍 `recommended=false`（5/7），C-5 前不要放开主管 Agent 自主派活，**也不要为凑评估转绿逼扁平团队硬造管理层**。
+- **C 已按 ② 启动，严格分步不跳步**：第十五轮用户拍板「独立前端应用」，产品形态冲突已解除（§10A 的 S5/S6 废弃、S1–S4 与飞书唯一入口保留）。按 `06` 第 3 节的 **C-0 → C-6 + 收尾**推进（C-0 / C-0b / C-1 / C-2 / C-3 已完成，C-4 为下一步）；动手前读 `docs/PRD-v0.6.md` §10C（C-P1~C-P8：组织形态可配置、长程执行三者分离、用户可见层国内化、验收是一等公民 Agent、工程+AI 分层判断、沉淀回流与自演进、评估按配置判定）与 `docs/ADAPTATION-v0.6.md` `0.0000000000000000000` 节最新边界（三层 = 同一份共享现场的三种座位，且层是配置不是骨架）。三层判断仍 `recommended=false`（8 项前置条件，p8 在 C-4 / C-5 前恒 false），C-5 前不要放开主管 Agent 自主派活，**也不要为凑评估转绿逼扁平团队硬造管理层**。

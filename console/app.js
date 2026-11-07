@@ -3,7 +3,7 @@
 
   const VIEWS = [
     { id: 'overview', title: '概览', glyph: '◎', subtitle: '同一份共享现场，人和助手各看自己该看的', actions: ['view', 'memory-status', 'routing-status'] },
-    { id: 'collaboration', title: '协作', glyph: '⇄', subtitle: '谁接、谁派、谁干，都在一条责任链上', actions: ['view', 'trace-view'] },
+    { id: 'collaboration', title: '协作', glyph: '⇄', subtitle: '谁接、谁派、谁干，都在一条责任链上', actions: ['view', 'trace-view', 'routing-status'] },
     { id: 'knowledge', title: '知识', glyph: '▤', subtitle: '资料、证据与组织关系，按身份逐步重评', actions: ['memory-status', 'memory-replay', 'system-status'] },
     { id: 'acceptance', title: '验收', glyph: '✓', subtitle: '开工前锁定清单，逐项判定后由发起人确认', actions: ['view', 'v06-org-overview'] },
     { id: 'services', title: '服务', glyph: '◈', subtitle: '本机与国内服务的实时状态，没连接不放空入口', actions: ['service-status', 'system-status'] },
@@ -57,14 +57,29 @@
   const state = { view: 'overview', tasks: [], facts: {}, theme: localStorage.getItem('suitme-theme') || 'light' };
   const $ = id => document.getElementById(id);
 
+  // 只读请求的 in-flight 去重 + 短缓存：视图本身和顶部状态条会同时请求同一个
+  // action（例如 view 单次约 5 秒），并发重复请求会在 8 秒超时下一起挂掉。
+  // 只合并同一时刻的相同只读请求，不改变任何数据、不缓存失败结果。
+  const inFlight = new Map();
+  const readCache = new Map();
+  const CACHE_MS = 1500;
   async function api(action, payload = {}) {
-    const response = await fetch('/api/' + action, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ payload }), signal: AbortSignal.timeout(8000),
-    });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(data.error || '读取失败');
-    return data;
+    const key = action + ':' + JSON.stringify(payload);
+    const hit = readCache.get(key);
+    if (hit && Date.now() - hit.at < CACHE_MS) return hit.value;
+    if (inFlight.has(key)) return inFlight.get(key);
+    const task = (async () => {
+      const response = await fetch('/api/' + action, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ payload }), signal: AbortSignal.timeout(8000),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || '读取失败');
+      readCache.set(key, { at: Date.now(), value: data });
+      return data;
+    })().finally(() => inFlight.delete(key));
+    inFlight.set(key, task);
+    return task;
   }
   async function safe(action, payload) {
     try { return await api(action, payload); } catch (error) { return { __error: String(error.message || error) }; }
@@ -112,7 +127,7 @@
   }
 
   async function renderCollaboration() {
-    const view = await safe('view');
+    const [view, routing] = await Promise.all([safe('view'), safe('routing-status')]);
     const tasks = Array.isArray(view.tasks) ? view.tasks : state.tasks;
     state.tasks = tasks;
     const bubbles = tasks.slice(0, 8).map((task, index) =>
@@ -121,7 +136,23 @@
     const timeline = card('协作时间线', '同一份共享现场，不靠摘要转发', `<div class="bubbles">${bubbles}</div>`);
     const chain = card('责任链', '承接人负执行责任，目标职能负责人兜底；高风险动作需要人联签',
       kvRows([['承接', '按主职能定组、领域定人、邻接补位'], ['验收', '开工前锁定清单，独立评审者不等于产出方'], ['确认', '原发起人在原会话用中文确认验收']]));
-    return errorCard(view) + `<div class="content-grid">${timeline}${chain}</div>`;
+    const router = routing.router ?? {};
+    const domains = Array.isArray(router.domains) ? router.domains : [];
+    const orgCard = card('组织形态', '团队怎么分工是配置，不是固定骨架：小团队可以扁平，上百人可按业务域分层',
+      kvRows([
+        ['当前形态', router.shape ?? '扁平（1 跳）'],
+        ['配置版本', router.revision ?? '未读取'],
+        ['业务域', domains.length ? domains.map(item => clean(item.label)).join('、') : '未配置中间决策层'],
+        ['最多跳数', router.maxHops ?? 1],
+        ['入口收敛', routing.routerCoverage?.singleRouterEntry ? '是，留痕都带配置快照' : '改造前的历史留痕不回溯改写'],
+      ]));
+    const explain = card('怎么派活', '同一份共享现场，不靠摘要转发；没配主管的业务域不会硬造管理层',
+      listRows([
+        { title: '扁平', meta: '1 跳', detail: '人说出目标，助手直接交给执行者。' },
+        { title: '按业务域分层', meta: '最多 2 跳', detail: '人只跟自己的助手说，业务域主管助手负责派活，执行者干活。' },
+        { title: '红线', meta: '始终生效', detail: '同一任务不得自派自验自环，高风险动作仍由人签字。' },
+      ]));
+    return errorCard(view) + errorCard(routing) + `<div class="content-grid">${timeline}${chain}${orgCard}${explain}</div>`;
   }
 
   async function renderKnowledge() {

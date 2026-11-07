@@ -28,8 +28,8 @@ import { assertStandardExternalised, readPlan } from './acceptance-plan.ts';
 import { FeishuOrgService, parseOrgTable, type OrgMappingDraft } from './feishu-org.ts';
 import type { CollabEvent } from './event-stream.ts';
 import { renderForChannel, endpointCapabilities, PLAIN_TEXT, type ChannelId, type SemanticObject, type RenderedMessage } from './channels.ts';
-import { routingDecision, signatureFor } from './routing-decision.ts';
-import { getRoutingTrace } from './routing-trace.ts';
+import { signatureFor } from './routing-decision.ts';
+import { getRouter } from './router.ts';
 import { recordMemory, readBridgedEvents, sourceEventId, sourceKey } from './memory-log.ts';
 import { replayMemory } from './memory-projections.ts';
 
@@ -122,7 +122,7 @@ export class V06Services {
     // The existing outbox feeds the connected conversation channel (feishu today).
     // No new frontend route and no ad-hoc message assembly.
     this.localStore.notify(`v06:transfer:${result.transfer.id}`, result.transfer.taskId, rendered.text);
-    getRoutingTrace().record(routingDecision({
+    getRouter().route({
       taskId: result.transfer.taskId, stage: 'transfer',
       caller: { actor: input.grantorUserId, role: 'supervisor', source: 'role-registry' },
       target: { role: 'worker', roleId: input.toRoleId },
@@ -132,7 +132,7 @@ export class V06Services {
       ...(input.consultationOnly ? {} : signatureFor('formal-transfer')),
       causedBy: result.transfer.id,
       idempotencyKey: 'transfer:' + result.transfer.id,
-    }));
+    });
     return { ...result, message: rendered, responsibility: responsibilityChain(result.transfer) };
   }
   async transferView(taskId: string) { return this.transfers.read(taskId); }
@@ -144,7 +144,7 @@ export class V06Services {
   /** FR-11: reject cross-function formal dispatch without an active Transfer. */
   async guardDispatch(input: { taskId: string; fromRoleId: string; toRoleId: string; consultationOnly?: boolean }) {
     const { registry } = await this.roles.read();
-    const record = (outcome: 'committed' | 'rejected', reason: string) => getRoutingTrace().record(routingDecision({
+    const record = (outcome: 'committed' | 'rejected', reason: string) => getRouter().route({
       taskId: input.taskId, stage: 'dispatch',
       caller: { actor: 'role-registry', role: 'supervisor', source: 'role-registry' },
       target: { role: 'worker', roleId: input.toRoleId },
@@ -152,7 +152,7 @@ export class V06Services {
       scope: { visibility: 'space' }, outcome,
       causedBy: input.taskId + ':' + input.fromRoleId + '>' + input.toRoleId,
       idempotencyKey: 'guard:' + input.taskId + ':' + input.fromRoleId + ':' + input.toRoleId + ':' + outcome,
-    }));
+    });
     try {
       if (!registry.roles.length) {
         const result = { ...assertDispatchAllowed({ ...input, transfer: null, consultationOnly: true }),

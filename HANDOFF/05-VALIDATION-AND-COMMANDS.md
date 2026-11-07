@@ -6,7 +6,7 @@
 cd /Users/gong.zhe/Developer/ai-native-collab
 export NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost NODE_USE_ENV_PROXY=0
 
-npm test                    # 349/349（基线）
+npm test                    # 362/362（基线）
 npx tsc --noEmit            # 退出 0
 npm run build:workspaces    # 插件 UI 打包 + 类型检查
 npm run build:chinese-shell # hiddenEntries 4 条、missed []、warning null
@@ -29,6 +29,7 @@ npm run routing:status      # allWired:true、threeTier.recommended:false
 npm run host:smoke          # 非 Paperclip 宿主 ok:true
 npm run host:pg             # PG 后端 21/21、ok:true（专属库 suitme_collab_c1）
 npm run console             # 自研独立控制台（按需启动，非常驻；默认 4200，只绑回环）
+npm run router:smoke        # C-3 三种形态 31/31（隔离内存 Trace，不写真实日志）
 npm run console:smoke       # 临时端口 + Chrome 真跑，输出 .runtime/console-smoke.json
 npm run cognee:native -- status   # enabled:true, configured:false（缺 4 个环境变量）
 npm run delivery:demo       # 本机 Git 链路；4194/9418 停机时 gitProtocolClonePull 为 false，属预期
@@ -36,11 +37,11 @@ npm run delivery:demo       # 本机 Git 链路；4194/9418 停机时 gitProtoco
 
 `memory:journey` 会新建一条专用资料并在末尾撤回，**不是只读检查**；`memory:checkpoint -- --reset` 会全量重建后再按 append-only 前缀增量应用。
 
-## 2. 第十七轮 C-2 实测结果（2026-11-07；含第十四轮 B2 与第十六轮 C-1 历史数据）
+## 2. 第十八轮 C-3 实测结果（2026-11-07；含第十四轮 B2、第十六轮 C-1、第十七轮 C-2 历史数据）
 
 | 项 | 结果 |
 |---|---|
-| `npm test` | **349 / 349**（第十四轮 329 + C-1 6 例 PG 契约 + C-2 14 例控制台与国内化契约） |
+| `npm test` | **362 / 362**（第十四轮 329 + C-1 6 例 PG 契约 + C-2 14 例控制台与国内化契约 + C-3 11 例 Router 契约 + 2 例控制台契约） |
 | `npx tsc --noEmit` | 通过 |
 | `build:workspaces` / `build:chinese-shell` | 通过 / `hiddenEntries` 4、`missed: []`、`warning: null`（前台重跑） |
 | `test:responsive` | 425px `393/393`、溢出 0、按钮 44px、`problems: []` |
@@ -50,7 +51,8 @@ npm run delivery:demo       # 本机 Git 链路；4194/9418 停机时 gitProtoco
 | `memory:smoke` | 撤权前 1 命中 → 撤权后 **0 命中**、`excludedByRevocation=4`、`modelCalls=0` |
 | `memory:journey` | **`ok: true`，9/9 checks**：四类投影 `1/2/1/1 → 0/0/0/0`、召回 `1 → 0`、`lineageInvalidated`、新增 `lineageComplete`（本次资料悬空 lineage 前后均为 0）、`logErrors=0`、两次重放一致 |
 | `memory:checkpoint` | 真实日志 `mode:incremental, applied:1, fallback:null, checksumEqual:true`（全量重建 30 → 增量后 31 事件）；journey 追加撤权事件时按预期 `fallback:retroactive-event` 回退全量，`checksumEqual:true` |
-| `routing:status` | `allWired:true`、三层 `recommended:false`（覆盖率 5/7） |
+| `router:smoke` | **`ok:true`、31/31**：legacy 5 跳 / flat 5 跳 / layered 10 跳、五阶段覆盖、因果链闭合、人签不扩散、p6 按证据、p8 未放行、未登记业务域降级、自环留痕 |
+| `routing:status` | `allWired:true`；`router.mode=flat`、`domains=[]`；`routerCoverage total=65 / routed=7`；p6 false、p8 false、`recommended:false` |
 | `host:smoke` / `host:pg` | `ok:true` / **`ok:true`、21/21**（事务、并发领取、步进链、崩溃恢复、token 幂等） |
 | `cognee:native status` | `configured:false`（缺 4 个环境变量，未外发业务材料） |
 | `git diff --check` / staged 敏感扫描 | 通过 / 无 `.runtime`、无真实身份 |

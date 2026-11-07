@@ -48,3 +48,5 @@ Paperclip、Super-agent、Autoloop 的主许可证为 MIT，Cognee 为 Apache-2.
 - Cognee 同一固定提交新增直接调用 BM25ChunksRetriever 原版统计、评分及 chunk identity；原版 Ladybug 存放来源修订、人审概念与关系。适配不启用新的 LLM/embedding。
 - 2026-11-06：七个已引入上游（含本轮新增的 `lobehub/acceptance` submodule `f720feb`）的适配层分组、固定提交核对与升级自检顺序整理为 [上游适配清单](UPSTREAM-ADAPTERS.md)；`npm run audit:upstream` 机器化校验 gitlink、锁文件、许可证、声明与 L2 只读边界。未改动任何上游源码或 submodule 提交。
 - Paperclip 同一固定提交的成员目录、membership、邀请、公司角色和人工审阅负责人的 API；没有自己编写认证系统。
+
+- 2026-11-07（第十八轮 C-3）：单一 Router 与可配置组织形态为**完全自研**，五个派活点共 9 处收敛到 `src/router.ts`；只复用既有 `RoutingDecision` / `RoutingTrace` 契约，未引入新上游、未改上游提交、未复制 LobeHub 代码。`npm run router:smoke` 在隔离内存 Trace 真跑三种形态 31/31。

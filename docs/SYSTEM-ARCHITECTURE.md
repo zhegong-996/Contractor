@@ -195,9 +195,13 @@ flowchart TD
 
 派活判断此前分散在 `controller.ts`（入口 / 建单 / 交接）、`coordination.ts`（Super Agent 策略准入）、`assistant.ts`（整理 Agent 调度）、`service-network.ts`（A2A 服务委派）、`v06.ts`（职能责任转移）。第十二轮把它们收敛为 `src/routing-decision.ts` 的 `RoutingDecision`（调用方 / 目标角色 / 依据 / 资料范围 / 是否需人签字 + stage / outcome / causedBy），五个点经 `src/routing-trace.ts` 的单例写**同一份** append-only 日志 `.runtime/routing/events.jsonl`，每行是严谨的 `MemoryEvent`（kind `routing-decided`），并投影进 SQLite `audit` 表。
 
-这条链同时是 B 阶段共享记忆的地基：`toMemoryEvent()` / `replayRouting()` 已给出「同一日志两次重放一致、去重、按时间有序、坏行报错」的验收口径。`src/three-tier-assessment.ts` 用真实 Trace 判断要不要引入 LobeHub 三层，当前结论是**不引入**（P1 五阶段覆盖、P3 Personal Agent、P4 主管实体、P6 单一 Router 未满足）。只读 `routing-status` 与 `npm run routing:status` 可随时复核。
+这条链同时是 B 阶段共享记忆的地基：`toMemoryEvent()` / `replayRouting()` 已给出「同一日志两次重放一致、去重、按时间有序、坏行报错」的验收口径。`src/three-tier-assessment.ts` 用真实 Trace 判断要不要引入 LobeHub 三层，当前结论仍是**不引入**：C-3 已让 P6 按 Trace 里的 Router 快照如实判定，但 P3 / P4 仍是 Agent 实体缺口，并新增 p8 闸门锁到 C-4 / C-5。只读 `routing-status` 与 `npm run routing:status` 可随时复核。
 
 宿主侧新增 `src/platform-port.ts`：`HostPlatformPort` 收拢任务 / 文档 / 身份 / 健康检查 / UI 承载，`PaperclipPlatform` 为默认薄包装，`LocalHostPlatform` 是不依赖 Paperclip 的最小可运行实现（`npm run host:smoke` 真跑）。`config.host.provider` 默认仍是 `paperclip`，**尚未切换底座**；完整替换需先补齐 ACL、cost-ledger、Plugin UI、heartbeat 真实执行与 PG 事务五项，见 `ROUTING-AND-HOST-v0.7.md` 第 5 节。
+
+## 单一 Router（第十八轮 C-3）
+
+五个派活点（共 9 处调用）不再各自构造 `RoutingDecision` 并直写 Trace，统一改为 `getRouter().route({...})`。`src/router.ts::planRoute()` 是纯函数：读 `config.router` 决定决策链——`flat` 1 跳（默认，幂等键与改造前一致）、`layered` 按业务域最多 2 跳、未配主管的业务域退回 1 跳、`legacy` 逐字回退。Router 再把全部 hop 写进同一个 `getRoutingTrace()` 单例，每条决策的 `basis.evidence` 带 `router:<mode>@<revision>:<hop>/<total>` 快照；自派自验自环被拦并留 `rejected` 痕，人签只在最后一跳。`server.ts` 启动时 `configureRouter(config.router)` 装配，`routing-status` 与控制台「协作」视图可读当前组织形态。真跑 `npm run router:smoke` 31/31；详见 `ROUTING-AND-HOST-v0.7.md` 6.3 节。
 
 ## 共享记忆主干（方案 B · 第十三／十四轮）
 

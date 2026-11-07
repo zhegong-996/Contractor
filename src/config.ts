@@ -4,6 +4,41 @@ import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 
 export const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+
+// 方案 C-3 · 组织形态配置。层是配置不是产品骨架：扁平 1 跳、按业务域分层最多
+// 2 跳，没配主管的业务域退回扁平；`legacy` 是显式的「沿用改造前直写」开关。
+// 放在本文件而不是 router.ts，避免 config.ts ↔ routing-trace.ts 的循环依赖。
+export const ROUTER_MODES = ['legacy', 'flat', 'layered'] as const;
+const agentKey = z.string().min(1).max(80).regex(/^[a-z][a-z0-9-]*$/, 'Agent 标识只允许小写字母、数字与连字符');
+const domainId = z.string().min(1).max(80).regex(/^[a-z][a-z0-9-]*$/, '业务域标识只允许小写字母、数字与连字符');
+export const routerDomainSchema = z.object({
+  label: z.string().min(1).max(80),
+  supervisorAgentKey: agentKey,
+  personalAgentKey: agentKey.optional(),
+}).strict();
+export const routerConfigSchema = z.object({
+  schemaVersion: z.literal(1),
+  mode: z.enum(ROUTER_MODES).default('flat'),
+  /** 按业务域 / 组织单元生效，组织级唯一；项目只引用不覆写。 */
+  domains: z.record(domainId, routerDomainSchema).default({}),
+  defaultDomain: domainId.optional(),
+  /** 极限保护：即使 layered 也不允许超过 2 跳。 */
+  maxHops: z.number().int().min(1).max(2).default(2),
+}).strict().superRefine((cfg, ctx) => {
+  if (cfg.defaultDomain && !cfg.domains[cfg.defaultDomain]) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['defaultDomain'], message: '默认业务域必须在 domains 中登记' });
+  }
+  for (const [id, domain] of Object.entries(cfg.domains)) {
+    if (domain.personalAgentKey === domain.supervisorAgentKey) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['domains', id], message: '同一业务域的 Personal Agent 与主管 Agent 不得相同' });
+    }
+  }
+});
+export type RouterConfig = z.infer<typeof routerConfigSchema>;
+export function defaultRouterConfig(): RouterConfig {
+  return routerConfigSchema.parse({ schemaVersion: 1, mode: 'flat' });
+}
+
 const agentSchema = z.object({
   name: z.string(), mode: z.enum(['managed', 'manual']),
   use: z.enum(['codex', 'claude', 'command', 'acp']).default('command'),
@@ -128,6 +163,8 @@ export const configSchema = z.object({
     provider: z.enum(['paperclip', 'local', 'local-pg']).default('paperclip'),
     pgDsnEnv: z.string().min(1).default('COLLAB_PG_DSN'),
   }).default(() => ({ provider: 'paperclip' as const, pgDsnEnv: 'COLLAB_PG_DSN' as const })),
+  /** C-3：五个派活点统一经 Router；默认 flat（1 跳，行为与改造前一致）。 */
+  router: routerConfigSchema.default(() => defaultRouterConfig()),
 });
 export type Config = z.infer<typeof configSchema>;
 export type Agent = Config['agents'][string];

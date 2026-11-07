@@ -606,3 +606,32 @@ Cognee `cognify` 的真实外部模型调用未发生（缺端点与凭据）；
 ### 3. 严格边界（未发生，不是 bug）
 
 默认 `config.host.provider` 仍是 `paperclip`；旧插件工作台保留并通过走查，控制台是**新增独立外壳**而非替换默认底座；`capabilities()` 仍如实列出「默认底座仍由宿主承载界面」。控制台由 `npm run console` 按需启动，**不新增常驻端口**、不提供网页发起入口。真人业务验收（SUI-129 未核可）、Cognee 原生 `cognify` 真实调用、生产发布、真实外部 PR·CI、全员 SSO、飞书部门 scope 重新登录仍未发生。4190 / 4192 / 4194 / 9418 保持停机；5432 只连回环专属库。`.runtime/console-smoke.json` 与 `.runtime/console/*.png` 不入库。
+
+## 第十八轮：C-3 单一 Router 与可配置组织形态（2026-11-07）
+
+**性质**：运行代码 + 测试 + 文档 + 状态视图；**未引入新上游、未改上游提交、未切换默认底座、未新增服务**。按 `HANDOFF/06` 分步清单推进 C-3。
+
+### 1. 交付
+
+- **单一 Router**：新增 `src/router.ts`（`planRoute()` 纯函数 + `Router` 唯一写入口 + `getRouter()` 单例 + `routerRevision()` 配置快照 + `planCoverage()`）；`config.router` 支持 `legacy / flat / layered`、按业务域的 `domains`、`defaultDomain`、`maxHops`，默认 `flat`。
+- **9 处接线**：`controller`(3) / `coordination`(1) / `assistant`(1) / `service-network`(2) / `v06`(2) 全部改为 `getRouter().route({...})`；`server.ts` 启动时 `configureRouter(config.router)`；`routing-status` 与 CLI 返回 `router` / `routerCoverage`；控制台「协作」视图新增「组织形态」「怎么派活」。
+- **红线**：`legacy` 逐字回退；未配主管的业务域、被拒 / 待定派活、主管即承接人都退回 1 跳并标注降级；自派自验自环被拦且写 `rejected` 留痕；人签只在最后一跳；幂等键与改造前一致；历史决策不回溯。
+- **评估闸门**：`assessThreeTier` 的 p6 改为按 Trace 中的 Router 快照如实判定，新增 p8（Agent 实例 + 职责绑定 + 分层配置，C-4 / C-5 前恒 false），修掉「合成五阶段数据即可让 `recommended=true`」的口径缺口。
+- **真跑**：`npm run router:smoke` 隔离内存 Trace 跑三种形态 **31/31 `ok:true`**；`tests/router.test.ts` 11 例契约；`tests/routing-decision.test.ts` 守门改为「9 处经 Router、零直写」。
+- **顺带修掉的真实问题**：真实浏览器截图发现协作视图稳定出现「暂时无法读取 / signal timed out」。测量 `view` 单次约 5.2 秒，而视图渲染与顶部状态条并发重复请求同一只读动作，三次并发 12 秒仍全部超时。在 `console/app.js` 加 **in-flight 去重 + 1.5 秒成功结果短缓存**（失败不缓存、超时保护不变），同一时刻相同只读请求只发一次；`tests/console-shell.test.ts` 补 2 例契约（组织形态卡片 + 去重）。修复后 `console:smoke ok:true`、协作视图 4 张卡片无错误提示。
+
+### 2. 全套回归结果（本轮重跑）
+
+| 项 | 结果 |
+|---|---|
+| `npm test` | **362 / 362**（第十七轮 349 + C-3 新增 11 例 Router 契约 + 2 例控制台契约） |
+| `npx tsc --noEmit` / `build:workspaces` / `build:chinese-shell` | 通过 / 通过 / `ok:true`、`missed: []`、`warning: null` |
+| `test:responsive` / `test:walkthrough` | 425px 无溢出、按钮 44px / **11 / 11**、`failures: []` |
+| `router:smoke` | **31/31 `ok:true`**：legacy 5 跳、flat 5 跳、layered 10 跳；五阶段覆盖、因果链、人签位置、p6 证据、p8 未放行、未登记业务域降级、自环留痕 |
+| `console:smoke` / `host:pg` / `host:smoke` | `ok:true` 6 视图 / `ok:true` 21/21 / `ok:true` |
+| `routing:status`（真实服务端） | `allWired:true`；`router.mode=flat`、`domains=[]`；`routerCoverage total=65 / routed=7`；p6 false、p8 false、`recommended:false` |
+| `audit:upstream` / `git diff --check` | `clean:true`、`problems: []` / 通过 |
+
+### 3. 严格边界（未发生，不是 bug）
+
+真实全量日志含改造前的历史决策，p6 仍为 `false`（历史不回溯改写）；隔离 `router:smoke` 才能看到「全部决策带 Router 快照」。C-4 / C-5 / C-6 未做，默认底座仍 `paperclip`，飞书仍是唯一发起入口，控制台只读白名单未放宽。`.runtime/router-smoke.json` 不入库；`router:smoke` 不写真实 `.runtime/routing/events.jsonl`。4190 / 4192 / 4194 / 9418 保持停机；5432 只连回环专属库。

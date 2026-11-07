@@ -115,6 +115,7 @@
 | FR-05/23 汇报拓扑、注意力预算 | LobeHub 主仓库（Community License） | ❌ 复制源码不行 / ✅ 借思想可以 | 只做独立实现，保留设计溯源 |
 | FR-01/02 职能注册表 | 无对应开源实现 | — | 自研，不涉及第三方代码 |
 | C-1 事务 / 并发 / 步进队列 | `pg` 8.23.1（MIT） | ✅ | 已引入；`src/pg-host.ts` 自研适配，本机专属库 `npm run host:pg` 真跑 21/21；未引 Redis、未部署远端沙箱 |
+| C-3 单一 Router / 可配置组织形态 | 无新增依赖（自研 `src/router.ts`） | — | 只借 Super Agent 的 policyVersion / ruleId、DeepSeek Harness 的 scope 隔离、A2A 的 Link 映射与 LobeHub 三层汇报的产品思想；**未引入第 8 个上游、未复制任何上游代码**；`npm run router:smoke` 真跑 31/31 |
 | 权限标签粒度 | Outline (BSL 1.1) / Onyx / OpenFGA | ❌ / 未核实 | 仅设计参考，不引入代码 |
 
 ---

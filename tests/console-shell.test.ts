@@ -79,6 +79,26 @@ test('C-2 只绑定回环地址，密钥留在服务端且有安全头', () => {
   assert.ok(!app.includes('adminToken'), '密钥不得出现在前端脚本');
 });
 
+test('C-3 协作视图展示当前组织形态，用中文讲清怎么派活', () => {
+  assert.match(app, /card\('组织形态'/);
+  assert.match(app, /card\('怎么派活'/);
+  assert.match(app, /router\.shape/);
+  assert.match(app, /routing\.routerCoverage/);
+  assert.match(app, /没配主管的业务域不会硬造管理层/);
+  assert.match(app, /同一任务不得自派自验自环/);
+  assert.doesNotMatch(app, /supervisorAgentKey/, '内部配置字段名不暴露给用户');
+});
+
+test('C-3 只读请求做 in-flight 去重并短缓存，避免并发重复请求一起超时', () => {
+  assert.match(app, /const inFlight = new Map\(\)/);
+  assert.match(app, /const readCache = new Map\(\)/);
+  assert.match(app, /if \(inFlight\.has\(key\)\) return inFlight\.get\(key\)/);
+  assert.ok(app.includes('readCache.set(key, { at: Date.now(), value: data })'), '只缓存成功结果');
+  assert.match(app, /finally\(\(\) => inFlight\.delete\(key\)\)/, '失败也要释放 in-flight');
+  assert.match(app, /signal: AbortSignal\.timeout\(8000\)/, '超时保护不能丢');
+  assert.match(app, /const CACHE_MS = 1500/);
+});
+
 test('C-2 静态资源自足，不依赖外部脚本或样式', () => {
   assert.match(html, /href="\/styles\.css"/);
   assert.match(html, /src="\/app\.js" defer/);

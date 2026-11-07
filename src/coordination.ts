@@ -1,5 +1,5 @@
 import {memoryAnnotation} from './memory-contract.ts';
-import { routingDecision } from './routing-decision.ts';
+import { getRouter } from './router.ts';
 import { getRoutingTrace, type RoutingTrace } from './routing-trace.ts';
 import { z } from 'zod';
 import { pathToFileURL } from 'node:url';
@@ -34,7 +34,7 @@ export function admitPreparation(taskId: string, enabled: boolean, phase: string
     result = gate.gate({ id: taskId, source: 'task', actor: { source: 'task', id: '' }, human: false, meta: { taskId } }, { subscriptions: [taskId] }, []);
   }
   // 策略路由与其它派活点写同一份 Trace；判断逻辑与返回值一字未改。
-  trace?.record(routingDecision({
+  getRouter().route({
     taskId, stage: 'admission',
     caller: { actor: 'scoped-preparation', role: 'supervisor', source: 'superagent-policy' },
     target: { role: 'worker', agentKey: 'workspace-assistant' },
@@ -44,7 +44,7 @@ export function admitPreparation(taskId: string, enabled: boolean, phase: string
     outcome: result?.admissible === true ? 'committed' : 'rejected',
     causedBy: taskId + ':' + phase,
     idempotencyKey: 'admission:' + taskId + ':' + phase + ':' + String(enabled),
-  }));
+  }, trace ?? undefined);
   return result;
 }
 export type CoordinationEvent = { id: string; kind: string; at: string; subject: string };

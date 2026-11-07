@@ -121,19 +121,28 @@ test('三层判断：当前不推荐，且给出可执行前置条件与反面�
   assert.ok(assessment.coverage > 0 && assessment.coverage < 1);
 });
 
-test('五个派活点全部接到同一份 Trace，只读白名单三处一致', () => {
+test('C-3：五个派活点全部收敛到单一 Router，不再各自直接写 Trace', () => {
   const targets = ['src/controller.ts', 'src/coordination.ts', 'src/assistant.ts', 'src/service-network.ts', 'src/v06.ts'];
+  let total = 0;
   for (const file of targets) {
     const source = read(file);
-    assert.match(source, /from '\.\/routing-decision\.ts'/, `${file} 未引入契约`);
-    assert.match(source, /from '\.\/routing-trace\.ts'/, `${file} 未引入统一 Trace`);
-    assert.match(source, /\.record\(/, `${file} 没有写入 Trace`);
+    assert.match(source, /from '\.\/router\.ts'/, `${file} 未接线到 Router`);
+    assert.doesNotMatch(source, /\.record\(routingDecision\(/, `${file} 仍在直接写 Trace`);
+    const calls = (source.match(/getRouter\(\)\.route\(/g) ?? []).length;
+    assert.ok(calls > 0, `${file} 没有派活调用`);
+    total += calls;
   }
+  assert.equal(total, 9, '9 处派活点必须全部经 Router');
+  assert.match(read('src/router.ts'), /if \(config\.mode === 'legacy'\)/, '必须保留 legacy 一行回退');
+  assert.match(read('src/config.ts'), /router: routerConfigSchema\.default/, '组织形态必须是配置');
   const server = read('src/server.ts');
+  assert.match(server, /configureRouter\(config\.router\)/, '服务端必须按真实配置装配 Router');
   assert.match(server, /getRoutingTrace\(\)\.attachAudit/);
   assert.match(server, /routing-status/);
   assert.match(read('src/members.ts'), /'routing-status'/);
-  assert.match(read('scripts/routing-status.ts'), /allWired/);
+  const status = read('scripts/routing-status.ts');
+  assert.match(status, /allWired/);
+  assert.match(status, /getRouter\(\)\.status\(\)/);
 });
 
 test('平台端口：默认仍是 Paperclip，非 Paperclip 宿主真跑增删改查并如实列出缺口', async () => {

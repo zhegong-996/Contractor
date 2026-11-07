@@ -6,8 +6,7 @@ import { AgentServices, serviceVersion } from './agent-services.ts';
 import { contractProof, type Workspaces, type WorkspaceActor } from './workspaces.ts';
 import type { WorkspaceAssistant } from './assistant.ts';
 import { secrets } from './config.ts';
-import { routingDecision } from './routing-decision.ts';
-import { getRoutingTrace } from './routing-trace.ts';
+import { getRouter } from './router.ts';
 
 const routeInput = z.object({ taskId: z.string(), serviceId: z.string(), expectedVersion:z.string(), goal: z.string().trim().min(1).max(3000), sourceIds: z.array(z.string()).max(8) }).strict();
 type Link = { childId: string; parentId: string; serviceId: string; serviceVersion: string; sourceIds: string[]; caller: string; ownerUserId: string; goal: string; createdAt: string; generation?: number; cancelled?: boolean; returnedJobId?: string; proof?: string };
@@ -41,7 +40,7 @@ export class ServiceNetwork {
     if (routes.length >= 3) throw new Error('本任务最多配置三个协作服务');
     state.context!.serviceRoutes = [...routes, { serviceId: profile.id, serviceVersion:serviceVersion(profile), goal: p.goal, sourceIds: p.sourceIds }];
     await this.w.save(task, state, 'service-route-configured', { serviceId: profile.id, sourceIds: p.sourceIds });
-    getRoutingTrace().record(routingDecision({
+    getRouter().route({
       taskId: p.taskId, stage: 'delegation',
       caller: { actor: actor.userId ?? task.agent, role: 'supervisor', source: 'a2a-sdk' },
       target: { role: 'worker', serviceId: profile.id, agentKey: profile.actorKey },
@@ -50,7 +49,7 @@ export class ServiceNetwork {
       outcome: 'pending',
       causedBy: p.taskId + ':' + profile.id,
       idempotencyKey: 'service-route:' + p.taskId + ':' + profile.id + ':' + serviceVersion(profile),
-    }));
+    });
     return { configured: true };
   }
   async start(parentId: string, serviceId: string, actor: WorkspaceActor) {
@@ -74,7 +73,7 @@ export class ServiceNetwork {
     list.push(link); await this.save(parentId, list);
     await this.dispatch(link);
     this.w.store.audit('service.delegated', parentId, { childId: child.id, serviceId: service.id });
-    getRoutingTrace().record(routingDecision({
+    getRouter().route({
       taskId: parentId, stage: 'delegation',
       caller: { actor: task.agent, role: 'supervisor', source: 'a2a-sdk' },
       target: { role: 'worker', serviceId: service.id, agentKey: service.actorKey },
@@ -84,7 +83,7 @@ export class ServiceNetwork {
       outcome: 'committed',
       causedBy: child.id,
       idempotencyKey: 'service-start:' + parentId + ':' + child.id,
-    }));
+    });
     return this.render(link, true);
   }
   async dispatch(link:Link){

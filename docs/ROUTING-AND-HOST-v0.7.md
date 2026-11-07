@@ -43,11 +43,11 @@ Super Agent、Autoloop、LobeHub **不是同类**：触发策略 → 执行循�
 
 ## 3. 同一份 Trace（`src/routing-trace.ts`）
 
-- 五个调用点共用 `getRoutingTrace()` 单例，写 `.runtime/routing/events.jsonl`（append-only、每行一个合法 `MemoryEvent`）。
+- 五个派活点（9 处调用）统一经 `getRouter()` 单例，由 `src/router.ts::Router` 读配置决定跳数后写入 `getRoutingTrace()` 单例，落 `.runtime/routing/events.jsonl`（append-only、每行一个合法 `MemoryEvent`）。
 - `server.ts` 启动时 `attachAudit()` 一次，把同一决策投影进 SQLite `audit` 表，工作台「过程流水」可读；五个调用点无需各自持有 `Store`。
 - **与 `TraceBridge` 的分工**：`TraceBridge` 写验收证据 / 成本（`checkpoint` / `model` / `ci` 等），属于业务验收链；`RoutingTrace` 写路由决策链。两者都 best-effort，写入失败绝不改变任务、回执或验收结果。
 - **审计纯净性**：`scripts/test.ts` 给测试子进程设 `COLLAB_TEST_TRACE=memory`，测试事件只进内存 sink，不污染真实业务 Trace。隔离前的混合日志已归档为 `.runtime/routing/events.pre-isolation.jsonl`。
-- 只读接口 `routing-status`（`server.ts` + `members.ts` 白名单同步）返回 `projection` 与 `threeTier`；CLI `npm run routing:status` 额外给出 5 处接线自检与平台切换清单。
+- 只读接口 `routing-status`（`server.ts` + `members.ts` 白名单同步）返回 `projection`、`threeTier`、`router`（当前形态 / revision / 业务域）与 `routerCoverage`；CLI `npm run routing:status` 额外给出 5 处接线自检（C-3 口径：必须经 Router 且零直写）与平台切换清单。
 
 ### 真实接线（静态自检 `allWired: true`）
 
@@ -150,7 +150,15 @@ Super Agent、Autoloop、LobeHub **不是同类**：触发策略 → 执行循�
 - **取舍如实**：本机不引 Redis（PG `SKIP LOCKED` 等价，切换点为 `claimStep / completeStep / recoverStaleSteps`）；不部署远端工具沙箱 / 多机 Remote Tool Calling；默认底座仍 `paperclip`；`runner.ts` 的常驻 `while` 循环尚未切成单步。三项仍缺都写在 `capabilities().missing`，不假装完成。
 - **证据**：`npm run host:pg` 在本机真跑 **21/21、`ok:true`**（含并发领取、崩溃恢复、事务回滚、token 幂等）；`tests/pg-host.test.ts` 6 例纯函数契约；`audit-upstream.ts` 按 R7 纳入 `pg` 精确版本 / integrity / 许可证 / 声明检查。
 
-每阶段验收必须跑：全套回归（当前 349 例单测、tsc、两个构建、响应式、走查、上游审计、diff-check）+ `npm run routing:status` + `npm run host:smoke` + `npm run host:pg` + `npm run console:smoke`。
+### 6.3 C-3：单一 Router 与可配置组织形态（第十八轮）
+
+- **收敛**：`src/router.ts::planRoute()` 是唯一决定跳数的纯函数，`Router` 是唯一写 Trace 的入口；`config.router.mode` = `legacy | flat | layered`，按 `domains`（业务域 / 组织单元）挂中间决策层主管，组织级唯一、项目只引用不覆写。
+- **不写死三段**：`flat` 1 跳（默认，幂等键与改造前逐字一致）；`layered` 且业务域配了主管最多 2 跳；业务域没主管、`maxHops=1`、主管即承接人、决策被拒 / 待定，都退回 1 跳并标注 `degraded`，不硬造管理层。`legacy` 一行回退，不改写任何字段。
+- **红线**：同一 Task 自派自验自环被拦并写一条 `rejected` 留痕；人签只在最后一跳；配置 `revision` 写进每条决策 `basis.evidence`，历史决策不回溯改写；日志写入失败仍 advisory，不改业务结果。
+- **评估口径**：p6 从硬编码 `false` 改为按 Trace 中的 Router 快照判定；真实全量日志因含历史决策仍为 `false`。新增 p8（Agent 实例 + 职责绑定 + 分层配置），C-4 / C-5 前恒 `false`，避免合成数据凑齐 P3 / P4 后误判 `recommended=true`。
+- **证据**：`npm run router:smoke` 隔离内存 Trace 真跑三种形态 **31/31 `ok:true`**（legacy 5 / flat 5 / layered 10 跳）；`tests/router.test.ts` 12 例；`routing:status` 实测 `allWired:true, total 65 / routed 7, recommended:false`。
+
+每阶段验收必须跑：全套回归（当前 362 例单测、tsc、两个构建、响应式、走查、上游审计、diff-check）+ `npm run routing:status` + `npm run host:smoke` + `npm run host:pg` + `npm run console:smoke` + `npm run router:smoke`。
 
 ---
 

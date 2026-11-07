@@ -35,10 +35,13 @@ import { RuntimeGuardBridge } from './runtime-bridge.ts';
 import { collectServiceStatus, type ServiceStatusReport } from './service-status.ts';
 import { getRoutingTrace, readRoutingEvents, replayRouting } from './routing-trace.ts';
 import { assessThreeTier } from './three-tier-assessment.ts';
+import { configureRouter, getRouter, planCoverage } from './router.ts';
 import { getMemoryLog, readBridgedEvents } from './memory-log.ts';
 import { memoryReplayReport } from './memory-projections.ts';
 
 const config = loadConfig(); const credentials = secrets();
+// C-3：用组织形态配置装配单一 Router；五个派活点此后都经它写同一份 Trace。
+configureRouter(config.router);
 
 /** 只读探测本机代码交付台；没有连接时返回 ok:false，前端不给空入口。 */
 function deliveryStatus(): Promise<{ ok: boolean; url: string; git: string | null; provider: string }> {
@@ -183,7 +186,9 @@ const server = createServer(async (req, res) => {
         if(action==='routing-status'){
           const {events,errors}=readRoutingEvents();const projection=replayRouting(events);
           return {ok:true,log:'.runtime/routing/events.jsonl',eventCount:events.length,logErrors:errors,
-            projection,threeTier:assessThreeTier(events,projection,errors)};
+            projection,threeTier:assessThreeTier(events,projection,errors,
+              {routerMode:getRouter().status().mode,configuredDomains:getRouter().status().domains.length}),
+            router:getRouter().status(),routerCoverage:planCoverage(events)};
         }
         if(action==='development-start')return development.start(payload,workspaceActor);
         if(action==='development-accept')return development.accept(payload,workspaceActor);
