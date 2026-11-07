@@ -131,7 +131,16 @@ Super Agent、Autoloop、LobeHub **不是同类**：触发策略 → 执行循�
 - **A（已完成）**：统一架构常量（`architecture-contracts.ts`）、FR 覆盖口径、统一 `RoutingDecision`、统一 Trace、5 处接线、平台端口抽象。
 - **B1（第十三轮已完成）**：共享记忆事件主干与四类投影重放已落地，三条红线有真跑证据；`routing-decided` 经 `readBridgedEvents()` 并入同一重放输入，契约复用兑现。详见 `MEMORY-ARCHITECTURE-v0.7.md`。
 - **B2（第十四轮已完成并验证）**：投影召回融合进 `TeamMemory.search`（权限重评之后裁剪白名单）、`grant-revoked` 按 principal 精确过滤、真实一单完整知识事件链与端到端撤权、checkpoint 增量应用；真跑证据 `npm run memory:journey` / `memory:checkpoint`。原存储仍是主读取源，投影是第三路叠加信号。
-- **C（B 已验收；第十五轮用户拍板 ②，已启动）**：把五个调用点收敛成单一 `Router` 类，接 A2A handoff 实现 Personal → Supervisor → Worker 三层；此时才重新跑 `assessThreeTier()`，P1/P3/P4/P6 全绿后再决定是否引入三层实体。**C 阶段同时承载平台底座切换**（先按 ② 重新定义并补齐 5.2 的五项缺口，再移除 Plugin SDK），按 C-0 → C-5 分步不并行；原「5 tab 插件式单页」约束已随 §10A 的 S5/S6 一并废弃，S1–S4 与飞书唯一入口保留。当前三层判断仍是 `recommended=false`。
+- **C（B 已验收；第十五轮用户拍板 ②，已启动）**：把五个调用点收敛成单一 `Router` 类，接 A2A handoff 实现按配置组织的 Personal / 主管 / 执行 / 验收 Agent；此时才重新跑 `assessThreeTier()`，按当前配置判定 P1/P3/P4/P6 后再决定是否放开自主派活。**C 阶段同时承载平台底座切换**（先按 ② 重新定义并补齐 5.2 的五项缺口，再移除 Plugin SDK），严格分步不并行；原「5 tab 插件式单页」约束已随 §10A 的 S5/S6 一并废弃，S1–S4 与飞书唯一入口保留。当前三层判断仍是 `recommended=false`。
+
+### 6.1 C 阶段新增产品约束（第十五轮补遗，详见 `PRD-v0.6.md` §10C）
+
+- **组织形态可配置**：10 人团队可全域扁平、上百人团队可按业务域逐域启用中间层；Agent 实例与「职责绑定 / 生效范围 / 版本」分离，允许兼任，禁止同一 Task 自派自验自环；配置组织级唯一、项目只引用不覆写、变更留快照不回溯。`AGENT_ROLES` 三个名字是**能力类型**，不是固定层级。
+- **职责槽位可扩展**：验收、标准起草、周期巡检与 personal / supervisor / worker 一样是配置里的职责；验收 Agent 与产品 / 技术 / 运营 Agent 在同一份共享现场协作。红线不动：独立评审者 ≠ 产出模型、不替代原发起人确认验收。
+- **判断三层、模型按需**：确定性工程层（`runtime-guard.ts` 的 fast → semantic → budget、`modelCalls=0` 的确定性抽取）先过滤 → AI 层只处理判不准的少数并记账 → 人层保留目标 / 边界 / 高风险联签 / 最终核可；必达消息不受过滤影响。
+- **沉淀回流与自演进**：打回原因 → 自查标准 → 下次交付前强制先自查 → 候选改进 → 工程闸门（回放验证）+ 人审 → 版本 / 灰度 / 可回滚 → 效果对比。Agent 可提出改进但不能自己生效，不得自动改写已锁定清单、权限规则、人签红线或历史任务。
+- **评估口径改造**：`assessThreeTier()` 的 P3 / P4 改为按当前配置判定，扁平配置下不要求出现 supervisor；否则小团队为凑绿会被逼着硬造管理层。L1–L5 水位单独只读呈现，不与 `recommended` 混为一谈。
+- **C 分步清单因此扩展为 C-0 → C-6 + 收尾**：新增 C-6「沉淀回流与自演进闭环」，C-3 / C-4 / C-5 的验收标准同步改写，见 `HANDOFF/06-CURRENT-STATE-AND-NEXT.md`。
 
 每阶段验收必须跑：全套回归（303+ 单测、tsc、两个构建、响应式、走查、上游审计、diff-check）+ `npm run routing:status` + `npm run host:smoke`。
 

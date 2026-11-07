@@ -89,6 +89,6 @@ B1 落地时 `npm test` **315/315**（新增 12 例 B 阶段测试：契约、�
 
 **B2（第十四轮，已完成并验证）**：`src/memory-recall.ts` 把投影召回作为第三路信号接入 `TeamMemory.search`，且只在权限 / 版本重评之后按 `sourceId@revision` 白名单裁剪；`grant-revoked` 改记 `principalRevocations` 并由 `recallMemory(..., { principal })` 精确过滤（未指定主体 fail-closed）；`npm run memory:journey` 用真实 bridge action 产生完整知识类事件并验证端到端撤权；`src/memory-checkpoint.ts` 做 checkpoint + 增量应用，会回溯变化的事件回退全量并与全量 checksum 逐字节对照。**注意原存储仍是主读取源**，投影是叠加信号，不是把读取链整体搬走。收尾复核还修掉 `reviewSource` 使用评审前 revision 造成的真实悬空 lineage，并把 `lineageComplete` 加进 journey 验收条件。
 
-**C 已于第十五轮启动**：用户拍板 ②「改成独立前端应用」，废弃 PRD §10A 的 S5/S6、保留 S1–S4 与飞书唯一入口，产品形态冲突解除；按 C-0 → C-5 分步、不并行。C-0 为决策固化与产品思路复盘（见 `ADAPTATION-v0.6.md` `0.0000000000000000` 节），核心原则是「三层 = 同一份共享现场的三种座位，不靠摘要转发」——B 的共享现场正是三层不丢上下文的地基。三层判断仍 `recommended=false`（覆盖率 5/7）。真人业务验收（SUI-129 未核可）、Cognee 原生 `cognify` 真实外部调用、生产发布仍未发生；4190 / 4192 / 4194 / 9418 保持用户取消时的停机状态。
+**C 已于第十五轮启动**：用户拍板 ②「改成独立前端应用」，废弃 PRD §10A 的 S5/S6、保留 S1–S4 与飞书唯一入口，产品形态冲突解除；按 C-0 → C-6 + 收尾分步、不并行。C-0 为决策固化与产品思路复盘（见 `ADAPTATION-v0.6.md` `0.0000000000000000` 节），核心原则是「三层 = 同一份共享现场的三种座位，不靠摘要转发」——B 的共享现场正是三层不丢上下文的地基；C-0b 补遗又固化「组织形态可配置 + 沉淀自演进」（`PRD §10C`），新增 C-6 专做沉淀回流与自演进闭环。三层判断仍 `recommended=false`（覆盖率 5/7），且 C-5 起 P3/P4 改按当前配置判定。真人业务验收（SUI-129 未核可）、Cognee 原生 `cognify` 真实外部调用、生产发布仍未发生；4190 / 4192 / 4194 / 9418 保持用户取消时的停机状态。
 
 **隐私**：`.runtime/memory/`、`.runtime/routing/` 只在本地、不入库；事件 payload 里的 chunk 文本截断到 200 字，真实业务正文不进仓库。

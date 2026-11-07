@@ -327,6 +327,8 @@ Wiki 原生 `bootstrap-root` 在这个固定版本会创建带不兼容设置的
 
 Cognee `cognify` 的真实外部模型调用未发生（缺端点与凭据）；**方案 B 记忆主干重构与方案 C 三层 router 尚未开始**，按 A → B → C 排队；真人在真实业务单「确认验收」仍未发生（SUI-129 未核可）；生产发布 / 业务仓库发布、无人值守最终验收、知识自动采用仍不做；`.runtime` 运行证据不入库。
 
+> 以上是**该轮次当时的历史边界**，按约定原样保留。B（B1 + B2）已于第十四轮完成并验证，C 已于第十五轮启动；最新边界见本文第十五轮与第 4 节补遗，以及 `ADAPTATION-v0.6.md` `0.0000000000000000` 节。
+
 ---
 
 ## 第十二轮：统一路由契约、共享 Trace、三层判断与宿主解耦（2026-11-07）
@@ -526,3 +528,16 @@ Cognee `cognify` 的真实外部模型调用未发生（缺端点与凭据）；
 - C-0 未改运行路由判断、未新增 tab / 路由、未切换默认底座、未移除 Plugin SDK、未改上游源码、未外发任何业务材料。
 - 真人业务验收（SUI-129 未核可）、Cognee 原生 `cognify` 真实外部调用、生产发布 / 业务仓库发布、真实外部 PR·CI、全员 SSO、飞书部门 scope 重新登录仍未发生。
 - `.runtime/` 下真实身份 / 密钥 / 业务正文不入库；4190 / 4192 / 4194 / 9418 保持用户取消时的停机状态，**不得重启**。
+
+### 4. 第十五轮补遗（C-0b：可配置组织形态与自演进）
+
+本小节**只有文档与任务清单改动**：`docs/PRD-v0.6.md` 新增 §10C（C-P1~C-P5）、`docs/ADAPTATION-v0.6.md` 最新边界新增第 6 小节、`docs/ROUTING-AND-HOST-v0.7.md` 新增 6.1、`HANDOFF/` 的 03 / 06 / 08 与 `handoff-manifest.json` 同步。核对过的现有地基（只读，未改一行）：`acceptance-plan.ts` 锁定清单、`acceptance-round.ts` 逐项判定 / 部分打回 / `selfCheckStandards()`、`acceptance-report.ts` 的 `recordSelfCheck()` 幂等原子写且明确「不自动改写已锁定的验收清单」、`independent-review.ts` 评审者独立性、`runtime-guard.ts` 的 fast → semantic → budget、`runtime-bridge.ts` 的 `enforce` 与 `protectHumanNotifications`、B1/B2 的 `modelCalls` 记账与确定性重放。
+
+| 项 | 结果 |
+|---|---|
+| `HANDOFF/handoff-manifest.json` JSON 解析 | 通过 |
+| `git diff --check` | 通过 |
+| 运行代码 / 默认底座 / 上游 | 均未改动；`config.host.provider` 仍 `paperclip`，未移除 Plugin SDK，未引入新上游，未外发业务材料 |
+| 全套回归 | **未重跑**（无运行代码改动，沿用第十四轮 329/329、走查 11/11）；**C-1 起每次代码改动必须重跑全套并在此追加新记录** |
+
+**未落地（已排期 C-4 / C-5 / C-6，不算 bug 也不冒充已完成）**：验收作为可配置协作 Agent、自查标准回流到交付前强制比对、候选改进的评估 / 人审 / 版本 / 灰度 / 回滚、单任务成本与效果看板、`assessThreeTier()` 按当前配置判定。

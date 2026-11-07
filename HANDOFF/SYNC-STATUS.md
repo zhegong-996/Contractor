@@ -10,18 +10,18 @@
 | 同步方式 | 随 `main` 分支提交推送到 `https://github.com/zhegong-996/suitme-collab.git`；clone 仓库即得 |
 | 手工修改 | **只改本目录**，然后 `git add -A && git commit && git push origin main` |
 | 已停用（不再维护） | WorkBuddy 工作区 `handoff/` 副本、`SuitMe-HANDOFF.zip` — 内容可能落后，**不要作为依据** |
-| 项目原文档 | `docs/`、`README.md` 仍有效；本包是导航与现状归纳，冲突时以 `docs/ADAPTATION-v0.6.md` 最新边界、`docs/VALIDATION.md` 最新验证为准 |
+| 项目原文档 | `docs/`、`README.md` 仍有效；本包是导航与现状归纳，冲突时以 `docs/ADAPTATION-v0.6.md` 最新边界、`docs/PRD-v0.6.md` §10C、`docs/VALIDATION.md` 最新验证为准 |
 
 ## 2. 提交与同步状态
 
 | 项 | 值 |
 |---|---|
-| **运行代码基线** | 第十四轮 B2 完成；第十五轮 C-0 只改文档，**以 `git rev-parse HEAD` 为准**（交接时的 `b58631c` / `f6611e0` / `4aa6fb0` 均为历史） |
-| 阶段 | A 完成 → B1 完成 → **B2 完成并验证** → **C 已启动（② 已拍板，C-0 完成 / C-1 为下一步）**（严格不并行） |
+| **运行代码基线** | 第十四轮 B2 完成；第十五轮 C-0 与补遗**只改文档**，**以 `git rev-parse HEAD` 为准**（交接时的 `b58631c` / `f6611e0` / `4aa6fb0` 均为历史） |
+| 阶段 | A 完成 → B1 完成 → **B2 完成并验证** → **C 已启动（② 已拍板，C-0 与补遗完成 / C-1 为下一步）**（严格不并行，C-0 → C-6 + 收尾） |
 | 本文件所在提交 | 随 `main` 前进，clone 后 `git log -1` 即最新 |
 | 同步方式 | 代码与文档一并提交并 push 到 `origin/main`；`HEAD = origin/main = 远端 main` |
 
-第十四轮重跑全套回归全绿：`npm test` 329/329、`tsc`、两个构建、`test:responsive`、真实浏览器走查 11/11、`audit:upstream clean`、`git diff --check`，以及 `memory:journey` / `memory:checkpoint` 真跑证据。第十五轮 C-0 为文档改动（② 决策、产品复盘、§10A 形态变更），运行代码基线不变；C-1 起会重新产生代码改动与新的回归记录，届时以 `05` 与 `docs/VALIDATION.md` 最新轮次为准。
+第十四轮重跑全套回归全绿：`npm test` 329/329、`tsc`、两个构建、`test:responsive`、真实浏览器走查 11/11、`audit:upstream clean`、`git diff --check`，以及 `memory:journey` / `memory:checkpoint` 真跑证据。第十五轮 C-0（② 决策、产品复盘、§10A 形态变更）与 C-0b（组织形态可配置 + 沉淀自演进、§10C 的 C-P1~C-P5）均为**文档与任务清单改动**，运行代码基线不变；C-1 起会重新产生代码改动与新的回归记录，届时以 `05` 与 `docs/VALIDATION.md` 最新轮次为准。
 
 ## 3. 接手时先跑这三条
 
@@ -41,13 +41,14 @@ export NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost NODE_USE_ENV_PR
 
 1. `README.md` — 总索引与包内每个文件的说明
 2. `00-START-HERE.md` — 环境、服务、干净环境变量、7 个已知坑
-3. `06-CURRENT-STATE-AND-NEXT.md` — 现在做到哪、B2 四项的真跑证据、**C 分步清单与产品原则**、什么不能动
-4. `05-VALIDATION-AND-COMMANDS.md` — 全套回归、预期输出、排障、提交前检查
-5. `DIRECTORY-GUIDE.md` — 目录树、每个目录作用与入库状态、`.runtime/` 与产物位置
-6. `FILE-INVENTORY.md` — 全部文件逐文件一行说明
-7. `01` / `02` / `03` / `04` — 产品、技术、15 轮工作日志、代码地图（按需查）
-8. `07-RULES-AND-BOUNDARIES.md` / `08-OPEN-DECISIONS.md` — 红线与需用户拍板事项（**动手前必读**）
-9. `handoff-manifest.json` — 机器可读元数据
+3. `06-CURRENT-STATE-AND-NEXT.md` — 现在做到哪、B2 四项的真跑证据、**C-0~C-6 分步清单与两条新增产品原则**、什么不能动
+4. `docs/PRD-v0.6.md` §10C — C-P1~C-P5 可验收条款（动手前必读）
+5. `05-VALIDATION-AND-COMMANDS.md` — 全套回归、预期输出、排障、提交前检查
+6. `DIRECTORY-GUIDE.md` — 目录树、每个目录作用与入库状态、`.runtime/` 与产物位置
+7. `FILE-INVENTORY.md` — 全部文件逐文件一行说明
+8. `01` / `02` / `03` / `04` — 产品、技术、15 轮工作日志、代码地图（按需查）
+9. `07-RULES-AND-BOUNDARIES.md` / `08-OPEN-DECISIONS.md` — 红线与需用户拍板事项（**动手前必读**）
+10. `handoff-manifest.json` — 机器可读元数据
 
 ## 5. 本文件的说明
 

@@ -15,9 +15,9 @@ ai-native-collab/                       仓库根（main 分支）
 │   ├── 03-WORK-LOG.md                 14 轮工作记录与用户决策
 │   ├── 04-CODE-MAP.md                 按功能域的代码地图
 │   ├── 05-VALIDATION-AND-COMMANDS.md  回归命令、预期输出、排障
-│   ├── 06-CURRENT-STATE-AND-NEXT.md   B2 已完成证据；C 分步清单（② 已拍板）
+│   ├── 06-CURRENT-STATE-AND-NEXT.md   B2 证据；C-0~C-6 清单与产品原则
 │   ├── 07-RULES-AND-BOUNDARIES.md     红线与边界
-│   ├── 08-OPEN-DECISIONS.md           需用户拍板的事项
+│   ├── 08-OPEN-DECISIONS.md           6 项待拍板 + 3 条已解决
 │   ├── DIRECTORY-GUIDE.md             ★ 本文件：目录完全指南
 │   ├── SYNC-STATUS.md                 ★ 唯一位置声明、commit 与接手校验
 │   ├── FILE-INVENTORY.md               ★ 逐文件一行说明（100% 覆盖入库文件）

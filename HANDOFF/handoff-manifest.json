@@ -1,17 +1,17 @@
 {
   "schemaVersion": 1,
   "purpose": "SuitMe 协作台项目交接包：让下一位 Agent 无需对话历史即可安全继续",
-  "generatedAt": "2026-11-07T20:32:54+08:00",
+  "generatedAt": "2026-11-07T20:53:07+08:00",
   "authoritativeLocation": "/Users/gong.zhe/Developer/ai-native-collab/HANDOFF/",
   "portableCopy": null,
   "repository": {
     "path": "/Users/gong.zhe/Developer/ai-native-collab",
     "remote": "https://github.com/zhegong-996/suitme-collab.git",
     "branch": "main",
-    "codeBaseCommit": "以 git rev-parse HEAD 为准（第十四轮 B2 收尾提交后 HEAD = origin/main = 远端 main）",
+    "codeBaseCommit": "以 git rev-parse HEAD 为准（第十四轮 B2 收尾提交后 HEAD = origin/main = 远端 main；第十五轮两次提交均为文档）",
     "originMainAtGeneration": "same-as-HEAD",
     "remoteMainAtGeneration": "same-as-HEAD",
-    "note": "不再写死 hash：交接包生成时的 b58631c / f6611e0 / 4aa6fb0 均为历史。代码与文档在同一提交里一并推送。",
+    "note": "不再写死 hash：交接包生成时的 b58631c / f6611e0 / 4aa6fb0 / 8d3c455 / c27d7c0 均为历史。代码与文档在同一提交里一并推送。",
     "handoffCommit": "本交接包随该提交一起入库；clone 后 git log -1 即最新",
     "workingTreeCodeClean": true
   },
@@ -21,10 +21,17 @@
     "B1": "completed-and-validated",
     "B2": "completed-and-validated",
     "C": "in-progress-stepwise",
-    "currentBoundary": "docs/ADAPTATION-v0.6.md 0.0000000000000000 节（第十五轮 C-0）；验证见 docs/VALIDATION.md 第十四轮（C-0 只改文档，运行基线不变）",
-    "userDecision": "② 改成独立前端应用：废弃 PRD §10A 的 S5/S6，保留 S1–S4；飞书 IM 仍是唯一发起入口，工作台仍只做授权/留痕/签字",
-    "cSteps": ["C-0 决策固化与产品思路复盘（完成）", "C-1 按独立应用形态补齐本地宿主能力（下一步）", "C-2 独立应用外壳", "C-3 单一 Router", "C-4 三层角色与 A2A handoff（带 legacy 回退）", "C-5 重跑三层评估与真实一单", "C 收尾：全量回归、文档同步、提交推送"],
-    "note": "B 阶段已验收；第十五轮用户拍板 ② 解除产品形态冲突，C 正式启动且严格分步不并行。三层判断仍 recommended=false（覆盖率 5/7），C-5 前不把三层当默认答案、不放开主管自主派活"
+    "currentBoundary": "docs/ADAPTATION-v0.6.md 0.0000000000000000 节（第十五轮 C-0 + 第 6 小节补遗）；C 产品约束见 docs/PRD-v0.6.md §10C；验证见 docs/VALIDATION.md 第十五轮及第 4 节补遗（C-0/C-0b 只改文档，运行基线不变）",
+    "userDecision": "② 改成独立前端应用（废弃 PRD §10A 的 S5/S6，保留 S1–S4，飞书 IM 仍是唯一发起入口）；补遗：组织形态必须可配置（按业务域/组织单元生效、允许一个 Agent 兼任多职责、禁止同一 Task 自派自验自环），Agent 靠沉淀自我改进但核心决策仍由人做，判断是工程能力 + AI 能力组合，验收本身也是一个可与产品/技术/运营协作的 Agent",
+    "cProductConstraints": [
+      "C-P1 组织形态可配置：层不是产品骨架；Agent 实例与职责绑定/生效范围/版本分离；组织级唯一、项目只引用不覆写、变更留快照不回溯",
+      "C-P2 职责槽位可扩展，验收是一等公民 Agent：与产品/技术/运营 Agent 在同一份共享现场协作；独立评审者 != 产出模型、不替代原发起人确认验收",
+      "C-P3 判断分三层、模型按需：确定性工程层 modelCalls=0 先过滤 -> AI 层只接判不准的少数并记证据与成本 -> 人层保留目标/边界/高风险联签/最终核可；人必达消息不受过滤影响",
+      "C-P4 沉淀回流、L 级渐进不跳级：打回 -> 自查标准 -> 下次交付前强制先自查 -> 候选改进 -> 工程闸门+人审 -> 版本/灰度/可回滚 -> 效果对比；不得自动改写已锁定清单、权限规则、人签红线或历史任务",
+      "C-P5 评估检查配置是否被正确执行：assessThreeTier 的 P3/P4 改按当前配置判定，扁平配置下不要求出现 supervisor；L1-L5 水位单独只读呈现"
+    ],
+    "cSteps": ["C-0 决策固化与产品思路复盘（完成）", "C-0b 组织形态可配置 + 沉淀自演进的产品约束固化（完成，仅文档）", "C-1 按独立应用形态补齐本地宿主能力（下一步）", "C-2 独立应用外壳", "C-3 单一 Router（读配置决定 1 跳/2 跳）", "C-4 可配置角色体系 + 验收 Agent + A2A handoff", "C-5 按配置重跑三层评估 + 扁平/分层两种配置各跑真实一单", "C-6 沉淀回流与自演进闭环", "C 收尾：全量回归、文档同步、提交推送"],
+    "note": "B 阶段已验收；第十五轮用户拍板 ② 解除产品形态冲突，C 正式启动且严格分步不并行。三层判断仍 recommended=false（覆盖率 5/7），C-5 前不把三层当默认答案、不放开主管自主派活；评估口径按当前配置改造后，扁平配置不得为凑绿硬造管理层"
   },
   "b2Deliverables": [
     "B2-1 src/memory-recall.ts：投影召回作为第三路信号接入 TeamMemory.search，权限/版本重评之后才按 sourceId@revision 白名单裁剪",
@@ -106,7 +113,7 @@
     },
     {
       "path": "HANDOFF/03-WORK-LOG.md",
-      "purpose": "15 轮工作记录、提交号、排障模式、用户决策（含 ② 拍板与 C 启动）"
+      "purpose": "15 轮工作记录（含第十五轮补遗）、提交号、排障模式、用户决策（② 拍板、C 启动、可配置与自演进）"
     },
     {
       "path": "HANDOFF/04-CODE-MAP.md",
@@ -118,7 +125,7 @@
     },
     {
       "path": "HANDOFF/06-CURRENT-STATE-AND-NEXT.md",
-      "purpose": "A/B1/B2 已完成证据、C 分步清单（② 已拍板）、三层判断、去 Paperclip 化"
+      "purpose": "A/B1/B2 已完成证据、C-0~C-6 分步清单与两条新增产品原则、三层判断、去 Paperclip 化"
     },
     {
       "path": "HANDOFF/07-RULES-AND-BOUNDARIES.md",
@@ -126,7 +133,7 @@
     },
     {
       "path": "HANDOFF/08-OPEN-DECISIONS.md",
-      "purpose": "需用户拍板的事项"
+      "purpose": "需用户拍板的事项（6 项待拍板 + 3 条已解决历史记录）"
     },
     {
       "path": "HANDOFF/DIRECTORY-GUIDE.md",
@@ -138,7 +145,7 @@
     },
     {
       "path": "HANDOFF/handoff-manifest.json",
-      "purpose": "本文件：机器可读交接元数据"
+      "purpose": "本文件：机器可读交接元数据（含 C-P1~C-P5）"
     },
     {
       "path": "HANDOFF/SYNC-STATUS.md",
@@ -154,11 +161,14 @@
     "uncovered": 0
   },
   "nextSteps": [
-    "读 HANDOFF/00-START-HERE.md、06-CURRENT-STATE-AND-NEXT.md、07-RULES-AND-BOUNDARIES.md",
+    "读 HANDOFF/00-START-HERE.md、06-CURRENT-STATE-AND-NEXT.md、docs/PRD-v0.6.md §10C、07-RULES-AND-BOUNDARIES.md",
     "跑 HANDOFF/05-VALIDATION-AND-COMMANDS.md 的全套回归确认 329/329 与走查 11/11",
     "C-1：按 ② 独立应用形态重新定义并逐条补齐本地宿主 5 项能力（ACL/成员身份、cost-ledger、独立应用 UI 承载、heartbeat 真实执行、原子写+文件锁并发），不引入 PostgreSQL 与 Plugin SDK",
     "C-2：独立应用外壳，保留 5 tab 职能，移除 Plugin SDK 编译期依赖；飞书仍是唯一发起入口",
-    "C-3：五个派活点收敛为单一 Router（保留 legacy 回退）→ C-4：三层实体 + A2A handoff → C-5：重跑 assessThreeTier 与真实一单",
+    "C-3：五个派活点收敛为单一 Router，读配置决定 1 跳/2 跳（保留 legacy 回退）",
+    "C-4：可配置角色体系（Agent 实例 + 职责绑定 + 范围 + 版本），把验收升格为可与产品/技术/运营协作的 Agent，接 A2A handoff，禁止同一 Task 自派自验自环",
+    "C-5：按当前配置重跑 assessThreeTier（P3/P4 改判定口径），扁平/分层两种配置各跑真实一单",
+    "C-6：自查标准回流到交付前强制比对、候选改进经工程闸门+人审版本化生效、可回滚、效果对比",
     "真人业务验收 SUI-129 只能由用户本人在原会话用中文「确认验收」完成"
   ],
   "openDecisions": [
@@ -174,8 +184,10 @@
     "不要改 upstream/ 上游源码",
     "不要把 .runtime/ 的真实身份/密钥/业务正文提交进仓库",
     "不要用报告/模型判定/CI/合并审批代替真人「确认验收」",
-    "不要跳过 C 的分步验收、并行推进 C-1~C-5，或在 C-5 之前放开主管 Agent 自主派活",
-    "不要把投影当成权限来源或替换主读取源"
+    "不要跳过 C 的分步验收、并行推进 C-1~C-6，或在 C-5 之前放开主管 Agent 自主派活",
+    "不要把投影当成权限来源或替换主读取源",
+    "不要为凑 assessThreeTier 转绿而逼扁平配置硬造管理层；P3/P4 必须按当前配置判定",
+    "不要让 Agent 自动改写已锁定清单、权限规则、人签红线或历史任务；改进须过工程闸门 + 人审 + 版本 + 可回滚"
   ],
   "finalValidationAtHandoff": {
     "unitTests": "329/329",
@@ -184,7 +196,7 @@
     "memoryCheckpoint": "incremental applied:1, checksumEqual:true",
     "upstreamAudit": "clean",
     "gitDiffCheck": "pass",
-    "note": "第十四轮 B2 代码与文档同步后重跑全套回归；第十五轮 C-0 仅文档改动，运行基线不变，C-1 起需要新的回归记录"
+    "note": "第十四轮 B2 代码与文档同步后重跑全套回归；第十五轮 C-0 与 C-0b 仅文档改动，运行基线不变；C-1 起需要新的回归记录"
   },
   "authoritativeOnly": true,
   "portableCopyNote": "WorkBuddy 工作区 handoff/ 与 SuitMe-HANDOFF.zip 已停用、不再维护；唯一权威位置为仓库内 HANDOFF/。"
