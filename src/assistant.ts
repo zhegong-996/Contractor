@@ -12,6 +12,8 @@ import { ServiceNetwork } from './service-network.ts';
 import { TeamMemory } from './team-memory.ts';
 import { AgentServices } from './agent-services.ts';
 import { KnowledgeGraph } from './graph.ts';
+import { routingDecision } from './routing-decision.ts';
+import { getRoutingTrace } from './routing-trace.ts';
 
 export const assistantOutput = z.object({
   summary: z.string().trim().min(1).max(2500),
@@ -85,6 +87,17 @@ export class WorkspaceAssistant {
     if (enabled && nonce) state.delegation.recheckCount = 0;
     if (!enabled) delete state.delegation.recheck;
     await this.workspaces.save(task, state, enabled ? 'assistant-delegated' : 'assistant-paused', { mode, enabled, delegatedBy: actor.userId??'local-operator' });
+    getRoutingTrace().record(routingDecision({
+      taskId, stage: 'dispatch',
+      caller: { actor: actor.userId ?? 'local-operator', role: 'supervisor', source: 'autoloop' },
+      target: { role: 'worker', agentKey: this.key },
+      basis: { kind: 'assistant-schedule', evidence: ['mode:' + mode, 'enabled:' + String(enabled), nonce ?? 'no-nonce'],
+        policyVersion: 'assistant-delegation-v1' },
+      scope: { sourceIds: state.sources.slice(0, 16), visibility: 'private' },
+      outcome: enabled ? 'committed' : 'rejected',
+      causedBy: nonce ?? taskId,
+      idempotencyKey: 'assistant:' + taskId + ':' + mode + ':' + String(enabled) + ':' + (nonce ?? ''),
+    }));
     if (!enabled && state.delegation.jobId) await this.cancel(taskId, actor);
     return enabled ? this.advance(taskId) : { paused: true };
   }

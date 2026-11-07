@@ -218,6 +218,17 @@ LobeHub 三层的原话依据（赛博禅心《如何让 Super-agent 成为同�
 
 ---
 
+## 附录 B · A 阶段收尾与 B 前置（2026-11-07 · 第十二轮）
+
+**本附录之后的落地细节以 [`ROUTING-AND-HOST-v0.7.md`](ROUTING-AND-HOST-v0.7.md) 为准**；三种方案的选择、改动面与风险仍以本文档第 5–6 节为准，路线不变：**A → B → C，不并行**。
+
+- **A 已完成**：`src/routing-decision.ts` 统一「谁把任务交给谁」五维契约；`src/routing-trace.ts` 让 `controller / coordination / assistant / service-network / v06` 五个派活点写同一份 append-only Trace；`src/three-tier-assessment.ts` 用真实数据判定「暂不引入 LobeHub 三层」；`src/platform-port.ts` 把宿主能力收拢为端口并提供可运行的非 Paperclip 实现。
+- **B 的地基已备好**：`toMemoryEvent()` 把路由决策变成 `MemoryEvent`（新增 kind `routing-decided`），`readRoutingEvents()` / `replayRouting()` 给出重放与「两次投影一致」的验收口径。B 阶段把其余记忆事件接入同一日志即可，不需要第二套格式。
+- **C 的门槛更明确**：P1 五阶段覆盖、P3 Personal Agent 实体、P4 主管 Agent 实体、P6 单一 Router 全部未满足；C 必须与平台底座切换一起做。
+- **许可证补充**：Pi（`earendil-works/pi`，MIT core）、CoPaw（Apache-2.0）、Octop（MIT）、DeerFlow（MIT）是可考虑直接复用代码的底座 / worker 候选；LobeHub（Community License）与 n8n（Sustainable Use License）仍只借思想。本轮**未引入任何新上游依赖**。
+
+---
+
 ## 7. 参考来源
 
 **本项目内部（一手）**：`docs/ARCHITECTURE-v0.6.md`（§1 六层、§13 三项目速览、§14 对照、§15 职能轴、§17 能力契约、§18 默认图谱本体）、`docs/PRD-v0.6.md`（§10A 形态约束、FR 覆盖状态）、`docs/UPSTREAM-ADAPTERS.md`、`docs/OPEN-SOURCE-COMPLIANCE.md`、`docs/VALIDATION.md` 第十轮、`src/org-ontology.ts` / `ontology.ts` / `memory-contract.ts`。

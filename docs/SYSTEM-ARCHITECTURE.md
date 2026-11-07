@@ -2,7 +2,7 @@
 
 核验日期：2026-11-05（北京时间），第十轮补充产品与业务架构于 2026-11-07。依据本机运行服务、数据库只读查询及固定版本源码。当前是本机试点，包含开发和联调记录；不是已经部署到全体员工的生产系统。
 
-> **文档分工**：本文件描述「现在是什么」；`ARCHITECTURE-v0.6.md` 是产品架构定稿（不等于全部已实现）；`ARCHITECTURE-OPTIONS-v0.7.md` 是三种收敛方案、主流架构分析与未实现能力清单。判断「哪些还没做、该用哪个开源项目补」以 v0.7 方案为准。
+> **文档分工**：本文件描述「现在是什么」；`ARCHITECTURE-v0.6.md` 是产品架构定稿（不等于全部已实现）；`ARCHITECTURE-OPTIONS-v0.7.md` 是三种收敛方案、主流架构分析与未实现能力清单；`ROUTING-AND-HOST-v0.7.md` 是统一路由契约、共享 Trace、三层判断与去 Paperclip 化路线。判断「哪些还没做、该用哪个开源项目补」以两份 v0.7 文档为准。
 
 ## 产品与业务架构（业务视角，第十轮补）
 
@@ -186,6 +186,14 @@ flowchart TD
 | 页面壳 | `workspace-page.tsx` | 宿主 action 通道、轮询、5 tab 路由与视图装配 |
 
 依赖单向：`foundation` / `async` 无内部依赖 → 视图层 → `workspace-page` → `index`；`tests/frontend-structure.test.ts` 守卫这套边界。写操作不再静默吞错：两个高频表单用 `useActionFeedback` 就地提示，其余统一经 `UI.report` 上报页面错误条；只有后台轮询与 `invoke` 的 rethrow 保留有注释说明的静默 catch。外链统一经 `safeHttpUrl` / `safeLoopbackUrl` 校验，「未接通不放入口」的链接出口全前端仍只有一处。
+
+## 统一路由 Trace 与宿主端口（第十二轮补）
+
+派活判断此前分散在 `controller.ts`（入口 / 建单 / 交接）、`coordination.ts`（Super Agent 策略准入）、`assistant.ts`（整理 Agent 调度）、`service-network.ts`（A2A 服务委派）、`v06.ts`（职能责任转移）。第十二轮把它们收敛为 `src/routing-decision.ts` 的 `RoutingDecision`（调用方 / 目标角色 / 依据 / 资料范围 / 是否需人签字 + stage / outcome / causedBy），五个点经 `src/routing-trace.ts` 的单例写**同一份** append-only 日志 `.runtime/routing/events.jsonl`，每行是严谨的 `MemoryEvent`（kind `routing-decided`），并投影进 SQLite `audit` 表。
+
+这条链同时是 B 阶段共享记忆的地基：`toMemoryEvent()` / `replayRouting()` 已给出「同一日志两次重放一致、去重、按时间有序、坏行报错」的验收口径。`src/three-tier-assessment.ts` 用真实 Trace 判断要不要引入 LobeHub 三层，当前结论是**不引入**（P1 五阶段覆盖、P3 Personal Agent、P4 主管实体、P6 单一 Router 未满足）。只读 `routing-status` 与 `npm run routing:status` 可随时复核。
+
+宿主侧新增 `src/platform-port.ts`：`HostPlatformPort` 收拢任务 / 文档 / 身份 / 健康检查 / UI 承载，`PaperclipPlatform` 为默认薄包装，`LocalHostPlatform` 是不依赖 Paperclip 的最小可运行实现（`npm run host:smoke` 真跑）。`config.host.provider` 默认仍是 `paperclip`，**尚未切换底座**；完整替换需先补齐 ACL、cost-ledger、Plugin UI、heartbeat 真实执行与 PG 事务五项，见 `ROUTING-AND-HOST-v0.7.md` 第 5 节。
 
 ## 实现指针
 

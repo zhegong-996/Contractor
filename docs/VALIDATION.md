@@ -326,3 +326,58 @@ Wiki 原生 `bootstrap-root` 在这个固定版本会创建带不兼容设置的
 ### 6. 严格边界（未发生，不是 bug）
 
 Cognee `cognify` 的真实外部模型调用未发生（缺端点与凭据）；**方案 B 记忆主干重构与方案 C 三层 router 尚未开始**，按 A → B → C 排队；真人在真实业务单「确认验收」仍未发生（SUI-129 未核可）；生产发布 / 业务仓库发布、无人值守最终验收、知识自动采用仍不做；`.runtime` 运行证据不入库。
+
+---
+
+## 第十二轮：统一路由契约、共享 Trace、三层判断与宿主解耦（2026-11-07）
+
+### 1. 用户决策与范围
+
+把散在 5 个文件的「谁把任务交给谁」抽成 `RoutingDecision` 契约（调用方 / 目标角色 / 依据 / 资料范围 / 是否需人签字），让它们写同一份 Trace；据此判断要不要引入 LobeHub 三层；B 阶段记忆事件复用该契约；可复用尽量复用、可参考尽量参考（LobeHub 不复制代码、Super Agent / Autoloop 直接复用）；Paperclip 平台底座与 Plugin SDK 不再作为长期依赖，改用 DeepSeek Harness / Pi / 已复用部分或其它高 star 系统；然后 **B → C，不并行**。方案全文见 `docs/ROUTING-AND-HOST-v0.7.md`。
+
+### 2. 落地内容（A 收尾 + B 前置）
+
+| 文件 | 内容 |
+|---|---|
+| `src/architecture-contracts.ts` | `MEMORY_EVENT_KINDS` 新增 `routing-decided`，让路由决策成为共享记忆主干的一种事件 |
+| `src/routing-decision.ts` | 五维契约 + stage / outcome / causedBy / 幂等 `decisionId`；`HUMAN_SIGNATURE_RULES` 五条红线；`toMemoryEvent()` / `decisionOf()` |
+| `src/routing-trace.ts` | 单例 Trace、append-only JSONL、可选 SQLite audit 投影、`readRoutingEvents()` / `replayRouting()`；测试进程经 `COLLAB_TEST_TRACE=memory` 隔离 |
+| `src/three-tier-assessment.ts` | 7 条前置条件的可执行三层判断，含许可证与玉伯 OPT 反面依据 |
+| `src/platform-port.ts` | `HostPlatformPort` + `PaperclipPlatform`（默认）+ `LocalHostPlatform`（非 Paperclip 最小宿主） |
+| `src/server.ts` / `src/members.ts` | `attachAudit()` 一次；只读 `routing-status` 与两处白名单 |
+| `scripts/routing-status.ts` / `scripts/host-smoke.ts` | 两个新 CLI（`npm run routing:status` / `npm run host:smoke`） |
+| `scripts/test.ts` | 测试子进程设 `COLLAB_TEST_TRACE=memory`，避免测试动作污染真实业务 Trace |
+
+**5 处接线（静态自检 `allWired: true`）**：`controller.ts` 3 处（ingest / createTask / handoff）、`coordination.ts` 1 处（可注入 trace，判断与返回值未改）、`assistant.ts` 1 处、`service-network.ts` 2 处、`v06.ts` 2 处（transferCreate + guardDispatch，拒绝时额外记 `rejected` 后原样 rethrow）。**只加记录，不改任何运行路由判断。**
+
+### 3. 真实冒烟（不是单测模拟）
+
+- `npm run host:smoke`：`ok: true`。health `ok / local-file-host`、创建任务、`idempotencyKey` 幂等、文档修订 1→2 且未变更不升版、读回 `版本：2`、patch 状态、评论、wakeup、journal 6 条、heartbeat-run、未实现 route 明确报错、路径穿越被拒。
+- 真实调用 Super Agent `admitPreparation` 两次，写入干净业务 Trace 2 条（`admissible: true / false`），`logErrors: []`。
+- 重启 Bridge 后真实 HTTP `POST /workspace/routing-status` 返回 `200`、`ok: true`、`eventCount: 2`、`projection.byStage: {admission: 2}`、`threeTier.recommended: false`、verdict「暂不引入三层：继续 A 的契约收敛并先完成 B」。
+- **测试隔离验证**：全套 `npm test` 跑完后业务 Trace 仍是 2 条，说明测试事件只进内存 sink；隔离前的混合日志已归档为 `.runtime/routing/events.pre-isolation.jsonl`。
+- `npm run routing:status`：5 个文件 `wired: true`，`allWired: true`。
+
+### 4. 三层判断（真实数据）
+
+7 条前置条件中 P2（重放无坏行）、P5（高风险人签完整）、P7（LobeHub 仅借思想）满足；**P1 五阶段覆盖、P3 Personal Agent 入口、P4 主管实体、P6 单一 Router 未满足**，覆盖率 5/7。结论：暂不引入 LobeHub 三层，先完成 A 的契约收敛并跑通 B。
+
+### 5. 回归结果
+
+| 项 | 结果 |
+|---|---|
+| `npm test` | **303/303**（新增 9 例路由 / Trace / 三层 / 平台端口测试） |
+| `npx tsc --noEmit`（主工程 + 插件构建链） | 通过 |
+| `npm run build:workspaces` | 通过 |
+| `npm run build:chinese-shell` | 通过，`hiddenEntries` 4 条、`missed: []` |
+| `npm run test:responsive` | 通过，425px 0 溢出、按钮 44px |
+| `npm run test:walkthrough` | **11/11**，`failures: []` |
+| `npm run audit:upstream` | `clean: true`、`problems: []` |
+| `npm run host:smoke` / `npm run routing:status` | 均 `ok: true` |
+| `git diff --check` | 通过 |
+
+排障：本轮开始时 3100 Paperclip 意外停机（health 000），按既有流程用干净环境 `npm run up` 恢复（`paperclip: ready`、`bridge: already running`）；4190 / 4192 / 4194 / 9418 复核仍为 000，保持用户取消时的停机状态。
+
+### 6. 严格边界（未发生，不是 bug）
+
+本轮**没有改运行路由判断、没新增 tab / 路由、没切换默认底座、没改上游源码、没引入任何新上游依赖**；`config.host.provider` 默认仍是 `paperclip`，Plugin SDK 未移除（完整切换需补齐 ACL / cost-ledger / Plugin UI / heartbeat 真实执行 / PG 事务五项，且与 PRD §10A「5 tab 插件单页」存在产品形态冲突，待用户确认）。方案 B 记忆主干与 C 三层 router 尚未开始；真人在真实业务单「确认验收」（SUI-129 未核可）、Cognee 原生 `cognify` 真实外部调用、生产发布均未发生。`.runtime/routing/`、`.runtime/local-host/` 与真实身份信息不入库。

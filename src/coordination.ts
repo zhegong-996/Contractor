@@ -1,4 +1,6 @@
 import {memoryAnnotation} from './memory-contract.ts';
+import { routingDecision } from './routing-decision.ts';
+import { getRoutingTrace, type RoutingTrace } from './routing-trace.ts';
 import { z } from 'zod';
 import { pathToFileURL } from 'node:url';
 import path from 'node:path';
@@ -20,12 +22,30 @@ export function assessPreparation(input: unknown, mode: 'observe' | 'auto' = 'au
   const assessment = assessmentInput.parse(input);
   return policy.assessmentOutcome(assessment, { policy: { rules: [preparationRule] }, eval: { mode } }, 'inferred');
 }
-export function admitPreparation(taskId: string, enabled: boolean, phase: string) {
-  if (!enabled || ['accepted', 'running', 'unknown', 'handoff_pending'].includes(phase)) return { admissible: false, reason: 'task_not_delegated' };
-  const settings = policy.SettingsSchema.parse({ policy: { rules: [preparationRule], sources: {
-    task: { allowed: [], admission: { current: { unlistedUnaddressed: 'inferred' } } } } }, eval: { mode: 'auto' } });
-  const gate = policy.settingsPolicy(settings, { scope: () => ({ listened: true, observed: true, row: 'current' }) });
-  return gate.gate({ id: taskId, source: 'task', actor: { source: 'task', id: '' }, human: false, meta: { taskId } }, { subscriptions: [taskId] }, []);
+export function admitPreparation(taskId: string, enabled: boolean, phase: string,
+  trace: RoutingTrace | null = getRoutingTrace()) {
+  let result: any;
+  if (!enabled || ['accepted', 'running', 'unknown', 'handoff_pending'].includes(phase)) {
+    result = { admissible: false, reason: 'task_not_delegated' };
+  } else {
+    const settings = policy.SettingsSchema.parse({ policy: { rules: [preparationRule], sources: {
+      task: { allowed: [], admission: { current: { unlistedUnaddressed: 'inferred' } } } } }, eval: { mode: 'auto' } });
+    const gate = policy.settingsPolicy(settings, { scope: () => ({ listened: true, observed: true, row: 'current' }) });
+    result = gate.gate({ id: taskId, source: 'task', actor: { source: 'task', id: '' }, human: false, meta: { taskId } }, { subscriptions: [taskId] }, []);
+  }
+  // 策略路由与其它派活点写同一份 Trace；判断逻辑与返回值一字未改。
+  trace?.record(routingDecision({
+    taskId, stage: 'admission',
+    caller: { actor: 'scoped-preparation', role: 'supervisor', source: 'superagent-policy' },
+    target: { role: 'worker', agentKey: 'workspace-assistant' },
+    basis: { kind: 'policy', evidence: [phase, 'enabled:' + String(enabled)],
+      policyVersion: 'scoped-preparation-v1', ruleId: preparationRule.id },
+    scope: { visibility: 'private' },
+    outcome: result?.admissible === true ? 'committed' : 'rejected',
+    causedBy: taskId + ':' + phase,
+    idempotencyKey: 'admission:' + taskId + ':' + phase + ':' + String(enabled),
+  }));
+  return result;
 }
 export type CoordinationEvent = { id: string; kind: string; at: string; subject: string };
 const relevant = /^(workspace\.(task-created|im-resumed|assistant-delegated|service-response|service-state-changed|service-route-configured|service-answer|recheck-due|context-(note|linked|included|excluded|expanded|discovered)|access-(approved|denied|revoked|expired)|handoff)|knowledge\.(content-updated|reviewed)|delivery\.changed|task\.(handoff|accepted))$/;

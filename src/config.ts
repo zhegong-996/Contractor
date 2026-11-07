@@ -116,6 +116,15 @@ export const configSchema = z.object({
     autoPublish: z.boolean().default(true),
   }).default(() => ({ provider: 'local' as const, port: 4194, gitPort: 9418,
     repoName: 'suitme-collab', feishuNotify: false, autoMerge: true, autoPublish: true })),
+  /**
+   * 宿主平台选择（v0.7 · 去 Paperclip 化第一步）。默认仍用 Paperclip，
+   * 保证现有主链路不回退；`local` 走 LocalHostPlatform（本地文件 + append-only
+   * journal），只实现 route 子集，用于证明切换路径与暴露待补齐清单。
+   * 完整切换需先补 platform-port.ts capabilities().missing 列出的能力。
+   */
+  host: z.object({
+    provider: z.enum(['paperclip', 'local']).default('paperclip'),
+  }).default(() => ({ provider: 'paperclip' as const })),
 });
 export type Config = z.infer<typeof configSchema>;
 export type Agent = Config['agents'][string];

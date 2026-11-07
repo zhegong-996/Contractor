@@ -9,10 +9,11 @@
 - **当前实现**：[架构与接入核验](docs/SYSTEM-ARCHITECTURE.md)——技术四层、产品与业务架构、前端模块分层。
 - **产品架构定稿**：[ARCHITECTURE-v0.6.md](docs/ARCHITECTURE-v0.6.md)——六层模型、M3 三层路由、M11 责任转移、K 知识底座与默认图谱本体；**这是设计定稿，不等于全部已实现**。
 - **收敛方案与缺口清单**：[ARCHITECTURE-OPTIONS-v0.7.md](docs/ARCHITECTURE-OPTIONS-v0.7.md)——三种可选方案、主流 Agent 记忆 / ontology / router 架构分析、未实现功能逐条对应的开源复用动作、许可证边界。**判断「哪些还没做、该用哪个项目补」以这份为准**。
+- **统一路由契约与宿主解耦**：[ROUTING-AND-HOST-v0.7.md](docs/ROUTING-AND-HOST-v0.7.md)——`RoutingDecision` 五维契约、5 个派活点接同一份 Trace、B 阶段记忆事件复用、LobeHub 三层可执行判断、去 Paperclip 化的 `HostPlatformPort` 与开源候选矩阵。
 - **复用与合规**：[上游适配清单](docs/UPSTREAM-ADAPTERS.md)、[来源记录](docs/SOURCES.md)、[开源合规](docs/OPEN-SOURCE-COMPLIANCE.md)。
 - **验证与最新边界**：[验证记录](docs/VALIDATION.md)、[轮次与边界声明](docs/ADAPTATION-v0.6.md)。
 
-基于 Paperclip 的团队协作工作台。飞书发起开发任务，人在自己使用的 Agent 中接单，或由后台调用已配置的 CLI；成果默认进入本机 Git 代码交付台，按确切提交与本机 CI 结果验收（可显式回退到 GitHub 适配器）。知识空间按项目、主题或组织需要配置，在同一任务中申请资料、授权、交接、撤权并采用专业结论。
+当前仍以 Paperclip 为宿主底座，但宿主能力已收拢为 `HostPlatformPort`（`config.host.provider` 默认 `paperclip`，`local` 是可运行的最小非 Paperclip 实现）；完整切换路线与待补齐缺口见 [ROUTING-AND-HOST-v0.7.md](docs/ROUTING-AND-HOST-v0.7.md)。飞书发起开发任务，人在自己使用的 Agent 中接单，或由后台调用已配置的 CLI；成果默认进入本机 Git 代码交付台，按确切提交与本机 CI 结果验收（可显式回退到 GitHub 适配器）。知识空间按项目、主题或组织需要配置，在同一任务中申请资料、授权、交接、撤权并采用专业结论。
 
 本仓库是协作平台代码。`zhegong-996/desktop-tutorial` 是当前获准的流程联调仓库，SuitMe 业务仓库不在本轮写入范围。
 
@@ -125,6 +126,8 @@ lark-cli config init --new --name ai-native-collab --lang zh_cn
 npm test
 npm run typecheck
 npm run doctor
+npm run routing:status   # 统一路由 Trace、5 处接线自检、三层判断与平台切换清单
+npm run host:smoke       # 真跑不依赖 Paperclip 的最小宿主（临时目录，无副作用）
 ```
 
 自动测试使用临时状态和模拟接口，覆盖去重、并发签出、过期回执、部分失败重试、交付范围、版本验收及真实 stdio MCP 协议。真实飞书消息、模型执行、本机 CI、预览与人工验收应分别记录；通过单元测试不等于真实全流程通过。

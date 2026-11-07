@@ -70,6 +70,9 @@ export type MemoryProjection = typeof MEMORY_PROJECTIONS[number];
 export const MEMORY_EVENT_KINDS = [
   'source-ingested', 'fact-extracted', 'edge-drafted', 'edge-accepted',
   'edge-invalidated', 'context-packed', 'acceptance-recorded',
+  // 方案 B 的事件主干同时承载「谁把任务交给谁」：RoutingDecision 通过
+  // toMemoryEvent() 变成 append-only 事件，B 阶段重放时不必另造一套日志。
+  'routing-decided',
 ] as const;
 export type MemoryEventKind = typeof MEMORY_EVENT_KINDS[number];
 

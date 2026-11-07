@@ -27,6 +27,8 @@ import { assertStandardExternalised, readPlan } from './acceptance-plan.ts';
 import { FeishuOrgService, parseOrgTable, type OrgMappingDraft } from './feishu-org.ts';
 import type { CollabEvent } from './event-stream.ts';
 import { renderForChannel, endpointCapabilities, PLAIN_TEXT, type ChannelId, type SemanticObject, type RenderedMessage } from './channels.ts';
+import { routingDecision, signatureFor } from './routing-decision.ts';
+import { getRoutingTrace } from './routing-trace.ts';
 
 export interface V06Options {
   workbenchUrl: string;
@@ -117,6 +119,17 @@ export class V06Services {
     // The existing outbox feeds the connected conversation channel (feishu today).
     // No new frontend route and no ad-hoc message assembly.
     this.localStore.notify(`v06:transfer:${result.transfer.id}`, result.transfer.taskId, rendered.text);
+    getRoutingTrace().record(routingDecision({
+      taskId: result.transfer.taskId, stage: 'transfer',
+      caller: { actor: input.grantorUserId, role: 'supervisor', source: 'role-registry' },
+      target: { role: 'worker', roleId: input.toRoleId },
+      basis: { kind: 'registry', evidence: ['transfer:' + result.transfer.id, 'from:' + input.fromRoleId,
+        ...input.capabilityBasis.slice(0, 4)], policyVersion: 'role-registry-v1' },
+      scope: { visibility: 'space', ...(input.validUntil ? { expiresAt: input.validUntil } : {}) },
+      ...(input.consultationOnly ? {} : signatureFor('formal-transfer')),
+      causedBy: result.transfer.id,
+      idempotencyKey: 'transfer:' + result.transfer.id,
+    }));
     return { ...result, message: rendered, responsibility: responsibilityChain(result.transfer) };
   }
   async transferView(taskId: string) { return this.transfers.read(taskId); }
@@ -128,10 +141,30 @@ export class V06Services {
   /** FR-11: reject cross-function formal dispatch without an active Transfer. */
   async guardDispatch(input: { taskId: string; fromRoleId: string; toRoleId: string; consultationOnly?: boolean }) {
     const { registry } = await this.roles.read();
-    if (!registry.roles.length) return { ...assertDispatchAllowed({ ...input, transfer: null, consultationOnly: true }),
-      skipped: true, reason: '尚未配置职能注册表，沿用原有扁平派单' };
-    const transfer = await this.transfers.read(input.taskId);
-    return assertDispatchAllowed({ ...input, transfer });
+    const record = (outcome: 'committed' | 'rejected', reason: string) => getRoutingTrace().record(routingDecision({
+      taskId: input.taskId, stage: 'dispatch',
+      caller: { actor: 'role-registry', role: 'supervisor', source: 'role-registry' },
+      target: { role: 'worker', roleId: input.toRoleId },
+      basis: { kind: 'registry', evidence: ['from:' + input.fromRoleId, 'to:' + input.toRoleId, reason], policyVersion: 'fr-11' },
+      scope: { visibility: 'space' }, outcome,
+      causedBy: input.taskId + ':' + input.fromRoleId + '>' + input.toRoleId,
+      idempotencyKey: 'guard:' + input.taskId + ':' + input.fromRoleId + ':' + input.toRoleId + ':' + outcome,
+    }));
+    try {
+      if (!registry.roles.length) {
+        const result = { ...assertDispatchAllowed({ ...input, transfer: null, consultationOnly: true }),
+          skipped: true, reason: '尚未配置职能注册表，沿用原有扁平派单' };
+        record('committed', result.reason);
+        return result;
+      }
+      const transfer = await this.transfers.read(input.taskId);
+      const result = assertDispatchAllowed({ ...input, transfer });
+      record('committed', result.reason);
+      return result;
+    } catch (error) {
+      record('rejected', String(error).slice(0, 200));
+      throw error;
+    }
   }
   async widenPolicy(metrics: GrantMetrics) {
     const { policy, revision } = await this.transfers.readPolicy();

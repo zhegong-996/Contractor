@@ -15,6 +15,8 @@ import{fromWorkerJournal,fromDelivery,capture}from'./event-stream.ts';
 import{TraceBridge,type TraceInput}from'./trace-bridge.ts';
 import{acceptanceChainEnabled,reviewerIdFor,type VisualArtifact}from'./visual-review.ts';
 import{assertReviewerCapable}from'./independent-review.ts';
+import { routingDecision } from './routing-decision.ts';
+import { getRoutingTrace } from './routing-trace.ts';
 import type { V06Services } from './v06.ts';
 
 /**
@@ -61,15 +63,16 @@ export class Controller {
     this.store.db.prepare('INSERT OR IGNORE INTO events(id,state,value) VALUES(?,?,?)').run(trigger.id, 'pending', JSON.stringify(input));
     const text = trigger.text.replace(/@[^\s]+\s*/g, '').trim();
     const parsed = parseUserCommand(text);
-    let result: unknown;
+    let result: unknown; let routedTaskId: string | undefined;
     if (!parsed) return { ignored: true, help: USER_HELP };
     if (parsed.action === 'task') {
       if (!parsed.detail) return { ignored: true, help: USER_HELP };
       const task = await this.createTask({ triggerId: trigger.id, chatId, messageId: String(trigger.meta.messageId), senderId: trigger.actor.id,
-        agent: parsed.agent ?? this.config.defaultAgent, text: parsed.detail }); result = { task };
+        agent: parsed.agent ?? this.config.defaultAgent, text: parsed.detail }); result = { task }; routedTaskId = task.id;
     } else {
       if (!parsed.taskId) return { ignored: true, help: USER_HELP };
       const task = this.store.get(parsed.taskId);
+      routedTaskId = task.id;
       if (task.senderId !== trigger.actor.id || task.chatId !== chatId) throw new Error('只有原发起人在原会话可以操作这个任务');
       const detail = parsed.detail;
       this.store.audit('user.command', task.id, { action: parsed.action, legacySyntax: parsed.fromLegacySyntax });
@@ -95,6 +98,16 @@ export class Controller {
         result = await this.reply(task.id, `验收不通过：${detail}`, trigger.id);
       } else { await this.sync(task.id); result = this.store.get(task.id); }
     }
+    // 入口路由决策与其它四个派活点写同一份 Trace；记录失败不改变任何业务结果。
+    if (routedTaskId) getRoutingTrace().record(routingDecision({
+      taskId: routedTaskId, stage: 'intake',
+      caller: { actor: trigger.actor.id, role: 'personal', source: 'superagent-trigger' },
+      target: { role: 'worker', ...(parsed.action === 'task' ? { agentKey: parsed.agent ?? this.config.defaultAgent } : {}) },
+      basis: { kind: 'user-command', evidence: [trigger.id, parsed.action], policyVersion: 'user-language-v1' },
+      scope: { visibility: 'private' },
+      ...(parsed.action === 'accept' ? { requiresHumanSignature: true, signatureReason: '最终业务验收只能由原发起人在原会话确认' } : {}),
+      causedBy: trigger.id, idempotencyKey: 'intake:' + trigger.id,
+    }));
     this.store.db.prepare('UPDATE events SET state=? WHERE id=?').run('done', trigger.id);
     return result;
   }
@@ -134,6 +147,14 @@ export class Controller {
     this.store.notify(`intake:${task.id}`, task.id, `已接单：${task.identifier}，交给${agent.name}。\n[任务](${this.config.paperclipUrl}/${task.identifier.split('-')[0]}/issues/${task.identifier})`);
     await this.pc.patch(`/issues/${task.id}`, { status: 'todo' });
     this.store.audit('task.created', task.id, { agent: input.agent, baseSha: prepared.baseSha });
+    getRoutingTrace().record(routingDecision({
+      taskId: task.id, stage: 'dispatch',
+      caller: { actor: input.senderId, role: 'personal', source: input.messageId.startsWith('om_') ? 'superagent-trigger' : 'human' },
+      target: { role: 'worker', agentKey: input.agent },
+      basis: { kind: 'user-command', evidence: ['message:' + input.messageId, `${businessAcceptance.length} 条业务验收项`] },
+      scope: { allowedPaths: this.config.allowedPaths, visibility: 'private' },
+      causedBy: input.triggerId, idempotencyKey: 'dispatch:' + input.triggerId,
+    }));
     return task;
   }
   async reply(id: string, text: string, eventId: string) {
@@ -166,6 +187,15 @@ export class Controller {
     this.store.save(task);
     await this.pc.patch(`/issues/${task.id}`, { assigneeAgentId: agent.paperclipId, assigneeUserId: null, status: 'todo' });
     this.store.audit('task.handoff', task.id, { next, generation: task.generation });
+    getRoutingTrace().record(routingDecision({
+      taskId: task.id, stage: 'transfer',
+      caller: { actor: task.senderId, role: 'personal', source: 'human' },
+      target: { role: 'worker', agentKey: next },
+      basis: { kind: 'transfer', evidence: ['generation:' + task.generation,
+        'prior:' + ((JSON.parse(checkpoint) as { priorAgent?: string }).priorAgent ?? 'unknown')], policyVersion: 'handoff-v1' },
+      scope: { allowedPaths: this.config.allowedPaths, visibility: 'private' },
+      causedBy: task.id + ':g' + task.generation,
+    }));
     return task;
   }
   async reconcile(id: string) {

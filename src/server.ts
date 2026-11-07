@@ -33,6 +33,8 @@ import { OntologyService } from './ontology.ts';
 import { V06Services } from './v06.ts';
 import { RuntimeGuardBridge } from './runtime-bridge.ts';
 import { collectServiceStatus, type ServiceStatusReport } from './service-status.ts';
+import { getRoutingTrace, readRoutingEvents, replayRouting } from './routing-trace.ts';
+import { assessThreeTier } from './three-tier-assessment.ts';
 
 const config = loadConfig(); const credentials = secrets();
 
@@ -80,6 +82,8 @@ function serviceStatus(feishuState: string): Promise<ServiceStatusReport> {
   });
 }
 const store = new Store(runtime('bridge.sqlite'));
+// 统一路由 Trace：五个派活点共用单例，审计表作为第二份只读投影在此挂一次。
+getRoutingTrace().attachAudit((action, issueId, value) => store.audit(action, issueId, value));
 // 国内环境默认走本机 Git 交付；已有部署可显式配置 delivery.provider=github 回退。
 const deliveryAdapter = config.delivery.provider === 'local' ? new LocalGitDelivery(config) : new Github(config);
 const control = new Controller(config, store, deliveryAdapter);
@@ -157,7 +161,7 @@ const server = createServer(async (req, res) => {
       // Reads recheck their own scope and revisions. They need not wait behind
       // indexing or native process reconciliation; mutations keep the single lane.
       const v06Reads=['roles-view','role-route','role-hints','role-snapshot','transfer-view','transfer-policy','dispatch-guard','grant-widen','grant-check','edges-view','edge-impact','label-check','policy-view','verification-level','topology-advice','inflight-policy','signals','review-readiness','ontology-meta','ontology-view','ontology-query','attention-policy','attention-filter','watchdog-policy','watchdog-inspect','plan-view','round-view','acceptance-export','acceptance-report-view','org-overview','org-mapping-view','context-pack','l2-status','l2-edges-view','l2-graph-view'];
-      const readOnly=['view','team-members','agent-services','agent-build','development-view','delivery-status','service-status','network-view','memory-status','memory-search','memory-annotations','context-pack','context-record','context-search','ontology-view','model-settings','system-status','trace-view'].includes(action)||action==='knowledge-graph'&&payload.project!==true||action.startsWith('v06-')&&v06Reads.includes(action.slice(4));
+      const readOnly=['view','team-members','agent-services','agent-build','development-view','delivery-status','service-status','routing-status','network-view','memory-status','memory-search','memory-annotations','context-pack','context-record','context-search','ontology-view','model-settings','system-status','trace-view'].includes(action)||action==='knowledge-graph'&&payload.project!==true||action.startsWith('v06-')&&v06Reads.includes(action.slice(4));
       const runWorkspace=readOnly?<T>(job:()=>Promise<T>)=>withFeishuReads(job):serialize;
       res.end(JSON.stringify(await runWorkspace(async () => {
         workspaceActor = await teamMembers.gate(action, payload, workspaceActor);
@@ -168,6 +172,11 @@ const server = createServer(async (req, res) => {
         if(action==='development-view')return development.view(payload.taskId,workspaceActor);
         if(action==='delivery-status')return deliveryStatus();
         if(action==='service-status')return serviceStatus(feishuState);
+        if(action==='routing-status'){
+          const {events,errors}=readRoutingEvents();const projection=replayRouting(events);
+          return {ok:true,log:'.runtime/routing/events.jsonl',eventCount:events.length,logErrors:errors,
+            projection,threeTier:assessThreeTier(events,projection,errors)};
+        }
         if(action==='development-start')return development.start(payload,workspaceActor);
         if(action==='development-accept')return development.accept(payload,workspaceActor);
         if (action === 'network-route') return serviceNetwork.route(payload, workspaceActor);
