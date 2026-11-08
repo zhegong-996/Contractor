@@ -6,37 +6,74 @@
  * - 浏览器只拿到只读 action 的结果，密钥永远留在服务端；
  * - 不提供任何「网页发起任务」入口，发起仍在飞书；
  * - 不依赖宿主插件接口，宿主只作为数据层，随时可换。
+ *
+ * 第二十九轮 P-11：从「匿名只读」升级为「登录 + 分权限管理后台」。
+ * 第三十轮 P-12：权限判定改走 casbin（启动时 await auth.ready()）；
+ * 新增用户级配置（settings-get / settings-set 本人，admin-users-settings
+ * 管理员总览）；前端复用 Vue 3 + Element Plus（本地 vendor，离线可用）。
  */
 import { createServer, request as httpRequest, type Server, type IncomingMessage, type ServerResponse } from 'node:http';
+import { spawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { loadConfig, secrets } from '../src/config.ts';
+import { loadConfig, secrets, root } from '../src/config.ts';
+import { ConsoleAuth, can, ROLE_PERMISSIONS, ROLE_LABELS, PERMISSION_LABELS, type ConsoleRole } from '../src/console-auth.ts';
+import { AUX_SERVICES, auxHealth } from './services.ts';
 
-const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const consoleDir = path.join(root, 'console');
+const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const consoleDir = path.join(rootDir, 'console');
 
-/** 控制台允许读取的动作；写操作一律不开放。与 bridge 的只读分发保持一致。 */
+/** 控制台允许读取的动作；与 bridge 的只读分发保持一致。 */
 export const CONSOLE_READ_ACTIONS: readonly string[] = [
   // P-5：控制台改拉服务端分页摘要；view 保留给插件工作台与兼容调用。
   'view', 'view-summary', 'service-status', 'system-status', 'memory-status', 'memory-replay', 'memory-guard', 'loop-guard',
   'routing-status', 'trace-view', 'model-settings', 'v06-org-overview',
   'network-view', 'ontology-view', 'context-pack', 'memory-search',
   'v06-agent-registry-view', 'v06-evolution-view', 'v06-execution-view',
+  'knowledge-list', 'knowledge-get', // P-13：知识条目列表与单条详情（读）
 ] as const;
+
+/** P-13 知识写入动作：登录即可调，分区权限由 bridge 端 casbin 统一判定。 */
+const KNOWLEDGE_WRITE_ACTIONS: readonly string[] = ['knowledge-create', 'knowledge-update', 'knowledge-delete'] as const;
+
+/** 管理动作 → 所需权限（casbin RBAC 按策略放行）。 */
+const ADMIN_ACTIONS: Record<string, string> = {
+  'admin-accounts': 'accounts-manage',
+  'admin-account-create': 'accounts-manage',
+  'admin-account-role': 'accounts-manage',
+  'admin-account-disable': 'accounts-manage',
+  'admin-users-settings': 'users-settings-view', // 管理员总览所有用户的配置（账号管理仍 owner 专属）
+  'admin-policy': 'users-settings-view', // 查看 casbin 角色权限策略
+  'admin-password-change': 'read', // 本人改自己的口令
+  'admin-services': 'services-control',
+  'admin-service-control': 'services-control',
+  'admin-knowledge-review': 'knowledge-review',
+  'admin-task-control': 'task-control',
+  'admin-hitl': 'read',
+  'admin-audit': 'audit-view',
+  'admin-feishu-auth': 'feishu-auth',
+};
 
 const STATIC: Record<string, { file: string; type: string }> = {
   '/': { file: 'index.html', type: 'text/html; charset=utf-8' },
   '/index.html': { file: 'index.html', type: 'text/html; charset=utf-8' },
   '/styles.css': { file: 'styles.css', type: 'text/css; charset=utf-8' },
   '/app.js': { file: 'app.js', type: 'application/javascript; charset=utf-8' },
+  // P-12：本地化的开源前端库（Vue 3 / Element Plus，MIT），离线可用。
+  '/vendor/vue.global.prod.js': { file: 'vendor/vue.global.prod.js', type: 'application/javascript; charset=utf-8' },
+  '/vendor/element-plus.full.min.js': { file: 'vendor/element-plus.full.min.js', type: 'application/javascript; charset=utf-8' },
+  '/vendor/element-plus.css': { file: 'vendor/element-plus.css', type: 'text/css; charset=utf-8' },
+  '/vendor/element-plus.dark.css': { file: 'vendor/element-plus.dark.css', type: 'text/css; charset=utf-8' },
+  '/vendor/element-plus-locale-zh-cn.js': { file: 'vendor/element-plus-locale-zh-cn.js', type: 'application/javascript; charset=utf-8' },
 };
 
 const SECURITY_HEADERS: Record<string, string> = {
   'X-Content-Type-Options': 'nosniff',
   'Referrer-Policy': 'no-referrer',
   'Cache-Control': 'no-store',
-  'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; form-action 'none'; frame-ancestors 'none'; base-uri 'none'",
+  // Vue 运行时模板编译需要 unsafe-eval（本地回环服务、无第三方脚本，风险可控）。
+  'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self'; connect-src 'self'; img-src 'self' data:; form-action 'none'; frame-ancestors 'none'; base-uri 'none'",
 };
 
 function applyHeaders(res: ServerResponse): void {
@@ -52,19 +89,50 @@ async function readBody(req: IncomingMessage): Promise<string> {
   return data;
 }
 
+function json(res: ServerResponse, status: number, body: unknown, extraHeaders: Record<string, string> = {}) {
+  const text = JSON.stringify(body);
+  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', ...extraHeaders });
+  res.end(text);
+}
+
 /** 把只读请求转发到本机协作服务的动作分发口；不透传浏览器来源头。 */
-function proxy(action: string, body: string): Promise<{ status: number; payload: string }> {
+function bridgeRequest(method: 'GET' | 'POST', route: string, payload?: unknown): Promise<{ status: number; body: string }> {
   const config = loadConfig();
   const token = secrets().adminToken;
-  const payload = JSON.stringify({ payload: body ? JSON.parse(body).payload ?? {} : {} });
+  const data = payload === undefined ? undefined : JSON.stringify(payload);
   return new Promise((resolve, reject) => {
     const req = httpRequest({
       hostname: '127.0.0.1', port: config.bridgePort,
+      path: route, method, timeout: 30000,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(data ? { 'Content-Length': Buffer.byteLength(data) } : {}),
+        Authorization: 'Bearer ' + token,
+      },
+    }, res => {
+      let out = '';
+      res.setEncoding('utf8');
+      res.on('data', chunk => { out += chunk; });
+      res.on('end', () => resolve({ status: res.statusCode ?? 502, body: out }));
+    });
+    req.on('timeout', () => req.destroy(new Error('协作服务响应超时')));
+    req.on('error', reject);
+    req.end(data);
+  });
+}
+
+function proxy(action: string, body: string, actorUser?: string): Promise<{ status: number; payload: string }> {
+  const incoming = body ? JSON.parse(body).payload ?? {} : {};
+  // P-13：知识写入动作带上 console 用户身份；bridge 端以 casbin 分区判定。
+  const payload = JSON.stringify({ payload: actorUser ? { ...incoming, actorUser } : incoming });
+  return new Promise((resolve, reject) => {
+    const req = httpRequest({
+      hostname: '127.0.0.1', port: loadConfig().bridgePort,
       path: '/workspace/' + action, method: 'POST', timeout: 20000,
       headers: {
         'Content-Type': 'application/json',
         'Content-Length': Buffer.byteLength(payload),
-        Authorization: 'Bearer ' + token,
+        Authorization: 'Bearer ' + secrets().adminToken,
       },
     }, res => {
       let out = '';
@@ -76,6 +144,138 @@ function proxy(action: string, body: string): Promise<{ status: number; payload:
     req.on('error', reject);
     req.end(payload);
   });
+}
+
+/** 受控地跑本仓库脚本（服务管理 / 飞书授权），只允许白名单命令。 */
+function runLocalScript(argv: string[], timeoutMs = 60000): Promise<{ code: number | null; stdout: string; stderr: string }> {
+  return new Promise(resolve => {
+    const child = spawn(process.execPath,
+      ['--import', path.join(rootDir, 'node_modules/tsx/dist/loader.mjs'), ...argv],
+      { cwd: rootDir, env: { ...process.env, NODE_OPTIONS: '' }, timeout: timeoutMs });
+    let stdout = '', stderr = '';
+    child.stdout.on('data', chunk => { stdout += chunk; if (stdout.length > 200000) stdout = stdout.slice(-200000); });
+    child.stderr.on('data', chunk => { stderr += chunk; if (stderr.length > 50000) stderr = stderr.slice(-50000); });
+    child.on('error', error => resolve({ code: null, stdout, stderr: String(error) }));
+    child.on('close', code => resolve({ code, stdout, stderr }));
+  });
+}
+
+const auth = new ConsoleAuth();
+
+async function handleAdmin(action: string, payload: Record<string, unknown>, session: { username: string; role: ConsoleRole }) {
+  switch (action) {
+    case 'admin-accounts': {
+      return { accounts: auth.listAccounts().map(a => ({ username: a.username, role: a.role,
+        roleLabel: ROLE_LABELS[a.role], disabled: Boolean(a.disabled), createdAt: a.createdAt,
+        createdBy: a.createdBy, feishuBound: Boolean(a.feishuOpenId) })) };
+    }
+    case 'admin-account-create': {
+      await auth.createAccount(String(payload.username ?? ''), String(payload.password ?? ''),
+        (String(payload.role ?? 'viewer') as ConsoleRole), session.username,
+        payload.feishuOpenId ? String(payload.feishuOpenId) : undefined);
+      return { ok: true };
+    }
+    case 'admin-account-role': {
+      await auth.setRole(session.username, String(payload.username ?? ''), String(payload.role ?? '') as ConsoleRole);
+      return { ok: true };
+    }
+    case 'admin-account-disable': {
+      await auth.setDisabled(session.username, String(payload.username ?? ''), payload.disabled !== false);
+      return { ok: true };
+    }
+    case 'admin-users-settings': {
+      // 管理员总览：所有用户 + 各自配置（API Key 已打码）；修改仍限本人。
+      return { users: auth.listUserSettingsOverview() };
+    }
+    case 'admin-policy': {
+      return { policy: auth.policyText(), note: 'casbin RBAC 策略（角色 -> 权限）；可手工扩展，重启生效；删文件即重置为种子。' };
+    }
+    case 'admin-password-change': {
+      auth.changePassword(session.username, String(payload.newPassword ?? ''));
+      return { ok: true };
+    }
+    case 'admin-services': {
+      const services = await Promise.all(AUX_SERVICES.map(auxHealth));
+      const bridge = await new Promise<boolean>(resolve => {
+        const req = httpRequest({ hostname: '127.0.0.1', port: loadConfig().bridgePort, path: '/health', timeout: 2000 },
+          res => { res.resume(); resolve(Boolean(res.statusCode && res.statusCode < 500)); });
+        req.on('timeout', () => { req.destroy(); resolve(false); });
+        req.on('error', () => resolve(false));
+        req.end();
+      });
+      return { services, bridge, roles: ROLE_PERMISSIONS, roleLabels: ROLE_LABELS };
+    }
+    case 'admin-service-control': {
+      const serviceAction = String(payload.action ?? '');
+      if (!['start', 'stop', 'restart', 'status'].includes(serviceAction)) throw new Error('服务动作只能是 start / stop / restart / status');
+      const name = payload.name ? String(payload.name) : undefined;
+      if (name && !AUX_SERVICES.some(s => s.name === name)) throw new Error('未知服务');
+      const result = await runLocalScript(['scripts/services.ts', serviceAction, ...(name ? [name] : [])], 120000);
+      auth.audit('services.control', session.username, { action: serviceAction, name: name ?? 'all',
+        code: result.code, output: result.stdout.slice(0, 400) });
+      return { ok: result.code === 0, output: result.stdout.trim() || result.stderr.trim() };
+    }
+    case 'admin-knowledge-review': {
+      const taskId = String(payload.taskId ?? '');
+      const state = String(payload.state ?? '');
+      if (!taskId || !['confirmed', 'withdrawn'].includes(state)) throw new Error('需要 taskId 与 state（confirmed / withdrawn）');
+      const key = String(payload.key ?? '');
+      const revision = String(payload.revision ?? '');
+      if (!key || !revision) throw new Error('需要 key 与 revision');
+      const result = await bridgeRequest('POST', `/tasks/${taskId}/knowledge-review`, { key, revision, state });
+      auth.audit('knowledge.review', session.username, { taskId, key, state, status: result.status });
+      return { ok: result.status === 200, response: safeParse(result.body) };
+    }
+    case 'admin-task-control': {
+      const taskId = String(payload.taskId ?? '');
+      const command = String(payload.command ?? '');
+      if (!taskId || !['接续', '暂停'].includes(command)) throw new Error('需要 taskId 与 command（接续 / 暂停）');
+      const result = await bridgeRequest('POST', `/tasks/${taskId}/reply`, { text: command });
+      auth.audit('task.control', session.username, { taskId, command, status: result.status });
+      return { ok: result.status === 200, response: safeParse(result.body) };
+    }
+    case 'admin-hitl': {
+      // 只读：直接读本机 HITL 台账与续跑建议，不经过 bridge（避免新增白名单）。
+      const { resolveHitlSink } = await import('../src/step-hitl.ts');
+      const { resumeProposalFile } = await import('../src/hitl-bridge.ts');
+      const { existsSync, readFileSync: read } = await import('node:fs');
+      const sink = resolveHitlSink();
+      const health = 'readWithHealth' in sink
+        ? (sink as { readWithHealth(): { events: { id: string; type: string; at: string; payload: Record<string, unknown> }[]; badLines: number } }).readWithHealth()
+        : { events: sink.read(), badLines: 0 };
+      const pending = health.events.filter(e => e.type === 'human_question'
+        && !health.events.some(r => r.type === 'human_response' && r.payload?.question_id === e.id));
+      const proposalPath = resumeProposalFile();
+      const proposals = existsSync(proposalPath)
+        ? read(proposalPath, 'utf8').split('\n').filter(Boolean).slice(-20)
+          .flatMap(line => { try { return [JSON.parse(line)]; } catch { return []; } }) : [];
+      return { pending: pending.map(q => ({ id: q.id, at: q.at, prompt: q.payload?.prompt,
+          choices: q.payload?.choices, runId: q.payload?.run_id })), badLines: health.badLines,
+        proposals: proposals.map(p => ({ id: p.id, questionId: p.questionId, choice: p.choice,
+          actor: p.actor, at: p.at, requiresHumanApproval: p.requiresHumanApproval })) };
+    }
+    case 'admin-audit': {
+      return { entries: auth.readAudit(150).reverse() };
+    }
+    case 'admin-feishu-auth': {
+      // 只生成授权信息与命令；真正登录必须本人在飞书扫码确认。
+      if (payload.execute === true) {
+        const result = await runLocalScript(['scripts/org-auth.ts', '--execute'], 90000);
+        auth.audit('feishu-auth.execute', session.username, { code: result.code,
+          output: result.stdout.slice(0, 300) });
+        return { ok: result.code === 0, output: (result.stdout + '\n' + result.stderr).trim().slice(0, 4000) };
+      }
+      const result = await runLocalScript(['scripts/org-auth.ts'], 60000);
+      return { ok: result.code === 0, output: result.stdout.trim().slice(0, 4000),
+        note: '执行后本人需要在飞书扫码确认；脚本不代替授权，也不会清空已有权限。' };
+    }
+    default:
+      throw new Error('未知管理动作');
+  }
+}
+
+function safeParse(text: string): unknown {
+  try { return JSON.parse(text); } catch { return { raw: text.slice(0, 500) }; }
 }
 
 export function createConsoleServer(): Server {
@@ -91,28 +291,82 @@ export function createConsoleServer(): Server {
       }
       if (req.method === 'POST' && url.pathname.startsWith('/api/')) {
         const action = url.pathname.slice('/api/'.length);
-        if (!CONSOLE_READ_ACTIONS.includes(action)) {
-          res.writeHead(403, { 'Content-Type': 'application/json; charset=utf-8' });
-          res.end(JSON.stringify({ error: '只允许读取已登记的状态，不提供任务发起或写入' }));
+        const body = await readBody(req);
+        const payload = body ? (JSON.parse(body).payload ?? {}) : {};
+        // ---- 登录 / 会话（不需要已登录） --------------------------------
+        if (action === 'login') {
+          try {
+            const { cookie, session } = auth.login(String(payload.username ?? ''), String(payload.password ?? ''));
+            json(res, 200, { ok: true, session: { username: session.username, role: session.role,
+              roleLabel: ROLE_LABELS[session.role], permissions: ROLE_PERMISSIONS[session.role] } },
+              { 'Set-Cookie': cookie + '; HttpOnly; SameSite=Strict; Path=/' });
+          } catch (error) {
+            json(res, 401, { error: String((error as Error).message ?? error) });
+          }
           return;
         }
-        const body = await readBody(req);
-        const result = await proxy(action, body);
-        res.writeHead(result.status, { 'Content-Type': 'application/json; charset=utf-8' });
-        res.end(result.payload);
+        if (action === 'logout') { auth.logout(req.headers.cookie); json(res, 200, { ok: true }); return; }
+        // ---- 以下全部需要会话 -------------------------------------------
+        const session = auth.sessionFromRequest(req.headers.cookie);
+        if (!session) { json(res, 401, { error: '请先登录', login: true }); return; }
+        if (action === 'session') {
+          json(res, 200, { username: session.username, role: session.role, roleLabel: ROLE_LABELS[session.role],
+            permissions: ROLE_PERMISSIONS[session.role], permissionLabels: PERMISSION_LABELS,
+            settings: auth.getUserSettings(session.username) });
+          return;
+        }
+        // ---- 用户级配置：本人读写自己的（管理员也是用户，走同一套） -------
+        if (action === 'settings-get') {
+          json(res, 200, auth.getUserSettings(session.username));
+          return;
+        }
+        if (action === 'settings-set') {
+          try {
+            json(res, 200, auth.setUserSettings(session.username, session.username, payload));
+          } catch (error) {
+            json(res, 400, { error: String((error as Error).message ?? error) });
+          }
+          return;
+        }
+        if (CONSOLE_READ_ACTIONS.includes(action)) {
+          const result = await proxy(action, body);
+          res.writeHead(result.status, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(result.payload);
+          return;
+        }
+        // P-13：知识写入（登录即可，分区判定在 bridge）。
+        if (KNOWLEDGE_WRITE_ACTIONS.includes(action)) {
+          const result = await proxy(action, body, session.username);
+          res.writeHead(result.status, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(result.payload);
+          return;
+        }
+        if (action in ADMIN_ACTIONS) {
+          if (!can(session, ADMIN_ACTIONS[action]!)) {
+            json(res, 403, { error: `当前角色（${ROLE_LABELS[session.role]}）没有这个管理权限` });
+            return;
+          }
+          try {
+            json(res, 200, await handleAdmin(action, payload, session));
+          } catch (error) {
+            json(res, 400, { error: String((error as Error).message ?? error) });
+          }
+          return;
+        }
+        json(res, 403, { error: '只允许已登记的动作；发起任务请回到飞书' });
         return;
       }
       res.writeHead(404, { 'Content-Type': 'application/json; charset=utf-8' });
       res.end(JSON.stringify({ error: '未找到' }));
     } catch (error) {
-      res.writeHead(502, { 'Content-Type': 'application/json; charset=utf-8' });
-      res.end(JSON.stringify({ error: String((error as Error).message ?? error) }));
+      json(res, 502, { error: String((error as Error).message ?? error) });
     }
   });
 }
 
 /** 供冒烟脚本在同一进程内启动，避免新增常驻服务。 */
-export function listenConsole(port = 0): Promise<{ server: Server; port: number }> {
+export async function listenConsole(port = 0): Promise<{ server: Server; port: number }> {
+  await auth.ready(); // casbin 初始化完成后才提供权限判定（fail-closed）
   return new Promise((resolve, reject) => {
     const server = createConsoleServer();
     server.once('error', reject);
@@ -125,8 +379,29 @@ export function listenConsole(port = 0): Promise<{ server: Server; port: number 
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
   const port = Number(process.env.CONSOLE_PORT ?? 4200);
-  listenConsole(port).then(({ port: bound }) => {
-    console.log(`SuitMe 协作台已启动：http://127.0.0.1:${bound}/`);
-    console.log('只读控制台，发起任务请回到飞书；按需启动，不是常驻服务。');
-  }).catch(error => { console.error(String(error)); process.exitCode = 1; });
+  const command = process.argv[2];
+  // 初始引导：创建第一个所有者账号（只能执行一次）。
+  if (command === 'init-owner') {
+    const [username, password] = process.argv.slice(3);
+    if (!username || !password) { console.log(JSON.stringify({ ok: false, error: '用法：console-server.ts init-owner <用户名> <口令（≥8位）>' })); process.exitCode = 1; }
+    else {
+      try {
+        await auth.ready();
+        const account = await auth.bootstrapOwner(username, password);
+        console.log(JSON.stringify({ ok: true, username: account.username, role: account.role,
+          note: '所有者账号已创建；请在登录后立即在「管理 → 账号」修改口令。' }, null, 2));
+      } catch (error) {
+        console.log(JSON.stringify({ ok: false, error: String((error as Error).message ?? error) }, null, 2));
+        process.exitCode = 1;
+      }
+    }
+  } else {
+    listenConsole(port).then(({ port: bound }) => {
+      const accounts = auth.listAccounts().length;
+      console.log(`SuitMe 协作台已启动：http://127.0.0.1:${bound}/`);
+      console.log(accounts
+        ? `已登录制：${accounts} 个账号。发起任务请回到飞书。`
+        : '尚未创建账号：先运行 npm run console:owner -- <用户名> <口令> 创建所有者。');
+    }).catch(error => { console.error(String(error)); process.exitCode = 1; });
+  }
 }

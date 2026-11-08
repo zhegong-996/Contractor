@@ -44,6 +44,12 @@ export type FailResult = { runId: string; stepNo: number; status: string; retrya
 export interface StepQueue {
   id(): string;
   enqueueSteps(runId: string, specs: StepSpec[]): Promise<{ runId: string; enqueued: number; ready: number }>;
+  /**
+   * P-11：把步骤以「立即可领取」状态排进队列。普通 enqueueSteps 只把第一步
+   * 标 ready（后续步靠前一步完成时原子提升）；当 run 的前一步已永久失败、
+   * 没有人会再提升后续步时，自动续跑的「续跑闸」必须用它才不会被永久挂起。
+   */
+  enqueueReadySteps(runId: string, specs: StepSpec[]): Promise<{ runId: string; enqueued: number; ready: number }>;
   claimStep(workerId: string, runId?: string): Promise<ClaimedStep | null>;
   completeStep(runToken: string, result?: Record<string, unknown>, options?: CompleteOptions): Promise<CompleteResult>;
   failStep(runToken: string, error: string, maxAttempts?: number): Promise<FailResult>;
@@ -82,16 +88,25 @@ export class InMemoryStepQueue implements StepQueue {
       attempts: step.attempts, payload: { ...step.payload } };
   }
   async enqueueSteps(runId: string, specs: StepSpec[]) {
-    let start = this.steps.filter(s => s.runId === runId).length;
+    return this.insert(runId, specs, false);
+  }
+  async enqueueReadySteps(runId: string, specs: StepSpec[]) {
+    return this.insert(runId, specs, true);
+  }
+  private async insert(runId: string, specs: StepSpec[], immediate: boolean) {
+    const existing = this.steps.filter(s => s.runId === runId);
+    let start = existing.reduce((max, s) => Math.max(max, s.stepNo), 0);
+    let inserted = 0;
     for (const spec of specs) {
       start += 1;
       if (this.steps.some(s => s.runId === runId && s.stepNo === start)) continue;
       this.steps.push({ id: `${runId}:${start}`, runId, stepNo: start, kind: spec.kind,
-        status: start === 1 ? 'ready' : 'queued', claimedBy: null, runToken: null, attempts: 0,
+        status: immediate || start === 1 ? 'ready' : 'queued', claimedBy: null, runToken: null, attempts: 0,
         payload: { ...(spec.payload ?? {}) }, result: null, checkpoint: null, modelCalls: 0,
         updatedAt: this.now() });
+      inserted += 1;
     }
-    return { runId, enqueued: specs.length, ready: specs.length ? 1 : 0 };
+    return { runId, enqueued: inserted, ready: immediate ? inserted : (inserted ? 1 : 0) };
   }
   async claimStep(workerId: string, runId?: string): Promise<ClaimedStep | null> {
     // 单线程内一次性完成「找 ready + 置 running」，等价于 PG 的锁内更新。
@@ -159,6 +174,7 @@ export class PgStepQueue implements StepQueue {
   }
   id() { return 'local-pg'; }
   enqueueSteps(runId: string, specs: StepSpec[]) { return this.host.enqueueSteps(runId, specs); }
+  enqueueReadySteps(runId: string, specs: StepSpec[]) { return this.host.enqueueReadySteps(runId, specs); }
   async claimStep(workerId: string, runId?: string): Promise<ClaimedStep | null> {
     const step = await this.host.claimStep(workerId, runId);
     return step ? { ...step, id: String(step.id) } : null;
@@ -291,14 +307,19 @@ export function stepExecutionSummary(states: StepState[]) {
 /**
  * 外部调度器：每次只调用一次 executeOneStep，随时可以换 workerId / environment。
  * 它是「由队列激活下一棒」的驱动器，不是常驻在进程里的 Agent 循环。
+ * 第二十九轮 P-11：intervalMs 让步与步之间有真实业务的节奏（真实单的
+ * worker.tick 多数是等待轮询，不间歇会把步数上限瞬间烧完）。
  */
 export async function driveSteppedLoop(input: {
   queue: StepQueue; runId: string; principal: string; scope?: string | null;
   first: StepSpec; handlers: Record<string, StepHandler>;
   recheck?: StepRecheck; maxSteps?: number;
   worker?: (stepNo: number) => { workerId: string; environment: string };
+  intervalMs?: number;
 }): Promise<{ steps: number; modelCalls: number; stoppedBy: string; environments: string[]; failure?: string }> {
   const maxSteps = input.maxSteps ?? 60;
+  const intervalMs = Math.max(0, input.intervalMs ?? 0);
+  const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
   const worker = input.worker ?? (() => ({ workerId: 'step-worker-a', environment: '本机执行环境' }));
   // 幂等：调用方若已把首步排进队列，这里不再插一条重复步骤。
   if ((await input.queue.runState(input.runId)).length === 0)
@@ -306,6 +327,7 @@ export async function driveSteppedLoop(input: {
   let modelCalls = 0;
   const environments: string[] = [];
   for (let i = 1; i <= maxSteps; i += 1) {
+    if (i > 1 && intervalMs) await sleep(intervalMs);
     const seat = worker(i);
     environments.push(seat.environment);
     const result = await executeOneStep({ queue: input.queue, handlers: input.handlers,

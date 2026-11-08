@@ -1,87 +1,20 @@
-<!doctype html>
-<html lang="zh-CN" data-theme="light">
+<!DOCTYPE html>
+<html lang="zh-CN">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <meta name="apple-mobile-web-app-title" content="SuitMe 协作台" />
-  <meta name="theme-color" content="#f6f7f9" />
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="apple-mobile-web-app-title" content="SuitMe 协作台">
   <title>SuitMe 协作台</title>
-  <link rel="stylesheet" href="/styles.css" />
-  <script src="/app.js" defer></script>
+  <link rel="stylesheet" href="/vendor/element-plus.css">
+  <link rel="stylesheet" href="/vendor/element-plus.dark.css">
+  <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
-  <div class="app" id="app">
-    <nav class="rail" aria-label="功能导航">
-      <div class="rail-brand" title="SuitMe 协作台">
-        <svg viewBox="0 0 32 32" aria-hidden="true"><rect x="3" y="3" width="26" height="26" rx="9" fill="url(#brandGradient)"/><path d="M10 20.5l4.2-9 3.1 5.6 2-3.1 2.7 6.5" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/><defs><linearGradient id="brandGradient" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#6d5efc"/><stop offset="1" stop-color="#3b82f6"/></linearGradient></defs></svg>
-      </div>
-      <div class="rail-items" id="rail-items"></div>
-      <div class="rail-bottom">
-        <button class="rail-button" id="theme-toggle" type="button" aria-label="切换深浅主题" title="切换深浅主题">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v2m0 14v2m9-9h-2M5 12H3m15.4-6.4l-1.4 1.4M7 17l-1.4 1.4m12.8 0L17 17M7 7L5.6 5.6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none"/><circle cx="12" cy="12" r="4" stroke="currentColor" stroke-width="1.8" fill="none"/></svg>
-        </button>
-      </div>
-    </nav>
-
-    <aside class="sidebar" id="sidebar" aria-label="会话与工作区">
-      <div class="sidebar-head">
-        <div class="sidebar-title">工作区</div>
-        <button class="sidebar-close" id="sidebar-close" type="button" aria-label="收起侧栏">收起</button>
-      </div>
-      <div class="sidebar-section-title">协作视图</div>
-      <div class="nav-list" id="nav-list"></div>
-      <div class="sidebar-section-title">最近协作 <span class="sidebar-count" id="thread-count">—</span></div>
-      <div class="thread-list" id="thread-list"><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div></div>
-      <div class="sidebar-foot">任务与授权状态来自本机协作服务</div>
-    </aside>
-
-    <main class="main">
-      <header class="topbar">
-        <button class="topbar-menu" id="sidebar-open" type="button" aria-label="展开侧栏">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
-        </button>
-        <div class="topbar-heading">
-          <h1 id="view-title">概览</h1>
-          <p id="view-subtitle">同一份共享现场，人和助手各看自己该看的</p>
-        </div>
-        <div class="topbar-status"><span class="status-dot" id="status-dot"></span><span id="status-text">正在读取本机服务</span></div>
-      </header>
-
-      <div class="content" id="content" role="main">
-        <div class="loading-card"><div class="spinner"></div><span>正在读取本机协作数据…</span></div>
-      </div>
-
-      <footer class="composer" aria-label="发起说明">
-        <div class="composer-icon">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l2.2 5.8L20 11l-5.8 2.2L12 19l-2.2-5.8L4 11l5.8-2.2L12 3z" fill="currentColor"/></svg>
-        </div>
-        <div class="composer-text">
-          <strong>发起任务请回到飞书，直接对你的助手说</strong>
-          <span>这里是查看、授权与确认验收的地方，不提供网页发起入口；没有连接的服务也不会出现空按钮。</span>
-        </div>
-        <span class="composer-badge">飞书内发起</span>
-      </footer>
-    </main>
-
-    <aside class="inspector" aria-label="助手与现场">
-      <div class="inspector-card agent-card">
-        <div class="inspector-title">你的助手</div>
-        <div class="agent-avatar">
-          <svg viewBox="0 0 48 48" aria-hidden="true"><circle cx="24" cy="24" r="22" fill="url(#avatarGradient)"/><path d="M15 27l5-11 4 7 3-4 6 8" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/><defs><linearGradient id="avatarGradient" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#7c6cff"/><stop offset="1" stop-color="#4a9bff"/></linearGradient></defs></svg>
-        </div>
-        <div class="agent-name">个人助理</div>
-        <div class="agent-desc">替你过滤信息、整理上下文，需要你拍板时才会来找你。</div>
-        <div class="agent-tags"><span>上下文整理</span><span>授权提醒</span><span>验收确认</span></div>
-      </div>
-      <div class="inspector-card">
-        <div class="inspector-title">当前现场</div>
-        <dl class="fact-list" id="fact-list"><div><dt>任务</dt><dd>—</dd></div><div><dt>已连接服务</dt><dd>—</dd></div><div><dt>记忆事件</dt><dd>—</dd></div></dl>
-      </div>
-      <div class="inspector-card inspector-note">
-        <div class="inspector-title">边界说明</div>
-        <p>核心决策仍由人做。工程层先过滤，模型只处理判不准的少数，人保留授权联签与最终验收。</p>
-      </div>
-    </aside>
-  </div>
+  <div id="app"></div>
+  <!-- 开源组件库（本地 vendor，MIT；离线可用，不依赖 CDN） -->
+  <script src="/vendor/vue.global.prod.js"></script>
+  <script src="/vendor/element-plus.full.min.js"></script>
+  <script src="/vendor/element-plus-locale-zh-cn.js"></script>
+  <script src="/app.js"></script>
 </body>
 </html>

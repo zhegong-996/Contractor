@@ -91,6 +91,7 @@
 | G6 | npm 传递依赖未做全量法律审计 | `THIRD_PARTY_NOTICES.md` 已声明该边界 | ⬜ 发行前需单独做一次依赖扫描 |
 | G7 | Acceptance 未引入、协议动作未做 | FR-16~19 目前是自研契约 | ✅ 已引入 submodule `f720feb…` 并按第 4 节补齐全部协议材料；契约映射与导出已可运行 |
 | G8 | C-1 新增 npm 依赖 `pg` 未走 R7 六步 | 发行前缺精确版本、许可证原文与声明 | ✅ 已补：`pg@8.23.1` / `@types/pg@8.23.1` 精确版本 + lockfile integrity、`licenses/pg-MIT.txt`、`THIRD_PARTY_NOTICES.md` 段落、`SOURCES.md` 一行、`audit-upstream.ts` 机器化检查 |
+| G9 | 第三十轮新增 `casbin` npm 依赖与 Vue 3 / Element Plus 本地 vendor 前端库未走 R7 | 新增运行时依赖缺精确版本、许可证原文与声明 | ✅ 已补：`casbin@5.51.1`（Apache-2.0）精确版本 + integrity；`vue@3.5.45` / `element-plus@2.14.8`（均 MIT）vendor 版本横幅机器校验；三个 LICENSE 原文入 `licenses/`；`THIRD_PARTY_NOTICES.md` 三段、`SOURCES.md` 三行、`audit-upstream.ts` 机器化检查 |
 
 ## 6. 工程红线 R7：新增依赖的检查清单
 
@@ -118,6 +119,8 @@
 | C-3 单一 Router / 可配置组织形态 | 无新增依赖（自研 `src/router.ts`） | — | 只借 Super Agent 的 policyVersion / ruleId、DeepSeek Harness 的 scope 隔离、A2A 的 Link 映射与 LobeHub 三层汇报的产品思想；**未引入第 8 个上游、未复制任何上游代码**；`npm run router:smoke` 真跑 31/31 |
 | C-6 沉淀回流 / 交付前自查 / 治理台账 / 效果对比 | 无新增依赖（自研 `src/evolution-ledger.ts` / `src/evolution.ts`） | — | 只复用既有 `readSelfCheck()` / `memoryReplayReport()` 与 LobeHub Acceptance 的产品思想；**未引入第 8 个上游、未改上游提交、未复制任何上游代码**；`npm run evolution:smoke` 真跑 45/45 |
 | C-5 按配置重跑三层评估 / 两种形态真实一单 | 无新增依赖（自研 `src/three-tier-assessment.ts` / `scripts/shapes-smoke.ts`） | — | 只复用既有 `Router` / `AgentRegistry` 字段语义与 LobeHub 三层汇报的产品思想；**未引入第 8 个上游、未改上游提交、未复制任何上游代码**；`npm run shapes:smoke` 真跑 36/36 |
+| P-12 RBAC 权限管控 | `casbin` 5.51.1（Apache-2.0） | ✅ | 已引入 npm 依赖（用户拍板「直接找开源项目代码复用」）；模型 / 绑定 / keyMatch 走 casbin，策略与种子自研；两进程共用策略文件、fail-closed；不是第 8 个上游 submodule |
+| P-12 控制台前端重写 | `vue` 3.5.45 + `element-plus` 2.14.8（均 MIT） | ✅ | 本地 vendor 引入（用户拍板「复用开源代码和组件库」）；离线可用不依赖 CDN，版本横幅由审计脚本机器校验；产品红线不变（飞书唯一发起、写动作仍拒） |
 | P-1 长程循环单步化 / 单步执行器 / 跨进程队列 | 无新增依赖（自研 `src/step-execution.ts` / `src/loop-pump.ts` / `src/step-runner.ts`） | — | 只复用 C-1 已入库的 `PgHostPlatform` 步进方法语义与 LobeHub / DeepSeek 三者分离的产品思想；**未引入第 8 个上游、未新增 npm 依赖、未改上游提交、未复制任何上游代码**；`npm run steps:smoke` 真跑 40/40 |
 | C-4 组织级 Agent 编制 / 验收协作 / A2A 在岗交接 | 无新增依赖（自研 `src/agent-registry.ts`） | — | 只复用既有 `RoutingDecision` / A2A Link 的字段语义与 LobeHub 三层汇报的产品思想；**未引入第 8 个上游、未改上游提交、未复制任何上游代码**；`npm run agents:smoke` 真跑 43/43 |
 | 权限标签粒度 | Outline (BSL 1.1) / Onyx / OpenFGA | ❌ / 未核实 | 仅设计参考，不引入代码 |

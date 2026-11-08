@@ -163,8 +163,9 @@ test('未声明配置时退回最保守固定口径，保持旧调用向后兼�
 test('接线：服务端 / CLI 用 shapeOptions，控制台显示白话结论，真跑脚本登记在案', () => {
   assert.match(read('src/server.ts'), /shapeOptions\(getRouter\(\),getAgentRegistry\(\)\)/);
   assert.match(read('scripts/routing-status.ts'), /shapeOptions\(getRouter\(\), getAgentRegistry\(\)\)/);
-  assert.match(read('console/app.js'), /\['形态判定'/);
-  assert.match(read('console/app.js'), /\['三层结论'/);
+  // P-12：Vue 前端以组织形态卡片呈现（el-descriptions 标签）。
+  assert.match(read('console/app.js'), /形态判定/);
+  assert.match(read('console/app.js'), /三层结论/);
   assert.match(read('console/app.js'), /当前形态不需要三层，不硬造管理层/);
   assert.match(read('package.json'), /"shapes:smoke": "node --import tsx scripts\/shapes-smoke\.ts"/);
   const smoke = read('scripts/shapes-smoke.ts');

@@ -46,6 +46,7 @@ export type ClaimedStep = {
 export type RunStateStep = {
   stepNo: number; kind: string; status: string; claimedBy: string | null;
   attempts: number; modelCalls: number; result: unknown; checkpoint: unknown;
+  payload?: Record<string, unknown> | null;
 };
 
 const DDL = [
@@ -340,6 +341,28 @@ export class PgHostPlatform implements HostPlatformPort {
     });
   }
   /**
+   * P-11：立即就绪的入队——自动续跑的「续跑闸」用。前一步可能已永久失败，
+   * 没有人会再提升 queued 步骤；这道闸必须直接可领取。step_no 接在当前
+   * 最大步号之后，冲突时跳过（幂等）。
+   */
+  async enqueueReadySteps(runId: string, specs: StepSpec[]) {
+    await this.ensure();
+    return await this.write(async client => {
+      const { rows } = await client.query(`SELECT COALESCE(MAX(step_no), 0) AS max FROM ${S}.steps WHERE run_id = $1`, [runId]);
+      let stepNo = Number(rows[0]?.max ?? 0);
+      let inserted = 0;
+      for (const spec of specs) {
+        stepNo += 1;
+        const result = await client.query(
+          `INSERT INTO ${S}.steps (run_id, step_no, kind, status, payload) VALUES ($1,$2,$3,'ready',$4)
+           ON CONFLICT (run_id, step_no) DO NOTHING`,
+          [runId, stepNo, spec.kind, JSON.stringify(spec.payload ?? {})]);
+        inserted += result.rowCount ?? 0;
+      }
+      return { runId, enqueued: inserted, ready: inserted };
+    });
+  }
+  /**
    * 领一步：FOR UPDATE SKIP LOCKED 保证多个 worker 并发时不会抢到同一步；
    * runToken 是这一步的唯一凭据，进程崩了也能由 recoverStaleSteps 回收。
    */
@@ -433,11 +456,11 @@ export class PgHostPlatform implements HostPlatformPort {
   async runState(runId: string): Promise<RunStateStep[]> {
     await this.ensure();
     const { rows } = await this.pool.query(
-      `SELECT step_no, kind, status, claimed_by, attempts, model_calls, result, checkpoint
+      `SELECT step_no, kind, status, claimed_by, attempts, model_calls, result, checkpoint, payload
        FROM ${S}.steps WHERE run_id=$1 ORDER BY step_no`, [runId]);
     return rows.map(row => ({ stepNo: Number(row.step_no), kind: row.kind, status: row.status,
       claimedBy: row.claimed_by, attempts: Number(row.attempts), modelCalls: Number(row.model_calls),
-      result: row.result, checkpoint: row.checkpoint }));
+      result: row.result, checkpoint: row.checkpoint, payload: row.payload }));
   }
   async journalLines() {
     await this.ensure();

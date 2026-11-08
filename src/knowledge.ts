@@ -14,6 +14,10 @@ export const knowledgeInput = z.object({
   body: z.string().trim().min(1).max(30000),
   sources: z.array(z.string().url().refine(s => ['http:', 'https:'].includes(new URL(s).protocol))).min(1).max(20),
   expiresAt: z.string().datetime().optional(),
+  // P-13 知识写入链的权限分区：归属域与所有者。旧记录缺省视为 org（兼容既有
+  // propose 链路），owner 记提出者（user:<name> / agent:<key>）。
+  visibility: z.enum(['personal', 'team', 'org']).default('org'),
+  owner: z.string().max(80).default(''),
 }).strict();
 export type KnowledgeRef = { taskId: string; key: string };
 export type Knowledge = z.infer<typeof knowledgeInput> & { schemaVersion: 1; companyId: string; projectId: string;
@@ -66,11 +70,29 @@ export class KnowledgeService {
     const source = await pc.get(`/issues/${task.id}`);
     if (source.companyId !== this.config.companyId || !source.projectId) throw new Error('Knowledge requires a source project in this company');
     const value: Knowledge = { ...data, schemaVersion: 1, companyId: source.companyId, projectId: source.projectId,
-      sourceTaskId: task.id, state: 'candidate', updatedAt: new Date().toISOString(), proposedBy: actor };
+      sourceTaskId: task.id, state: 'candidate', updatedAt: new Date().toISOString(), proposedBy: actor,
+      // P-13：归属者以提出者为准（user:<name> / agent:<key>），不接受调用方伪造。
+      owner: actor.includes(':') ? actor : 'agent:' + actor };
     // Editing confirmed material resets it to candidate until a human reviews this revision.
     await pc.document(task.id, data.key, data.title, renderKnowledge(value));
     this.store.audit('knowledge.proposed', task.id, { key: data.key, actor });
     return this.read({ taskId: task.id, key: data.key });
+  }
+  /**
+   * P-13 · 人/agent 直接修订既有条目（知识后台 CRUD 的写路径）。
+   * 与 propose 同款红线：编辑已确认材料会把 state 重置为 candidate 等人重审。
+   * keepOwner 保留原归属者（update 不应把别人的条目变成自己的）。
+   */
+  async revise(ref: KnowledgeRef, input: unknown, actor: string, opts: { keepOwner?: boolean } = {}) {
+    const existing = await this.read(ref);
+    const data = knowledgeInput.parse(input);
+    if (data.key !== ref.key) throw new Error('修订不能变更条目 key；删除后另建');
+    const value: Knowledge = { ...data, schemaVersion: 1, companyId: existing.value.companyId, projectId: existing.value.projectId,
+      sourceTaskId: existing.value.sourceTaskId, state: 'candidate', updatedAt: new Date().toISOString(), proposedBy: actor,
+      owner: opts.keepOwner && existing.value.owner ? existing.value.owner : (actor.includes(':') ? actor : 'agent:' + actor) };
+    await this.pc.document(existing.value.sourceTaskId, data.key, data.title, renderKnowledge(value));
+    this.store.audit('knowledge.revised', existing.value.sourceTaskId, { key: ref.key, actor });
+    return this.read(ref);
   }
   async review(ref: KnowledgeRef, state: 'confirmed' | 'withdrawn', revision: string, actor: string) {
     const record = await this.read(ref);

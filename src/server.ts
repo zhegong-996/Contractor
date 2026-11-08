@@ -30,6 +30,9 @@ import { TeamMemory } from './team-memory.ts';
 import { TeamMembers } from './members.ts';
 // P-8：把 P-7 的记忆分层守门以只读 advisory 接进真实数据（不改写入链）。
 import { guardKnowledge, collectTranscript, assertGuardIsAdvisory } from './knowledge-guard.ts';
+// P-13：知识写入链的分区权限判定（人与 agent 共用 casbin，见 src/rbac.ts）。
+import { canWriteKnowledge, canCreateKnowledge, type KnowledgeActor } from './knowledge-authz.ts';
+import { initRbac, syncHumans, ensureHumanBound } from './rbac.ts';
 // P-9：双向协作回路的一等契约；三个执行链节点把真实事件留痕后，由只读体检汇总。
 import {
   loopReport, attachImplicitReplies, fromHitlLedger, loopSignature, dedupeLoopEvents,
@@ -136,7 +139,16 @@ const guard = new RuntimeGuardBridge(store, async space => {
   const [attention, watchdog] = await Promise.all([v06.attentionPolicy(space), v06.watchdogPolicy(space)]);
   return { attention: attention.policy, watchdog: watchdog.policy };
 }, config.runtimeGuard.enforce, config.runtimeGuard.protectHumanNotifications);
-const ingest = async (input: unknown) => (await collaborationIntake.ingest(input)) ?? control.ingest(input);
+// 第二十九轮 P-11 修复：协作 intake「没接住」的消息（routed:false，例如绑定
+// 聊天里发「任务 …」建新单、或对非协作任务发「确认验收 …」）此前被真值返回
+// 吞掉，Controller 永远收不到——新任务建不出来、验收指令无响应。现在这类
+// 消息显式落回 Controller 的中文指令链；协作 intake 抛错（Unauthorized 等）
+// 仍然原样上抛，不静默改道。
+const ingest = async (input: unknown) => {
+  const collab = await collaborationIntake.ingest(input);
+  if (collab !== undefined && collab !== null && (collab as { routed?: boolean }).routed !== false) return collab;
+  return control.ingest(input);
+};
 let feishuState = config.feishu.enabled ? 'connecting' : 'disabled';
 let tail: Promise<unknown> = Promise.resolve();
 const serialize = <T>(job: () => Promise<T>): Promise<T> => { const work = () => withFeishuReads(job); const next = tail.then(work, work); tail = next.catch(() => {}); return next; };
@@ -182,7 +194,7 @@ const server = createServer(async (req, res) => {
       // Reads recheck their own scope and revisions. They need not wait behind
       // indexing or native process reconciliation; mutations keep the single lane.
       const v06Reads=['roles-view','role-route','role-hints','role-snapshot','transfer-view','transfer-policy','dispatch-guard','grant-widen','grant-check','edges-view','edge-impact','label-check','policy-view','verification-level','topology-advice','inflight-policy','signals','review-readiness','ontology-meta','ontology-view','ontology-query','attention-policy','attention-filter','watchdog-policy','watchdog-inspect','plan-view','round-view','acceptance-export','acceptance-report-view','org-overview','org-mapping-view','context-pack','l2-status','l2-edges-view','l2-graph-view','agent-registry-view','acceptance-crew','evolution-view','execution-view'];
-      const readOnly=['view','view-summary','team-members','agent-services','agent-build','development-view','delivery-status','service-status','routing-status','memory-replay','memory-guard','loop-guard','network-view','memory-status','memory-search','memory-annotations','context-pack','context-record','context-search','ontology-view','model-settings','system-status','trace-view'].includes(action)||action==='knowledge-graph'&&payload.project!==true||action.startsWith('v06-')&&v06Reads.includes(action.slice(4));
+      const readOnly=['view','view-summary','team-members','agent-services','agent-build','development-view','delivery-status','service-status','routing-status','memory-replay','memory-guard','loop-guard','network-view','memory-status','memory-search','memory-annotations','context-pack','context-record','context-search','ontology-view','model-settings','system-status','trace-view','knowledge-list','knowledge-get'].includes(action)||action==='knowledge-graph'&&payload.project!==true||action.startsWith('v06-')&&v06Reads.includes(action.slice(4));
       const runWorkspace=readOnly?<T>(job:()=>Promise<T>)=>withFeishuReads(job):serialize;
       res.end(JSON.stringify(await runWorkspace(async () => {
         workspaceActor = await teamMembers.gate(action, payload, workspaceActor);
@@ -294,6 +306,68 @@ const server = createServer(async (req, res) => {
         if (action === 'invoke-agent-service') return agentServices.start(payload, workspaceActor, assistant);
         if (action === 'rebind-agent-service') return agentServices.rebind(payload.taskId, payload.version, workspaceActor, assistant);
         if (action === 'model-settings') return modelSettings.read(workspaceActor);
+        // ---- P-13 知识写入链：人（console 注入 actorUser）与 agent 的分区 CRUD ----
+        if (action === 'knowledge-list') {
+          // 宽松列举：任务文档里 knowledge-* 但非结构化条目的（如 knowledge-context
+          // 引用文件）如实跳过，不让一条坏行挡住整个列表。
+          const records = [];
+          for (const task of store.list()) {
+            const docs = await control.pc.get<any[]>(`/issues/${task.id}/documents`).catch(() => []);
+            for (const doc of (docs ?? []).filter(d => /^knowledge-[a-z0-9-]{1,36}$/.test(d.key ?? ''))) {
+              try { records.push(await knowledge.read({ taskId: task.id, key: doc.key })); } catch { /* 非条目文档跳过 */ }
+            }
+          }
+          return { items: records.map(r => ({ taskId: r.ref.taskId, key: r.ref.key, revision: r.revision,
+            title: r.value.title, kind: r.value.kind, state: r.value.state, domains: r.value.domains,
+            visibility: r.value.visibility ?? 'org', owner: r.value.owner ?? '', proposedBy: r.value.proposedBy,
+            updatedAt: r.value.updatedAt })) };
+        }
+        if (action === 'knowledge-get') {
+          const record = await knowledge.read({ taskId: String(payload.taskId ?? ''), key: String(payload.key ?? '') });
+          return { value: record.value, revision: record.revision };
+        }
+        if (action === 'knowledge-create' || action === 'knowledge-update' || action === 'knowledge-delete') {
+          // actorUser 由可信端（console）注入：/workspace 全程已鉴权（插件/管理
+          // token），冒充他人只会降权不会提权。agent 调用则按其 registry 档位判。
+          const actor: KnowledgeActor = typeof payload.actorUser === 'string' && /^[a-zA-Z0-9_-]{2,32}$/.test(payload.actorUser)
+            ? { kind: 'human', username: payload.actorUser }
+            : workspaceActor.agent
+              ? { kind: 'agent', key: workspaceActor.agent, agent: getAgentRegistry().agents.find(a => a.key === workspaceActor.agent) }
+              : { kind: 'human', username: workspaceActor.userId ?? 'local-operator' };
+          const sub = actor.kind === 'human' ? 'user:' + actor.username : 'agent:' + actor.key;
+          // 判定前自愈绑定（跨进程快照漂移：新建/改角色账号按 accounts.json 现绑）。
+          if (actor.kind === 'human') await ensureHumanBound(actor.username);
+          if (action === 'knowledge-create') {
+            const task = store.get(String(payload.taskId ?? ''));
+            if (!task || task.kind === 'collaboration') throw new Error('创建知识需要一个本项目内非协作的挂靠任务');
+            const visibility = (['personal', 'team', 'org'].includes(String(payload.visibility)) ? payload.visibility : 'org') as 'personal' | 'team' | 'org';
+            const gate = canCreateKnowledge(actor, visibility);
+            if (!gate.allowed) throw new Error('未授权：' + gate.reason);
+            const { actorUser: _a, taskId: _t, ...input } = payload; // visibility 留在 input（knowledgeInput 校验归属分区）
+            const created = await knowledge.propose(task, input, sub);
+            store.audit('knowledge.crud-create', task.id, { key: created.ref.key, actor: sub, visibility });
+            return { ok: true, key: created.ref.key, revision: created.revision, visibility };
+          }
+          const ref = { taskId: String(payload.taskId ?? ''), key: String(payload.key ?? '') };
+          const record = await knowledge.read(ref);
+          if (action === 'knowledge-update') {
+            const gate = canWriteKnowledge(actor, record.value, 'update');
+            if (!gate.allowed) throw new Error('未授权：' + gate.reason);
+            if (payload.visibility && String(payload.visibility) !== (record.value.visibility ?? 'org')) {
+              const reGate = canCreateKnowledge(actor, String(payload.visibility) as 'personal' | 'team' | 'org');
+              if (!reGate.allowed) throw new Error('未授权变更归属域：' + reGate.reason);
+            }
+            const { actorUser: _a, taskId: _t, ...input } = payload; // key 留在 input（revise 校验与条目一致）
+            const updated = await knowledge.revise(ref, input, sub, { keepOwner: true });
+            store.audit('knowledge.crud-update', ref.taskId, { key: ref.key, actor: sub });
+            return { ok: true, key: ref.key, revision: updated.revision };
+          }
+          const gate = canWriteKnowledge(actor, record.value, 'delete');
+          if (!gate.allowed) throw new Error('未授权：' + gate.reason);
+          await knowledge.review(ref, 'withdrawn', record.revision, sub);
+          store.audit('knowledge.crud-delete', ref.taskId, { key: ref.key, actor: sub });
+          return { ok: true, key: ref.key, state: 'withdrawn' };
+        }
         if (action === 'knowledge-graph') return graph.run(payload.sourceId, payload.revision, payload.project === true, workspaceActor, payload.taskId);
         if (action === 'ontology-view') return ontology.read(payload.space, workspaceActor);
         if (action === 'ontology-save') return ontology.save(payload.space, payload.schema, payload.revision ?? null, workspaceActor);
@@ -488,7 +562,18 @@ const server = createServer(async (req, res) => {
         if (!event) throw new Error('事件字段不完整，未写入过程流水');
         return control.recordTraceEvent(task.id, event);
       }
-      if (action === 'knowledge-propose') return task.kind === 'collaboration' ? workspaces.propose(task.id, data, actor) : knowledge.propose(store.get(task.id), data, actor.agent ?? 'local-operator', reader);
+      if (action === 'knowledge-propose') {
+        if (task.kind === 'collaboration') return workspaces.propose(task.id, data, actor);
+        // P-13：agent 提出知识同样走分区判定（本地 owner 直调保留全权）。
+        if (!actor.admin) {
+          const agentActor: KnowledgeActor = { kind: 'agent', key: actor.agent ?? 'local-operator',
+            agent: getAgentRegistry().agents.find(a => a.key === actor.agent) };
+          const visibility = (['personal', 'team', 'org'].includes(String(data.visibility)) ? data.visibility : 'org') as 'personal' | 'team' | 'org';
+          const gate = canCreateKnowledge(agentActor, visibility);
+          if (!gate.allowed) throw new Error('未授权：' + gate.reason);
+        }
+        return knowledge.propose(store.get(task.id), data, actor.agent ?? 'local-operator', reader);
+      }
       if (action === 'knowledge-review' || action === 'knowledge-attach') {
         if (task.kind === 'collaboration') throw new Error('请通过知识协作入口处理来源依赖与确认');
         if (!actor.admin) throw new Error('Unauthorized');
@@ -600,6 +685,14 @@ if (config.feishu.enabled) {
   consumer.on('error', error => { feishuState = 'disconnected'; console.error('Feishu listener:', error.message); });
   consumer.on('exit', code => { ready = false; feishuState = 'disconnected'; if (!stopping) console.error(`Feishu listener exited (${code}); restart after restoring the connection`); });
 }
+// P-12/P-13：casbin RBAC（人与 agent 共用策略文件）；启动时绑定 console 账号。
+void (async () => {
+  try {
+    await initRbac();
+    const { ConsoleAuth } = await import('./console-auth.ts');
+    await syncHumans(new ConsoleAuth().listAccounts().map(a => ({ username: a.username, role: a.role })));
+  } catch (error) { console.error('RBAC init:', String(error).slice(0, 300)); }
+})();
 server.listen(config.bridgePort, '127.0.0.1', () => { console.log(`SuitMe bridge: http://127.0.0.1:${config.bridgePort}`); void tick(); });
 async function shutdown(code = 0) {
   if (stopping) return; stopping = true; consumer?.stdin?.end(); consumer?.kill('SIGTERM');

@@ -74,7 +74,7 @@ for (const submodulePath of paths) {
 
 for (const file of ['THIRD_PARTY_NOTICES.md', 'licenses/cognee-APACHE-2.0.txt',
   'licenses/a2a-js-APACHE-2.0.txt', 'licenses/harness-vendor-MIT.txt', 'licenses/acceptance-APACHE-2.0.txt',
-  'licenses/pg-MIT.txt'])
+  'licenses/pg-MIT.txt', 'licenses/casbin-APACHE-2.0.txt', 'licenses/vue-MIT.txt', 'licenses/element-plus-MIT.txt'])
   if (!existsSync(path.join(root, file))) problems.push(`缺少声明/许可证文件 ${file}`);
 
 // R7：C-1 新增的 npm 依赖必须精确锁版本、留许可证原文、写进声明。
@@ -84,6 +84,24 @@ if (packageJson.dependencies?.pg !== '8.23.1') problems.push('pg 依赖未按精
 if (!npmLock.packages?.['node_modules/pg']?.integrity) problems.push('pg 缺少 package-lock integrity');
 if (!flat(notices).includes(flat('node-postgres'))) problems.push('THIRD_PARTY_NOTICES.md 未声明 node-postgres (pg)');
 notes.push('npm: pg@8.23.1 MIT · licenses/pg-MIT.txt · package-lock integrity');
+
+// R7 扩展（第三十轮 P-12/P-13）：casbin（npm 运行时依赖，Apache-2.0）与
+// Vue 3 / Element Plus（本地 vendor 的前端运行时，MIT）同样必须精确锁版本、
+// 留许可证原文、写进声明；vendor 版本号与登记值逐一核对，防止悄悄换版。
+if (packageJson.dependencies?.casbin !== '5.51.1') problems.push('casbin 依赖未按精确版本锁定');
+if (!npmLock.packages?.['node_modules/casbin']?.integrity) problems.push('casbin 缺少 package-lock integrity');
+if (!flat(notices).includes(flat('casbin'))) problems.push('THIRD_PARTY_NOTICES.md 未声明 casbin');
+notes.push('npm: casbin@5.51.1 Apache-2.0 · licenses/casbin-APACHE-2.0.txt · package-lock integrity');
+for (const file of ['vue.global.prod.js', 'element-plus.full.min.js', 'element-plus.css',
+  'element-plus.dark.css', 'element-plus-locale-zh-cn.js'])
+  if (!existsSync(path.join(root, 'console/vendor', file))) problems.push(`缺少本地 vendor 前端库 console/vendor/${file}`);
+const vueVendor = readFileSync(path.join(root, 'console/vendor/vue.global.prod.js'), 'utf8');
+if (!vueVendor.includes('vue v3.5.45')) problems.push('console/vendor/vue.global.prod.js 版本不是登记的 3.5.45');
+const epVendor = readFileSync(path.join(root, 'console/vendor/element-plus.full.min.js'), 'utf8');
+if (!epVendor.includes('Element Plus v2.14.8')) problems.push('console/vendor/element-plus.full.min.js 版本不是登记的 2.14.8');
+if (!flat(notices).includes(flat('Vue.js'))) problems.push('THIRD_PARTY_NOTICES.md 未声明 Vue.js');
+if (!flat(notices).includes(flat('Element Plus'))) problems.push('THIRD_PARTY_NOTICES.md 未声明 Element Plus');
+notes.push('frontend vendor: vue@3.5.45 MIT + element-plus@2.14.8 MIT · console/vendor/ 本地化（离线可用，不依赖 CDN）');
 
 // R7 扩展（P-6）：Runner 的两块协议语义用 TypeScript 重写，不是 submodule，
 // 但同样必须固定 MIT 提交、留许可证原文、写进声明；且不得变成第 8 个上游。

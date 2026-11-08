@@ -6,7 +6,7 @@
 cd /Users/gong.zhe/Developer/ai-native-collab
 export NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost NODE_USE_ENV_PROXY=0
 
-npm test                    # 532/532（基线）
+npm test                    # 540/540（基线）
 npx tsc --noEmit            # 退出 0
 npm run build:workspaces    # 插件 UI 打包 + 类型检查
 npm run build:chinese-shell # hiddenEntries 4 条、missed []、warning null
@@ -16,7 +16,7 @@ npm run shapes:smoke        # C-5 扁平 / 分层各跑真实一单 36/36（隔�
 npm run evolution:smoke     # C-6 沉淀回流与自演进闭环 45/45（隔离治理台账）
 npm run steps:smoke         # P-1 单步执行 40/40（隔离队列 + PG 专属库 + 真实子进程）
 npm run test:walkthrough    # 11/11、failures []
-npm run audit:upstream      # clean: true、problems []
+npm run audit:upstream      # clean: true、problems []（含 casbin / Vue / Element Plus 登记）
 git diff --check            # 退出 0
 ```
 
@@ -43,8 +43,10 @@ npm run steps:smoke         # P-1 完整链 + 全部反例 40/40（唯一 runId�
 npm run step:once           # P-1 一次进程只跑一步；默认 loop 下不连库、如实返回未启用
 npm run console:smoke       # 临时端口 + Chrome 真跑，输出 .runtime/console-smoke.json
 npm run loop:smoke          # P-9 双向回路：真实 HTTP + 隔离子进程提问/回答/回流建议，16/16
+npm run services status     # 4190/4192/4194(+git 9418) 辅助服务统一纳管状态（P-11）
+npm run console:owner -- <用户名> <口令>  # 首次引导：创建 owner 账号（只能一次；P-12 登录制）
 npm run cognee:native -- status   # enabled:true, configured:false（缺 4 个环境变量）
-npm run delivery:demo       # 本机 Git 链路；4194/9418 停机时 gitProtocolClonePull 为 false，属预期
+npm run delivery:demo       # 本机 Git 链路；4194/9418 停机时 gitProtocolClonePull 为 false，属预期（P-11 起两服务常驻运行中）
 ```
 
 `memory:journey` 会新建一条专用资料并在末尾撤回，**不是只读检查**；`memory:checkpoint -- --reset` 会全量重建后再按 append-only 前缀增量应用。
@@ -144,7 +146,20 @@ npm run delivery:demo       # 本机 Git 链路；4194/9418 停机时 gitProtoco
 | 冻结基线 | golden diff 抓到白名单 18→19，人审后手工更新并写 `humanReview` |
 | 既有回归 | `guard:smoke` 22/22、`steps:smoke` 54/54、`memory:hierarchy` 16/16、tsc、两构建、425px、走查 11/11、`console:smoke failed: []`、`audit:upstream clean:true`、`git diff --check` |
 
-## 8. 真实 HTTP 冒烟模板（admin token 从 `.runtime/secrets.json` 读，不入库）
+## 8. 第二十九 / 三十轮实测结果（2026-11-08，P-11 自动续跑与 P-12/P-13 RBAC·前端重写·知识分区 CRUD）
+
+| 项 | 结果 |
+|---|---|
+| `npm test` | **540 / 540**（第二十八轮 532 + `tests/auto-resume.test.ts` 8 例等 P-11 契约；P-12/P-13 契约换代净增） |
+| RBAC / 登录制 | casbin `5.51.1`（Apache-2.0）+ 策略文件 `.runtime/console/rbac_policy.csv`（种子生成、删文件即重置）；人四档 `g` 绑定 + `ensureHumanBound` 跨进程自愈；agent 三档直判；`rbacEnforce` 同步 fail-closed |
+| `console:smoke` | **49/49 `ok:true`**：未登录 401 / 错口令 401 / 登录发 cookie / viewer 只读边界（admin 动作 403、用户配置总览 403）/ `settingsSetOwn` / `settingsGetOwn`（API Key 打码）/ `settingsValidated` / `adminUsersOverview`（4 用户）/ `adminAccountsForbidden`（admin 无 accounts-manage）/ `policyReadable` / 知识分区正负例（viewer 建 team 409、建改删自己 personal 200、admin 改他人 personal 409、admin 建 team 200）/ Vue 登录表单走查 / 六视图渲染 / 主题切换 / 425px `425/425` / 零海外文案 / 登出后 401 |
+| 知识分区 CRUD（真实 HTTP） | `knowledge-list` 200（27 条）；`knowledge-get` 详情；`knowledge-create/update/delete` 由 console 注入 `actorUser`、bridge 端 casbin 分区判定；删除=软撤回（state→withdrawn），编辑已确认条目重置 candidate |
+| 前端（Vue 3.5.45 + Element Plus 2.14.8） | 本地 vendor 离线可用（不依赖 CDN）；协作视图恢复五张契约卡（组织形态 / Agent 编制 / 怎么派活 / 沉淀与自演进 / 长程执行）；`DOMESTIC_TERMS` 品牌词清洗；管理视图按权限分区渲染；1280 截图布局无重叠错位 |
+| R7 登记 | `licenses/casbin-APACHE-2.0.txt`、`licenses/vue-MIT.txt`、`licenses/element-plus-MIT.txt` + `THIRD_PARTY_NOTICES.md` 三段 + `docs/SOURCES.md` 三行 + 合规 G9 + `audit-upstream.ts` 机器校验（含 vendor 版本横幅 `vue v3.5.45` / `Element Plus v2.14.8`）；`clean:true`、7 个上游 submodule 不变 |
+| 既有回归不回退 | `tsc`、`router:smoke` 31/31、`agents:smoke` 43/43、`shapes:smoke` 36/36、`evolution:smoke` 45/45、`steps:smoke` 54/54、`loop:smoke` 17/17、`host:pg` 21/21、`audit:upstream clean`、`git diff --check` |
+| 如实边界 | 任务发起仍在飞书；验收核可仍在原会话（第二十九轮授权代办除外，留痕见回执 delegation 字段）；默认底座仍 `paperclip`；执行形态默认 `loop`（`.runtime/config.json` 的 step 实验配置已按交付口径回滚）；冒烟账号 smoke-viewer / smoke-admin 已禁用留痕 |
+
+## 9. 真实 HTTP 冒烟模板（admin token 从 `.runtime/secrets.json` 读，不入库）
 
 ```sh
 node --import tsx --input-type=module -e "
@@ -164,20 +179,20 @@ req.on('error', e => console.log('ERR', e.message)); req.end(payload);
 
 把 path 换成 `routing-status` / `service-status` / `delivery-status` / `system-status` 可查其它只读状态。改过 `src/server.ts` / `src/v06.ts` / `src/workspaces.ts` 等服务端代码后先 `npm run restart:bridge`。
 
-## 9. 服务端口表
+## 10. 服务端口表
 
 | 端口 | 用途 | 交接状态 | 启动方式 |
 |---|---|---|---|
 | 3100 | Paperclip 工作台 + 插件宿主 | 运行中 | `npm run up`（冷启动 45s 超时见 `00`） |
 | 4180 | Bridge workspace action | 运行中 | `npm run restart:bridge` |
-| 4190 | Apple Vision 本机端点 | **停机·不得重启** | — |
-| 4192 | 验收报告 / 总览 | **停机·不得重启** | — |
-| 4194 | 本机 Git 交付台 | **停机·不得重启** | — |
-| 9418 | git daemon | **停机·不得重启** | — |
+| 4190 | Apple Vision 本机端点 | **运行中**（第二十九轮用户拍板「全部搞定」后重启并纳管） | `npm run services start vision`（统一入口 `scripts/services.ts`） |
+| 4192 | 验收报告 / 总览 | **运行中**（同上） | `npm run services start report` |
+| 4194 | 本机 Git 交付台 | **运行中**（同上） | `npm run services start delivery` |
+| 9418 | git daemon | **运行中**（随交付台纳管） | `npm run services start delivery` |
 | 5432 | 本机 PG 17 专属库 suitme_collab_c1 | 运行中（用户既有实例） | 不新建服务；只连回环，勿动其它库 |
-| 4200（按需） | 自研独立控制台 | 不常驻 | `npm run console` 才启动，只绑 127.0.0.1；冒烟用随机端口，跑完即关 |
+| 4200（按需） | 自研独立控制台（P-12 起登录制 + casbin RBAC + Vue 前端） | 运行中 | `npm run console`，只绑 127.0.0.1；owner 口令在 `.runtime/console/owner-password.txt`；冒烟用随机端口，跑完即关 |
 
-## 10. 排障速查
+## 11. 排障速查
 
 | 现象 | 根因 | 处理 |
 |---|---|---|
@@ -193,7 +208,7 @@ req.on('error', e => console.log('ERR', e.message)); req.end(payload);
 | `v06-l2-extract` 报「边指向不存在的节点」 | `memory-index` 先自动抽过一次，任务级镜像未带入全局已有节点 | `buildTaskGraphMirror()` 补齐，见 `tests/l2-extraction.test.ts` |
 | 真实日志出现 `danglingCausedBy` | `reviewSource` 用评审前 revision，确认事件被幂等去重 | 已改用 `reviewedRevision`；历史行不物理删除，重放如实记录 |
 
-## 11. 提交前检查（每轮都做）
+## 12. 提交前检查（每轮都做）
 
 ```sh
 git status --short

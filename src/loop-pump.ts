@@ -41,6 +41,12 @@ export type SteppedPumpResult = {
  * 单步泵。注意这里的粒度：一次独立调用 = 一次 worker.tick()，状态的读写都走
  * 队列。autoloop worker 内部一次 tick 若触发多次模型 / 工具子调用，尚未逐次
  * 拆分（见 executionView().missing），不假装已经做到「每次子调用一步」。
+ *
+ * 第二十九轮 P-11 修复：真实业务单（SUI-135）暴露两个问题——
+ *   1. 泵没有 tick 间隔，60 步在一两分钟内耗尽，codex 还在干活泵就退出了；
+ *   2. 任务因此悬挂在 running（步 61 ready 但无人领取）。
+ * 现在与 legacy 循环同节奏（intervalMs，默认 1000ms），步数上限交给
+ * config.execution.maxStepsPerRun（真实业务建议 ≥ 7200 ≈ 2 小时）。
  */
 export async function driveSteppedPump(input: {
   config: Config;
@@ -53,8 +59,12 @@ export async function driveSteppedPump(input: {
   settled: () => boolean;
   /** 会话状态只能从这里写进队列，不允许留在进程内存里跨步持有。 */
   snapshot: () => Record<string, unknown>;
+  /** 步与步之间的等待毫秒数；与 legacy 循环的 250ms 同类，默认 1000ms。 */
+  intervalMs?: number;
 }): Promise<SteppedPumpResult> {
   const queue = input.queue ?? PgStepQueue.fromConfig(input.config);
+  const intervalMs = Math.max(0, input.intervalMs ?? 1000);
+  const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
   const handlers = {
     'worker-tick': async () => {
       await input.tick();
@@ -71,7 +81,8 @@ export async function driveSteppedPump(input: {
     const drive = await driveSteppedLoop({ queue, runId: input.runId, principal: input.principal,
       scope: input.scope ?? null, maxSteps: input.config.execution.maxStepsPerRun,
       first: { kind: 'worker-tick', payload: { taskId: input.taskId } }, handlers,
-      worker: stepNo => ({ workerId: `step-worker-${stepNo}`, environment: '本机执行环境' }) });
+      worker: stepNo => ({ workerId: `step-worker-${stepNo}`, environment: '本机执行环境' }),
+      intervalMs });
     const states = await queue.runState(input.runId);
     return { ...drive, states };
   } finally {

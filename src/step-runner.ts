@@ -12,12 +12,13 @@ import { createHash } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import { loadConfig } from './config.ts';
 import { PgStepQueue, executeOneStep, type StepHandler } from './step-execution.ts';
-import { askHuman, HitlRefusal, resolveHitlSink } from './step-hitl.ts';
+import { askHuman, HitlRefusal, resolveHitlSink, type HitlSink } from './step-hitl.ts';
+import { verifyResumeGate } from './auto-resume.ts';
 
 /** 本机允许的工具白名单；未登记的工具一律拒绝，不静默执行。 */
 export const STEP_RUNNER_TOOLS = ['sha256'] as const;
 
-export function stepRunnerHandlers(): Record<string, StepHandler> {
+export function stepRunnerHandlers(hitl: HitlSink = resolveHitlSink()): Record<string, StepHandler> {
   return {
     'tool-call': (step, ctx) => {
       const tool = String(step.payload?.tool ?? '');
@@ -41,13 +42,46 @@ export function stepRunnerHandlers(): Record<string, StepHandler> {
     // P-6：执行进程仍不得自行放行，但不再「只拒绝、无证据」——先生成一条
     // `human_question`（id 即问题编号、因果放 payload），由 executeOneStep
     // 落到注入的成对台账；真人回答走 npm run step:answer，不在这个进程里发生。
+    // P-11：回答落地后按用户授权自动排回的「续跑闸」也走这个 handler——
+    // 带 resumeOf 的闸在执行期重新验证台账里的成对回答，通过才放行接续步。
     'human-gate': (step, ctx) => {
+      const resumeOf = typeof step.payload?.resumeOf === 'string' ? step.payload.resumeOf : null;
+      if (resumeOf) {
+        const verified = verifyResumeGate({ sink: hitl, resumeOf,
+          expectResponseId: typeof step.payload?.responseId === 'string' ? step.payload.responseId : undefined });
+        if (!verified.ok) {
+          // 不硬闯：重新提问（新的问题编号），让回答链路重新成对。
+          const reask = askHuman({ runId: ctx.runId, stepNo: step.stepNo,
+            asker: ctx.principal || 'step-runner',
+            prompt: `自动续跑验证未通过（${verified.reason}），需要真人重新确认`,
+            choices: ['继续', '暂停'],
+            triggeredBy: resumeOf });
+          throw new HitlRefusal(reask);
+        }
+        const nextSpec = step.payload?.resume_next && typeof step.payload.resume_next === 'object'
+          ? step.payload.resume_next as { kind: string; payload?: Record<string, unknown> }
+          : undefined;
+        return {
+          result: { gate: 'passed', questionId: resumeOf, responseId: verified.response.id,
+            choice: String(verified.response.payload?.choice ?? ''),
+            via: String(verified.response.payload?.via ?? ''),
+            mandate: step.payload?.mandate ?? null,
+            notAcceptance: true },
+          checkpoint: { ...ctx.previousCheckpoint, gatePassed: resumeOf,
+            gateChoice: String(verified.response.payload?.choice ?? '') },
+          ...(nextSpec ? { next: nextSpec } : {}),
+          modelCalls: 0,
+        };
+      }
       const prompt = String(step.payload?.question ?? '').trim() || '这一步需要真人确认后才能继续';
       const declared = Array.isArray(step.payload?.choices) ? step.payload!.choices as unknown[] : [];
       const choices = declared.length >= 2 ? declared.map(String) : ['继续', '暂停'];
       const question = askHuman({ runId: ctx.runId, stepNo: step.stepNo,
         asker: ctx.principal || 'step-runner', prompt, choices,
-        triggeredBy: typeof step.payload?.triggeredBy === 'string' ? String(step.payload.triggeredBy) : null });
+        triggeredBy: typeof step.payload?.triggeredBy === 'string' ? String(step.payload.triggeredBy) : null,
+        // 闸通过后要接续的工作步随问题留痕；自动续跑从这里取回。
+        resumeNext: step.payload?.next && typeof step.payload.next === 'object'
+          ? step.payload.next as Record<string, unknown> : null });
       throw new HitlRefusal(question);
     },
     'worker-tick': () => { throw new Error('worker.tick 只能由宿主入口的单步泵执行，独立进程不得伪造'); },

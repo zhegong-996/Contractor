@@ -384,7 +384,16 @@ export class Controller {
    * 与代码交付验收（accept）并列，不要求 CI / commit，也绝不冒充部署环境。
    * 身份必须是原发起人；清单版本、评审者、逐项判定由 verifyAcceptanceGate 复核。
    */
-  async confirmAcceptance(id: string, actor: string, eventId: string) {
+  /**
+   * 按开工前锁定清单逐项确认验收。
+   *
+   * 第二十九轮 P-11 起 support 授权代办（delegation）：用户 2026-11-08 18:05 明确
+   * 「模拟真人来完成，全部搞定」。代办的唯一变化是回执与通知**如实**记录
+   * 「由 Agent 在原发起人明确授权下代为执行」——不伪造真人亲手操作的痕迹；
+   * 逐项闸门（锁定清单 / 独立评审 / 证据核对）与不 delegat 时的完全一致。
+   */
+  async confirmAcceptance(id: string, actor: string, eventId: string,
+    delegation?: { authorizedBy: string; instruction: string; executedAt?: string }) {
     const task = this.store.get(id);
     const context = JSON.parse(task.context);
     if (context.requesterUserId && context.requesterUserId !== actor) throw new Error('只有原发起人可以确认验收');
@@ -397,29 +406,44 @@ export class Controller {
     if (gate.status !== 'verified') throw new Error(`验收闸门未通过：${gate.reason ?? '证据不足'}`);
     const receipt = {
       confirmedAt: new Date().toISOString(), actor, mode: 'sealed-plan',
+      // P-11：执行者身份如实留痕。代办不改变核可权归属（actor 仍是原发起人），
+      // 只记录「这次按键的是谁、凭什么」。
+      executedBy: delegation ? 'agent-under-delegation' as const : 'originator' as const,
+      ...(delegation ? { delegation: {
+        authorizedBy: delegation.authorizedBy,
+        instruction: delegation.instruction,
+        executedAt: delegation.executedAt ?? new Date().toISOString(),
+      } } : {}),
       planHash: sealed.plan.hash, planRevision: sealed.revision,
       reviewer: round.reviewer.model, round: round.round, cases,
       evidenceReview: { status: gate.status, level: gate.plan?.level, gaps: gate.gaps },
       environment: '工作台逐项评审（不是代码部署环境）',
-      note: '本次核可由原发起人完成；独立评审报告只提供证据，不代替人签字',
+      note: delegation
+        ? '本次核可为原发起人明确授权后的代办执行，授权原文见 delegation 字段；独立评审报告只提供证据，不代替人签字'
+        : '本次核可由原发起人完成；独立评审报告只提供证据，不代替人签字',
     };
     await this.pc.document(task.id, 'acceptance', '逐项验收', JSON.stringify(receipt, null, 2));
     await this.pc.document(task.id, 'decisions', '已采用结论',
-      `本任务由原发起人于 ${receipt.confirmedAt} 按开工前锁定清单确认验收。\n\n只适用于本任务所列检查项；不代表生产发布、其他功能或后续版本通过。\n\n证据缺口：${(gate.gaps ?? []).join('；') || '无'}`);
+      `本任务${delegation ? '由原发起人授权 Agent 代办、于' : '由原发起人于'} ${receipt.confirmedAt} 按开工前锁定清单确认验收。\n\n只适用于本任务所列检查项；不代表生产发布、其他功能或后续版本通过。\n\n证据缺口：${(gate.gaps ?? []).join('；') || '无'}`);
     await this.pc.patch(`/issues/${task.id}`, { status: 'done' });
     const current = this.store.get(id);
     current.phase = 'accepted'; this.store.save(current);
     this.store.audit('task.confirm-accepted', id, receipt);
+    if (delegation) this.store.audit('acceptance.delegated', id, {
+      executedBy: 'agent-under-delegation', authorizedBy: delegation.authorizedBy,
+      instruction: delegation.instruction, actor,
+      note: '授权代办：核可权属于原发起人，执行由 Agent 完成，两者都如实留痕' });
     recordMemory({ kind: 'acceptance-recorded', actor,
-      payload: { taskId: id, mode: 'sealed-plan', planHash: sealed.plan.hash, cases: cases.map(c => c.name) },
+      payload: { taskId: id, mode: 'sealed-plan', planHash: sealed.plan.hash, cases: cases.map(c => c.name),
+        ...(delegation ? { executedBy: 'agent-under-delegation' } : {}) },
       idempotencyKey: 'confirm:' + id + ':' + sealed.plan.hash });
     await this.trace.append(id, capture({
       taskId: id, at: receipt.confirmedAt, kind: 'acceptance', actor,
-      provenance: 'originator', evidenceKind: 'authored', checkpoint: CONFIRM_ACCEPT,
+      provenance: delegation ? 'originator-delegated' : 'originator', evidenceKind: 'authored', checkpoint: CONFIRM_ACCEPT,
       outcome: 'accepted', refs: cases.map(c => c.name),
     }));
     this.store.notify(`confirm:${eventId}`, task.id,
-      `${task.identifier} 已由原发起人${CONFIRM_ACCEPT}，逐项报告与证据已归档；未通过的检查项不会被算作通过。`);
+      `${task.identifier} 已${delegation ? '由原发起人授权 Agent 代办' : '由原发起人'}${CONFIRM_ACCEPT}，逐项报告与证据已归档；未通过的检查项不会被算作通过。`);
     return receipt;
   }
   /** v0.6: seal the acceptance criteria before execution starts. */

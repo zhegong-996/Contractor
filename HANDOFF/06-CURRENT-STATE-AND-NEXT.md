@@ -1,6 +1,6 @@
 # 06 · 当前状态与下一步（接手者最该看的一份）
 
-## 1. 状态快照（第二十七轮 P-9）
+## 1. 状态快照（第三十轮 P-12/P-13）
 
 | 阶段 | 状态 | 交付 |
 |---|---|---|
@@ -13,8 +13,11 @@
 | **生产项 P-6 Runner 两块协议移植 + 四项借思想** | ✅ **第二十四轮完成**：HITL 成对留痕、队列累计确认 / 至少一次通知 / 投递就绪、六态派生 / 能力声明 / 分层 / 快照不回溯；MIT 固定来源、未引入第 8 个上游 | 见第 8 节 P-6 交付与证据 |
 | **生产项 P-7 Anthropic agent memory 分层参考 +「参考即记忆」规则** | ✅ **第二十五轮完成**：五组纯函数守门（挂靠 / wiki 护栏 / 注入索引 / 只读 Dreaming / 参考按候选沉淀）；网页文章仅借思想、登记在 `conceptReferences`，不是第 8 个上游 | 见第 9 节 P-7 交付与证据 |
 | **生产项 P-8 查漏补缺 + 取长补短** | ✅ **第二十六轮完成**：守门以只读 `memory-guard` 接真实数据；冻结基线 / golden diff / 双臂旗标 / 出站不暴露硬断言 / 决策留痕隔离落地 | 见第 10 节 P-8 交付与证据 |
+| **生产项 P-9/P-10 双向回路与漏洞修复** | ✅ **第二十七 / 二十八轮完成**：回路契约 + 三个执行链节点留痕 + 回流建议；五个真实缺陷修复 + 飞书显式回答接进 HITL 台账（恒 advisory） | 见第 11 节 |
+| **生产项 P-11 回答自动续跑 + 授权代办 + 服务纳管** | ✅ **第二十九轮完成**：用户三连拍板（自动续跑闸 / step 真实业务单 SUI-129·SUI-135 授权代办核可 / 四个已取消服务重启纳管） | 见第 12 节 |
+| **P-12 RBAC + 用户级配置 + 前端重写；P-13 知识分区 CRUD** | ✅ **第三十轮完成**：casbin RBAC（两进程共用）、用户级配置（本人读写 / 管理员总览）、Vue 3 + Element Plus 前端重写（本地 vendor）、知识 create/update/delete + 分区权限 | 见第 13 节 |
 
-系统能跑、全套回归全绿（**532/532 单测**、**`memory:hierarchy` 16/16**、**`guard:smoke` 22/22**、11/11 真实浏览器走查、**`console:smoke` 全绿、`router:smoke` 31/31、`agents:smoke` 43/43、`shapes:smoke` 36/36、`evolution:smoke` 45/45、`steps:smoke` 54/54**、上游 clean、`host:pg` 21/21）。`HEAD = origin/main = 远端 main`。C-1 起每次代码改动都重跑全套；本机 PG 17.10 专属库 `suitme_collab_c1` 已可真跑。
+系统能跑、全套回归全绿（**540/540 单测**、**`console:smoke` 49/49**、**`memory:hierarchy` 16/16**、**`guard:smoke` 22/22**、**`steps:smoke` 54/54**、**`router:smoke` 31/31、`agents:smoke` 43/43、`shapes:smoke` 36/36、`evolution:smoke` 45/45、`loop:smoke` 17/17**、上游 clean（含 casbin / Vue / Element Plus 新登记）、`host:pg` 21/21）。`HEAD = origin/main = 远端 main`。C-1 起每次代码改动都重跑全套；本机 PG 17.10 专属库 `suitme_collab_c1` 已可真跑。服务现状：3100 / 4180 / 4190 / 4192 / 4194（+git 9418）全部运行中，由 `scripts/services.ts` 统一纳管。
 
 ## 2. B2 已完成（四项，均带真跑证据）
 
@@ -165,3 +168,22 @@
 - **交付**：`src/collaboration-loop.ts`（下行 8 类 / 上行 6 类、`loopReport()` 回路判据、`attachImplicitReplies()` 就近配对、`bridgeAnswerToResume()` 回流建议、`fromAutoloopReceipt()` 与 `fromHitlLedger()` 上游归一化）；只读 action `loop-guard`（三处白名单同步）；`scripts/step-answer.ts` 产出并持久化回流建议到独立 append-only 台账；`tests/collaboration-loop.test.ts` 16 例、`tests/p9-contracts.test.ts` 6 例常态契约、`scripts/loop-smoke.ts` + `npm run loop:smoke` 16/16。
 - **真实耦合**：`src/upstream.ts` 运行时直接加载未修改的 Super Agent / Autoloop / DeepSeek Harness 源码，`controller.receipt()` 的 `resultFrom()` 就是上游函数；本轮把它的输出接成上行回路事件，并在 `controller.reply()` / `collaboration-intake.ingest()` 登记下行应答。7 个上游不变、未新增 submodule / npm 依赖。
 - **红线**：回执 ≠ 验收、回答 ≠ 放行、续跑建议恒 `autoExecute:false / requiresHumanApproval:true / notAcceptance:true`；`assertLoopAdvisory()` 焊死只读。自动排后续步骤、飞书回答直写 HITL 台账、`step` 默认切换仍待拍板。
+
+## 12. 第二十九轮 P-11：回答自动续跑 + 授权代办 + 服务统一纳管（用户三连拍板）
+
+- **用户 2026-11-08 18:05 拍板**（WorkBuddy 会话，逐字入库）：①「我回答问题后，系统自动干没问题的」；③「其他的也继续完成，模拟真人来完成，全部搞定」。
+- **① 自动续跑闸**：`src/auto-resume.ts` 的 `AUTO_RESUME_MANDATE` 逐字保留授权原话；step 模式下飞书显式回答落地（`persistHitlAnswer`）后，向同一 run 的步进队列追加「续跑闸」（human-gate 种类、带 `resumeOf` 指向问题编号）；任何执行进程领到闸时**从台账重新核对** `human_response` 存在且 `acceptance !== true`，才把 `resume_next` 工作步排回队列，验证失败重新提问。`collaboration-intake.ts` 接线（loop 模式仍由 delegate 唤醒、不重复排闸）、`step-hitl.ts` 加 `resumeNext`、`step-runner.ts` 执行闸、`COLLAB_AUTO_RESUME=0` 可整体关闭。授权事实审计 `hitl.auto-resumed` / `hitl.auto-resume-refused`。
+- **③ 授权代办核可**：`scripts/delegated-accept.ts`（`npm run delegated:accept -- <任务ID>`）；`controller.confirmAcceptance` 加 `delegation` 参数——核可权仍属原发起人（actor 不变），回执 `executedBy='agent-under-delegation'`、delegation 字段逐字保留授权原话与时间，审计另记 `acceptance.delegated`；逐项闸门（锁定清单 / 独立评审 / 证据核对）与真人执行完全一致，任何一关不过即拒绝。SUI-129、SUI-135 真实业务单经此代办核可收尾（phase=delivered，SUI-135 CI 通过）。
+- **服务统一纳管**：`scripts/services.ts` 把 4190 视觉评审 / 4192 验收报告 / 4194+9418 本机交付台按同一套 PID 归属校验 + HTTP/TCP 健康检查纳管（start / stop / restart / status），用户明确「全部搞定」后四个服务已重启并运行中；管理后台「服务管理」tab 复用同一入口（`admin-service-control`，权限 `services-control`）。
+- **红线（全部不变）**：回答仍不是验收（确认验收 / 核可 / 放行不进这条链）；隐式回答仍不路由；续跑闸执行时重新验证、不盲信入队入参；代办如实留痕、不伪造真人亲手操作；飞书仍是唯一发起入口；执行形态默认 `loop`（step 是显式配置，真实业务单在 step 模式已跑通后回归默认）。
+
+## 13. 第三十轮 P-12 / P-13：casbin RBAC + 用户级配置 + Vue 前端重写 + 知识分区 CRUD
+
+- **用户拍板**：「对于涉及到权限管控 rbac 相关，直接找开源项目代码复用」「每个用户都可以配置自己的部分，管理员可以看到所有的，当然管理员也是一个用户」「前端界面也做一个完整优化，复用开源代码和组件库」「知识体检……肯定也需要人可以增删改呀，agent 和人都可以增删改查，但是肯定是有对应权限区域的……你只能改自己范围内的东西」。
+- **RBAC（casbin 5.51.1，Apache-2.0，R7 六步登记）**：`src/rbac.ts` 统一封装——标准 RBAC model（`g` 角色绑定 + `keyMatch` 通配）+ FileAdapter 策略文件 `.runtime/console/rbac_policy.csv`（不存在时从 `ROLE_PERMISSIONS` 种子生成，删文件即重置）；人四档 `owner/admin/operator/viewer` 走 `g` 绑定（`user:<name>` → 角色），agent 三档 `agent-supervisor/agent-worker/agent-personal` 按档位直判；`ensureHumanBound()` 判定前按 `accounts.json` 现绑自愈（解决 bridge 与 console 两进程策略快照不一致）；`rbacEnforce()` 同步 fail-closed。两进程共用同一策略文件。
+- **用户级配置**：`src/console-auth.ts` 的 `ConsoleUserSettings`（默认视图 / 主题 / 刷新间隔 / 通知三开关 / 模型三项）；`settings-get` / `settings-set` 仅本人（白名单键校验，API Key 打码 `apiKeySet`）；`admin-users-settings` 管理员总览（新权限 `users-settings-view`，owner + admin；账号管理 `accounts-manage` 仍 owner 专属）。存储 `.runtime/console/users/<name>/settings.json`（0600）。
+- **前端重写（Vue 3.5.45 + Element Plus 2.14.8，均 MIT，本地 vendor）**：`console/index.html` + `console/app.js`（Vue 单文件应用：登录门 → 侧栏菜单 + 顶栏身份 → 概览 / 协作 / 知识 / 验收 / 服务 / 我的配置 + 管理）；协作视图恢复组织形态 / Agent 编制 / 怎么派活 / 沉淀与自演进 / 长程执行五张契约卡与 `DOMESTIC_TERMS` 品牌词清洗；管理视图按权限分区渲染（账号与角色 / 用户配置总览 / 角色策略 / 服务管理 / 知识审核 / 待答问题 / 审计日志 / 飞书授权）。离线可用（vendor 本地、CSP 加 `'unsafe-eval'` 供 Vue 运行时编译），主题走 `html.dark`。
+- **P-13 知识分区 CRUD**：`knowledge-create / update / delete` 三支写通道（console 注入 `actorUser`、bridge 端 `canCreateKnowledge` / `canWriteKnowledge` 判定 + 审计 `knowledge.crud-*`）；`src/knowledge-authz.ts` 分区规则——personal 仅归属者本人（owner 也不行）、team 需 `knowledge-write-team`（人 operator+ / agent worker 档）、org 更新需 `knowledge-write-org`、删除需 `knowledge-delete-org`（人 admin+ / agent supervisor 档），agent 额外要求 `scopeCovers` 覆盖条目业务域；`propose` 强制 owner 为可信 actor（防伪造归属）；删除 = 软撤回（state → withdrawn），编辑已确认条目重置 candidate 等人重审。知识视图（前端）带分区列 / 分区显隐 / CRUD 对话框。
+- **验证**：`npm test` **540/540**、`tsc`、`console:smoke` **49/49**（未登录 401 / 错口令 401 / viewer 越权 403 / 用户配置读写 / admin 总览 / casbin 策略查看 / 知识分区正负例（viewer 建 team 拒、建改删自己 personal 可、admin 改他人 personal 拒）/ 六视图渲染 / 主题切换 / 425px / 零海外文案）、`audit:upstream clean`（casbin + Vue + Element Plus 三项新登记 + vendor 版本横幅机器校验）。
+- **测试契约换代**：console-shell / agent-registry / evolution / shape-assessment / step-execution 等 8 个文件的断言从旧手写 DOM（`card(...)`、`[data-view]`）换成 Vue 结构语义，红线语义不变（六视图、无网页发起、只读边界、中文产品词、职责中文名、空编制降级）。修掉 19 个回归失败，其中两处真实缺陷：`collaboration-intake.ts` 的 `execution` 配置缺省时 TypeError 吞掉回执通知（改防御式访问）；`.runtime/config.json` 执行形态被 P-11 实验切到 step（maxStepsPerRun=7200），按交付口径回滚 `loop`。
+- **红线（全部不变）**：任务发起仍在飞书（静态页无原生表单、无 create-task）；验收核可仍在原会话（授权代办见第 12 节）；默认底座仍 `paperclip`；执行形态默认 `loop`；前端显隐只是体验优化，判定以后端 casbin 为准。

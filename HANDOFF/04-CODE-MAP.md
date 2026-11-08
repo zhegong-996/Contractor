@@ -19,8 +19,11 @@
 
 | 文件 | 职责 |
 |---|---|
-| `src/server.ts` | **主服务**：`createServer`、workspace action 分发、`readOnly` 白名单、`service-status` / `routing-status` / `memory-replay` 等只读接口、服务组装与注入。 |
+| `src/server.ts` | **主服务**：`createServer`、workspace action 分发、`readOnly` 白名单、`service-status` / `routing-status` / `memory-replay` 等只读接口、服务组装与注入；P-13 起含知识分区写通道（判定走 `knowledge-authz.ts`）。 |
 | `src/members.ts` | 成员身份解析、`gate()`、成员级 `reads` / `v06Reads` 白名单。**新增只读 action 必须同步 `server.ts` 与这里两处**。 |
+| `src/rbac.ts` | **P-12**：casbin RBAC 统一封装（Apache-2.0 上游引擎）。`initRbac()` 幂等加载策略文件（缺省从 `ROLE_PERMISSIONS` 种子生成）、`rbacEnforce()` 同步 fail-closed、`ensureHumanBound()` 跨进程绑定自愈；人四档走 `g` 绑定，agent 三档按档位直判。bridge 与 console 两进程共用 `.runtime/console/rbac_policy.csv`。 |
+| `src/console-auth.ts` | **P-11/P-12**：控制台账号（PBKDF2 口令、HttpOnly 会话）、用户级配置 `ConsoleUserSettings`（本人读写 / 管理员总览打码）、审计日志；casbin 逻辑委托 `rbac.ts`。 |
+| `src/knowledge-authz.ts` | **P-13**：知识分区权限判定。`canCreateKnowledge` / `canWriteKnowledge`（personal 仅归属者 / team 运营+ / org 管理员+，agent 按 `scopeCovers` + 档位）。 |
 | `plugins/knowledge-workspaces/src/worker.ts` | 插件 worker：只做 action 转发，携带宿主不可变 `actor`（UI 不能指定操作人）。 |
 | `plugins/knowledge-workspaces/src/action-name.ts` | action 名 → URL 路径段映射。 |
 | `plugins/knowledge-workspaces/src/manifest.ts` | 插件清单与 SDK 入口声明。 |
@@ -86,6 +89,8 @@ B2 的只读 / 真跑入口：`scripts/memory-replay.ts`、`scripts/memory-smoke
 | `src/assistant.ts` | 事务整理 Agent：任务上下文编译、委托、job 生命周期。 |
 | `src/assistant-turn.ts` | 一轮模型调用编排与中文业务 prompt（40 行）、CLI 适配。 |
 | `src/assistant-runner.ts` / `src/runner.ts` / `src/native-worker.ts` | Autoloop worker 执行、回执恢复、原生 worker 装配；P-1 起无常驻 `while`，按 `config.execution.mode` 分派 legacy / stepped 泵。 |
+| `src/step-runner.ts` | `npm run step:once` 一次进程一步；P-11 起执行「续跑闸」（从台账重新验证回答后放行接续步）。 |
+| `src/auto-resume.ts` | **P-11**：回答后自动续跑闸——`AUTO_RESUME_MANDATE` 逐字入库；闸执行时从成对台账重新验证回答才放行 `resume_next`。 |
 | `src/assistant-tools.ts` | 任务绑定工具集暴露。 |
 | `src/agent-services.ts` | 服务 Agent 职责与版本。 |
 | `src/service-network.ts` | A2A 服务委派、Link 合同、`route/start/dispatch/rpc`。 |
@@ -123,6 +128,11 @@ B2 的只读 / 真跑入口：`scripts/memory-replay.ts`、`scripts/memory-smoke
 | `src/service-status.ts` | 「国内服务」唯一数据源：并发 loopback 探测 + 状态来源 + 接通步骤，未接通不带 `url`。 |
 | `scripts/build-chinese-shell.ts` | 构建顺序「先 domestic 再 chinese」，构建前恢复 `sw.js` 占位符。 |
 | `scripts/install-upstream.ts` / `scripts/install-wiki.ts` / `scripts/install-workspace-plugin.ts` | 上游 UI / Wiki / 插件安装与 esbuild 打包。 |
+| `console/`（P-12 重写） | **Vue 3 + Element Plus 独立控制台**：`index.html`（挂载点 + 本地 vendor 引用）、`app.js`（登录门 / 六业务视图 / 管理视图按权限分区）、`styles.css`、`vendor/`（vue.global.prod.js、element-plus.* 全套本地文件，离线可用）；`DOMESTIC_TERMS` / `clean()` 品牌词清洗在此。 |
+| `scripts/console-server.ts` | 控制台承载服务：回环 + 登录制（HttpOnly cookie）+ `CONSOLE_READ_ACTIONS` 白名单 + `KNOWLEDGE_WRITE_ACTIONS`（带 `actorUser` 转发）+ `ADMIN_ACTIONS`（casbin 权限映射）+ 静态 vendor 分发与安全头。 |
+| `scripts/console-smoke.mjs` | 真实浏览器冒烟（49 项：登录 / RBAC 边界 / 知识分区正负例 / 视图 / 主题 / 425px / 产品词）。 |
+| `scripts/services.ts` | **P-11**：4190 / 4192 / 4194(+9418) 辅助服务统一纳管（PID 归属校验 + 健康检查 + start/stop/restart），管理后台「服务管理」复用。 |
+| `scripts/delegated-accept.ts` | **P-11**：授权代办「确认验收」（`npm run delegated:accept`），回执如实留痕 `executedBy='agent-under-delegation'`。 |
 
 ## 10. 前端分层（第十轮重构后）
 

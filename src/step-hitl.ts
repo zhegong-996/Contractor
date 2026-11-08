@@ -59,6 +59,12 @@ export type AskHumanInput = {
   /** 触发这次提问的上游事件 id；因果只放 payload。 */
   triggeredBy?: string | null;
   onBehalfOf?: string | null;
+  /**
+   * 第二十九轮 P-11：这道闸通过后要接续的工作步（StepSpec）。
+   * 只作留痕（放 payload.resume_next），回答落地后的自动续跑从这里取回；
+   * 不改变「执行进程只能提问、不能自行放行」的语义。
+   */
+  resumeNext?: Record<string, unknown> | null;
   at?: string;
   idFactory?: () => string;
 };
@@ -79,6 +85,7 @@ export function askHuman(input: AskHumanInput): HitlEvent {
       prompt, choices,
       on_behalf_of: input.onBehalfOf ?? null,
       run_id: input.runId, step_no: input.stepNo, asker: input.asker,
+      ...(input.resumeNext ? { resume_next: input.resumeNext } : {}),
     },
   };
 }

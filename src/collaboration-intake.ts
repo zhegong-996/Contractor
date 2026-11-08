@@ -5,6 +5,7 @@ import { createHash } from 'node:crypto';
 import type { HitlSink } from './step-hitl.ts';
 import { resolveHitlSink } from './step-hitl.ts';
 import { persistHitlAnswer, routeAnswerToHitl } from './hitl-bridge.ts';
+import { parseUserCommand } from './user-language.ts';
 import type { AgentServices } from './agent-services.ts';
 import type { Workspaces } from './workspaces.ts';
 import type { WorkspaceAssistant } from './assistant.ts';
@@ -48,6 +49,12 @@ export class CollaborationIntake {
     let match: string[] | null = /^\/collab\s+(\S+)(?:\s+([\s\S]+))?$/.exec(trigger.text.trim());
     const followup = !match;
     if (followup && trigger.text.trim().startsWith('/')) return;
+    // 第二十九轮 P-11 修复：显式中文指令（建单 / 进度 / 验收 / 退回 / 转交）
+    // 不能被当成绑定任务的「补充说明」记进笔记并唤醒执行——尤其「确认验收」
+    // 必须走 Controller 的核可链。这里返回 undefined 让外层落回 Controller；
+    // 「回答 <问题编号> <选项>」不是指令词表里的动作，仍由本 intake 路由。
+    const explicit = parseUserCommand(trigger.text.replace(/@[^\s]+\s*/g, '').trim());
+    if (explicit && ['task', 'status', 'accept', 'reject', 'handoff'].includes(explicit.action)) return;
     if (!memberActor&&(!f.allowedSenders.includes(trigger.actor.id) || !f.allowedChats.includes(String(trigger.meta.chatId)))) throw new Error('Unauthorized: IM origin');
     if (!match) {
       const candidates = [];
@@ -77,7 +84,8 @@ export class CollaborationIntake {
     // 路由进 Runner 成对 HITL 台账并产出 advisory 回流建议（参考 OpenMausBot
     // question 卡片的人侧回写）。路由成功时台账是这条回答的规范留痕，不再重复
     // 写 loop.downstream 观察，避免 loop-guard 双计；路由失败保持原有观察路径。
-    // 回答仍不排后续步骤、不改任务状态、不等于验收（红线见 HANDOFF/07）。
+    // 第二十九轮 P-11：step 模式下按用户 2026-11-08 拍板自动排续跑闸（闸执行
+    // 时重新验证台账回答）；回答仍不等于验收，核可只在原会话。
     try {
       const inbound = mapFollowupToAnswer(trigger.text, trigger.actor.id);
       if (inbound.accepted && detail !== '暂停') {
@@ -89,8 +97,37 @@ export class CollaborationIntake {
           if (routed.ok) {
             persistHitlAnswer(routed, sink);
             routedOk = true;
+            // P-11：按用户 2026-11-08 拍板（AUTO_RESUME_MANDATE），step 模式下把
+            // 续跑闸排回同一 run 的队列；闸执行时重新验证台账回答，回答不等于验收。
+            // loop 模式本就由上面的 delegate 唤醒下一轮，无需重复排闸。
+            let autoResumeNote = 'step 模式下将按 2026-11-08 授权自动排续跑闸';
+            // execution 配置缺省（最小宿主 / 测试夹具）时视为非 step 模式，
+            // 不能让可选链前的读取抛错打断后面的只读回执通知。
+            if (this.w.config.execution?.mode === 'step' && process.env.COLLAB_AUTO_RESUME !== '0') {
+              try {
+                const { PgStepQueue } = await import('./step-execution.ts');
+                const { autoResumeAfterAnswer, AUTO_RESUME_MANDATE } = await import('./auto-resume.ts');
+                const queue = PgStepQueue.fromConfig(this.w.config);
+                try {
+                  const resumed = await autoResumeAfterAnswer({ routed,
+                    question: sink.read().find(e => e.type === 'human_question' && e.id === inbound.questionId)!,
+                    enqueue: (runId, specs) => queue.enqueueReadySteps(runId, specs) });
+                  this.w.store.audit(resumed.ok ? 'hitl.auto-resumed' : 'hitl.auto-resume-refused', task.id,
+                    resumed.ok ? { questionId: resumed.questionId, responseId: resumed.responseId,
+                      runId: resumed.runId, enqueued: resumed.enqueued, mandate: resumed.mandate, via: 'feishu-im' }
+                      : { questionId: inbound.questionId, reason: resumed.reason, via: 'feishu-im' });
+                  autoResumeNote = resumed.ok
+                    ? `续跑闸已排回队列（run ${resumed.runId}），闸执行时会重新验证回答`
+                    : `自动续跑未排：${resumed.reason}`;
+                } finally { await queue.close(); }
+              } catch (error) {
+                this.w.store.audit('hitl.auto-resume-refused', task.id, { questionId: inbound.questionId,
+                  reason: String(error instanceof Error ? error.message : error).slice(0, 200), via: 'feishu-im' });
+                autoResumeNote = `自动续跑失败：${String(error instanceof Error ? error.message : error).slice(0, 120)}`;
+              }
+            }
             this.w.store.notify('hitl-answer:' + trigger.id, task.id,
-              `已记录对问题 ${inbound.questionId} 的回答并生成回流建议。回流建议不自动排后续步骤，接续仍由原发起人在原会话确认。`);
+              `已记录对问题 ${inbound.questionId} 的回答并生成回流建议。${autoResumeNote}。回答不等于验收，最终核可仍在原会话。`);
           }
         }
         if (!routedOk) this.w.store.audit('loop.downstream', task.id, {

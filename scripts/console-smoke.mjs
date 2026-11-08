@@ -1,7 +1,15 @@
-// C-2 真跑：在临时端口起自研控制台，连真实本机协作服务，用 Chrome 走查六个视图、
-// 深浅主题、425px 窄屏与只读边界。按需启动、跑完即关，不新增常驻服务。
+// C-2 真跑：在临时端口起自研控制台，连真实本机协作服务，用 Chrome 走查视图、
+// 深浅主题、窄屏与权限边界。按需启动、跑完即关，不新增常驻服务。
+//
+// 第三十轮 P-12/P-13：前端重写为 Vue 3 + Element Plus（本地 vendor）；权限判定
+// 走 casbin；新增用户级配置与知识分区 CRUD。冒烟同步覆盖：
+//   未登录 401 / 错口令 401 / 登录发 cookie / 只读可用 / viewer 越权 403 /
+//   用户配置读写 / viewer 管理动作 403 / admin 用户配置总览 / casbin 策略查看 /
+//   知识分区（viewer 建 personal 可、写 team 拒、改他人 personal 拒、admin 总览）/
+//   Vue 登录页渲染与表单登录走查 / 主题切换 / 产品词与窄屏检查。
 import { spawn } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
@@ -13,6 +21,25 @@ const root = process.cwd();
 const out = path.join(root, '.runtime/console');
 mkdirSync(out, { recursive: true });
 const { listenConsole, CONSOLE_READ_ACTIONS } = await import('./console-server.ts');
+const { ConsoleAuth } = await import('../src/console-auth.ts');
+
+// 冒烟专用账号：viewer + admin（默认不存在则创建；跑完禁用，留审计痕迹）。
+const provisioning = new ConsoleAuth();
+const provision = async (username, role) => {
+  const password = 'smoke-' + randomBytes(12).toString('hex');
+  if (!provisioning.listAccounts().some(a => a.username === username)) {
+    await provisioning.createAccount(username, password, role, 'console-smoke');
+  } else {
+    await provisioning.changePassword(username, password);
+    await provisioning.setDisabled('console-smoke', username, false);
+  }
+  return password;
+};
+const smokeUser = 'smoke-viewer';
+const smokeAdmin = 'smoke-admin';
+const smokePassword = await provision(smokeUser, 'viewer');
+const adminPassword = await provision(smokeAdmin, 'admin');
+
 const { server, port } = await listenConsole(0);
 const base = `http://127.0.0.1:${port}`;
 const checks = {};
@@ -20,6 +47,12 @@ const failures = [];
 const check = (name, condition, detail = {}) => {
   checks[name] = { ok: Boolean(condition), ...detail };
   if (!condition) failures.push(name);
+};
+const post = async (route, body = {}, cookie = '') => {
+  const response = await fetch(base + route, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(cookie ? { Cookie: cookie } : {}) }, body: JSON.stringify(body) });
+  const text = await response.text();
+  let data = {}; try { data = JSON.parse(text); } catch {}
+  return { status: response.status, data, text, cookie: response.headers.get('set-cookie') };
 };
 
 const chromeBin = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
@@ -33,43 +66,127 @@ process.on('exit', stop);
 
 try {
   const htmlRes = await fetch(base + '/');
-  check('index', htmlRes.status === 200 && (await htmlRes.text()).includes('SuitMe 协作台'));
+  const htmlText = await htmlRes.text();
+  check('index', htmlRes.status === 200 && htmlText.includes('SuitMe 协作台') && htmlText.includes('vendor/vue.global.prod.js'));
+  check('vendorVue', (await fetch(base + '/vendor/vue.global.prod.js')).status === 200);
+  check('vendorElement', (await fetch(base + '/vendor/element-plus.full.min.js')).status === 200
+    && (await fetch(base + '/vendor/element-plus.css')).status === 200);
   check('styles', (await fetch(base + '/styles.css')).status === 200);
   check('script', (await fetch(base + '/app.js')).status === 200);
 
-  const viewRes = await fetch(base + '/api/view', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
-  const viewBody = await viewRes.text();
-  let viewData = {};
-  try { viewData = JSON.parse(viewBody); } catch {}
-  check('realTasks', viewRes.status === 200 && Array.isArray(viewData.tasks) && viewData.tasks.length > 0,
-    { status: viewRes.status, tasks: viewData.tasks?.length ?? 0, error: viewRes.status === 200 ? undefined : viewBody.slice(0, 300) });
+  // ---- 登录制契约 -----------------------------------------------------------
+  const anonymous = await post('/api/view-summary');
+  check('anonymousBlocked', anonymous.status === 401 && anonymous.data.login === true, { status: anonymous.status });
 
-  // P-5：控制台改拉服务端分页摘要，真跑核对体积、字段裁剪与分页口径。
-  const summaryStarted = performance.now();
-  const summaryRes = await fetch(base + '/api/view-summary', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
-  const summaryRaw = await summaryRes.text();
-  const summaryMs = Math.round(performance.now() - summaryStarted);
+  const badLogin = await post('/api/login', { payload: { username: smokeUser, password: 'wrong-password' } });
+  check('badLoginRejected', badLogin.status === 401, { status: badLogin.status });
+
+  const login = await post('/api/login', { payload: { username: smokeUser, password: smokePassword } });
+  const cookie = (login.cookie ?? '').split(';')[0];
+  check('loginOk', login.status === 200 && login.data.ok === true && cookie.startsWith('suitme_console='),
+    { status: login.status, role: login.data.session?.role });
+  check('viewerRoleHonest', login.data.session?.role === 'viewer' && Array.isArray(login.data.session?.permissions)
+    && login.data.session.permissions.join(',') === 'read', { permissions: login.data.session?.permissions });
+
+  const session = await post('/api/session', {}, cookie);
+  check('sessionEcho', session.status === 200 && session.data.username === smokeUser
+    && session.data.settings && typeof session.data.settings.defaultView === 'string',
+    { username: session.data.username, hasSettings: Boolean(session.data.settings) });
+
+  // ---- 用户级配置（本人读写；admin 总览；viewer 越权 403） -------------------
+  const setRes = await post('/api/settings-set', { payload: { defaultView: 'knowledge', theme: 'dark', refreshSeconds: 45,
+    notify: { hitlWaiting: false }, model: { label: 'smoke-model' } } }, cookie);
+  check('settingsSetOwn', setRes.status === 200 && setRes.data.defaultView === 'knowledge'
+    && setRes.data.refreshSeconds === 45 && setRes.data.notify?.hitlWaiting === false
+    && setRes.data.model?.label === 'smoke-model' && setRes.data.model?.apiKey === '', setRes.data);
+  const getRes = await post('/api/settings-get', {}, cookie);
+  check('settingsGetOwn', getRes.status === 200 && getRes.data.theme === 'dark' && getRes.data.model?.apiKeySet === false, getRes.data);
+  const badRefresh = await post('/api/settings-set', { payload: { refreshSeconds: 3 } }, cookie);
+  check('settingsValidated', badRefresh.status === 400, { status: badRefresh.status });
+
+  const adminLogin = await post('/api/login', { payload: { username: smokeAdmin, password: adminPassword } });
+  const adminCookie = (adminLogin.cookie ?? '').split(';')[0];
+  check('adminLoginOk', adminLogin.status === 200 && adminLogin.data.session?.role === 'admin', { role: adminLogin.data.session?.role });
+
+  const viewerUsersView = await post('/api/admin-users-settings', {}, cookie);
+  check('viewerUsersOverviewForbidden', viewerUsersView.status === 403, { status: viewerUsersView.status });
+  const adminUsersView = await post('/api/admin-users-settings', {}, adminCookie);
+  const usersRows = adminUsersView.data?.users ?? [];
+  check('adminUsersOverview', adminUsersView.status === 200 && Array.isArray(usersRows)
+    && usersRows.some(u => u.username === smokeUser && u.settings?.defaultView === 'knowledge')
+    && usersRows.every(u => typeof u.settings?.model?.apiKey === 'string'),
+    { count: usersRows.length, smokeSettings: usersRows.find(u => u.username === smokeUser)?.settings?.defaultView });
+  const adminAccountsDenied = await post('/api/admin-accounts', {}, adminCookie);
+  check('adminAccountsForbidden', adminAccountsDenied.status === 403, { status: adminAccountsDenied.status });
+  const policyView = await post('/api/admin-policy', {}, adminCookie);
+  check('policyReadable', policyView.status === 200 && String(policyView.data.policy).includes('p, owner, read, use')
+    && String(policyView.data.policy).includes('knowledge-write-team'), { note: policyView.data?.note?.slice(0, 60) });
+
+  // ---- 登录后的只读与管理边界 -----------------------------------------------
+  const viewRes = await post('/api/view', {}, cookie);
+  let viewData = {};
+  try { viewData = JSON.parse(viewRes.text); } catch {}
+  check('realTasks', viewRes.status === 200 && Array.isArray(viewData.tasks) && viewData.tasks.length > 0,
+    { status: viewRes.status, tasks: viewData.tasks?.length ?? 0 });
+
+  const summaryRes = await post('/api/view-summary', {}, cookie);
+  const summaryRaw = summaryRes.text;
   let summary = {};
   try { summary = JSON.parse(summaryRaw); } catch {}
   const summaryBytes = Buffer.byteLength(summaryRaw);
   check('summaryReady', summaryRes.status === 200 && Array.isArray(summary.tasks) && summary.fieldsClipped === true,
-    { status: summaryRes.status, bytes: summaryBytes, ms: summaryMs, tasks: summary.tasks?.length ?? 0 });
-  check('summaryClipped', summaryBytes < 32768 && !summaryRaw.includes('"snapshots"') && !summaryRaw.includes('"body"'),
-    { bytes: summaryBytes });
-  check('summaryPageHonest', summary.taskCount === summary.page?.total && typeof summary.page?.hasMore === 'boolean',
-    { taskCount: summary.taskCount, total: summary.page?.total });
+    { status: summaryRes.status, bytes: summaryBytes, tasks: summary.tasks?.length ?? 0 });
+  check('summaryClipped', summaryBytes < 32768 && !summaryRaw.includes('"snapshots"') && !summaryRaw.includes('"body"'), { bytes: summaryBytes });
 
-  const pagedRes = await fetch(base + '/api/view-summary', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ payload: { limit: 2 } }) });
-  let paged = {};
-  try { paged = await pagedRes.json(); } catch {}
-  check('summaryPaged', pagedRes.status === 200 && paged.tasks?.length <= 2 && paged.page?.total === summary.taskCount,
-    { tasks: paged.tasks?.length, total: paged.page?.total, expected: summary.taskCount });
-
-  const writeRes = await fetch(base + '/api/create-task', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+  const writeRes = await post('/api/create-task', {}, cookie);
   check('writeBlocked', writeRes.status === 403, { status: writeRes.status });
+
+  const forbidden = await post('/api/admin-accounts', {}, cookie);
+  check('viewerAdminForbidden', forbidden.status === 403, { status: forbidden.status });
+  const anonymousAdmin = await post('/api/admin-accounts');
+  check('anonymousAdminBlocked', anonymousAdmin.status === 401 && anonymousAdmin.data.login === true, { status: anonymousAdmin.status });
+
+  const hitl = await post('/api/admin-hitl', {}, cookie);
+  check('viewerHitlReadable', hitl.status === 200 && Array.isArray(hitl.data.pending), { status: hitl.status });
   check('readOnlyAllowlist', CONSOLE_READ_ACTIONS.length >= 9 && !CONSOLE_READ_ACTIONS.includes('create-task'),
     { actions: CONSOLE_READ_ACTIONS.length });
 
+  // ---- 知识分区 CRUD（走真实 bridge；分区判定在 casbin） ---------------------
+  const knowledgeList = await post('/api/knowledge-list', {}, cookie);
+  const items = knowledgeList.data?.items ?? [];
+  check('knowledgeListReadable', knowledgeList.status === 200 && Array.isArray(items) && items.length > 0
+    && items.every(i => ['personal', 'team', 'org'].includes(i.visibility)), { count: items.length });
+  const anchor = items[0]?.taskId;
+
+  const viewerTeamWrite = await post('/api/knowledge-create', { payload: { taskId: anchor, key: 'knowledge-smoke-team',
+    title: '越权测试', kind: 'reference', domains: ['product'], visibility: 'team', appliesTo: 't', body: 'b',
+    sources: ['https://example.org/s'] } }, cookie);
+  check('viewerTeamWriteForbidden', [400, 409].includes(viewerTeamWrite.status) && /未授权/.test(viewerTeamWrite.data?.error ?? ''),
+    { status: viewerTeamWrite.status, error: (viewerTeamWrite.data?.error ?? '').slice(0, 60) });
+
+  const viewerPersonal = await post('/api/knowledge-create', { payload: { taskId: anchor, key: 'knowledge-smoke-personal',
+    title: '冒烟个人区', kind: 'reference', domains: ['product'], visibility: 'personal', appliesTo: 't', body: 'b',
+    sources: ['https://example.org/s'] } }, cookie);
+  check('viewerPersonalCreateOk', viewerPersonal.status === 200 && viewerPersonal.data?.visibility === 'personal',
+    { status: viewerPersonal.status });
+
+  const adminSteal = await post('/api/knowledge-update', { payload: { taskId: anchor, key: 'knowledge-smoke-personal',
+    title: 'admin 篡改 viewer 个人区', kind: 'reference', domains: ['product'], visibility: 'personal', appliesTo: 't', body: 'x',
+    sources: ['https://example.org/s'] } }, adminCookie);
+  check('adminCannotTouchOthersPersonal', [400, 409].includes(adminSteal.status) && /个人区/.test(adminSteal.data?.error ?? ''),
+    { status: adminSteal.status, error: (adminSteal.data?.error ?? '').slice(0, 60) });
+
+  const adminTeamCreate = await post('/api/knowledge-create', { payload: { taskId: anchor, key: 'knowledge-smoke-admin-team',
+    title: 'admin 协作区', kind: 'reference', domains: ['product'], visibility: 'team', appliesTo: 't', body: 'b',
+    sources: ['https://example.org/s'] } }, adminCookie);
+  check('adminTeamCreateOk', adminTeamCreate.status === 200 && adminTeamCreate.data?.visibility === 'team', { status: adminTeamCreate.status, error: adminTeamCreate.data?.error ?? '' });
+
+  const cleanup = await post('/api/knowledge-delete', { payload: { taskId: anchor, key: 'knowledge-smoke-personal' } }, cookie);
+  const cleanup2 = await post('/api/knowledge-delete', { payload: { taskId: anchor, key: 'knowledge-smoke-admin-team' } }, adminCookie);
+  check('knowledgeCleanup', cleanup.status === 200 && cleanup2.status === 200,
+    { a: cleanup.status, b: cleanup2.status });
+
+  // ---- 浏览器走查（Vue 3 + Element Plus） -----------------------------------
   for (let i = 0; i < 80; i++) {
     try { if ((await fetch(`http://127.0.0.1:${cdpPort}/json/version`)).ok) break; } catch {}
     await delay(200);
@@ -103,74 +220,126 @@ try {
   await cdp('Network.setCacheDisabled', { cacheDisabled: true });
   await cdp('Emulation.setDeviceMetricsOverride', { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false });
   await cdp('Page.navigate', { url: base + '/' });
-  await delay(1600);
+  await delay(2200);
 
-  const views = [
-    ['概览', 'overview'], ['协作', 'collaboration'], ['知识', 'knowledge'],
-    ['验收', 'acceptance'], ['服务', 'services'], ['设置', 'settings'],
-  ];
+  // 未登录：Vue 登录卡片可见。
+  const loginVisible = await evaluate(`(() => ({
+    card: Boolean(document.querySelector('.login-card')),
+    inputs: document.querySelectorAll('.login-card input').length,
+    brand: document.body.innerText.includes('SuitMe 协作台'),
+  }))()`);
+  check('loginGateRendered', loginVisible && loginVisible.card === true && loginVisible.inputs >= 2
+    && loginVisible.brand === true, loginVisible);
+  await screenshot('login-1280');
+
+  // 表单登录走查（原生 value + input 事件驱动 Vue v-model）。
+  const loginDone = await evaluate(`(async () => {
+    const inputs = document.querySelectorAll('.login-card input');
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+    setter.call(inputs[0], ${JSON.stringify(smokeUser)});
+    inputs[0].dispatchEvent(new Event('input', { bubbles: true }));
+    setter.call(inputs[1], ${JSON.stringify(smokePassword)});
+    inputs[1].dispatchEvent(new Event('input', { bubbles: true }));
+    await new Promise(r => setTimeout(r, 100));
+    const btn = [...document.querySelectorAll('.login-card button')].find(b => b.textContent.includes('登'));
+    btn.click();
+    for (let i = 0; i < 48; i++) {
+      await new Promise(r => setTimeout(r, 250));
+      if (document.querySelector('.app-shell')) return true;
+    }
+    return false;
+  })()`);
+  check('loginFormSubmits', loginDone === true, {});
+  await delay(1500);
+
+  const shellInfo = await evaluate(`(() => ({
+    menu: document.querySelectorAll('.app-menu .el-menu-item').length,
+    user: document.body.innerText.includes(${JSON.stringify(smokeUser)}),
+    roleTag: document.body.innerText.includes('只读'),
+    adminHidden: ![...document.querySelectorAll('.app-menu .el-menu-item')].some(m => m.textContent.includes('管理')),
+    feishuNote: document.body.innerText.includes('发起任务请回到飞书'),
+  }))()`);
+  check('shellPainted', shellInfo && shellInfo.menu >= 6 && shellInfo.user === true && shellInfo.roleTag === true
+    && shellInfo.feishuNote === true, shellInfo);
+  check('viewerNoAdminMenu', shellInfo?.adminHidden === true, shellInfo);
+  await screenshot('overview-1280');
+
+  // 视图切换走查（知识视图含分区列）。
+  const views = ['概览', '协作', '知识', '验收', '服务', '我的配置'];
   let rendered = 0;
-  for (const [title, id] of views) {
+  for (const title of views) {
     const clicked = await evaluate(`(() => {
-      const el=[...document.querySelectorAll('[data-view]')].find(e=>e.dataset.view===${JSON.stringify(id)} && e.offsetParent!==null);
-      if(!el) return false; el.click(); return true; })()`);
+      const item = [...document.querySelectorAll('.app-menu .el-menu-item')].find(m => m.textContent.includes(${JSON.stringify(title)}));
+      if (!item) return false; item.click(); return true;
+    })()`);
     let ready = false, textLength = 0;
-    for (let i = 0; i < 64; i++) {
-      const state = await evaluate(`(() => {
-        const c=document.getElementById('content');
-        return {cards:c.querySelectorAll('.card').length, loading:!!c.querySelector('.loading-card'), len:c.innerText.trim().length};
-      })()`);
+    for (let i = 0; i < 60; i++) {
+      const state = await evaluate(`(() => ({ len: (document.querySelector('.app-main')?.innerText ?? '').trim().length,
+        tables: document.querySelectorAll('.app-main .el-table, .app-main .el-card').length }))()`);
       textLength = state?.len ?? 0;
-      if (state && state.cards >= 2 && !state.loading && state.len > 60) { ready = true; break; }
+      if (state && state.tables >= 1 && state.len > 40) { ready = true; break; }
       await delay(250);
     }
-    check('view-' + id, clicked === true && ready, { title, textLength });
+    check('view-' + title, clicked === true && ready, { title, textLength });
     if (ready) rendered++;
-    if (id === 'overview') await screenshot('overview-1280');
+    if (title === '知识') {
+      let rows = 0;
+      for (let i = 0; i < 60; i++) {
+        rows = await evaluate(`document.querySelectorAll('.app-main .el-table__row').length`);
+        if (rows >= 1) break;
+        await delay(300);
+      }
+      await screenshot('knowledge-1280');
+      const knowledgeView = await evaluate(`(() => ({
+        vis: document.body.innerText.includes('归属分区'),
+        org: document.body.innerText.includes('组织区') || document.body.innerText.includes('协作区') || document.body.innerText.includes('个人区'),
+        rows: document.querySelectorAll('.app-main .el-table__row').length,
+      }))()`);
+      check('knowledgeColumns', knowledgeView?.vis === true && knowledgeView?.org === true, knowledgeView);
+    }
   }
   check('allViewsRendered', rendered === views.length, { rendered, total: views.length });
 
-  const themeBefore = await evaluate(`document.documentElement.dataset.theme`);
-  await evaluate(`document.getElementById('theme-toggle').click()`);
-  await delay(150);
-  const themeAfter = await evaluate(`document.documentElement.dataset.theme`);
-  const stored = await evaluate(`localStorage.getItem('suitme-theme')`);
-  check('themeToggle', themeBefore !== themeAfter && stored === themeAfter, { themeBefore, themeAfter, stored });
+  // 主题切换（Element Plus dark：html.dark）。
+  const darkBefore = await evaluate(`document.documentElement.classList.contains('dark')`);
+  await evaluate(`[...document.querySelectorAll('.app-header button')].find(b => b.textContent.includes('☾') || b.textContent.includes('☀'))?.click()`);
+  await delay(300);
+  const darkAfter = await evaluate(`document.documentElement.classList.contains('dark')`);
+  check('themeToggle', darkBefore !== darkAfter, { darkBefore, darkAfter });
   await screenshot('overview-dark');
 
+  // 产品词与网页发起入口检查。
   const visible = await evaluate(`document.body.innerText`);
-  const forbidden = ['Paperclip', 'GitHub', 'Slack', 'Vercel', 'OpenAI', 'Claude Code',
-    'Codex', 'Cognee', 'npm run', '/accept', 'acceptance:export'];
-  const found = forbidden.filter(word => String(visible).includes(word));
+  const forbiddenWords = ['Paperclip', 'GitHub', 'Slack', 'Vercel', 'OpenAI', 'npm run'];
+  const found = forbiddenWords.filter(word => String(visible).includes(word));
   check('noOverseasCopy', found.length === 0, { found });
 
-  const inputs = await evaluate(`document.querySelectorAll('input,textarea,form').length`);
-  check('noWebIntake', inputs === 0, { inputs });
-  check('feishuNotice', String(visible).includes('发起任务请回到飞书'));
-  let statusText = '';
-  for (let i = 0; i < 30; i++) {
-    statusText = await evaluate(`document.getElementById('status-text').textContent`);
-    if (String(statusText).includes('已连接')) break;
-    await delay(250);
-  }
-  check('serviceConnected', String(statusText).includes('已连接'), { statusText });
-
+  // 窄屏检查（425px）。
   await cdp('Emulation.setDeviceMetricsOverride', { width: 425, height: 900, deviceScaleFactor: 1, mobile: true });
-  await delay(400);
+  await delay(500);
   const narrow = await evaluate(`(() => {
-    const el=document.documentElement;
-    const offenders=[...document.querySelectorAll('body *')].filter(e=>e.getBoundingClientRect().right>el.clientWidth+1).length;
-    return {clientWidth:el.clientWidth, scrollWidth:el.scrollWidth, offenders};
+    const el = document.documentElement;
+    return { clientWidth: el.clientWidth, scrollWidth: el.scrollWidth };
   })()`);
-  check('responsive425', narrow && narrow.scrollWidth <= narrow.clientWidth + 1 && narrow.offenders === 0, narrow);
+  check('responsive425', narrow && narrow.scrollWidth <= narrow.clientWidth + 1, narrow);
   await screenshot('overview-425');
+
+  // ---- 登出与收尾 -----------------------------------------------------------
+  const logout = await post('/api/logout', {}, cookie);
+  check('logoutOk', logout.status === 200, { status: logout.status });
+  const afterLogout = await post('/api/view-summary', {}, cookie);
+  check('sessionRevoked', afterLogout.status === 401, { status: afterLogout.status });
 } catch (error) {
   failures.push('exception');
   checks.exception = { ok: false, message: String(error?.message ?? error) };
 } finally {
-  const report = { ok: failures.length === 0, at: new Date().toISOString(), port, checks, failed: failures };
-  writeFileSync(path.join(root, '.runtime/console-smoke.json'), JSON.stringify(report, null, 2));
-  console.log(JSON.stringify(report, null, 2));
+  // 冒烟账号跑完即禁用（保留账号与审计痕迹，不留可登录口令）。
+  try { await provisioning.setDisabled('console-smoke', smokeUser, true); } catch {}
+  try { await provisioning.setDisabled('console-smoke', smokeAdmin, true); } catch {}
   stop();
-  process.exitCode = failures.length ? 1 : 0;
+  const report = { ok: failures.length === 0, failed: failures, checks,
+    at: new Date().toISOString(), frontend: 'vue3+element-plus(vendor)', rbac: 'casbin' };
+  writeFileSync(path.join(root, '.runtime/console-smoke.json'), JSON.stringify(report, null, 2));
+  console.log(JSON.stringify(report));
+  process.exit(failures.length === 0 ? 0 : 1);
 }

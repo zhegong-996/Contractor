@@ -11,7 +11,8 @@ const config = configSchema.parse({ companyId: 'company', projectId: 'project', 
   repository: 'test/repo', checkout: '/tmp/test', allowedPaths: ['pilot/'], agents: {}, defaultAgent: 'test', feishu: { profile: 'test' } });
 const record: Knowledge = { schemaVersion: 1, companyId: 'company', projectId: 'project', sourceTaskId: 'source', key: 'knowledge-test',
   title: 'Shared professional finding', domains: ['product', 'growth'], kind: 'experiment', appliesTo: 'This pilot only', facts: { sampleSize: 10 },
-  body: 'A contextual result, with its original evidence.', sources: ['https://example.org/evidence'], state: 'candidate', proposedBy: 'agent', updatedAt: '2026-11-04T00:00:00Z' };
+  body: 'A contextual result, with its original evidence.', sources: ['https://example.org/evidence'], state: 'candidate', proposedBy: 'agent', updatedAt: '2026-11-04T00:00:00Z',
+  visibility: 'org', owner: 'agent:test' };
 test('only confirmed unchanged knowledge can be reused; expiry and withdrawal invalidate the confirmation', () => {
   const value = { ...record, state: 'confirmed' as const, confirmedBy: 'reviewer', expiresAt: '2027-01-01T00:00:00Z' };
   assert.equal(reusable(value, config, 'test-key'), false);

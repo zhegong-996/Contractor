@@ -232,7 +232,8 @@ test('接线：交付守门、v06 只读白名单、控制台与脚本入口都�
   assert.match(read('src/server.ts'), /'evolution-view','execution-view'\]/);
   assert.match(read('scripts/console-server.ts'), /'v06-evolution-view'/);
   const app = read('console/app.js');
-  assert.match(app, /card\('沉淀与自演进'/);
+  // P-12：Vue 前端以「沉淀与自演进」卡片呈现（EP descriptions）。
+  assert.match(app, /沉淀与自演进/);
   assert.match(app, /safe\('v06-evolution-view'\)/);
   assert.match(app, /交付前自查/);
   assert.match(read('package.json'), /"evolution:smoke": "node --import tsx scripts\/evolution-smoke\.ts"/);

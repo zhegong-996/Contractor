@@ -234,7 +234,9 @@ test('单例装配：服务端显式配置后，Router / A2A / 验收共用同�
   assert.match(read('src/service-network.ts'), /handoffEnvelope\(/);
   assert.match(read('src/v06.ts'), /case 'agent-registry-view'/);
   assert.match(read('src/v06.ts'), /case 'acceptance-crew'/);
-  assert.match(read('console/app.js'), /card\('Agent 编制'/);
+  // P-12：Vue 前端以「Agent 编制」卡片 + v06-agent-registry-view 动作呈现编制。
+  assert.match(read('console/app.js'), /Agent 编制/);
+  assert.match(read('console/app.js'), /v06-agent-registry-view/);
   assert.match(read('scripts/console-server.ts'), /'v06-agent-registry-view'/);
   assert.match(read('src/config.ts'), /agentRegistry: agentRegistrySchema\.default/);
 });

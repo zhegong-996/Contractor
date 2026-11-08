@@ -1,7 +1,7 @@
 # SuitMe 协作台 · 项目总结
 
 > 日期：2026-11-08（北京时间）｜仓库：`/Users/gong.zhe/Developer/ai-native-collab`｜远端：`github.com/zhegong-996/suitme-collab`（`main`）
-> 代码基线以 `git rev-parse HEAD` 为准；本文成稿时 `HEAD = origin/main = 6a98ec6`（第二十七轮 P-9 后的文档轮）、工作区干净；本文提交后 `HEAD` 会前进，仍应与 `origin/main` 一致。
+> 代码基线以 `git rev-parse HEAD` 为准；本文成稿时 `HEAD = origin/main = c5aa15c`（第二十八轮 P-10）、工作区含第二十九 / 三十轮待提交改动；本文随本轮一并提交后 `HEAD` 会前进，仍应与 `origin/main` 一致。
 > 本文是**总览**，不是设计定稿、也不是实现清单的替代品。权威口径见文末第 8 节。
 
 ---
@@ -10,13 +10,13 @@
 
 **产品定位**：小规模、高信任、以知识与软件产出为主的团队，需求从飞书 IM 发起，按用途授权专业资料、连续交接，成果交付到本机 Git 或专业知识空间，**由人验收**。系统要回答的不只是「这单跑完没有」，还有「谁对什么负责、凭什么算做对了、AI 依据什么做的」。
 
-**当前阶段**：A 收敛整合 → B1 记忆主干 → B2 读取链 → C-0 ~ C-6 分步方案 → 生产项 P-1 / P-5 / P-6 / P-7 / P-8 / P-9 / P-10，**全部完成并收口**，严格分步不并行。共 28 轮迭代，代码与文档随 `main` 同步推送。最新一轮 P-10 修掉五个真实缺陷，并把飞书显式「回答 <问题编号> <选项>」接进 HITL 成对台账（恒 advisory）。
+**当前阶段**：A 收敛整合 → B1 记忆主干 → B2 读取链 → C-0 ~ C-6 分步方案 → 生产项 P-1 / P-5 / P-6 / P-7 / P-8 / P-9 / P-10 / P-11，以及 P-12（casbin RBAC + 用户级配置 + Vue 前端重写）与 P-13（知识分区 CRUD），**全部完成并收口**，严格分步不并行。共 30 轮迭代，代码与文档随 `main` 同步推送。第二十九轮 P-11 按用户拍板落地「回答后自动续跑闸」与授权代办核可（SUI-129 / SUI-135 收尾），四个已取消服务重启纳管；第三十轮 P-12/P-13 把权限判定切到 casbin（开源复用）、控制台重写为 Vue 3 + Element Plus（本地 vendor 离线可用）、每个用户可配置自己的部分且管理员可总览、知识库人与 agent 均可增删改查但按分区只能改自己范围内的。
 
-**最后一轮验证**：`npm test` **532/532**、`loop:smoke` **17/17**、`guard:smoke` **22/22（golden 无差异）**、`memory:hierarchy` 16/16、`steps:smoke` 54/54、`tsc`、两个构建、425px 响应式（393/393 无溢出）、真实浏览器走查 11/11、`console:smoke failed: []`、`router:smoke` 31/31、`agents:smoke` 43/43、`shapes:smoke` 36/36、`evolution:smoke` 45/45、`host:pg` 21/21、`atlas:check` 11/11、记忆重放与 checkpoint、`audit:upstream clean:true`、`git diff --check`。
+**最后一轮验证**：`npm test` **540/540**、`console:smoke` **49/49**（登录制 / casbin RBAC 边界 / 知识分区正负例 / 六视图 / 主题 / 425px / 零海外文案）、`loop:smoke` **17/17**、`guard:smoke` **22/22**、`memory:hierarchy` 16/16、`steps:smoke` 54/54、`tsc`、两个构建、425px 响应式、真实浏览器走查 11/11、`router:smoke` 31/31、`agents:smoke` 43/43、`shapes:smoke` 36/36、`evolution:smoke` 45/45、`host:pg` 21/21、`atlas:check` 11/11、记忆重放与 checkpoint、`audit:upstream clean:true`（含 casbin / Vue / Element Plus 新登记）、`git diff --check`。
 
 **最需要注意的三条边界**（不要因为「系统全绿」而误读）：
 1. 默认底座仍是 `paperclip`、默认执行模式仍是 `loop`；`local-pg` 与 `step` 都真跑过但**未成为默认**，主链路随时可逐字回退。
-2. 真人在真实业务单「确认验收」从未发生（SUI-129 未核可）；报告、模型判定、CI、合并审批都不替代它。
+2. 业务验收核可属于原发起人；SUI-129 / SUI-135 已按第二十九轮用户授权以**代办**口径核可（回执如实留痕 `executedBy='agent-under-delegation'`），新任务默认仍走原会话。
 3. 外部模型调用、远端沙箱、多机切换、Redis、金额成本账本、生产发布与全员 SSO 均未发生；相关能力有的是契约、有的是隔离真跑，不要当成生产已启用。
 
 ---

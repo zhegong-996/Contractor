@@ -188,7 +188,8 @@ test('接线：两个宿主入口无常驻 while，只读白名单与脚本入�
   assert.match(read('src/v06.ts'), /case 'execution-view':/);
   assert.match(read('src/server.ts'), /'execution-view'\]/);
   assert.match(read('scripts/console-server.ts'), /'v06-execution-view'/);
-  assert.match(read('console/app.js'), /card\('长程执行'/);
+  // P-12：Vue 前端以「长程执行」卡片呈现（EP descriptions）。
+  assert.match(read('console/app.js'), /长程执行/);
   assert.match(read('package.json'), /"steps:smoke"/);
   assert.match(read('package.json'), /"step:once"/);
 });

@@ -1,5 +1,7 @@
 // C-2：独立控制台外壳的静态契约。真实浏览器渲染由 `npm run console:smoke` 验证，
 // 这里只守「用户可见层」与「只读边界」，不启动服务，避免没有浏览器时假绿。
+// 第三十轮 P-12：前端重写为 Vue 3 + Element Plus（本地 vendor），断言从旧
+// 手写 DOM 结构（card(...) / [data-view]）换成新组件语义；红线语义不变。
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -30,18 +32,21 @@ test('C-2 页面是中文、有深浅主题与六个协作视图', () => {
   assert.match(html, /<html lang="zh-CN"/);
   assert.match(html, /<title>SuitMe 协作台<\/title>/);
   assert.match(html, /apple-mobile-web-app-title" content="SuitMe 协作台"/);
-  assert.match(html, /id="theme-toggle"/);
+  // P-12 起前端复用 Vue 3 + Element Plus（本地 vendor）：主题切换按钮由 Vue
+  // 运行时渲染，深浅两套样式来自 html.dark + element-plus.dark.css。
+  assert.match(app, /toggleTheme/);
+  assert.match(css, /html\.dark/);
   for (const id of ['overview', 'collaboration', 'knowledge', 'acceptance', 'services', 'settings']) {
     assert.match(app, new RegExp(`id: '${id}'`), `缺少视图定义：${id}`);
   }
-  assert.match(css, /\[data-theme="dark"\]/);
-  assert.match(css, /max-width: 425px/);
+  assert.match(css, /@media \(max-width: 768px\)/, '要有窄屏适配');
 });
 
 test('C-2 不新增网页发起入口，飞书仍是唯一发起处', () => {
-  assert.match(html, /发起任务请回到飞书/);
-  assert.match(html, /不提供网页发起入口/);
-  assert.ok(!/<input\b/i.test(html), '不得出现输入框');
+  assert.match(app, /发起任务请回到飞书/);
+  assert.match(app, /这里是查看、授权与确认验收的地方/);
+  // 静态 HTML 不含任何原生输入控件；登录与知识编辑表单由本地脚本在登录门后渲染。
+  assert.ok(!/<input\b/i.test(html), '静态页面不得出现输入框');
   assert.ok(!/<textarea\b/i.test(html), '不得出现文本域');
   assert.ok(!/<form\b/i.test(html), '不得出现提交表单');
   assert.ok(!app.includes('新建任务'), '不得提供新建任务按钮');
@@ -56,17 +61,23 @@ test('C-2 后端品牌词在展示层统一换成中文产品语言', () => {
   assert.match(app, /clean\(text\)/);
 });
 
-test('C-2 控制台只开放只读动作，写操作一律拒绝', () => {
-  const writeActions = ['create-task', 'save-model-settings', 'accept', 'review-source',
+test('C-2 控制台动作白名单：核心工作流只读，写入只限知识 / 本人配置 / 管理', () => {
+  // 任务发起与工作流写操作仍一律不得进任何白名单。
+  const forbiddenActions = ['create-task', 'save-model-settings', 'accept', 'review-source',
     'grant-approve', 'transfer-revoke', 'knowledge-propose', 'trace', 'confirm'];
-  for (const action of writeActions) {
-    assert.ok(!new RegExp(`'${action}'`).test(server), `只读白名单不得包含写动作：${action}`);
+  for (const action of forbiddenActions) {
+    assert.ok(!new RegExp(`'${action}'`).test(server), `动作白名单不得包含写动作：${action}`);
   }
-  for (const action of ['view', 'service-status', 'system-status', 'memory-replay', 'routing-status']) {
+  for (const action of ['view', 'view-summary', 'service-status', 'system-status', 'memory-replay', 'routing-status']) {
     assert.match(server, new RegExp(`'${action}'`), `缺少只读动作：${action}`);
   }
   assert.match(server, /CONSOLE_READ_ACTIONS\.includes\(action\)/);
-  assert.match(server, /只允许读取已登记的状态/);
+  // P-13：知识写入只开放 create / update / delete 三支，带登录身份转发，
+  // 分区权限由 bridge 端 casbin 统一判定（前端显隐只是体验优化）。
+  assert.match(server, /KNOWLEDGE_WRITE_ACTIONS: readonly string\[\] = \['knowledge-create', 'knowledge-update', 'knowledge-delete'\]/);
+  assert.match(server, /只允许已登记的动作/);
+  // P-12：用户配置只能改本人的（settings-set 第二个参数即被改人 = 会话本人）。
+  assert.match(server, /setUserSettings\(session\.username, session\.username/);
 });
 
 test('C-2 只绑定回环地址，密钥留在服务端且有安全头', () => {
@@ -80,10 +91,10 @@ test('C-2 只绑定回环地址，密钥留在服务端且有安全头', () => {
 });
 
 test('C-3 协作视图展示当前组织形态，用中文讲清怎么派活', () => {
-  assert.match(app, /card\('组织形态'/);
-  assert.match(app, /card\('怎么派活'/);
+  assert.match(app, /组织形态/);
+  assert.match(app, /怎么派活/);
   assert.match(app, /router\.shape/);
-  assert.match(app, /routing\.routerCoverage/);
+  assert.match(app, /routerCoverage/);
   assert.match(app, /没配主管的业务域不会硬造管理层/);
   assert.match(app, /同一任务不得自派自验自环/);
   assert.doesNotMatch(app, /supervisorAgentKey/, '内部配置字段名不暴露给用户');
@@ -95,15 +106,14 @@ test('C-3 只读请求做 in-flight 去重并短缓存，避免并发重复请�
   assert.match(app, /if \(inFlight\.has\(key\)\) return inFlight\.get\(key\)/);
   assert.ok(app.includes('readCache.set(key, { at: Date.now(), value: data })'), '只缓存成功结果');
   assert.match(app, /finally\(\(\) => inFlight\.delete\(key\)\)/, '失败也要释放 in-flight');
-  // C-5：真实浏览器测得 view 返回 415KB / 10~12 秒，统一 8 秒会稳定超时，
-  // 因此按动作区分超时。P-5 起控制台已改拉服务端分页摘要，view 宽限只留给兼容调用。
-  assert.match(app, /const READ_TIMEOUT = \{ view: 30000 \}/, '工作区快照要有单独宽限');
-  assert.match(app, /signal: AbortSignal\.timeout\(READ_TIMEOUT\[action\] \?\? 8000\)/, '超时保护不能丢，且按动作区分');
-  assert.match(app, /const CACHE_MS = 1500/);
+  // P-12 起默认 12 秒快速失败；重放 / 体检类只读动作按 READ_TIMEOUT 放宽。
+  assert.match(app, /const READ_TIMEOUT = \{/, '按动作区分超时');
+  assert.match(app, /READ_TIMEOUT\[action\] \?\? 12000/, '超时保护不能丢，未登记动作走默认值');
+  assert.match(app, /const CACHE_MS = 4000/);
 });
 
 test('C-4 协作视图展示 Agent 编制，职责用中文、空编制如实降级', () => {
-  assert.match(app, /card\('Agent 编制'/);
+  assert.match(app, /Agent 编制/);
   assert.match(app, /v06-agent-registry-view/);
   for (const label of ['个人助手', '业务域主管', '验收', '标准起草', '周期巡检', '专项协作']) {
     assert.ok(app.includes(label), `职责槽位必须有中文名：${label}`);
@@ -121,11 +131,10 @@ test('C-4 编制视图走只读白名单，不新增写动作或新网页入口'
 
 test('P-5 控制台改拉服务端分页摘要，不再请求全量工作区快照', () => {
   assert.doesNotMatch(app, /safe\('view'\)/, '控制台不得再请求全量 view');
-  assert.ok((app.match(/safe\('view-summary'\)/g) ?? []).length >= 4, '用到任务列表的视图都要改');
-  assert.match(app, /actions: \['view-summary'/);
-  assert.match(server, /'view-summary'/, '新增只读动作必须登记进控制台白名单');
-  assert.match(app, /const READ_TIMEOUT = \{ view: 30000 \}/);
-  assert.doesNotMatch(app, /'view-summary': 30000/, '摘要走默认 8 秒，不给慢请求开口子');
+  // P-12 重写后任务列表出现在概览 / 协作 / 验收三个视图。
+  assert.ok((app.match(/safe\('view-summary'\)/g) ?? []).length >= 3, '用到任务列表的视图都要改');
+  assert.match(server, /'view-summary'/, '只读动作必须登记进控制台白名单');
+  assert.doesNotMatch(app, /'view-summary': \d+/, '摘要走默认超时，不给慢请求开口子');
 });
 
 test('P-5 摘要只用于展示索引，不承载工作稿正文或验收判断', () => {
@@ -137,7 +146,7 @@ test('P-5 摘要只用于展示索引，不承载工作稿正文或验收判断'
 
 test('C-2 静态资源自足，不依赖外部脚本或样式', () => {
   assert.match(html, /href="\/styles\.css"/);
-  assert.match(html, /src="\/app\.js" defer/);
+  assert.match(html, /src="\/app\.js"/);
   assert.ok(!/https?:\/\//.test(html.replace(/http:\/\/www\.w3\.org[^"']*/g, '')), '不得引外部资源');
   assert.match(server, /'\/styles\.css'/);
   assert.match(server, /'\/app\.js'/);

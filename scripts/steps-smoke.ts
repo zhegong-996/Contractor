@@ -40,8 +40,16 @@ async function main() {
   const loopConfig = loadConfig();
 
   // ---- A. 配置与只读视图 -------------------------------------------------
-  check('A1 默认仍是常驻循环，可直接回退', loopConfig.execution.mode === 'loop'
-    && defaultExecutionConfig().mode === 'loop', { mode: loopConfig.execution.mode });
+  // 第二十九轮 P-11：用户拍板「step 用在真实业务上」，运行时默认已切 step +
+  // local-pg；loop 仍是随时可回退的合法形态。断言口径从「默认是 loop」改为
+  // 「当前配置合法且可回退」，不再把某个形态写死。
+  check('A1 当前执行形态合法且 loop 仍可回退',
+    ['loop', 'step'].includes(loopConfig.execution.mode)
+      && defaultExecutionConfig().mode === 'loop'
+      && configSchema.parse({ ...real, host: { ...(real.host ?? {}), provider: loopConfig.host.provider },
+        execution: { schemaVersion: 1, mode: 'loop', maxStepsPerRun: 60, staleSeconds: 60 } })
+          .execution.mode === 'loop',
+    { mode: loopConfig.execution.mode, host: loopConfig.host.provider });
   let rejected = false;
   try { configSchema.parse({ ...real, host: { ...(real.host ?? {}), provider: 'paperclip' },
     execution: { schemaVersion: 1, mode: 'step' } }); } catch (error) {
@@ -51,9 +59,9 @@ async function main() {
   check('A3 step 配 local-pg 才是合法单步配置', stepConfig.execution.mode === 'step'
     && stepConfig.host.provider === 'local-pg');
   const view = executionView(loopConfig);
-  check('A4 默认只读视图如实说明未启用', view.steppedReady === false
-    && view.mode === 'loop' && view.missing.some(m => /默认底座仍是 paperclip/.test(m)),
-    { note: view.note });
+  check('A4 只读视图与当前配置一致', view.steppedReady === (loopConfig.execution.mode === 'step'
+      && loopConfig.host.provider === 'local-pg') && view.mode === loopConfig.execution.mode,
+    { note: view.note, mode: view.mode, steppedReady: view.steppedReady });
   check('A5 单步红线五条齐全且 modelCalls=0', STEP_RED_LINES.length === 5 && view.modelCalls === 0);
   check('A6 step+local-pg 视图才标已启用', executionView(stepConfig).steppedReady === true);
 
@@ -315,6 +323,25 @@ async function main() {
         && answered[1]?.payload.question_id === asked[0].id
         && answered[1]?.payload.acceptance === false,
       { answer: answer.parsed, events: answered.length, stderr: answer.stderr });
+    // E7/E8（P-11）：回答落地后自动续跑——续跑闸以 ready 状态排进 PG 队列，
+    // 真实子进程领到它时重新验证台账回答才放行（run 自然收敛，无虚构接续步）。
+    const resumeStates = await pgQueue.runState(hitlRun);
+    const resumeGate = resumeStates.find(s => (s as any).kind === 'human-gate' && s.status === 'ready') as any;
+    check('E7 回答后自动排续跑闸（ready、resumeOf 指向问题编号、带授权留痕）',
+      (answer.parsed?.autoResume as any)?.ok === true
+        && Boolean(resumeGate)
+        && resumeGate?.payload?.resumeOf === asked[0]?.id
+        && typeof resumeGate?.payload?.mandate?.instruction === 'string',
+      { autoResume: answer.parsed?.autoResume, resumeGate: resumeGate?.payload });
+    const resumeOnce = once(hitlRun);
+    const afterResume = await pgQueue.runState(hitlRun);
+    check('E8 续跑闸执行期重新验证台账回答后放行',
+      resumeOnce.code === 0 && resumeOnce.parsed?.claimed === true && resumeOnce.parsed?.ok === true
+        && afterResume.filter(s => s.status === 'done').length === 1
+        && (afterResume.find(s => s.status === 'done')!.result as any)?.gate === 'passed'
+        && (afterResume.find(s => s.status === 'done')!.result as any)?.notAcceptance === true,
+      { resume: resumeOnce.parsed, states: afterResume.map(s => [s.kind, s.status]) });
+
     const repeat = runAnswer({ COLLAB_HUMAN_ACTOR: '原发起人' });
     check('E4 同一问题重复回答被拒，历史不回溯改写',
       repeat.parsed?.ok === false && /已经有回答/.test(repeat.parsed?.error ?? ''),

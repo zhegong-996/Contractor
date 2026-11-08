@@ -236,3 +236,25 @@ Source: https://www.anthropic.com/research/components-of-agent-memory, Engineeri
 Borrowed: the architecture only — a four-layer memory hierarchy (transcripts → notes → wiki-like representations → small injected context), transcript-as-ground-truth correction, linked knowledge maps with an index and a size guard, "leave links behind" at the top layer, and offline consolidation that proposes rather than decides. All implementation is original TypeScript in `src/memory-hierarchy.ts`, with `tests/memory-hierarchy.test.ts` and `scripts/memory-hierarchy-smoke.ts`. The full comparison is `docs/REFERENCE-anthropic-agent-memory.md`.
 
 **No article text or code is reproduced**, no model API was called, and no new package was installed. The article's model-driven salience and automatic promotion are explicitly not adopted: candidate knowledge still requires a human review, the append-only memory trunk is never rewritten, and the original initiator's Chinese acceptance confirmation remains the only business sign-off.
+
+## casbin — Apache-2.0（第三十轮 P-12 新增，npm 运行时依赖）
+
+Pinned `casbin@5.51.1`, from https://github.com/casbin/casbin (Apache Software Foundation). Version is exact in `package.json` and fixed by registry integrity in `package-lock.json`. Apache Licence 2.0 retained verbatim in `licenses/casbin-APACHE-2.0.txt`.
+
+Actually reused: the RBAC enforcement engine only, per the user's round-30 instruction 「对于涉及到权限管控 rbac 相关，直接找开源项目代码复用」. `src/rbac.ts` loads an Apache-2.0 upstream model (RBAC with `g` role bindings and `keyMatch` wildcards) through casbin's `newEnforcer(newModel(...), new FileAdapter(...))`; policy lives in `.runtime/console/rbac_policy.csv` (seeded from `ROLE_PERMISSIONS`, not committed). Both processes (bridge `src/server.ts` and console `scripts/console-server.ts`) enforce through the same `rbacEnforce()` — synchronous, fail-closed.
+
+Preserved boundaries: human accounts bind via the `g` section (`user:<name>` → role) and are self-healed against `accounts.json` before enforcement (`ensureHumanBound`); agent tiers (`agent-supervisor` / `agent-worker` / `agent-personal`) are matched directly as subjects, never as human roles; no casbin management API is exposed to the browser; the 7 pinned submodules are unchanged (casbin is an npm dependency, not an 8th upstream submodule).
+
+## Vue.js — MIT（第三十轮 P-12，本地 vendor 前端运行时）
+
+Vendored `vue@3.5.45` global build (`console/vendor/vue.global.prod.js`), from https://github.com/vuejs/core, tag `v3.5.45`. `(c) 2018-present Yuxi (Evan) You and Vue contributors`; the file retains its in-band MIT notice and LICENSE is retained verbatim in `licenses/vue-MIT.txt`.
+
+Actually reused: the runtime + compiler for the rewritten console front end (`console/app.js` mounts a Vue 3 application; runtime template compilation requires the CSP `script-src 'unsafe-eval'` allowance on the loopback-only console server). The vendor copy is **local-first**: no CDN, no external script or style reference, and the page stays usable offline.
+
+## Element Plus — MIT（第三十轮 P-12，本地 vendor 前端组件库）
+
+Vendored `element-plus@2.14.8` dist files (`console/vendor/element-plus.full.min.js`, `element-plus.css`, `element-plus.dark.css`, `element-plus-locale-zh-cn.js`), from https://github.com/element-plus/element-plus, tag `2.14.8`. `Copyright (c) 2020-PRESENT Element Plus`; LICENSE retained verbatim in `licenses/element-plus-MIT.txt`.
+
+Actually reused: the open-source component library per the user's round-30 instruction 「前端界面也做一个完整优化，复用开源代码和组件库」 — layout, tables, forms, dialogs, menus, dark theme (via `html.dark`) and the zh-CN locale, all served from the local vendor directory by `scripts/console-server.ts` (loopback only).
+
+Preserved boundaries (both front-end libraries): product red lines are unchanged — Feishu IM remains the only task-intake entry, the static HTML contains no native input/form elements, write actions outside knowledge CRUD / own settings / RBAC-gated admin remain rejected, and the visible layer keeps the domestic Chinese terminology layer (`DOMESTIC_TERMS` / `clean()`). `scripts/audit-upstream.ts` machine-checks the vendored version banners (`vue v3.5.45`, `Element Plus v2.14.8`) against the registered values.

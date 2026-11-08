@@ -47,8 +47,12 @@ export const EXECUTION_MODES = ['loop', 'step'] as const;
 export const executionConfigSchema = z.object({
   schemaVersion: z.literal(1),
   mode: z.enum(EXECUTION_MODES).default('loop'),
-  /** 一个 run 最多领多少步，防止队列被失控循环写满。 */
-  maxStepsPerRun: z.number().int().min(1).max(200).default(60),
+  /**
+   * 一个 run 最多领多少步，防止队列被失控循环写满。
+   * 第二十九轮 P-11：真实业务单（tick 级单步 + 1s 间隔）暴露 60 步上限过低，
+   * 上限提高到 20000；真实业务建议 7200（≈2 小时 @1s/步）。
+   */
+  maxStepsPerRun: z.number().int().min(1).max(20000).default(60),
   /** running 超过该秒数视为崩溃，回收为 ready 且旧 runToken 作废。 */
   staleSeconds: z.number().int().min(1).max(3600).default(60),
 }).strict();

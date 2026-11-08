@@ -113,7 +113,9 @@ const child = spawnSync(process.execPath, ['--import', loader,
   path.join(root, 'scripts/step-answer.ts'), question.id, '继续', '真跑备注'],
   { cwd: root, encoding: 'utf8', timeout: 60_000,
     env: { ...process.env, NODE_OPTIONS: '', COLLAB_HITL_LEDGER: ledger,
-      COLLAB_HUMAN_ACTOR: '原发起人', NO_PROXY: '127.0.0.1,localhost' } });
+      COLLAB_HUMAN_ACTOR: '原发起人', NO_PROXY: '127.0.0.1,localhost',
+      // P-11：隔离冒烟关闭自动续跑，避免真跑配置（step 模式）变化影响隔离口径。
+      COLLAB_AUTO_RESUME: '0' } });
 let answer: Record<string, any> = {};
 try { answer = JSON.parse(String(child.stdout).trim()); } catch { /* 下面如实报 */ }
 const proposals = existsSync(proposalFile)
@@ -129,6 +131,9 @@ check('C2 回流建议真实落盘到独立 append-only 台账，且只作 advis
     && proposals[0].target === 'execution-chain'
     && proposals[0].questionId === question.id && proposals[0].responseId === answer.responseId,
   { proposals: proposals.length, persisted: answer.proposalPersisted });
+check('C3 隔离口径：COLLAB_AUTO_RESUME=0 时本冒烟不触发自动续跑副作用',
+  answer.autoResume === null || answer.autoResume === undefined,
+  { autoResume: answer.autoResume ?? null });
 
 // ---------------------------------------------------------------- D 半回路 → 完整回合
 const ledgerEvents = readFileSync(ledger, 'utf8').split('\n').filter(Boolean).map(line => JSON.parse(line));

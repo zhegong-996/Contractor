@@ -65,11 +65,17 @@
     "memory:journey": "node --import tsx scripts/memory-journey.ts",
     "memory:checkpoint": "node --import tsx scripts/memory-checkpoint.ts",
     "console": "node --import tsx scripts/console-server.ts",
-    "console:smoke": "node --import tsx scripts/console-smoke.mjs"
+    "console:smoke": "node --import tsx scripts/console-smoke.mjs",
+    "services": "node --import tsx scripts/services.ts",
+    "services:start": "node --import tsx scripts/services.ts start",
+    "services:status": "node --import tsx scripts/services.ts status",
+    "delegated:accept": "node --import tsx scripts/delegated-accept.ts",
+    "console:owner": "node --import tsx scripts/console-server.ts init-owner"
   },
   "dependencies": {
     "@a2a-js/sdk": "1.3.0",
     "@modelcontextprotocol/sdk": "1.31.0",
+    "casbin": "5.51.1",
     "classnames": "2.5.1",
     "culori": "4.0.2",
     "d3-force-3d": "3.0.6",

@@ -184,6 +184,14 @@ export class TrackedStepQueue implements StepQueue {
       payload: { kind: spec.kind } }));
     return result;
   }
+  /** P-11：立即就绪的入队（自动续跑闸）；同样留下送达证据。 */
+  async enqueueReadySteps(runId: string, specs: StepSpec[]) {
+    const result = await this.inner.enqueueReadySteps(runId, specs);
+    specs.forEach((spec, index) => this.append({ type: 'message', runId,
+      stepNo: index + 1, from: 'queue', to: null,
+      payload: { kind: spec.kind, immediate: true } }));
+    return result;
+  }
   async claimStep(workerId: string, runId?: string): Promise<ClaimedStep | null> {
     const step = await this.inner.claimStep(workerId, runId);
     if (step) this.append({ type: 'step_delivered', runId: step.runId, stepNo: step.stepNo,
