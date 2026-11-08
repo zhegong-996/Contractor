@@ -40,6 +40,23 @@ export function defaultRouterConfig(): RouterConfig {
   return routerConfigSchema.parse({ schemaVersion: 1, mode: 'flat' });
 }
 
+// 生产项 P-1 · 长程执行形态。层是配置，不是产品骨架：默认仍是原来的常驻循环，
+// 单步模式必须配 local-pg——没有状态外置队列就不叫「循环与状态分离」，
+// 配置层直接拒绝，避免用户以为切了开关就已经单步化。
+export const EXECUTION_MODES = ['loop', 'step'] as const;
+export const executionConfigSchema = z.object({
+  schemaVersion: z.literal(1),
+  mode: z.enum(EXECUTION_MODES).default('loop'),
+  /** 一个 run 最多领多少步，防止队列被失控循环写满。 */
+  maxStepsPerRun: z.number().int().min(1).max(200).default(60),
+  /** running 超过该秒数视为崩溃，回收为 ready 且旧 runToken 作废。 */
+  staleSeconds: z.number().int().min(1).max(3600).default(60),
+}).strict();
+export type ExecutionConfig = z.infer<typeof executionConfigSchema>;
+export function defaultExecutionConfig(): ExecutionConfig {
+  return executionConfigSchema.parse({ schemaVersion: 1, mode: 'loop' });
+}
+
 const agentSchema = z.object({
   name: z.string(), mode: z.enum(['managed', 'manual']),
   use: z.enum(['codex', 'claude', 'command', 'acp']).default('command'),
@@ -184,6 +201,16 @@ export const configSchema = z.object({
       .default(() => ({ enabled: true as const })),
     canaryPercent: z.number().int().min(1).max(100).default(20),
   }).default(() => ({ selfCheckGate: { enabled: true as const }, canaryPercent: 20 })),
+  /**
+   * P-1：长程执行形态。默认 loop，与改造前逐字等价；step 要求 host.provider
+   * 必须是 local-pg（真实状态外置队列），否则 superRefine 拒绝启动。
+   */
+  execution: executionConfigSchema.default(() => defaultExecutionConfig()),
+}).superRefine((cfg, ctx) => {
+  if (cfg.execution.mode === 'step' && cfg.host.provider !== 'local-pg') {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['execution', 'mode'],
+      message: '单步执行要求 host.provider=local-pg：没有状态外置队列就不能把循环与会话状态分开' });
+  }
 });
 export type Config = z.infer<typeof configSchema>;
 export type Agent = Config['agents'][string];

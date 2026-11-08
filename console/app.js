@@ -3,7 +3,7 @@
 
   const VIEWS = [
     { id: 'overview', title: '概览', glyph: '◎', subtitle: '同一份共享现场，人和助手各看自己该看的', actions: ['view', 'memory-status', 'routing-status'] },
-    { id: 'collaboration', title: '协作', glyph: '⇄', subtitle: '谁接、谁派、谁干，都在一条责任链上', actions: ['view', 'trace-view', 'routing-status', 'v06-agent-registry-view', 'v06-evolution-view'] },
+    { id: 'collaboration', title: '协作', glyph: '⇄', subtitle: '谁接、谁派、谁干，都在一条责任链上', actions: ['view', 'trace-view', 'routing-status', 'v06-agent-registry-view', 'v06-evolution-view', 'v06-execution-view'] },
     { id: 'knowledge', title: '知识', glyph: '▤', subtitle: '资料、证据与组织关系，按身份逐步重评', actions: ['memory-status', 'memory-replay', 'system-status'] },
     { id: 'acceptance', title: '验收', glyph: '✓', subtitle: '开工前锁定清单，逐项判定后由发起人确认', actions: ['view', 'v06-org-overview'] },
     { id: 'services', title: '服务', glyph: '◈', subtitle: '本机与国内服务的实时状态，没连接不放空入口', actions: ['service-status', 'system-status'] },
@@ -130,8 +130,9 @@
   }
 
   async function renderCollaboration() {
-    const [view, routing, registry, evolution] = await Promise.all([
-      safe('view'), safe('routing-status'), safe('v06-agent-registry-view'), safe('v06-evolution-view'),
+    const [view, routing, registry, evolution, execution] = await Promise.all([
+      safe('view'), safe('routing-status'), safe('v06-agent-registry-view'),
+      safe('v06-evolution-view'), safe('v06-execution-view'),
     ]);
     const tasks = Array.isArray(view.tasks) ? view.tasks : state.tasks;
     state.tasks = tasks;
@@ -206,8 +207,21 @@
       ]) + (effectRows.length ? listRows(effectRows) : '')
         + (violations.length ? `<p class="note">越权尝试留痕 ${violations.length} 条：${escapeHtml(clean(violations[violations.length - 1]))}</p>` : '')
         + `<p class="note">${escapeHtml(clean(evo.note || '工程闸门只做确定性回放与清单比对。'))}</p>`);
-    return errorCard(view) + errorCard(routing) + errorCard(registry) + errorCard(evolution)
-      + `<div class="content-grid">${timeline}${chain}${orgCard}${crewCard}${explain}${evolutionCard}</div>`;
+    const exe = execution || {};
+    const missing = Array.isArray(exe.missing) ? exe.missing : [];
+    const executionCard = card('长程执行',
+      '一次调用只做一步；循环、会话状态、执行环境分开，换机器只是换执行工具的地方',
+      kvRows([
+        ['当前形态', exe.modeLabel || '常驻循环（当前默认，可随时回退）'],
+        ['状态外置队列', exe.queue || '未接入状态外置队列'],
+        ['单步是否启用', exe.steppedReady ? '已启用，每步由队列领取并留痕' : '未启用，不改变任何现有行为'],
+        ['一个任务最多步数', exe.maxStepsPerRun ?? 60],
+        ['崩溃回收', `超过 ${exe.staleSeconds ?? 60} 秒未回执即回收，旧凭据立即失效`],
+        ['仍缺', missing.length ? missing.slice(0, 3).join('；') : '无'],
+        ['红线', clean(exe.redLines?.[3] || '没有外部模型端点时如实拒绝模型步，不编造模型调用')],
+      ]) + `<p class="note">${escapeHtml(clean(exe.note || ''))}</p>`);
+    return errorCard(view) + errorCard(routing) + errorCard(registry) + errorCard(evolution) + errorCard(execution)
+      + `<div class="content-grid">${timeline}${chain}${orgCard}${crewCard}${explain}${evolutionCard}${executionCard}</div>`;
   }
 
   async function renderKnowledge() {

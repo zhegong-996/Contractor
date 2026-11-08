@@ -229,7 +229,7 @@ test('接线：交付守门、v06 只读白名单、控制台与脚本入口都�
   assert.match(read('src/v06.ts'), /isEvolutionAction\(action\)/);
   assert.match(read('src/v06.ts'), /setEvolution\(/);
   assert.match(read('src/server.ts'), /\.setEvolution\(V06Services\.evolutionWithConfig\(config\)\)/);
-  assert.match(read('src/server.ts'), /'evolution-view'\]/);
+  assert.match(read('src/server.ts'), /'evolution-view','execution-view'\]/);
   assert.match(read('scripts/console-server.ts'), /'v06-evolution-view'/);
   const app = read('console/app.js');
   assert.match(app, /card\('沉淀与自演进'/);

@@ -35,6 +35,8 @@ import { getAgentRegistry, registrySummary, onDuty, agentVersion, reviewCrew,
 import { recordMemory, readBridgedEvents, sourceEventId, sourceKey } from './memory-log.ts';
 import { replayMemory } from './memory-projections.ts';
 import { EvolutionService, defaultEvolutionDeps, isEvolutionAction } from './evolution.ts';
+import { loadConfig } from './config.ts';
+import { executionView } from './step-execution.ts';
 
 export interface V06Options {
   workbenchUrl: string;
@@ -766,6 +768,8 @@ export class V06Services {
       case 'watchdog-policy': return this.watchdogPolicy(p.space);
       case 'watchdog-inspect': return this.watchdogInspect(p.space, p.run, p.now);
       case 'intervention': return this.intervention(p.intervention, p.current);
+      // P-1：只读。当前执行形态、队列是否真接上、仍缺什么，如实返回。
+      case 'execution-view': return executionView(loadConfig());
       default: throw new Error(`Unknown v06 action: ${action}`);
     }
   }

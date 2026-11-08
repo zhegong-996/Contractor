@@ -85,7 +85,7 @@ B2 的只读 / 真跑入口：`scripts/memory-replay.ts`、`scripts/memory-smoke
 | `src/agent-definition.ts` | 能力目录与技能目录。 |
 | `src/assistant.ts` | 事务整理 Agent：任务上下文编译、委托、job 生命周期。 |
 | `src/assistant-turn.ts` | 一轮模型调用编排与中文业务 prompt（40 行）、CLI 适配。 |
-| `src/assistant-runner.ts` / `src/runner.ts` / `src/native-worker.ts` | Autoloop worker 执行、回执恢复、原生 worker 装配。 |
+| `src/assistant-runner.ts` / `src/runner.ts` / `src/native-worker.ts` | Autoloop worker 执行、回执恢复、原生 worker 装配；P-1 起无常驻 `while`，按 `config.execution.mode` 分派 legacy / stepped 泵。 |
 | `src/assistant-tools.ts` | 任务绑定工具集暴露。 |
 | `src/agent-services.ts` | 服务 Agent 职责与版本。 |
 | `src/service-network.ts` | A2A 服务委派、Link 合同、`route/start/dispatch/rpc`。 |

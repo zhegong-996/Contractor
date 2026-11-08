@@ -1,6 +1,6 @@
-# 03 · 全部工作记录（21 轮 + 基础建设期）
+# 03 · 全部工作记录（22 轮 + 基础建设期）
 
-> 权威逐轮记录：`docs/VALIDATION.md`（验证）与 `docs/ADAPTATION-v0.6.md`（边界声明，**最新边界以 `0.0000000000000000000000` 节为准**）。
+> 权威逐轮记录：`docs/VALIDATION.md`（验证）与 `docs/ADAPTATION-v0.6.md`（边界声明，**最新边界以 `0.00000000000000000000000` 节为准**）。
 > 完整提交历史以 `git log --oneline | wc -l` 与 `git rev-parse HEAD` 为准（交接时 `HEAD = b58631c`，其后已多次前进）。下表按时间线归纳，`提交` 列可直接 `git show <hash>`。
 
 ## 0. 基础建设期（前 21 个提交，早于分轮记录）
@@ -62,3 +62,5 @@
 > 第二十一轮 C-6 补记（表格行插入位置见下方追加行；旧轮次数字按当时实测保留）。
 
 | 第二十一轮 | 本轮提交 | **方案 C-6：沉淀回流与自演进闭环**：用户说「继续吧」，按严格分步清单推进 C-6；新增 `src/evolution-ledger.ts`（独立 append-only 治理台账、7 类事件、`modelCalls=0`、状态机守门、两次重放一致）与 `src/evolution.ts`(`standardsRevision()` / `evaluateSelfCheck()` / `assertDeliverySelfCheck()` 接在 `Controller.publish()` 之前、`engineeringGate()` 复用 `memoryReplayReport()`、`aggregateEffects()` / `compareEffects()` 四项指标、`EvolutionService` 统一编排)；`config.evolution` 默认强制自查闸门；`server.ts` / `v06.ts` / `console-server.ts` / `console/app.js` 接线，真实 HTTP `v06-evolution-view` 200、控制台写动作 403；`scripts/evolution-smoke.ts` 隔离真跑 45/45、`tests/evolution.test.ts` 12 例 | **400/400**、tsc、两构建、425px、走查 11/11、`evolution:smoke` **45/45 ok:true**、`shapes:smoke` 36/36、`router:smoke` 31/31、`agents:smoke` 43/43、`console:smoke ok:true`(6 卡片 / errorCards:0)、`host:pg` 21/21、`audit:upstream clean`、`git diff --check`；边界：默认底座仍 `paperclip`、真实业务单未触发阻断交付、`runner.ts` 常驻 while 未切单步、飞书仍是唯一发起入口、未引入新上游 |
+
+| 第二十二轮 | 本轮提交 | **生产项 P-1：长程循环单步化**：用户说「继续吧」，C 分步清单已收口，按 `06` 第 5 节剩余生产项只推进 P-1；新增 `src/step-execution.ts`（`StepQueue` / `InMemoryStepQueue` / `PgStepQueue` / `executeOneStep()` / `defaultStepRecheck()` / `driveSteppedLoop()` / `stepExecutionSummary()` / `executionView()`）、`src/loop-pump.ts`（`driveLegacyLoop()` 逐字等价 + `driveSteppedPump()`）、`src/step-runner.ts`（`npm run step:once` 一次进程一步）；`config.execution.mode` 默认 `loop`、`step` 必须配 `local-pg`；`runner.ts` / `assistant-runner.ts` 常驻 `while` 移除并按配置分派；`v06` / `server` / `console` 加只读 `execution-view` 与中文「长程执行」卡片；`scripts/steps-smoke.ts` 真跑 40/40、`tests/step-execution.test.ts` 13 例 | **413/413**、tsc、两构建、425px、走查 11/11、`steps:smoke` **40/40 ok:true**（隔离队列 + 本机 PG 专属库 + 真实子进程跨进程接力）、`evolution:smoke` 45/45、`shapes:smoke` 36/36、`router:smoke` 31/31、`agents:smoke` 43/43、`console:smoke ok:true`（7 卡片 / errorCards:0）、`host:pg` 21/21、`audit:upstream clean`、`git diff --check`；边界：默认仍 `loop` 且底座仍 `paperclip`、真实业务单未在 step 模式跑过、无外部模型调用、worker 内部子调用未逐次拆分、远端沙箱 / 金额成本账本未落地、飞书仍是唯一发起入口、未引入新上游 |

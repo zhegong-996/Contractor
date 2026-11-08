@@ -721,3 +721,16 @@ Cognee `cognify` 的真实外部模型调用未发生（缺端点与凭据）；
 ### 3. 严格边界（未发生，不是 bug）
 
 真实业务单上没有触发过「因缺自查而阻断交付」，该路径只在隔离台账与契约测试里真跑，避免产生真实交付副作用；默认 `config.host.provider` 仍 `paperclip`；`runner.ts` 常驻 `while` 未切单步；真实远端沙箱 / 多机切换 / 金额成本账本 / Cognee 原生外部模型调用未发生；真人业务验收 SUI-129 仍未发生；4190 / 4192 / 4194 / 9418 保持停机。飞书仍是唯一发起入口，控制台只读白名单只增加 `v06-evolution-view` 一项；未引入第 8 个上游、未改上游提交、未复制 LobeHub 代码。`.runtime/evolution-smoke.json` 与 `.runtime/console/*.png` 不入库。
+
+## 第二十二轮：生产项 P-1 长程循环单步化（2026-11-08）
+
+| 项 | 结果 |
+|---|---|
+| `npm test` | **413 / 413**（第二十一轮 400 + P-1 新增 13 例单步执行契约） |
+| `npx tsc --noEmit` / 两个构建 | 通过 / `hiddenEntries` 4、`missed: []`、`warning: null` |
+| `npm run steps:smoke` | **40/40 `ok:true`**：A 配置与只读视图 6 项、B 隔离内存队列 21 项、C 本机 PG 专属库 + 真实子进程跨进程单步 8 项、D 接线守门 6 项（含 B1 主干行数前后不变）；报告 `.runtime/steps-smoke.json` 不入库 |
+| 跨进程真跑要点 | `step:once` 第一棒 `counter=1` 并原子激活第二棒；第二棒由 `COLLAB_STEP_ENVIRONMENT=另一台机器` 的独立进程领走，`counter=2`、`previousEnvironment=本机执行环境`；队列空返回 `claimed:false`；PG 旧 `runToken` 完成被拒；`model-call` 步如实失败并留中文原因 |
+| 真实服务端 / 控制台 | `v06-execution-view` HTTP **200**（`mode=loop`、`steppedReady=false`、`missing=6`）；控制台代理只读 200、写动作 `v06-self-check-record` **403**；`console:smoke` `failed: []`；四张 1280 截图 `errorCards:0`，新增「长程执行」卡片完整可见 |
+| 既有回归不回退 | `router:smoke` 31/31、`agents:smoke` 43/43、`shapes:smoke` 36/36、`evolution:smoke` 45/45、`host:pg` 21/21、`host:smoke`、`memory:replay` / `memory:checkpoint`、`routing:status allWired:true`、`audit:upstream clean:true`、`test:responsive` 393/393、`test:walkthrough` 11/11、`git diff --check` |
+| 默认路径 | `config.execution.mode=loop`、`host.provider=paperclip`；`driveLegacyLoop()` 与改造前逐字等价，`step:once` 在 loop 下如实返回未启用、不连数据库 |
+| 如实边界 | 真实业务单未在 step 模式跑过；无外部模型调用；worker 内部子调用未逐次拆分；远端沙箱 / 多机切换 / Redis / 金额成本账本仍未落地；`host:pg` 的 `resetForTest()` 会清空专属测试库 |

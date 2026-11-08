@@ -27,7 +27,7 @@
 - LobeHub 主仓库（Community License）与 Outline（BSL 1.1）**只借思想，禁止复制代码与衍生分发**；`lobehub/acceptance` 是独立 Apache-2.0，可复用格式/CLI。
 - Super Agent、Agent Autoloop、DeepSeek Harness、Prime Agent、Cognee、Paperclip 均为 MIT/Apache-2.0，可复用代码；`src/vendor/prime-query.ts` 必须保留 Mario Zechner 原始 MIT 版权头。
 - **LobeHub 只借设计语言**：主仓库 Community License 禁止复制 / fork / 分发衍生作品；`@lobehub/ui` 为 MIT 但 v6 强绑 React 19 + ESM，本轮**未引入**，`console/` 全部自研。未来若要用其组件，必须先走 R7 六步并重新评估运行时约束。
-- **独立控制台只开放只读动作**：13 项白名单之外一律 403，密钥不出服务端，无网页发起入口，不新增常驻端口。
+- **独立控制台只开放只读动作**：16 项只读白名单（C-2 13 + C-4 / C-6 / P-1 各 1）之外一律 403，密钥不出服务端，无网页发起入口，不新增常驻端口。
 - 引入任何新上游前：先核对许可证原文、登记 `sources.lock.json`、跑 `audit:upstream`；新增 npm 依赖同样走 R7 六步（精确版本、LICENSE 原文至 `licenses/`、NOTICES、lockfile integrity、SOURCES、审计脚本）。`pg@8.23.1` 已按此登记（MIT）。
 
 ## 5. 前端与入口红线

@@ -1,6 +1,6 @@
 # FILE-INVENTORY · 逐文件说明（100% 覆盖）
 
-> 生成自 `git ls-files` + `HANDOFF/`，第二十一轮 C-6 收尾后共 **292** 个条目（第十四轮 269 + C-1 新增 4 + C-2 新增 7 + C-3 新增 3 + C-4 新增 3 + C-5 新增 2 + C-6 新增 4 个入库文件）。
+> 生成自 `git ls-files` + `HANDOFF/`，第二十二轮 P-1 收尾后共 **297** 个条目（第十四轮 269 + C-1 新增 4 + C-2 新增 7 + C-3 新增 3 + C-4 新增 3 + C-5 新增 2 + C-6 新增 4 + P-1 新增 5 个入库文件）。
 > 列：`路径 | 行数 | 说明`。`upstream/<name>` 是 gitlink（submodule），行数记 `-`。
 > 说明来源：精写字典 211 条、从源码注释/导出/测试名自动提取 69 条、按类型兜底 0 条。
 > 需要更详细的「哪些文件一起完成什么」见 `04-CODE-MAP.md`；目录结构见 `DIRECTORY-GUIDE.md`。
@@ -12,9 +12,9 @@
 | `HANDOFF/00-START-HERE.md` | 88 | 新 Agent 第一份必读：环境、同步状态、干净环境变量、服务端口（含 5432 PG）、首次验证、8 个已知坑（含宿主重启后插件重挂）。 |
 | `HANDOFF/01-PROJECT-OVERVIEW.md` | 56 | 产品与业务架构：定位、渠道分工、三级 owner、8 步闭环、5 tab 功能地图、成熟度三档、五条红线。 |
 | `HANDOFF/02-ARCHITECTURE.md` | 89 | 技术架构：四层数据流、7 个上游真实引用强度、前端分层、中文壳、路由契约、共享记忆主干（B1+B2）、平台端口、代码交付。 |
-| `HANDOFF/03-WORK-LOG.md` | 58 | 全部 21 轮工作记录（含第十五轮补遗、第十六轮 C-1、第十七轮 C-2、第十八轮 C-3、第十九轮 C-4、第二十轮 C-5、第二十一轮 C-6）、7 条排障模式、用户明确做过的决策。 |
+| `HANDOFF/03-WORK-LOG.md` | 58 | 全部 22 轮工作记录（含第十五轮补遗、第十六轮 C-1、第十七轮 C-2、第十八轮 C-3、第十九轮 C-4、第二十轮 C-5、第二十一轮 C-6）、7 条排障模式、用户明确做过的决策。 |
 | `HANDOFF/04-CODE-MAP.md` | 172 | 按 14 个功能域讲「哪些文件一起完成什么」、关键导出与依赖方向速查。 |
-| `HANDOFF/05-VALIDATION-AND-COMMANDS.md` | 120 | 全套回归命令、第二十一轮 C-6 实测结果（含 host:pg 21/21、console:smoke、router:smoke 31/31、agents:smoke 43/43、shapes:smoke 36/36、evolution:smoke 45/45）、真实 HTTP 冒烟模板、服务端口表、排障速查、提交前检查。 |
+| `HANDOFF/05-VALIDATION-AND-COMMANDS.md` | 126 | 全套回归命令、第二十二轮 P-1 实测结果（含 host:pg 21/21、console:smoke、router:smoke 31/31、agents:smoke 43/43、shapes:smoke 36/36、evolution:smoke 45/45、steps:smoke 40/40）、真实 HTTP 冒烟模板、服务端口表、排障速查、提交前检查。 |
 | `HANDOFF/06-CURRENT-STATE-AND-NEXT.md` | 61 | 当前状态快照、B2 四项真跑证据、C-0~C-6 分步清单（含两条新增产品原则）、按配置的三层判断、去 Paperclip 化路线。 |
 | `HANDOFF/07-RULES-AND-BOUNDARIES.md` | 44 | 红线与边界：业务验收身份、隐私与 .runtime、服务约束、许可证、前端入口、工程约束。 |
 | `HANDOFF/08-OPEN-DECISIONS.md` | 58 | 9 个条目（6 项待拍板 + 产品形态 ②、B2 范围、组织形态可配置与自演进三条已解决历史记录）：外部模型凭据、真人验收、部门 scope、外部服务、已停服务、pi 指代。 |
@@ -35,7 +35,7 @@
 | `src/agent-definition.ts` | 32 | 能力目录 capabilityCatalog 与技能目录 skillCatalog，供 Harness 装配使用。 |
 | `src/agent-services.ts` | 71 | 服务 Agent 的职责定义、版本计算 serviceVersion 与 profile 读取。 |
 | `src/architecture-contracts.ts` | 112 | ★ 唯一架构常量来源：16 类节点/5 边族/EDGE_RULES、ontology 三层、Agent 三层角色、四套运行时来源、记忆投影与 memoryEventSchema。 |
-| `src/assistant-runner.ts` | 60 | Autoloop worker 运行器：把 assistant job 转成原生执行并恢复回执。 |
+| `src/assistant-runner.ts` | 70 | Autoloop worker 运行器：把 assistant job 转成原生执行并恢复回执；P-1 起无常驻 `while`，按配置分派双泵。 |
 | `src/assistant-tools.ts` | 41 | 暴露任务绑定的运行时工具集（read_context / delegate_service / assess_scope 等）。 |
 | `src/assistant-turn.ts` | 82 | 单轮模型调用编排：中文业务 prompt、CLI 适配器 adapterFor、输出与用量解析。 |
 | `src/assistant.ts` | 374 | 事务整理 Agent：上下文编译 bundle、委托 delegate、job 生命周期、复查与取消。 |
@@ -82,7 +82,10 @@
 | `src/roles.ts` | 187 | 职能注册表（FR-01/02/03/28）：主职能、邻接能力、能力派生与路由建议。 |
 | `src/routing-decision.ts` | 155 | ★ RoutingDecision 五维契约（caller/target/basis/scope/requiresHumanSignature）、人签红线、toMemoryEvent / decisionOf。 |
 | `src/routing-trace.ts` | 126 | ★ 5 派活点共用单例 Trace：append-only JSONL、SQLite audit 投影、readRoutingEvents / replayRouting、测试隔离。 |
-| `src/runner.ts` | 92 | Autoloop createWorker 执行入口与 HubError 处理。 |
+| `src/runner.ts` | 105 | Autoloop createWorker 执行入口与 HubError 处理；P-1 起按 `config.execution.mode` 分派 legacy / stepped 泵，无常驻 `while`。 |
+| `src/step-execution.ts` | 342 | ★ P-1 单步执行契约：`StepQueue` / `InMemoryStepQueue` / `PgStepQueue` / `executeOneStep()` / 步间权限重评 / 外部调度器 / 确定性摘要 / 中文只读状态。 |
+| `src/loop-pump.ts` | 80 | ★ P-1 双泵：`driveLegacyLoop()` 逐字等价、`driveSteppedPump()` 会话快照写回队列。 |
+| `src/step-runner.ts` | 74 | ★ P-1 `step:once` 入口：一次进程只领一步，工具白名单、模型步拒绝、人工步不得自行放行。 |
 | `src/runtime-bridge.ts` | 118 | 把 FR-22/23/24 运行时守卫契约接到真实执行路径。 |
 | `src/runtime-guard.ts` | 111 | 注意力预算、干预判定、Watchdog 与事件过滤（纯函数契约）。 |
 | `src/semantic-recall.ts` | 144 | 设备端 Apple NL 中英文词向量、BM25 混合召回、语义索引读写；不调用外部模型。 |
@@ -167,6 +170,7 @@
 | `scripts/router-smoke.ts` | 130 | C-3 真跑：隔离内存 Trace 跑 legacy / flat / layered 三种形态，31 项 checks，报告 `.runtime/router-smoke.json`（不入库）。 |
 
 | `scripts/agents-smoke.ts` | 265 | C-4 真跑：隔离内存 Trace 跑 C-3 兼容 / 空编制降级 / 在岗 2 跳 / 验收编组 / A2A 六类失败 / 接线守门，43 项 checks，报告 `.runtime/agent-registry-smoke.json`（不入库）。 |
+| `scripts/steps-smoke.ts` | 300 | ★ P-1 真跑：隔离内存队列 + 本机 PG 专属库 + 真实子进程跨进程领步，40/40，不 reset 他人数据。 |
 | `scripts/evolution-smoke.ts` | 318 | C-6 真跑：隔离临时台账跑完整闭环与全部反例 45 项 checks，报告 `.runtime/evolution-smoke.json`（不入库），前后真实台账 / B1 主干行数不变。 |
 | `scripts/shapes-smoke.ts` | 276 | C-5 真跑：隔离内存 Trace 让扁平 / 分层各跑一单五阶段，36 项 checks，每步带 Router / 在岗快照可回放，报告 `.runtime/shapes-smoke.json`（不入库）。 |
 
@@ -238,6 +242,7 @@
 | `tests/router.test.ts` | 145 | C-3 契约 11 例：配置校验、快照、legacy 逐字回退、1/2 跳、人签位置、自环、纯函数确定性、p6/p8 闸门、9 处接线。 |
 
 | `tests/agent-registry.test.ts` | 240 | C-4 契约 14 例：schema / 版本快照 / 范围 / 确定性解析 / 自环 / A2A 交接 / 验收编组 / Router 兼容 / p8 / 五处接线。 |
+| `tests/step-execution.test.ts` | 203 | ★ P-1 契约 13 例：配置与只读视图 / 队列并发与旧令牌 / 一次一步与换机器 / 步间重评 / 拒绝反例 / 崩溃回收 / 确定性摘要 / 双泵 / 接线守门。 |
 | `tests/evolution.test.ts` | 239 | C-6 契约 12 例：自查五种阻断 / 工程回放闸门 / 状态机红线 / 效果不可比 / 独立台账 / 配置与接线守门。 |
 | `tests/shape-assessment.test.ts` | 175 | C-5 契约 10 例：按配置判定 / 真实在岗主管 / 防跳级反例 / 形态闭环与启用三层分离 / 接线守门。 |
 
@@ -352,7 +357,7 @@
 
 ## 覆盖率
 
-- 总条目：**292**（第十四轮 269 + C-1 新增 4 + C-2 新增 7 + C-3 新增 3 + C-4 新增 3 + C-5 新增 2 + C-6 新增 4 个入库文件）
+- 总条目：**297**（第十四轮 269 + C-1 新增 4 + C-2 新增 7 + C-3 新增 3 + C-4 新增 3 + C-5 新增 2 + C-6 新增 4 + P-1 新增 5 个入库文件）
 - 精写说明：**211**（75.4%）
 - 自动提取（源码注释/导出/真实测试名）：**69**
 - 兜底：**0**

@@ -20,8 +20,8 @@
     "A": "completed",
     "B1": "completed-and-validated",
     "B2": "completed-and-validated",
-    "C": "c-steps-complete; production-decoupling-pending",
-    "currentBoundary": "docs/ADAPTATION-v0.6.md 0.0000000000000000000000 节（第二十一轮 C-6：沉淀回流与自演进闭环）；C 产品约束见 docs/PRD-v0.6.md §10C（C-P1~C-P8，C-P4 / C-P5 已落地）；验证见 docs/VALIDATION.md 第二十一轮",
+    "C": "C-0 ~ C-6 分步清单已全部完成并收口；第二十二轮起进入生产项，P-1 长程循环单步化已完成",
+    "currentBoundary": "docs/ADAPTATION-v0.6.md 0.00000000000000000000000 节（第二十二轮 P-1：长程循环单步化）；C 产品约束见 docs/PRD-v0.6.md §10C（C-P1~C-P8）；验证见 docs/VALIDATION.md 第二十二轮",
     "userDecision": "② 改成独立前端应用（废弃 PRD §10A 的 S5/S6，保留 S1–S4，飞书 IM 仍是唯一发起入口）；补遗：组织形态必须可配置（按业务域/组织单元生效、允许一个 Agent 兼任多职责、禁止同一 Task 自派自验自环），Agent 靠沉淀自我改进但核心决策仍由人做，判断是工程能力 + AI 能力组合，验收本身也是一个可与产品/技术/运营协作的 Agent",
     "cProductConstraints": [
       "C-P1 组织形态可配置：层不是产品骨架；Agent 实例与职责绑定/生效范围/版本分离；组织级唯一、项目只引用不覆写、变更留快照不回溯",
@@ -44,7 +44,7 @@
       "C-6 沉淀回流与自演进闭环（完成：交付前强制自查 / 候选改进闭环 / 四项效果对比 / evolution:smoke 45/45）",
       "C 收尾：全量回归、文档同步、提交推送（完成，HEAD = origin/main）"
     ],
-    "note": "B 阶段已验收；第十五轮用户拍板 ② 解除产品形态冲突，C 正式启动且严格分步不并行。C-3 真跑发现只按角色名判定 P3/P4 会被合成数据凑齐，p8 闸门已焊死；第二十轮 C-5 已按当前配置重跑评估：扁平不要求主管、分层主管须真实在岗，recommended 只表示当前分层配置可正式启用三层，默认扁平配置下仍 recommended=false。第十七轮按 08 第 10 项方向 (a) 不引入第 8 个上游，自己做国内化 + 独立控制台；默认底座仍 paperclip、可回退。第二十一轮 C-6 已完成沉淀回流与自演进闭环，C-0 ~ C-6 分步清单全部完成，后续只剩去宿主化与生产项。",
+    "note": "B 阶段已验收；第十五轮用户拍板 ② 解除产品形态冲突，C 正式启动且严格分步不并行。C-3 真跑发现只按角色名判定 P3/P4 会被合成数据凑齐，p8 闸门已焊死；第二十轮 C-5 已按当前配置重跑评估：扁平不要求主管、分层主管须真实在岗，recommended 只表示当前分层配置可正式启用三层，默认扁平配置下仍 recommended=false。第十七轮按 08 第 10 项方向 (a) 不引入第 8 个上游，自己做国内化 + 独立控制台；默认底座仍 paperclip、可回退。第二十一轮 C-6 已完成沉淀回流与自演进闭环，C-0 ~ C-6 分步清单全部完成。第二十二轮 P-1 已完成长程循环单步化：单步执行器接上 C-1 的 PG 队列、两个宿主入口无常驻 while、默认 loop 可回退；后续只剩切换默认底座、worker 内部子调用拆分与金额成本账本等生产项。",
     "c1Deliverables": [
       "src/pg-host.ts：PgHostPlatform，事务 / ACL / 成本账本 / heartbeat checkout-retry-runToken / FOR UPDATE SKIP LOCKED 步进队列 / 崩溃恢复 / 状态外置",
       "scripts/host-pg-smoke.ts：本机专属库 suitme_collab_c1 真跑，21 项 checks 全绿，报告 .runtime/host-pg-smoke.json（不入库）",
@@ -97,8 +97,17 @@
       "config.evolution：selfCheckGate.enabled 默认 true、canaryPercent 默认 20；「必须真人批准」与「四类禁改对象」为硬编码红线，不提供配置开关",
       "接线：server.ts 注入 evolutionWithConfig、v06Reads 加 evolution-view、v06 七动作统一转发、console-server 白名单、console/app.js「沉淀与自演进」中文卡片",
       "scripts/evolution-smoke.ts + npm run evolution:smoke：隔离临时台账跑完整闭环与全部反例 45/45，前后真实治理台账 / B1 主干行数不变、已锁定清单字节未变",
-      "tests/evolution.test.ts：12 例契约（自查五种阻断 / 工程回放闸门 / 状态机红线 / 效果不可比 / 独立台账 / 配置与接线守门）；全套 400/400",
+      "tests/evolution.test.ts：12 例契约（自查五种阻断 / 工程回放闸门 / 状态机红线 / 效果不可比 / 独立台账 / 配置与接线守门）；全套 400/400（第二十一轮当时基线）",
       "真实 HTTP v06-evolution-view 200、控制台写动作 403、console:smoke 全绿且 errorCards:0；无新增依赖、无第 8 个上游、未改上游提交、未复制 LobeHub 代码"
+    ],
+    "p1Deliverables": [
+      "src/step-execution.ts：StepQueue 契约、InMemoryStepQueue（隔离真跑）、PgStepQueue（接 C-1 claimStep/completeStep/recoverStaleSteps）、executeOneStep（一次调用只跑一步）、defaultStepRecheck（步间按当前主体重评）、driveSteppedLoop（可换机器的外部调度器）、stepExecutionSummary（确定性摘要）、executionView（中文只读状态）",
+      "src/loop-pump.ts：driveLegacyLoop 与改造前逐字等价；driveSteppedPump 每 tick 由队列领取并把会话快照写回 checkpoint",
+      "src/step-runner.ts：npm run step:once 一次进程只领一步，工具白名单只有 sha256；无外部模型端点时 model-call 明确拒绝；human-gate 不得由执行进程自行放行",
+      "config.execution.mode 默认 loop；step 必须配 host.provider=local-pg，configSchema.superRefine 直接拒绝静默假装单步",
+      "接线：runner.ts / assistant-runner.ts 常驻 while 移除并按配置分派；v06 execution-view、server v06Reads、console-server 白名单、console/app.js 中文「长程执行」卡片（只读）",
+      "scripts/steps-smoke.ts + npm run steps:smoke：隔离内存队列 + 本机 PG 专属库 + 真实子进程跨进程领步，40/40；用唯一 runId、不 reset 他人数据、不写 B1 主干",
+      "tests/step-execution.test.ts：13 例契约；全套 413/413。真实 HTTP v06-execution-view 200、控制台写动作 403、console:smoke 全绿、四张截图 errorCards:0"
     ]
   },
   "b2Deliverables": [
@@ -109,7 +118,7 @@
     "收尾修复：reviewSource 改用评审后 revision，消除真实链路悬空 lineage；历史 append-only 日志中的旧行不物理删除"
   ],
   "validation": {
-    "unitTests": "400/400",
+    "unitTests": "413/413",
     "typecheck": "pass",
     "buildWorkspaces": "pass",
     "buildChineseShell": "pass (hiddenEntries 4, missed 0, warning null；前台重跑，后台沙箱批量删除保护为已知坑)",
@@ -134,7 +143,7 @@
       "evolution:smoke": "ok:true, 45/45；隔离临时治理台账，不写真实 .runtime/evolution/events.jsonl 与 .runtime/memory/events.jsonl"
     },
     "gitDiffCheck": "pass",
-    "reference": "HANDOFF/05-VALIDATION-AND-COMMANDS.md 与 docs/VALIDATION.md 第二十一轮",
+    "reference": "HANDOFF/05-VALIDATION-AND-COMMANDS.md 与 docs/VALIDATION.md 第二十二轮",
     "hostPgSmoke": "ok:true, checks 21, failed []；事务回滚不变、并发领取不重复、崩溃回收旧 token 失效、步进链 modelCalls=3",
     "consoleSmoke": "ok:true；检查项含 index/styles/script/realTasks/writeBlocked/readOnlyAllowlist/6 个视图/themeToggle/noOverseasCopy/noWebIntake/feishuNotice/serviceConnected/responsive425",
     "routerSmoke": "ok:true, checks 31, failed []；隔离内存 Trace，未写真实 .runtime/routing/events.jsonl",
@@ -202,7 +211,7 @@
     },
     {
       "path": "HANDOFF/03-WORK-LOG.md",
-      "purpose": "21 轮工作记录（含第十五轮补遗、第十六轮 C-1、第十七轮 C-2、第十八轮 C-3、第十九轮 C-4、第二十一轮 C-6）、提交号、排障模式、用户决策"
+      "purpose": "22 轮工作记录（含第十五轮补遗、第十六轮 C-1、第十七轮 C-2、第十八轮 C-3、第十九轮 C-4、第二十二轮 P-1）、提交号、排障模式、用户决策"
     },
     {
       "path": "HANDOFF/04-CODE-MAP.md",
@@ -210,7 +219,7 @@
     },
     {
       "path": "HANDOFF/05-VALIDATION-AND-COMMANDS.md",
-      "purpose": "全套回归命令、第二十一轮 C-6 实测结果（含 host:pg 21/21、console:smoke、router:smoke 31/31、agents:smoke 43/43、shapes:smoke 36/36、evolution:smoke 45/45）、真实 HTTP 冒烟、排障、提交前检查"
+      "purpose": "全套回归命令、第二十二轮 P-1 实测结果（含 host:pg 21/21、console:smoke、router:smoke 31/31、agents:smoke 43/43、shapes:smoke 36/36、evolution:smoke 45/45、steps:smoke 40/40）、真实 HTTP 冒烟、排障、提交前检查"
     },
     {
       "path": "HANDOFF/06-CURRENT-STATE-AND-NEXT.md",
@@ -243,22 +252,22 @@
   ],
   "fileInventory": {
     "path": "HANDOFF/FILE-INVENTORY.md",
-    "totalEntries": 292,
+    "totalEntries": 297,
     "handWrittenDescriptions": 211,
     "autoExtractedDescriptions": 69,
     "fallback": 0,
     "uncovered": 0,
-    "note": "第十四轮 269 + C-1 新增 4 + C-2 新增 7 + C-3 新增 3 + C-4 新增 3 + C-5 新增 2 + C-6 新增 4（src/evolution-ledger.ts、src/evolution.ts、scripts/evolution-smoke.ts、tests/evolution.test.ts）；既有文件修改不计新增"
+    "note": "第十四轮 269 + C-1 新增 4 + C-2 新增 7 + C-3 新增 3 + C-4 新增 3 + C-5 新增 2 + C-6 新增 4 + P-1 新增 5（src/step-execution.ts、src/loop-pump.ts、src/step-runner.ts、scripts/steps-smoke.ts、tests/step-execution.test.ts）；既有文件修改不计新增"
   },
   "nextSteps": [
     "读 HANDOFF/00-START-HERE.md、06-CURRENT-STATE-AND-NEXT.md、docs/PRD-v0.6.md §10C、07-RULES-AND-BOUNDARIES.md",
-    "跑 HANDOFF/05-VALIDATION-AND-COMMANDS.md 的全套回归确认 400/400、走查 11/11、host:pg 21/21、console:smoke ok:true、router:smoke 31/31、agents:smoke 43/43、shapes:smoke 36/36、evolution:smoke 45/45",
+    "跑 HANDOFF/05-VALIDATION-AND-COMMANDS.md 的全套回归确认 413/413、走查 11/11、host:pg 21/21、console:smoke ok:true、router:smoke 31/31、agents:smoke 43/43、shapes:smoke 36/36、evolution:smoke 45/45、steps:smoke 40/40",
     "C-3 已完成：五个派活点共 9 处收敛到单一 Router；默认 flat（1 跳），layered 按业务域最多 2 跳，legacy 可回退；历史路由决策不回溯改写",
     "C-4 已完成：组织级 Agent 编制（可扩展职责 / 生效范围 / 版本 / 快照）、Router 在岗校验、A2A 在岗交接、验收协作编组；默认空编制不硬造管理层，agents:smoke 真跑 43/43",
     "C-5 已完成：按当前配置重跑 assessThreeTier（P3/P4 按形态判定、接上 C-4 真实 Agent 绑定）、shape.ready 与 recommended 分离、扁平/分层各跑真实一单 36/36；默认扁平配置仍 recommended=false",
     "C-6 已完成：自查标准回流到交付前强制比对、候选改进经工程回放闸门+真人批准版本化生效可回滚、四项效果对比；evolution:smoke 真跑 45/45",
     "真人业务验收 SUI-129 只能由用户本人在原会话用中文「确认验收」完成",
-    "后续生产项（非 C 分步清单）：切换默认 config.host.provider、runner.ts 常驻循环切成单步、远端工具沙箱 / 多机切换、金额成本账本接入效果看板"
+    "剩余生产项（非 C 分步清单）：切换默认 config.host.provider 并把真实业务单切到 step 模式验证、autoloop worker 内部子调用逐次拆分、真实外部模型端点 / 远端工具沙箱 / 多机切换、金额成本账本接入效果看板"
   ],
   "openDecisions": [
     "外部模型端点与凭据（Cognee cognify 真跑）",
@@ -267,7 +276,7 @@
     "国内/海外外部服务是否接通",
     "已取消服务的长期状态",
     "\"pi\" 的指代（当前按 earendil-works/pi 理解）",
-    "Paperclip 去留：第十七轮已按方向 (a) 定调——不引入第 8 个上游，自己做国内化 + 独立控制台；第十八轮 C-3 单一 Router、第十九轮 C-4 组织级 Agent 编制、第二十轮 C-5 按配置评估口径、第二十一轮 C-6 沉淀回流闭环均已去宿主化，默认底座仍 paperclip、可回退"
+    "Paperclip 去留：第十七轮已按方向 (a) 定调——不引入第 8 个上游，自己做国内化 + 独立控制台；第十八轮 C-3 单一 Router、第十九轮 C-4 组织级 Agent 编制、第二十轮 C-5 按配置评估口径、第二十一轮 C-6 沉淀回流闭环、第二十二轮 P-1 长程循环单步化均已去宿主化，默认底座仍 paperclip、可回退"
   ],
   "doNot": [
     "不要重启 4190/4192/4194/9418",
@@ -284,10 +293,11 @@
     "不要绕过 Router 直接构造 routingDecision 并写 Trace；五个派活点必须经 getRouter().route()，legacy 回退只能由 config.router.mode 控制",
     "不要把 router:smoke / shapes:smoke 的隔离真跑数据当成产品上已放行三层的结论；p8 只在真实分层配置 + 在岗编制下才可为 true",
     "不要把 shapes:smoke 中分层 recommended=true 解读为「建议所有团队升级三层」或「组织已配置管理层」；默认配置仍是扁平",
-    "不要把 C-6 的治理台账并进 .runtime/memory/events.jsonl，也不要把 evolution:smoke 的隔离真跑当成真实业务单已被阻断交付或未阻断的证据"
+    "不要把 C-6 的治理台账并进 .runtime/memory/events.jsonl，也不要把 evolution:smoke 的隔离真跑当成真实业务单已被阻断交付或未阻断的证据",
+    "不要把 P-1 的「单步执行器已就绪、steps:smoke 真跑 40/40」解读成真实业务单已在 step 模式跑过或已发生外部模型调用；默认仍是 loop，step 只在显式配置且 host.provider=local-pg 时启用"
   ],
   "finalValidationAtHandoff": {
-    "unitTests": "400/400",
+    "unitTests": "413/413",
     "walkthrough": "11/11, failures 0",
     "consoleSmoke": "ok:true, 6/6 视图, 写动作 403, 零海外文案",
     "routerSmoke": "ok:true, 31/31 checks（三种组织形态，隔离内存 Trace）",
@@ -295,11 +305,13 @@
     "memoryJourney": "ok:true, 9/9 checks, lineageComplete:true（第十四轮历史证据）",
     "upstreamAudit": "clean: true, problems 0",
     "gitDiffCheck": "pass",
-    "note": "第二十一轮 C-6 代码与文档同步后重跑全套回归：npm test 400/400、tsc、两构建、425px 响应式、真实浏览器走查 11/11、console:smoke、router:smoke 31/31、agents:smoke 43/43、shapes:smoke 36/36、evolution:smoke 45/45、host:pg 21/21、host:smoke、routing:status（CLI + HTTP）、memory:checkpoint、audit:upstream、git diff --check",
+    "note": "第二十二轮 P-1 代码与文档同步后重跑全套回归：npm test 413/413、tsc、两构建、425px 响应式、真实浏览器走查 11/11、console:smoke、router:smoke 31/31、agents:smoke 43/43、shapes:smoke 36/36、evolution:smoke 45/45、steps:smoke 40/40、host:pg 21/21、host:smoke、routing:status（CLI + HTTP）、memory:checkpoint、audit:upstream、git diff --check",
     "agentsSmoke": "ok:true, 43/43 checks（隔离内存 Trace）",
     "shapesSmoke": "ok:true, 36/36 checks（扁平 shape.ready=true/recommended=false；分层 true/true）",
-    "evolutionSmoke": "ok:true, 45/45 checks（隔离临时台账，不写真实 .runtime/evolution/events.jsonl 与 .runtime/memory/events.jsonl）"
+    "evolutionSmoke": "ok:true, 45/45 checks（隔离临时台账，不写真实 .runtime/evolution/events.jsonl 与 .runtime/memory/events.jsonl）",
+    "stepsSmoke": "ok:true, 40/40 checks（隔离内存队列 + 本机 PG 专属库 + 真实子进程跨进程领步；不写 B1 记忆主干）"
   },
   "authoritativeOnly": true,
-  "portableCopyNote": "WorkBuddy 工作区 handoff/ 与 SuitMe-HANDOFF.zip 已停用、不再维护；唯一权威位置为仓库内 HANDOFF/。"
+  "portableCopyNote": "WorkBuddy 工作区 handoff/ 与 SuitMe-HANDOFF.zip 已停用、不再维护；唯一权威位置为仓库内 HANDOFF/。",
+  "codeBaseCommit": "以 git rev-parse HEAD 为准（第二十二轮 P-1 代码与文档一并提交推送；HEAD = origin/main = 远端 main）"
 }

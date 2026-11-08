@@ -79,4 +79,4 @@
 
 - **第十九轮进展**：C-4 已落地组织级 Agent 编制（`src/agent-registry.ts`）并接进 Router / A2A / 验收链，「谁有资格接这一棒」不再由宿主或字符串决定；默认空编制保持扁平，主链路继续往 `HostPlatformPort` / `PgHostPlatform` 收。
 
-- **第二十一轮进展**：C-6 已完成沉淀回流与自演进闭环——交付前逐条强制自查、候选改进的工程回放闸门 + 真人批准 + 版本 / 灰度 / 可回滚、四项效果对比；治理台账独立于 B1 主干，`npm run evolution:smoke` 真跑 45/45。C-0 ~ C-6 分步清单全部完成，Paperclip 去留仍是「不引入第 8 个上游、继续去宿主化」，默认底座仍可回退；后续待拍板的是**何时切换默认 `config.host.provider`**、是否把 `runner.ts` 常驻循环切成单步、以及金额成本账本是否接入效果看板。
+- **第二十一轮进展**：C-6 已完成沉淀回流与自演进闭环——交付前逐条强制自查、候选改进的工程回放闸门 + 真人批准 + 版本 / 灰度 / 可回滚、四项效果对比；治理台账独立于 B1 主干，`npm run evolution:smoke` 真跑 45/45。C-0 ~ C-6 分步清单全部完成，Paperclip 去留仍是「不引入第 8 个上游、继续去宿主化」，默认底座仍可回退；后续待拍板的是**何时切换默认 `config.host.provider`** 与金额成本账本是否接入效果看板。**第二十二轮进展**：P-1 已完成长程循环单步化——`runner.ts` / `assistant-runner.ts` 无常驻 `while`，`config.execution.mode` 默认 `loop` 可回退、`step` 必须配 `local-pg`；`src/step-execution.ts` / `loop-pump.ts` / `step-runner.ts` 落地，`npm run steps:smoke` 在本机 PG 专属库 + 真实子进程上真跑 40/40（第二棒由另一台机器接力领走）。默认仍未启用、真实业务单未在 step 模式跑过、无外部模型调用、worker 内部子调用尚未逐次拆分。仍不引入第 8 个上游、默认底座仍 `paperclip`、可回退。

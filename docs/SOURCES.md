@@ -56,3 +56,5 @@ Paperclip、Super-agent、Autoloop 的主许可证为 MIT，Cognee 为 Apache-2.
 - 2026-11-07（第十九轮 C-4）：组织级 Agent 注册表、职责解析、A2A 交接校验与验收协作编组均为**完全自研**（`src/agent-registry.ts`）；只复用既有 `RoutingDecision` / `RoutingTrace` / A2A `Link` 字段语义，未引入新上游、未改上游提交、未复制 LobeHub 代码。`npm run agents:smoke` 在隔离内存 Trace 真跑 43/43。
 
 - 2026-11-08（第二十一轮 C-6）：沉淀回流、交付前自查闸门、治理台账与状态机、工程回放闸门、四项效果指标均为**完全自研**（`src/evolution-ledger.ts` / `src/evolution.ts` / `scripts/evolution-smoke.ts` / `tests/evolution.test.ts`）；只复用既有 `readSelfCheck()` 沉淀标准、`memoryReplayReport()` 确定性重放与 LobeHub Acceptance「打回沉淀成标准」的产品思想，**未引入第 8 个上游、未改上游提交、未复制任何上游代码**；`npm run evolution:smoke` 隔离真跑 45/45。
+
+- 2026-11-08（第二十二轮 P-1）：单步执行契约 / 队列适配器 / 单步泵 / 一次进程一步入口 / 真跑脚本与契约测试均为**完全自研**（`src/step-execution.ts` / `src/loop-pump.ts` / `src/step-runner.ts` / `scripts/steps-smoke.ts` / `tests/step-execution.test.ts`）；只复用 C-1 已入库的 `PgHostPlatform` 步进方法语义与 LobeHub / DeepSeek「循环、状态、执行环境三者分离」的产品思想，**未引入第 8 个上游、未新增 npm 依赖、未改上游提交、未复制任何上游代码**；`npm run steps:smoke` 在本机 PG 专属库与真实子进程上真跑 40/40。

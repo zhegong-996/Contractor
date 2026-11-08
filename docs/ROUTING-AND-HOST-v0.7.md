@@ -147,7 +147,7 @@ Super Agent、Autoloop、LobeHub **不是同类**：触发策略 → 执行循�
 - **撤回上一轮「本机不引入 PostgreSQL」**：本机 PG 17.10 已在 `127.0.0.1:5432` 运行，本轮新建专属库 `suitme_collab_c1`，未触碰已有 `geo_flow`。`config.host.provider` 增加 `local-pg`，`resolvePlatform()` 已接线；DSN 只从 `COLLAB_PG_DSN` 环境变量读取，`assertLocalPgDsn()` 拒绝非回环地址。
 - **`src/pg-host.ts::PgHostPlatform`** 实现同一 `HostPlatformPort`：issues / 文档事务递增修订 / append-only journal、ACL 成员身份（`assertMember` 拒绝未知主体）、`cost_events` 账本、heartbeat `checkout / retry / runToken`，以及 `steps` 队列表。
 - **循环与状态分离**：`enqueueSteps()` 只让第 1 步 `ready`、其余 `queued`；`claimStep()` 用 `FOR UPDATE SKIP LOCKED` + `runToken` 原子领取；`completeStep()` 在同一事务里写结果并**原子激活下一棒**；`recoverStaleSteps()` 回收超时步骤并让旧 token 作废；每步记 `modelCalls` 与 checkpoint。同一个 run 不会出现两步并跑。
-- **取舍如实**：本机不引 Redis（PG `SKIP LOCKED` 等价，切换点为 `claimStep / completeStep / recoverStaleSteps`）；不部署远端工具沙箱 / 多机 Remote Tool Calling；默认底座仍 `paperclip`；`runner.ts` 的常驻 `while` 循环尚未切成单步。三项仍缺都写在 `capabilities().missing`，不假装完成。
+- **取舍如实**：本机不引 Redis（PG `SKIP LOCKED` 等价，切换点为 `claimStep / completeStep / recoverStaleSteps`）；不部署远端工具沙箱 / 多机 Remote Tool Calling；默认底座仍 `paperclip`；**第二十二轮 P-1 已把 `runner.ts` / `assistant-runner.ts` 的常驻 `while` 换成配置驱动双泵**（`loop` 逐字等价、`step` 由 PG 队列领步，`npm run steps:smoke` 真跑 40/40），但默认仍是 `loop`、真实业务单未在 step 模式跑过。远端工具沙箱 / 多机切换 / Redis 横向扩展仍缺，写在 `capabilities().missing` 与 `executionView().missing`，不假装完成。
 - **证据**：`npm run host:pg` 在本机真跑 **21/21、`ok:true`**（含并发领取、崩溃恢复、事务回滚、token 幂等）；`tests/pg-host.test.ts` 6 例纯函数契约；`audit-upstream.ts` 按 R7 纳入 `pg` 精确版本 / integrity / 许可证 / 声明检查。
 
 ### 6.3 C-3：单一 Router 与可配置组织形态（第十八轮）

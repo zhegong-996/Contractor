@@ -6,6 +6,7 @@ import { loadConfig, secrets, runtime, root } from './config.ts';
 import { Paperclip } from './paperclip.ts';
 import type { Task } from './store.ts';
 import { nativeWorkGate } from './native-worker.ts';
+import { driveLegacyLoop, driveSteppedPump } from './loop-pump.ts';
 
 const config = loadConfig(); const agentKey = process.argv[2]!; const agent = config.agents[agentKey];
 if (!agent?.enabled || agent.mode !== 'managed') throw new Error('Managed execution is not enabled for this agent');
@@ -82,11 +83,23 @@ const worker = createWorker({ name: agentKey + ':' + runId, capacity: 1, wait: 0
   },
 }});
 for (const signal of ['SIGTERM', 'SIGINT'] as const) process.on(signal, () => { cancelled = true; });
-while (!settled) {
-  await worker.tick();
-  const entry = worker.entries().find((e: any) => e.run === round);
-  if (entry?.pid && journal.pid !== entry.pid) { journal.pid = entry.pid; await writeFile(processFile, JSON.stringify(journal), { mode: 0o600 }); }
-  if (!settled) await new Promise(resolve => setTimeout(resolve, 250));
+// P-1：默认仍是原来的常驻循环（逐字等价、可回退）；配置 step 时改为队列每激活
+// 一棒就跑一次 tick，会话快照写回队列，进程不持有跨步状态。
+const pump = {
+  tick: () => worker.tick(),
+  settled: () => settled,
+  onTick: async () => {
+    const entry = worker.entries().find((e: any) => e.run === round);
+    if (entry?.pid && journal.pid !== entry.pid) { journal.pid = entry.pid; await writeFile(processFile, JSON.stringify(journal), { mode: 0o600 }); }
+  },
+};
+if (config.execution.mode === 'step') {
+  const stepped = await driveSteppedPump({ config, runId, taskId: task.id, principal: agentKey,
+    ...pump, snapshot: () => ({ journal: { ...journal }, cancelled, failure: failure ?? null }) });
+  console.log(JSON.stringify({ taskId: task.id, execution: 'stepped', steps: stepped.steps,
+    stoppedBy: stepped.stoppedBy, modelCalls: stepped.modelCalls }));
+} else {
+  await driveLegacyLoop(pump);
 }
 if (cancelled || failure) throw new Error(cancelled ? 'Execution stopped; reconcile retained workspace before replacement' : failure);
 console.log(JSON.stringify({ taskId: task.id, runtime: 'autoloop-worker', receipt }));

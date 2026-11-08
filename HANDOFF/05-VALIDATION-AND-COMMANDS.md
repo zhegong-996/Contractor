@@ -6,7 +6,7 @@
 cd /Users/gong.zhe/Developer/ai-native-collab
 export NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost NODE_USE_ENV_PROXY=0
 
-npm test                    # 400/400（基线）
+npm test                    # 413/413（基线）
 npx tsc --noEmit            # 退出 0
 npm run build:workspaces    # 插件 UI 打包 + 类型检查
 npm run build:chinese-shell # hiddenEntries 4 条、missed []、warning null
@@ -14,6 +14,7 @@ npm run test:responsive     # 425px 无溢出、按钮 44px
 npm run agents:smoke        # C-4 Agent 编制隔离真跑 43/43
 npm run shapes:smoke        # C-5 扁平 / 分层各跑真实一单 36/36（隔离内存 Trace）
 npm run evolution:smoke     # C-6 沉淀回流与自演进闭环 45/45（隔离治理台账）
+npm run steps:smoke         # P-1 单步执行 40/40（隔离队列 + PG 专属库 + 真实子进程）
 npm run test:walkthrough    # 11/11、failures []
 npm run audit:upstream      # clean: true、problems []
 git diff --check            # 退出 0
@@ -35,6 +36,8 @@ npm run console             # 自研独立控制台（按需启动，非常驻�
 npm run router:smoke        # C-3 三种形态 31/31（隔离内存 Trace，不写真实日志）
 npm run shapes:smoke        # C-5 扁平 / 分层各跑真实一单 36/36（隔离内存 Trace，不写真实日志）
 npm run evolution:smoke     # C-6 完整闭环 + 全部反例 45/45（隔离治理台账，不写真实日志）
+npm run steps:smoke         # P-1 完整链 + 全部反例 40/40（唯一 runId，不 reset 他人数据）
+npm run step:once           # P-1 一次进程只跑一步；默认 loop 下不连库、如实返回未启用
 npm run console:smoke       # 临时端口 + Chrome 真跑，输出 .runtime/console-smoke.json
 npm run cognee:native -- status   # enabled:true, configured:false（缺 4 个环境变量）
 npm run delivery:demo       # 本机 Git 链路；4194/9418 停机时 gitProtocolClonePull 为 false，属预期
@@ -42,11 +45,14 @@ npm run delivery:demo       # 本机 Git 链路；4194/9418 停机时 gitProtoco
 
 `memory:journey` 会新建一条专用资料并在末尾撤回，**不是只读检查**；`memory:checkpoint -- --reset` 会全量重建后再按 append-only 前缀增量应用。
 
-## 2. 第二十一轮 C-6 实测结果（2026-11-08；含第十四轮 B2、第十六轮 C-1、第十七轮 C-2、第十八轮 C-3、第十九轮 C-4、第二十轮 C-5 历史数据）
+## 2. 第二十二轮 P-1 实测结果（2026-11-08；含第十四轮 B2、第十六轮 C-1、第十七轮 C-2、第十八轮 C-3、第十九轮 C-4、第二十轮 C-5、第二十一轮 C-6 历史数据）
 
 | 项 | 结果 |
 |---|---|
-| `npm test` | **400 / 400**（第二十轮 388 + C-6 新增 12 例沉淀回流与自演进契约） |
+| `npm test` | **413 / 413**（第二十一轮 400 + P-1 新增 13 例单步执行契约） |
+| `steps:smoke` | **40/40 `ok:true`**：A 配置/只读视图 6、B 隔离内存队列 21、C 本机 PG 专属库 + 真实子进程跨进程单步 8、D 接线守门 6；第一棒 `counter=1`，第二棒由「另一台机器」的独立进程领走 `counter=2`，旧 `runToken` 作废、模型步如实拒绝、B1 主干行数前后不变；报告 `.runtime/steps-smoke.json` 不入库 |
+| `v06-execution-view`（真实 HTTP / 控制台代理） | **200**：`mode=loop`、`steppedReady=false`、`queue=未接入状态外置队列`、`missing=6`、`redLines=5`；控制台写动作 403；协作视图新增中文「长程执行」卡片，四张 1280 截图 `errorCards:0` |
+| `step:once`（默认 loop） | 如实返回 `{claimed:false, mode:"loop"}`，不连数据库、不产生任何步骤 |
 | `npx tsc --noEmit` | 通过 |
 | `build:workspaces` / `build:chinese-shell` | 通过 / `hiddenEntries` 4、`missed: []`、`warning: null`（前台重跑） |
 | `test:responsive` | 425px `393/393`、溢出 0、按钮 44px、`problems: []` |

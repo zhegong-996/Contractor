@@ -118,6 +118,7 @@
 | C-3 单一 Router / 可配置组织形态 | 无新增依赖（自研 `src/router.ts`） | — | 只借 Super Agent 的 policyVersion / ruleId、DeepSeek Harness 的 scope 隔离、A2A 的 Link 映射与 LobeHub 三层汇报的产品思想；**未引入第 8 个上游、未复制任何上游代码**；`npm run router:smoke` 真跑 31/31 |
 | C-6 沉淀回流 / 交付前自查 / 治理台账 / 效果对比 | 无新增依赖（自研 `src/evolution-ledger.ts` / `src/evolution.ts`） | — | 只复用既有 `readSelfCheck()` / `memoryReplayReport()` 与 LobeHub Acceptance 的产品思想；**未引入第 8 个上游、未改上游提交、未复制任何上游代码**；`npm run evolution:smoke` 真跑 45/45 |
 | C-5 按配置重跑三层评估 / 两种形态真实一单 | 无新增依赖（自研 `src/three-tier-assessment.ts` / `scripts/shapes-smoke.ts`） | — | 只复用既有 `Router` / `AgentRegistry` 字段语义与 LobeHub 三层汇报的产品思想；**未引入第 8 个上游、未改上游提交、未复制任何上游代码**；`npm run shapes:smoke` 真跑 36/36 |
+| P-1 长程循环单步化 / 单步执行器 / 跨进程队列 | 无新增依赖（自研 `src/step-execution.ts` / `src/loop-pump.ts` / `src/step-runner.ts`） | — | 只复用 C-1 已入库的 `PgHostPlatform` 步进方法语义与 LobeHub / DeepSeek 三者分离的产品思想；**未引入第 8 个上游、未新增 npm 依赖、未改上游提交、未复制任何上游代码**；`npm run steps:smoke` 真跑 40/40 |
 | C-4 组织级 Agent 编制 / 验收协作 / A2A 在岗交接 | 无新增依赖（自研 `src/agent-registry.ts`） | — | 只复用既有 `RoutingDecision` / A2A Link 的字段语义与 LobeHub 三层汇报的产品思想；**未引入第 8 个上游、未改上游提交、未复制任何上游代码**；`npm run agents:smoke` 真跑 43/43 |
 | 权限标签粒度 | Outline (BSL 1.1) / Onyx / OpenFGA | ❌ / 未核实 | 仅设计参考，不引入代码 |
 

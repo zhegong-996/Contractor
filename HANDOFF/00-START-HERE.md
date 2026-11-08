@@ -16,7 +16,7 @@
 cd /Users/gong.zhe/Developer/ai-native-collab
 git status --short --branch       # 应为干净且与 origin/main 一致
 git log -3 --oneline
-npm test                          # 基线：400/400
+npm test                          # 基线：413/413
 ```
 
 ## 2. 干净环境（很重要）
@@ -47,7 +47,7 @@ export NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost NODE_USE_ENV_PR
 
 ```sh
 export NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost NODE_USE_ENV_PROXY=0
-npm test                    # 400/400
+npm test                    # 413/413
 npx tsc --noEmit
 npm run build:workspaces
 npm run build:chinese-shell
@@ -62,6 +62,8 @@ npm run host:smoke          # 非 Paperclip 最小宿主
 npm run agents:smoke             # C-4 Agent 编制隔离真跑 43/43
 npm run shapes:smoke             # C-5 两种形态各跑真实一单 36/36
 npm run evolution:smoke          # C-6 沉淀回流与自演进闭环 45/45（隔离治理台账）
+npm run steps:smoke              # P-1 单步执行 40/40（隔离队列 + 本机 PG 专属库 + 真实子进程）
+npm run step:once                # P-1 一次进程只跑一步；默认 loop 下如实返回未启用
 npm run host:pg             # PG 后端真跑 21/21（需本机 PG 17 + 专属库 suitme_collab_c1）
 npm run router:smoke        # C-3 三种组织形态真跑 31/31（隔离内存 Trace，不写真实日志）
 npm run console:smoke       # 自研独立控制台 6 视图 + 主题 + 425px + 只读边界（临时端口，跑完即关）
@@ -89,4 +91,4 @@ git diff --check
 - 不要改 `upstream/` 下任何上游源码（审计 `audit:upstream` 会报）。
 - 不要把 `.runtime/` 里的真实姓名、`open_id`、密钥、业务正文提交进仓库。
 - 不要用报告 / 模型判定 / CI 通过 / 合并审批代替真人在原会话「确认验收」。
-- **C 已按 ② 启动，严格分步不跳步**：第十五轮用户拍板「独立前端应用」，产品形态冲突已解除（§10A 的 S5/S6 废弃、S1–S4 与飞书唯一入口保留）。按 `06` 第 3 节的 **C-0 → C-6 + 收尾**推进（C-0 / C-0b / C-1 / C-2 / C-3 / C-4 / C-5 / C-6 已全部完成，本轮收尾已提交推送；后续为去宿主化与生产项）；动手前读 `docs/PRD-v0.6.md` §10C（C-P1~C-P8：组织形态可配置、长程执行三者分离、用户可见层国内化、验收是一等公民 Agent、工程+AI 分层判断、沉淀回流与自演进、评估按配置判定）与 `docs/ADAPTATION-v0.6.md` `0.0000000000000000000000` 节最新边界（三层 = 同一份共享现场的三种座位，且层是配置不是骨架）。三层判断在默认扁平配置下仍 `recommended=false`（8 项前置条件；p8 按真实在岗数判定，默认空编制为 0 故仍 false）；C-5 已按当前配置重跑评估，扁平不要求主管、分层主管须真实在岗。**不要放开主管 Agent 自主派活，也不要为凑评估转绿逼扁平团队硬造管理层**。第二十一轮 C-6 已把打回原因回流到交付前强制自查：有沉淀标准时 `Controller.publish()` 前必须逐条自查并留证据；候选改进须过工程回放闸门 + 真人批准 + 版本 / 灰度 / 可回滚，Agent 不能自己让改进生效。治理台账独立于 B1 记忆主干，不要把它并进 `.runtime/memory/events.jsonl`。
+- **C 已按 ② 启动，严格分步不跳步**：第十五轮用户拍板「独立前端应用」，产品形态冲突已解除（§10A 的 S5/S6 废弃、S1–S4 与飞书唯一入口保留）。按 `06` 第 3 节的 **C-0 → C-6 + 收尾**推进（C-0 ~ C-6 已全部完成并收口；第二十二轮 P-1 长程循环单步化已完成，后续只剩剩余生产项）；动手前读 `docs/PRD-v0.6.md` §10C（C-P1~C-P8：组织形态可配置、长程执行三者分离、用户可见层国内化、验收是一等公民 Agent、工程+AI 分层判断、沉淀回流与自演进、评估按配置判定）与 `docs/ADAPTATION-v0.6.md` `0.00000000000000000000000` 节最新边界（三层 = 同一份共享现场的三种座位，且层是配置不是骨架）。三层判断在默认扁平配置下仍 `recommended=false`（8 项前置条件；p8 按真实在岗数判定，默认空编制为 0 故仍 false）；C-5 已按当前配置重跑评估，扁平不要求主管、分层主管须真实在岗。**不要放开主管 Agent 自主派活，也不要为凑评估转绿逼扁平团队硬造管理层**。第二十一轮 C-6 已把打回原因回流到交付前强制自查：有沉淀标准时 `Controller.publish()` 前必须逐条自查并留证据；候选改进须过工程回放闸门 + 真人批准 + 版本 / 灰度 / 可回滚，Agent 不能自己让改进生效。治理台账独立于 B1 记忆主干，不要把它并进 `.runtime/memory/events.jsonl`。**第二十二轮 P-1** 把 C-P6 从队列地基推进到执行器：`src/step-execution.ts` / `src/loop-pump.ts` / `src/step-runner.ts`，`config.execution.mode` 默认 `loop` 逐字等价可回退，`step` 必须配 `local-pg`；两个宿主入口已无常驻 `while`。`npm run steps:smoke` 真跑 40/40（含真实 PG 上两个独立进程接力领步）。**不要把「执行器已就绪」当成「真实业务单已在 step 模式跑过」**：默认未启用、无外部模型调用、worker 内部子调用尚未逐次拆分。

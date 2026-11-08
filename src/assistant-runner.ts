@@ -5,6 +5,7 @@ import { pathToFileURL } from 'node:url';
 import { loadConfig, runtime, root, secrets } from './config.ts';
 import { Paperclip } from './paperclip.ts';
 import { nativeWorkGate } from './native-worker.ts';
+import { driveLegacyLoop, driveSteppedPump } from './loop-pump.ts';
 
 const config=loadConfig(),runId=process.env.PAPERCLIP_RUN_ID,runToken=process.env.PAPERCLIP_API_KEY;
 if(!runId||!runToken||!config.assistant?.enabled)throw new Error('A native assistant run is required');
@@ -54,7 +55,16 @@ const worker=createWorker({name:'paperclip:'+jobId,capacity:1,wait:0,log:(line:s
  }
 }});
 process.on('SIGTERM',()=>{cancelled=true;});process.on('SIGINT',()=>{cancelled=true;});
+// P-1：loop 与改造前逐字等价；step 由状态外置队列每激活一棒跑一次 tick。
+const pump={tick:()=>worker.tick(),settled:()=>settled};
 try{
- while(!settled){await worker.tick();if(!settled)await new Promise(r=>setTimeout(r,250));}
- console.log(JSON.stringify({jobId,runtime:'autoloop-worker',cancelled,failed}));if(failed)process.exitCode=1;
+ if(config.execution.mode==='step'){
+  const stepped=await driveSteppedPump({config,runId,taskId:jobId,principal:key,...pump,
+   snapshot:()=>({settled,cancelled,failed,jobId})});
+  console.log(JSON.stringify({jobId,runtime:'stepped-worker',steps:stepped.steps,stoppedBy:stepped.stoppedBy}));
+ }else{
+  await driveLegacyLoop(pump);
+  console.log(JSON.stringify({jobId,runtime:'autoloop-worker',cancelled,failed}));
+ }
+ if(failed)process.exitCode=1;
 }catch(error){console.error(String(error).slice(0,600));process.exitCode=1;}

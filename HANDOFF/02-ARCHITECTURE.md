@@ -30,7 +30,7 @@
 |---|---|---|---|
 | Paperclip | 平台底座 + Plugin SDK（`paperclip.ts`、`worker.ts`、`install-workspace-plugin.ts`） | 任务/ACL/文档修订/插件页/UI | 上游源码不改 |
 | Super Agent | 运行时动态 import（`upstream.ts`、`coordination.ts` 的 `policy.ts`） | 飞书触发解析、线程键、出站幂等、`settingsPolicy`/`assessmentOutcome` 准入与范围判断 | **Router/Worker 双层、订阅直通、Watchdog 均未落地** |
-| Agent Autoloop | 动态 import + 子进程（`assistant-runner.ts`、`runner.ts`、`assistant-turn.ts`） | `createWorker`、执行循环、CLI 适配器、回执恢复——**复用最深** | 不负责跨 Agent 路由；业务 prompt/MCP 工具/权限规则自研 |
+| Agent Autoloop | 动态 import + 子进程（`assistant-runner.ts`、`runner.ts`、`assistant-turn.ts`） | `createWorker`、执行循环（P-1 起由 `loop-pump.ts` 双泵驱动，默认逐字等价）、CLI 适配器、回执恢复——**复用最深** | 不负责跨 Agent 路由；业务 prompt/MCP 工具/权限规则自研 |
 | DeepSeek Harness | 静态 import + esbuild 打包 13 模块（`harness-composition.ts`） | `Context`/`SystemPrompt`/`ToolsService`/`NativeExecutor`/`Persona`/`createScope` | 未启动完整 Harness host；LLM 客户端换成自研 |
 | Cognee | 前端工具 import + Python 子进程 RPC（`graph.ts`→`cognee-graph.py`、`cognee-native.ts`→`cognee-native.py`） | DataPoint/Ladybug/BM25/GraphSchema；原生 cognify 链路已实现待端点 | 无常驻图服务 |
 | `@a2a-js/sdk` | npm import（`service-network.ts`） | `DefaultRequestHandler`/`TaskStore`/`AgentCard`/`TaskState` | 只用于服务委派，未承载三层汇报 |
