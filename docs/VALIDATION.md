@@ -829,3 +829,26 @@ Cognee `cognify` 的真实外部模型调用未发生（缺端点与凭据）；
 | 冻结基线 | **golden 无差异**：本轮未新增只读 action（19 项白名单不变），`guard:smoke` 22/22、签名 `d6347436…` 与 P-9 人审后基线逐字节一致，无需人审 |
 | 既有回归不回退 | `steps:smoke` 54/54、`memory:hierarchy` 16/16、`console:smoke failed: []`、走查 11/11、425px `problems: []`、两个构建、`tsc`、`audit:upstream clean:true`、`atlas:check` 全过、`git diff --check` |
 | 如实边界 | 真实业务单仍未在该链跑过（`loop-guard` 如实报 `bidirectional:false`、耦合点计数 0）；自动排后续步骤、`step` 切真实业务单仍待拍板（HANDOFF/08 第 13 条）；默认仍 `loop` + `paperclip`；无外部模型调用、7 个上游与 npm 依赖不变；SUI-129 仍未核可 |
+
+## 第二十九 / 三十轮 · P-11 自动续跑与授权代办；P-12/P-13 RBAC·用户级配置·Vue 前端重写·知识分区 CRUD（2026-11-08）
+
+| 项 | 结果 |
+|---|---|
+| `npm test` | **540 / 540**（532 + P-11 契约；P-12/P-13 契约换代净增） |
+| `console:smoke` | **49/49 `ok:true`**（登录制 / casbin RBAC 边界 / 知识分区正负例 / 六视图 / 主题 / 425px / 零海外文案）；详细见 `HANDOFF/05` 第 8 节 |
+| R7 登记 | casbin 5.51.1（Apache-2.0）+ Vue 3.5.45 + Element Plus 2.14.8（均 MIT，本地 vendor + 版本横幅机器校验）；`audit:upstream clean` |
+| 既有回归 | `tsc`、`router:smoke` 31/31、`agents:smoke` 43/43、`shapes:smoke` 36/36、`evolution:smoke` 45/45、`steps:smoke` 54/54、`loop:smoke` 17/17、`host:pg` 21/21、`git diff --check` |
+
+## 第三十一轮 · ③c 记忆写入链四项改造 + ③d OpenMausBot 五项（2026-11-08）
+
+| 项 | 结果 |
+|---|---|
+| `npm test` | **557 / 557**（540 + `tests/knowledge-writechain.test.ts` 11 例 + `tests/openmaus-12b.test.ts` 6 例） |
+| `steps:smoke` | **61/61 `ok:true`**：B21 `markOutwardAction` 发生时登记 → 崩溃回收 `interrupted` 终态（旧 token 作废、不可再领取）、B21b 显式 `failStep` 同样不重跑（本轮修复的真实红线缺口）、B22 无副作用回收 `ready`、B23 委托树血缘跨 run 连通、B24 失败重领 `generation+1` |
+| `host:pg` | **24/24 `ok:true`**（21 + 3）：PG 真跑对外动作幂等去重、interrupted 携带动作清单、`lineageOf` 递归 CTE、`generation` 每领 +1；steps 表新列 `parent_step_id` / `generation` / `outward_actions` 幂等迁移 |
+| `console:smoke` | **55/55 `ok:true`**（49 + 6）：读分区三例（viewer 看不到他人 personal、admin 总览可见、viewer get 他人 personal 409）、`proposeAnchorsEvidence`、`knowledgeWikiReadable`（modelCalls=0、无悬空）、`injectedIndexDiscipline` |
+| 端到端真跑 | `knowledge-wiki` 27 记录 / 5 跳过 / 17 页 / 150 链接 / 0 悬空 / 17 断言无出处（旧记录如实报缺口）/ bloated true；`dreaming-run` 首跑 24 条建议登记、复跑 0 登记 24 跳过（幂等）；修订自动挂锚点 → 确认+inject → 注入索引收 1 条（206 字节）；无证据旧记录即使确认 + inject 也不进索引（红线联动） |
+| 冻结基线 | golden **人审重冻结**（humanReview 第 3 条）：基线上次人审停在 P-9（19 项白名单），承接 P-12 Vue 重写检查集换代（removed 34 / added 134）、P-13 白名单 19→21、本轮 `knowledge-wiki` 21→22；全套回归确认无行为退化后手工更新，新签名 `f17f73f9…`；`guard:smoke` 22/22 |
+| 陈旧断言修复 | `steps:smoke` D3 / `agents:smoke` C-4 的 `card(` 前缀在 P-12 Vue 重写后失配（改查 `<template #header>`）；`loop:smoke` B3 的 `requiresHumanApproval` 在 P-11 后移到 `collaboration-loop.ts`（断言跟随真正强制处）——P-11/P-12/P-13 轮未跑对应冒烟的累积漂移，非行为退化 |
+| 既有回归不回退 | `router:smoke` 31/31、`agents:smoke` 43/43、`shapes:smoke` 36/36、`evolution:smoke` 45/45、`memory:hierarchy` 16/16、`loop:smoke` 18/18、走查 11/11、425px、`atlas:check` 11/11、两构建、`tsc`、`audit:upstream clean:true`、`git diff --check` |
+| 如实边界 | 红线 (c) 全守（不模型判 salience、不自动提升 / 确认、不 TTL 物理删除、不让模型改写 wiki）；升级恒 advisory 不代批；团队包导入不提权；Skill 默认关且绑内容哈希；只借思想零代码引入、7 个上游不变；默认底座仍 `paperclip`、执行形态默认 `loop`；飞书仍是唯一发起入口 |

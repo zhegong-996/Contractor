@@ -4,6 +4,7 @@ import type { Workspaces, WorkspaceActor } from './workspaces.ts';
 import type { Task } from './store.ts';
 import { reusable } from './knowledge.ts';
 import { secrets } from './config.ts';
+import { readInjectedIndex } from './knowledge-representation.ts';
 import { primeQueryTerms, primeDigestQueryTerms } from './vendor/prime-query.ts';
 import { TextRetainer, ItemRetainer } from '../upstream/deepseek-harness/packages/util/output-retention/src/index.ts';
 export const contextHash = (value: unknown) => createHash('sha256').update(typeof value === 'string' ? value : JSON.stringify(value)).digest('hex');
@@ -139,8 +140,17 @@ export class TaskContext {
     const requests = [];
     for (const id of state.requests) { const r = await this.w.access(id); if (r.agent === task.agent) requests.push({ id: r.id, sourceId: r.sourceId, state: r.state, expiresAt: r.expiresAt }); }
     const decisions = state.history.filter(h => ['handoff', 'knowledge-published', 'knowledge-withdrawn', 'context-discovered', 'context-note', 'context-linked'].includes(h.event)).slice(-20);
+    // 13a ③：注入索引与 Context Pack 的分工。索引是持久小指针层（≤25KB，
+    // 只收人审批准提升的已确认知识标题），本 Pack 只携带指针不携带索引正文，
+    // 不挤占 192KB 预算；投影文件缺失 / 损坏不影响任务执行（索引可重建）。
+    let injectedIndex;
+    try {
+      const stored = readInjectedIndex();
+      if (stored && stored.entries.length) injectedIndex = { entries: stored.entries, lines: stored.lines, bytes: stored.bytes,
+        selectionReason: '组织级已确认知识的索引指针（人审批准提升）；正文按任务需要经知识引用加载，不在本 Pack 内展开' };
+    } catch { /* 投影缺失不阻断任务输入组装 */ }
     const layers = { goal: { title: issue.title, goal: issue.description, requirements: state.context?.requirements ?? [], origin: task.messageId.startsWith('om_') ? 'feishu' : 'workbench' },
-      sources, checkpoints, excludedCheckpoints, decisions, missing, requests };
+      sources, checkpoints, excludedCheckpoints, decisions, missing, requests, injectedIndex };
     return { layers, manifest, coverage: { includedChars: sources.reduce((n, s) => n + s.includedChars, 0) + checkpoints.reduce((n, s) => n + s.includedChars, 0),
       partialSources: [...sources, ...checkpoints].filter(s => s.truncated || s.truncatedMessages || s.factsTruncated).length, missingCount: missing.length, limitBytes: 192000 } };
   }

@@ -6,7 +6,7 @@
 cd /Users/gong.zhe/Developer/ai-native-collab
 export NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost NODE_USE_ENV_PROXY=0
 
-npm test                    # 540/540（基线）
+npm test                    # 557/557（基线）
 npx tsc --noEmit            # 退出 0
 npm run build:workspaces    # 插件 UI 打包 + 类型检查
 npm run build:chinese-shell # hiddenEntries 4 条、missed []、warning null
@@ -14,7 +14,7 @@ npm run test:responsive     # 425px 无溢出、按钮 44px
 npm run agents:smoke        # C-4 Agent 编制隔离真跑 43/43
 npm run shapes:smoke        # C-5 扁平 / 分层各跑真实一单 36/36（隔离内存 Trace）
 npm run evolution:smoke     # C-6 沉淀回流与自演进闭环 45/45（隔离治理台账）
-npm run steps:smoke         # P-1 单步执行 40/40（隔离队列 + PG 专属库 + 真实子进程）
+npm run steps:smoke         # P-1 单步执行 61/61（隔离队列 + PG 专属库 + 真实子进程；③d ⑧⑨ 含 B21~B24）
 npm run test:walkthrough    # 11/11、failures []
 npm run audit:upstream      # clean: true、problems []（含 casbin / Vue / Element Plus 登记）
 git diff --check            # 退出 0
@@ -29,20 +29,20 @@ npm run memory:replay       # 只读重放：replayTwiceEqual / deterministic tr
 npm run memory:smoke        # 临时目录真跑三条红线，ok:true
 npm run memory:checkpoint   # 真实日志增量应用，checksum 与全量对照
 npm run memory:hierarchy    # P-7 分层规则隔离真跑 16/16（不写真实 B1 主干）
-npm run guard:smoke         # P-8 真实数据联合真跑 22/22（只读，含 HTTP memory-guard）
+npm run guard:smoke         # P-8 真实数据联合真跑 22/22（只读，含 HTTP memory-guard；golden 基线见第三十一轮重冻结）
 npm run atlas:check         # 架构图册静态自检 11/11（变量覆盖 / 离线自足 / 无敏感内容）
 npm run memory:journey      # 真实 bridge action 全链路 + 端到端撤权（会写真实日志）
 npm run routing:status      # allWired:true、threeTier.recommended:false
 npm run host:smoke          # 非 Paperclip 宿主 ok:true
-npm run host:pg             # PG 后端 21/21、ok:true（专属库 suitme_collab_c1）
+npm run host:pg             # PG 后端 24/24、ok:true（专属库 suitme_collab_c1；③d ⑧⑨ 含对外动作 / 血缘 / generation 真跑）
 npm run console             # 自研独立控制台（按需启动，非常驻；默认 4200，只绑回环）
 npm run router:smoke        # C-3 三种形态 31/31（隔离内存 Trace，不写真实日志）
 npm run shapes:smoke        # C-5 扁平 / 分层各跑真实一单 36/36（隔离内存 Trace，不写真实日志）
 npm run evolution:smoke     # C-6 完整闭环 + 全部反例 45/45（隔离治理台账，不写真实日志）
-npm run steps:smoke         # P-1 完整链 + 全部反例 40/40（唯一 runId，不 reset 他人数据）
+npm run steps:smoke         # P-1 完整链 + 全部反例 61/61（唯一 runId，不 reset 他人数据）
 npm run step:once           # P-1 一次进程只跑一步；默认 loop 下不连库、如实返回未启用
-npm run console:smoke       # 临时端口 + Chrome 真跑，输出 .runtime/console-smoke.json
-npm run loop:smoke          # P-9 双向回路：真实 HTTP + 隔离子进程提问/回答/回流建议，16/16
+npm run console:smoke       # 临时端口 + Chrome 真跑 55/55，输出 .runtime/console-smoke.json
+npm run loop:smoke          # P-9 双向回路：真实 HTTP + 隔离子进程提问/回答/回流建议，18/18
 npm run services status     # 4190/4192/4194(+git 9418) 辅助服务统一纳管状态（P-11）
 npm run console:owner -- <用户名> <口令>  # 首次引导：创建 owner 账号（只能一次；P-12 登录制）
 npm run cognee:native -- status   # enabled:true, configured:false（缺 4 个环境变量）
@@ -159,7 +159,21 @@ npm run delivery:demo       # 本机 Git 链路；4194/9418 停机时 gitProtoco
 | 既有回归不回退 | `tsc`、`router:smoke` 31/31、`agents:smoke` 43/43、`shapes:smoke` 36/36、`evolution:smoke` 45/45、`steps:smoke` 54/54、`loop:smoke` 17/17、`host:pg` 21/21、`audit:upstream clean`、`git diff --check` |
 | 如实边界 | 任务发起仍在飞书；验收核可仍在原会话（第二十九轮授权代办除外，留痕见回执 delegation 字段）；默认底座仍 `paperclip`；执行形态默认 `loop`（`.runtime/config.json` 的 step 实验配置已按交付口径回滚）；冒烟账号 smoke-viewer / smoke-admin 已禁用留痕 |
 
-## 9. 真实 HTTP 冒烟模板（admin token 从 `.runtime/secrets.json` 读，不入库）
+## 9. 第三十一轮实测结果（2026-11-08，③c 记忆写入链四项 + ③d OpenMausBot 五项）
+
+| 项 | 结果 |
+|---|---|
+| `npm test` | **557 / 557**（第三十轮 540 + `tests/knowledge-writechain.test.ts` 11 例 + `tests/openmaus-12b.test.ts` 6 例） |
+| `steps:smoke` | **61/61 `ok:true`**：B21 对外动作发生时 `markOutwardAction` → 崩溃回收 `interrupted` 终态（旧 token 作废、不可再领取）、B21b 显式 `failStep` 同样不自动重跑、B22 无副作用回收 `ready` 可重试、B23 委托树血缘沿 `parentStepId` 跨 run 连通、B24 失败重领 `generation+1` 且旧 token 拒绝 |
+| `host:pg` | **24/24 `ok:true`**（原 21 + 3 新）：PG 真跑 `markOutwardAction` 幂等去重（重复登记清单仍 1 条）、interrupted 携带已发动作清单、`lineageOf` 递归 CTE 跨 run 追溯、`generation` 每领 +1；steps 表新列 `parent_step_id` / `generation` / `outward_actions` 幂等迁移 |
+| `console:smoke` | **55/55 `ok:true`**（原 49 + 6）：读分区三例（viewer 看不到他人 personal、admin 总览可见、viewer `knowledge-get` 他人 personal 409）、`proposeAnchorsEvidence`（新建条目 evidence≥1）、`knowledgeWikiReadable`（modelCalls=0、无悬空）、`injectedIndexDiscipline`（条目只有 id/pointer/title） |
+| 端到端真跑（smoke-admin 身份） | `knowledge-wiki`：27 记录 / 5 跳过 / 17 页 / 150 链接 / 0 悬空 / 17 断言无出处（旧记录如实报缺口）/ bloated true（真实发现）/ modelCalls 0；`dreaming-run` 首跑 24 条建议（17 correct-note + 3 fill-gap + 3 merge-duplicate + 1 prune-page）全部登记、复跑 0 登记 24 跳过（幂等）；修订 `knowledge-system-architecture` 自动挂锚点 → 确认+inject → 注入索引收 1 条（206 字节）；**无证据的旧记录即使人审确认 + inject 也不进索引**（红线联动验证） |
+| `guard:smoke` | **22/22 `ok:true`**；golden 基线人审重冻结（humanReview 第 3 条）：基线上次人审停在 P-9（19 项只读白名单），承接 P-12 Vue 重写检查集换代（removed 34 / added 134 键）、P-13 白名单 19→21、本轮 `knowledge-wiki` 21→22；全套回归确认无行为退化后手工更新，新签名 `f17f73f9…`，真跑脚本仍不自动改写 |
+| 陈旧断言修复 | `steps:smoke` D3 与 `agents:smoke` C-4 的 `card('长程执行'` / `card('Agent 编制'` 在 P-12 Vue 重写后失配（改查 `<template #header>`）；`loop:smoke` B3 的 `requiresHumanApproval` 在 P-11 重写后移到 `collaboration-loop.ts`（断言跟随真正强制处）——三处均为 P-11/P-12/P-13 轮未跑对应冒烟导致的累积漂移，非行为退化 |
+| 既有回归不回退 | `router:smoke` 31/31、`agents:smoke` 43/43、`shapes:smoke` 36/36、`evolution:smoke` 45/45、`memory:hierarchy` 16/16、`loop:smoke` 18/18、走查 11/11、425px、`atlas:check` 11/11、两个构建、`tsc`、`audit:upstream clean:true`、`git diff --check` |
+| 如实边界 | 红线 (c) 全守（不模型判 salience、不自动提升 / 确认、不 TTL 物理删除、不让模型改写 wiki）；升级恒 advisory 不代批；团队包导入只产候选引用不提权；Skill `defaultEnabled` 恒 false 且开启绑内容哈希；全部只借思想零代码引入、7 个上游不变；默认底座仍 `paperclip`、执行形态默认 `loop`；飞书仍是唯一发起入口 |
+
+## 10. 真实 HTTP 冒烟模板（admin token 从 `.runtime/secrets.json` 读，不入库）
 
 ```sh
 node --import tsx --input-type=module -e "
@@ -179,7 +193,7 @@ req.on('error', e => console.log('ERR', e.message)); req.end(payload);
 
 把 path 换成 `routing-status` / `service-status` / `delivery-status` / `system-status` 可查其它只读状态。改过 `src/server.ts` / `src/v06.ts` / `src/workspaces.ts` 等服务端代码后先 `npm run restart:bridge`。
 
-## 10. 服务端口表
+## 11. 服务端口表
 
 | 端口 | 用途 | 交接状态 | 启动方式 |
 |---|---|---|---|
@@ -192,7 +206,7 @@ req.on('error', e => console.log('ERR', e.message)); req.end(payload);
 | 5432 | 本机 PG 17 专属库 suitme_collab_c1 | 运行中（用户既有实例） | 不新建服务；只连回环，勿动其它库 |
 | 4200（按需） | 自研独立控制台（P-12 起登录制 + casbin RBAC + Vue 前端） | 运行中 | `npm run console`，只绑 127.0.0.1；owner 口令在 `.runtime/console/owner-password.txt`；冒烟用随机端口，跑完即关 |
 
-## 11. 排障速查
+## 12. 排障速查
 
 | 现象 | 根因 | 处理 |
 |---|---|---|
@@ -208,7 +222,7 @@ req.on('error', e => console.log('ERR', e.message)); req.end(payload);
 | `v06-l2-extract` 报「边指向不存在的节点」 | `memory-index` 先自动抽过一次，任务级镜像未带入全局已有节点 | `buildTaskGraphMirror()` 补齐，见 `tests/l2-extraction.test.ts` |
 | 真实日志出现 `danglingCausedBy` | `reviewSource` 用评审前 revision，确认事件被幂等去重 | 已改用 `reviewedRevision`；历史行不物理删除，重放如实记录 |
 
-## 12. 提交前检查（每轮都做）
+## 13. 提交前检查（每轮都做）
 
 ```sh
 git status --short

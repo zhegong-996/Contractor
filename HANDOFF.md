@@ -1,8 +1,8 @@
 # 交接给下一位 Agent · SuitMe 协作台
 
-> 生成：2026-11-08 10:35（北京时间）｜仓库：`/Users/gong.zhe/Developer/ai-native-collab`
+> 生成：2026-11-08 21:40（北京时间，第三十一轮 ③c/③d 收口后更新）｜仓库：`/Users/gong.zhe/Developer/ai-native-collab`
 > 远端：`https://github.com/zhegong-996/suitme-collab.git`（`main`）
-> 代码基线：**永远以 `git rev-parse HEAD` 为准**，不要相信文档里写死的 hash。本次交接前 `HEAD = origin/main = 834b268`（第二十二轮 P-1）、工作区干净；交接文档提交后 `HEAD` 会前进，仍应与 `origin/main` 一致。
+> 代码基线：**永远以 `git rev-parse HEAD` 为准**，不要相信文档里写死的 hash。本次更新前 `HEAD = origin/main = 20fd99a`（第二十九 / 三十轮）、工作区含第三十一轮改动；本文随本轮一并提交后 `HEAD` 会前进，仍应与 `origin/main` 一致。
 > 本文件是**根目录速览入口**；详细权威交接包在 `HANDOFF/`，项目总结在 `PROJECT-SUMMARY.md`。三者随仓库一起提交推送，clone 即得。
 
 ---
@@ -15,7 +15,7 @@
 | 2 | 读本文件第 1、2、5、6 节（产品口径、现状、红线、边界） |
 | 3 | 读 `HANDOFF/00-START-HERE.md`（环境、端口、8 个已知坑）与 `HANDOFF/06-CURRENT-STATE-AND-NEXT.md`（现状与下一步） |
 | 4 | 动手前读 `docs/PRD-v0.6.md` §10C（C-P1~C-P8）、`HANDOFF/07-RULES-AND-BOUNDARIES.md`、`HANDOFF/08-OPEN-DECISIONS.md` |
-| 5 | 跑 `npm test`（413/413）确认基线，再按 `HANDOFF/05-VALIDATION-AND-COMMANDS.md` 跑全套回归 |
+| 5 | 跑 `npm test`（557/557）确认基线，再按 `HANDOFF/05-VALIDATION-AND-COMMANDS.md` 跑全套回归 |
 | 6 | 要动某块代码时查 `HANDOFF/04-CODE-MAP.md` / `HANDOFF/FILE-INVENTORY.md` |
 | 7 | 拿不准的产品/隐私选择**问用户**，不要自己拍板 |
 
@@ -24,7 +24,7 @@ cd /Users/gong.zhe/Developer/ai-native-collab
 export NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost NODE_USE_ENV_PROXY=0
 git status --short --branch
 git rev-parse HEAD; git rev-parse origin/main; git ls-remote origin main
-npm test                         # 本次交接复跑：413/413，0 fail
+npm test                         # 第三十一轮复跑：557/557，0 fail
 ```
 
 ---
@@ -50,7 +50,7 @@ npm test                         # 本次交接复跑：413/413，0 fail
 
 ---
 
-## 2. 现在做到哪（第二十七轮 P-9 收口状态）
+## 2. 现在做到哪（第三十一轮 ③c/③d 收口状态）
 
 | 阶段 | 状态 | 关键交付 |
 |---|---|---|
@@ -64,9 +64,14 @@ npm test                         # 本次交接复跑：413/413，0 fail
 | P-7 Anthropic agent memory 分层参考 +「参考即记忆」规则 | **第二十五轮完成** | 五组纯函数守门（挂靠 / wiki 护栏 / 注入索引 / 只读 Dreaming / 参考按候选沉淀），网页文章仅借思想、登记 `conceptReferences`，不是第 8 个上游 |
 | P-8 查漏补缺 + 取长补短 | **第二十六轮完成** | 守门以只读 `memory-guard` 接真实数据；冻结基线 / golden diff / 双臂旗标 / 出站不暴露硬断言 / 决策留痕隔离落地 |
 
-严格顺序 **A → B → C → 生产项，不并行**；C 的每一步都单独真跑验收过。最新边界声明是 `docs/ADAPTATION-v0.6.md` 的 `0.000000000000000000000000000` 节；最新验证记录是 `docs/VALIDATION.md` 第二十六轮。
+| P-9/P-10 双向回路与漏洞修复 | **第二十七 / 二十八轮完成** | 回路契约 + 三个执行链节点留痕 + 回流建议；五个真实缺陷修复 + 飞书显式回答接进 HITL 台账（恒 advisory） |
+| P-11 自动续跑 + 授权代办 + 服务纳管 | **第二十九轮完成** | 续跑闸（重新验证台账回答）、SUI-129/SUI-135 授权代办核可、四服务统一纳管 |
+| P-12/P-13 RBAC + 用户级配置 + 前端重写 + 知识分区 CRUD | **第三十轮完成** | casbin RBAC、Vue 3 + Element Plus 本地 vendor、知识 create/update/delete 分区判定 |
+| ③c 记忆写入链四项 + ③d OpenMausBot 五项 | **第三十一轮完成** | 证据锚点（悬空即拒）/ wiki 投影 / 注入索引分工 / Dreaming 接 C-6；Skill 能力包 / 对外动作不重跑 / 委托树血缘 + generation / 升级不代批 / 团队包审查。全部只借思想、7 个上游不变 |
 
-**最后一轮全套回归（第二十七轮 P-9）**：`npm test` **521/521**、`loop:smoke` **16/16**、`guard:smoke` **22/22**、`memory:hierarchy` **16/16**、`tsc`、两个构建、425px 响应式、真实浏览器走查 11/11、`console:smoke failed: []`、`router:smoke` 31/31、`agents:smoke` 43/43、`shapes:smoke` 36/36、`evolution:smoke` 45/45、`steps:smoke` **54/54**、`host:pg` 21/21、记忆重放/checkpoint、上游审计 clean、`git diff --check`。第二十六轮基线 499/499，本轮新增 22 例契约；`loop-guard` 真实 HTTP 200 且如实报 `bidirectional:false`（真实业务单未在该链跑过，未编造事件）；真实 HTTP `memory-guard` 200 / 7 ms，22 条真实知识记录全部如实报缺事实源挂靠、未编造事件 id 跑绿。
+严格顺序 **A → B → C → 生产项，不并行**；C 的每一步都单独真跑验收过。最新边界声明是 `docs/ADAPTATION-v0.6.md` 的 `0.00000000000000000000000000000000` 节；最新验证记录是 `docs/VALIDATION.md` 第三十一轮。
+
+**最后一轮全套回归（第三十一轮 ③c/③d）**：`npm test` **557/557**、`console:smoke` **55/55**、`steps:smoke` **61/61**、`host:pg` **24/24**、`loop:smoke` **18/18**、`guard:smoke` **22/22**（golden 基线人审重冻结）、`memory:hierarchy` 16/16、`tsc`、两个构建、425px 响应式、真实浏览器走查 11/11、`router:smoke` 31/31、`agents:smoke` 43/43、`shapes:smoke` 36/36、`evolution:smoke` 45/45、`atlas:check` 11/11、上游审计 clean、`git diff --check`。端到端真跑：`knowledge-wiki` 27 记录 / 17 页 / 0 悬空（旧记录缺证据如实报）、`dreaming-run` 首跑 24 条建议登记复跑幂等、修订自动挂锚点 → 确认 + inject → 注入索引收 1 条；**无证据的旧记录即使人审确认 + inject 也不进注入索引**（红线联动）。
 
 ---
 

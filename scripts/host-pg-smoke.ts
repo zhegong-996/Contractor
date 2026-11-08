@@ -11,7 +11,7 @@ const checks: Record<string, unknown> = {};
 const notes: string[] = [];
 let ok = true;
 function check(name: string, value: unknown, pass: boolean) {
-  checks[name] = value;
+  checks[name] = { value, pass };
   if (!pass) ok = false;
 }
 
@@ -125,6 +125,50 @@ async function main() {
   check('crashRecovery', { recovered: recovered.length, staleTokenRejected, reclaimed: reclaimed?.stepNo ?? null },
     recovered.some(item => item.runId === 'c1-crash') && staleTokenRejected && reclaimed?.stepNo === 1);
   await host.completeStep(reclaimed!.runToken, { ok: true });
+
+  // 6b. 12b ⑧⑨（PG 真跑）：对外动作发生时登记 → interrupted 终态不重跑；
+  //     显式失败同样不重跑；委托树血缘跨 run 连通；每次领取 generation+1。
+  await host.enqueueSteps('c1-outward', [{ kind: 'tool' }]);
+  const outward = await host.claimStep('worker-out', 'c1-outward');
+  const marked = await host.markOutwardAction(outward!.runToken, 'feishu-reply:c1-om1');
+  const markedAgain = await host.markOutwardAction(outward!.runToken, 'feishu-reply:c1-om1'); // 重复登记幂等去重
+  const recoveredOut = await host.recoverStaleSteps(0);
+  const outwardState = await host.runState('c1-outward');
+  const outwardReclaim = await host.claimStep('worker-new2', 'c1-outward');
+  check('outwardActionInterrupted',
+    { marked, markedAgain, recovered: recoveredOut.filter(i => i.runId === 'c1-outward'),
+      state: outwardState.map(s => s.status), reclaim: outwardReclaim === null },
+    marked && markedAgain
+      && recoveredOut.some(i => i.runId === 'c1-outward' && i.status === 'interrupted'
+        && (i.outwardActions ?? []).length === 1 && i.outwardActions![0] === 'feishu-reply:c1-om1')
+      && outwardState.every(s => s.status === 'interrupted') && outwardReclaim === null);
+
+  await host.enqueueSteps('c1-outward-fail', [{ kind: 'tool' }]);
+  const outwardFailClaim = await host.claimStep('worker-of', 'c1-outward-fail');
+  await host.markOutwardAction(outwardFailClaim!.runToken, 'delivery:c1-x');
+  const outwardFail = await host.failStep(outwardFailClaim!.runToken, '校验失败但已发信');
+  check('outwardFailNotRerun', { status: outwardFail.status, retryable: outwardFail.retryable },
+    outwardFail.status === 'interrupted' && outwardFail.retryable === false);
+
+  const lineageParentRun = 'c1-lineage';
+  await host.enqueueSteps(lineageParentRun, [{ kind: 'tool' }]);
+  const lineageParent = await host.claimStep('worker-lp', lineageParentRun);
+  await host.completeStep(lineageParent!.runToken, { delegated: true });
+  await host.enqueueReadySteps('c1-lineage-child',
+    [{ kind: 'tool', parentStepId: Number(lineageParent!.id) }]);
+  const lineageChild = await host.claimStep('worker-lc', 'c1-lineage-child');
+  const lineage = await host.lineageOf(Number(lineageChild!.id));
+  const lineageChildFail = await host.failStep(lineageChild!.runToken, '模拟失败重试', 3);
+  const lineageChildAgain = await host.claimStep('worker-lc2', 'c1-lineage-child');
+  check('lineageAndGeneration',
+    { lineage: lineage.map(node => ({ id: node.id, runId: node.runId, generation: node.generation })),
+      parentGeneration: lineageParent!.generation, childGeneration: lineageChild!.generation,
+      againGeneration: lineageChildAgain?.generation },
+    lineage.length >= 2 && lineage[0]?.id === Number(lineageChild!.id)
+      && lineage.some(node => node.id === Number(lineageParent!.id) && node.runId === lineageParentRun)
+      && lineageChildFail.status === 'ready' && lineageChildFail.retryable === true
+      && lineageChildAgain?.generation === lineageChild!.generation + 1
+      && lineageParent!.generation >= 1);
 
   // 7. 事务回滚：错误 token 不得留下半写状态
   const before = await host.runState(runId);

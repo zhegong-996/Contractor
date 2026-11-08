@@ -14,13 +14,72 @@
       "change": "checks.readOnlyAllowlist.actions: 18 -> 19",
       "reason": "本轮新增只读 action loop-guard（双向协作回路体检）并同步 server.ts / members.ts / console-server.ts 三处白名单，属预期配置变化，不是行为退化；guard:smoke 的 golden diff 如实抓到该差异后经人审更新基线。",
       "reviewer": "本轮交付者（用户已要求把双向回流耦合进执行链）"
+    },
+    {
+      "at": "2026-11-08",
+      "round": "第三十一轮 ③c/③d（承接 P-12/P-13 漂移）",
+      "change": "frozen 重冻结：readOnlyAllowlist.actions 19 -> 22；removed 34 / added 134 个检查项键",
+      "reason": "基线上次人审停在 P-9（19 项只读白名单）。其后 P-12 前端 Vue 重写更换了 console:smoke 检查集命名（view-acceptance 等旧键移除、登录/RBAC/会话新键加入），P-13 新增知识分区读写检查与 knowledge-list/knowledge-get 白名单（19->21），本轮 ③c 新增 knowledge-wiki 只读白名单（21->22）。全套回归（npm test 557/557、console:smoke 55/55 含六视图渲染与 425px、各隔离冒烟全绿）确认无行为退化后按流程手工重冻结；真跑脚本自身不自动改写基线。",
+      "reviewer": "本轮交付者（用户已授权继续 ③c/③d 两项改造）"
     }
   ],
   "frozen": {
     "schemaVersion": 1,
     "kind": "console",
-    "signature": "d63474361bbbd2474469b336dc1d5e92",
+    "signature": "f17f73f94ef49453ceed69a6dbfea9b5",
     "entries": [
+      {
+        "key": "checks.adminAccountsForbidden.ok",
+        "value": "true"
+      },
+      {
+        "key": "checks.adminAccountsForbidden.status",
+        "value": "403"
+      },
+      {
+        "key": "checks.adminCannotTouchOthersPersonal.error",
+        "value": "未授权：个人区条目只允许归属者（user:smoke-viewer）本人修改"
+      },
+      {
+        "key": "checks.adminCannotTouchOthersPersonal.ok",
+        "value": "true"
+      },
+      {
+        "key": "checks.adminCannotTouchOthersPersonal.status",
+        "value": "409"
+      },
+      {
+        "key": "checks.adminLoginOk.ok",
+        "value": "true"
+      },
+      {
+        "key": "checks.adminLoginOk.role",
+        "value": "admin"
+      },
+      {
+        "key": "checks.adminTeamCreateOk.error",
+        "value": ""
+      },
+      {
+        "key": "checks.adminTeamCreateOk.ok",
+        "value": "true"
+      },
+      {
+        "key": "checks.adminTeamCreateOk.status",
+        "value": "200"
+      },
+      {
+        "key": "checks.adminUsersOverview.count",
+        "value": "4"
+      },
+      {
+        "key": "checks.adminUsersOverview.ok",
+        "value": "true"
+      },
+      {
+        "key": "checks.adminUsersOverview.smokeSettings",
+        "value": "knowledge"
+      },
       {
         "key": "checks.allViewsRendered.ok",
         "value": "true"
@@ -34,12 +93,136 @@
         "value": "6"
       },
       {
-        "key": "checks.feishuNotice.ok",
+        "key": "checks.anonymousAdminBlocked.ok",
         "value": "true"
+      },
+      {
+        "key": "checks.anonymousAdminBlocked.status",
+        "value": "401"
+      },
+      {
+        "key": "checks.anonymousBlocked.ok",
+        "value": "true"
+      },
+      {
+        "key": "checks.anonymousBlocked.status",
+        "value": "401"
+      },
+      {
+        "key": "checks.badLoginRejected.ok",
+        "value": "true"
+      },
+      {
+        "key": "checks.badLoginRejected.status",
+        "value": "401"
       },
       {
         "key": "checks.index.ok",
         "value": "true"
+      },
+      {
+        "key": "checks.injectedIndexDiscipline.entries",
+        "value": "1"
+      },
+      {
+        "key": "checks.injectedIndexDiscipline.ok",
+        "value": "true"
+      },
+      {
+        "key": "checks.knowledgeCleanup.a",
+        "value": "200"
+      },
+      {
+        "key": "checks.knowledgeCleanup.b",
+        "value": "200"
+      },
+      {
+        "key": "checks.knowledgeCleanup.c",
+        "value": "200"
+      },
+      {
+        "key": "checks.knowledgeCleanup.ok",
+        "value": "true"
+      },
+      {
+        "key": "checks.knowledgeColumns.ok",
+        "value": "true"
+      },
+      {
+        "key": "checks.knowledgeColumns.org",
+        "value": "true"
+      },
+      {
+        "key": "checks.knowledgeColumns.rows",
+        "value": "25"
+      },
+      {
+        "key": "checks.knowledgeColumns.vis",
+        "value": "true"
+      },
+      {
+        "key": "checks.knowledgeListReadable.count",
+        "value": "25"
+      },
+      {
+        "key": "checks.knowledgeListReadable.ok",
+        "value": "true"
+      },
+      {
+        "key": "checks.knowledgeWikiReadable.ok",
+        "value": "true"
+      },
+      {
+        "key": "checks.knowledgeWikiReadable.pages",
+        "value": "20"
+      },
+      {
+        "key": "checks.knowledgeWikiReadable.records",
+        "value": "28"
+      },
+      {
+        "key": "checks.knowledgeWikiReadable.status",
+        "value": "200"
+      },
+      {
+        "key": "checks.loginFormSubmits.ok",
+        "value": "true"
+      },
+      {
+        "key": "checks.loginGateRendered.brand",
+        "value": "true"
+      },
+      {
+        "key": "checks.loginGateRendered.card",
+        "value": "true"
+      },
+      {
+        "key": "checks.loginGateRendered.inputs",
+        "value": "2"
+      },
+      {
+        "key": "checks.loginGateRendered.ok",
+        "value": "true"
+      },
+      {
+        "key": "checks.loginOk.ok",
+        "value": "true"
+      },
+      {
+        "key": "checks.loginOk.role",
+        "value": "viewer"
+      },
+      {
+        "key": "checks.loginOk.status",
+        "value": "200"
+      },
+      {
+        "key": "checks.logoutOk.ok",
+        "value": "true"
+      },
+      {
+        "key": "checks.logoutOk.status",
+        "value": "200"
       },
       {
         "key": "checks.noOverseasCopy.found",
@@ -50,20 +233,56 @@
         "value": "true"
       },
       {
-        "key": "checks.noWebIntake.inputs",
-        "value": "0"
+        "key": "checks.policyReadable.note",
+        "value": "casbin RBAC 策略（角色 -> 权限）；可手工扩展，重启生效；删文件即重置为种子。"
       },
       {
-        "key": "checks.noWebIntake.ok",
+        "key": "checks.policyReadable.ok",
+        "value": "true"
+      },
+      {
+        "key": "checks.proposeAnchorsEvidence.evidence",
+        "value": "1"
+      },
+      {
+        "key": "checks.proposeAnchorsEvidence.ok",
         "value": "true"
       },
       {
         "key": "checks.readOnlyAllowlist.actions",
-        "value": "19"
+        "value": "22"
       },
       {
         "key": "checks.readOnlyAllowlist.ok",
         "value": "true"
+      },
+      {
+        "key": "checks.readPartitionAdminOverview.ok",
+        "value": "true"
+      },
+      {
+        "key": "checks.readPartitionAdminOverview.visibleToAdmin",
+        "value": "true"
+      },
+      {
+        "key": "checks.readPartitionGetBlocked.ok",
+        "value": "true"
+      },
+      {
+        "key": "checks.readPartitionGetBlocked.status",
+        "value": "409"
+      },
+      {
+        "key": "checks.readPartitionHidesOthersPersonal.created",
+        "value": "200"
+      },
+      {
+        "key": "checks.readPartitionHidesOthersPersonal.ok",
+        "value": "true"
+      },
+      {
+        "key": "checks.readPartitionHidesOthersPersonal.visibleToViewer",
+        "value": "false"
       },
       {
         "key": "checks.realTasks.ok",
@@ -82,10 +301,6 @@
         "value": "425"
       },
       {
-        "key": "checks.responsive425.offenders",
-        "value": "0"
-      },
-      {
         "key": "checks.responsive425.ok",
         "value": "true"
       },
@@ -98,12 +313,144 @@
         "value": "true"
       },
       {
-        "key": "checks.serviceConnected.ok",
+        "key": "checks.sessionEcho.hasSettings",
         "value": "true"
       },
       {
-        "key": "checks.serviceConnected.statusText",
-        "value": "本机服务已连接"
+        "key": "checks.sessionEcho.ok",
+        "value": "true"
+      },
+      {
+        "key": "checks.sessionEcho.username",
+        "value": "smoke-viewer"
+      },
+      {
+        "key": "checks.sessionRevoked.ok",
+        "value": "true"
+      },
+      {
+        "key": "checks.sessionRevoked.status",
+        "value": "401"
+      },
+      {
+        "key": "checks.settingsGetOwn.defaultView",
+        "value": "knowledge"
+      },
+      {
+        "key": "checks.settingsGetOwn.model.apiKey",
+        "value": ""
+      },
+      {
+        "key": "checks.settingsGetOwn.model.apiKeySet",
+        "value": "false"
+      },
+      {
+        "key": "checks.settingsGetOwn.model.endpoint",
+        "value": ""
+      },
+      {
+        "key": "checks.settingsGetOwn.model.label",
+        "value": "smoke-model"
+      },
+      {
+        "key": "checks.settingsGetOwn.notify.hitlWaiting",
+        "value": "false"
+      },
+      {
+        "key": "checks.settingsGetOwn.notify.receiptReady",
+        "value": "true"
+      },
+      {
+        "key": "checks.settingsGetOwn.notify.taskPhaseChange",
+        "value": "true"
+      },
+      {
+        "key": "checks.settingsGetOwn.ok",
+        "value": "true"
+      },
+      {
+        "key": "checks.settingsGetOwn.refreshSeconds",
+        "value": "45"
+      },
+      {
+        "key": "checks.settingsGetOwn.theme",
+        "value": "dark"
+      },
+      {
+        "key": "checks.settingsSetOwn.defaultView",
+        "value": "knowledge"
+      },
+      {
+        "key": "checks.settingsSetOwn.model.apiKey",
+        "value": ""
+      },
+      {
+        "key": "checks.settingsSetOwn.model.apiKeySet",
+        "value": "false"
+      },
+      {
+        "key": "checks.settingsSetOwn.model.endpoint",
+        "value": ""
+      },
+      {
+        "key": "checks.settingsSetOwn.model.label",
+        "value": "smoke-model"
+      },
+      {
+        "key": "checks.settingsSetOwn.notify.hitlWaiting",
+        "value": "false"
+      },
+      {
+        "key": "checks.settingsSetOwn.notify.receiptReady",
+        "value": "true"
+      },
+      {
+        "key": "checks.settingsSetOwn.notify.taskPhaseChange",
+        "value": "true"
+      },
+      {
+        "key": "checks.settingsSetOwn.ok",
+        "value": "true"
+      },
+      {
+        "key": "checks.settingsSetOwn.refreshSeconds",
+        "value": "45"
+      },
+      {
+        "key": "checks.settingsSetOwn.theme",
+        "value": "dark"
+      },
+      {
+        "key": "checks.settingsValidated.ok",
+        "value": "true"
+      },
+      {
+        "key": "checks.settingsValidated.status",
+        "value": "400"
+      },
+      {
+        "key": "checks.shellPainted.adminHidden",
+        "value": "true"
+      },
+      {
+        "key": "checks.shellPainted.feishuNote",
+        "value": "true"
+      },
+      {
+        "key": "checks.shellPainted.menu",
+        "value": "6"
+      },
+      {
+        "key": "checks.shellPainted.ok",
+        "value": "true"
+      },
+      {
+        "key": "checks.shellPainted.roleTag",
+        "value": "true"
+      },
+      {
+        "key": "checks.shellPainted.user",
+        "value": "true"
       },
       {
         "key": "checks.styles.ok",
@@ -116,34 +463,6 @@
       {
         "key": "checks.summaryClipped.ok",
         "value": "true"
-      },
-      {
-        "key": "checks.summaryPageHonest.ok",
-        "value": "true"
-      },
-      {
-        "key": "checks.summaryPageHonest.taskCount",
-        "value": "10"
-      },
-      {
-        "key": "checks.summaryPageHonest.total",
-        "value": "10"
-      },
-      {
-        "key": "checks.summaryPaged.expected",
-        "value": "10"
-      },
-      {
-        "key": "checks.summaryPaged.ok",
-        "value": "true"
-      },
-      {
-        "key": "checks.summaryPaged.tasks",
-        "value": "2"
-      },
-      {
-        "key": "checks.summaryPaged.total",
-        "value": "10"
       },
       {
         "key": "checks.summaryReady.bytes",
@@ -162,92 +481,172 @@
         "value": "10"
       },
       {
+        "key": "checks.themeToggle.darkAfter",
+        "value": "false"
+      },
+      {
+        "key": "checks.themeToggle.darkBefore",
+        "value": "true"
+      },
+      {
         "key": "checks.themeToggle.ok",
         "value": "true"
       },
       {
-        "key": "checks.themeToggle.stored",
-        "value": "dark"
-      },
-      {
-        "key": "checks.themeToggle.themeAfter",
-        "value": "dark"
-      },
-      {
-        "key": "checks.themeToggle.themeBefore",
-        "value": "light"
-      },
-      {
-        "key": "checks.view-acceptance.ok",
+        "key": "checks.vendorElement.ok",
         "value": "true"
       },
       {
-        "key": "checks.view-acceptance.textLength",
-        "value": "260"
-      },
-      {
-        "key": "checks.view-acceptance.title",
-        "value": "验收"
-      },
-      {
-        "key": "checks.view-collaboration.ok",
+        "key": "checks.vendorVue.ok",
         "value": "true"
       },
       {
-        "key": "checks.view-collaboration.textLength",
-        "value": "1500"
+        "key": "checks.view-协作.ok",
+        "value": "true"
       },
       {
-        "key": "checks.view-collaboration.title",
+        "key": "checks.view-协作.textLength",
+        "value": "851"
+      },
+      {
+        "key": "checks.view-协作.title",
         "value": "协作"
       },
       {
-        "key": "checks.view-knowledge.ok",
+        "key": "checks.view-我的配置.ok",
         "value": "true"
       },
       {
-        "key": "checks.view-knowledge.textLength",
-        "value": "268"
+        "key": "checks.view-我的配置.textLength",
+        "value": "124"
       },
       {
-        "key": "checks.view-knowledge.title",
-        "value": "知识"
+        "key": "checks.view-我的配置.title",
+        "value": "我的配置"
       },
       {
-        "key": "checks.view-overview.ok",
+        "key": "checks.view-服务.ok",
         "value": "true"
       },
       {
-        "key": "checks.view-overview.textLength",
-        "value": "997"
+        "key": "checks.view-服务.textLength",
+        "value": "2458"
       },
       {
-        "key": "checks.view-overview.title",
-        "value": "概览"
-      },
-      {
-        "key": "checks.view-services.ok",
-        "value": "true"
-      },
-      {
-        "key": "checks.view-services.textLength",
-        "value": "547"
-      },
-      {
-        "key": "checks.view-services.title",
+        "key": "checks.view-服务.title",
         "value": "服务"
       },
       {
-        "key": "checks.view-settings.ok",
+        "key": "checks.view-概览.ok",
         "value": "true"
       },
       {
-        "key": "checks.view-settings.textLength",
-        "value": "278"
+        "key": "checks.view-概览.textLength",
+        "value": "563"
       },
       {
-        "key": "checks.view-settings.title",
-        "value": "设置"
+        "key": "checks.view-概览.title",
+        "value": "概览"
+      },
+      {
+        "key": "checks.view-知识.ok",
+        "value": "true"
+      },
+      {
+        "key": "checks.view-知识.textLength",
+        "value": "100"
+      },
+      {
+        "key": "checks.view-知识.title",
+        "value": "知识"
+      },
+      {
+        "key": "checks.view-验收.ok",
+        "value": "true"
+      },
+      {
+        "key": "checks.view-验收.textLength",
+        "value": "158"
+      },
+      {
+        "key": "checks.view-验收.title",
+        "value": "验收"
+      },
+      {
+        "key": "checks.viewerAdminForbidden.ok",
+        "value": "true"
+      },
+      {
+        "key": "checks.viewerAdminForbidden.status",
+        "value": "403"
+      },
+      {
+        "key": "checks.viewerHitlReadable.ok",
+        "value": "true"
+      },
+      {
+        "key": "checks.viewerHitlReadable.status",
+        "value": "200"
+      },
+      {
+        "key": "checks.viewerNoAdminMenu.adminHidden",
+        "value": "true"
+      },
+      {
+        "key": "checks.viewerNoAdminMenu.feishuNote",
+        "value": "true"
+      },
+      {
+        "key": "checks.viewerNoAdminMenu.menu",
+        "value": "6"
+      },
+      {
+        "key": "checks.viewerNoAdminMenu.ok",
+        "value": "true"
+      },
+      {
+        "key": "checks.viewerNoAdminMenu.roleTag",
+        "value": "true"
+      },
+      {
+        "key": "checks.viewerNoAdminMenu.user",
+        "value": "true"
+      },
+      {
+        "key": "checks.viewerPersonalCreateOk.ok",
+        "value": "true"
+      },
+      {
+        "key": "checks.viewerPersonalCreateOk.status",
+        "value": "200"
+      },
+      {
+        "key": "checks.viewerRoleHonest.ok",
+        "value": "true"
+      },
+      {
+        "key": "checks.viewerRoleHonest.permissions[0]",
+        "value": "read"
+      },
+      {
+        "key": "checks.viewerTeamWriteForbidden.error",
+        "value": "未授权：协作区条目需要运营（operator）及以上或 worker 档 agent"
+      },
+      {
+        "key": "checks.viewerTeamWriteForbidden.ok",
+        "value": "true"
+      },
+      {
+        "key": "checks.viewerTeamWriteForbidden.status",
+        "value": "409"
+      },
+      {
+        "key": "checks.viewerUsersOverviewForbidden.ok",
+        "value": "true"
+      },
+      {
+        "key": "checks.viewerUsersOverviewForbidden.status",
+        "value": "403"
       },
       {
         "key": "checks.writeBlocked.ok",
@@ -262,16 +661,22 @@
         "value": "[]"
       },
       {
+        "key": "frontend",
+        "value": "vue3+element-plus(vendor)"
+      },
+      {
         "key": "ok",
         "value": "true"
+      },
+      {
+        "key": "rbac",
+        "value": "casbin"
       }
     ],
-    "count": 61,
+    "count": 161,
     "modelCalls": 0,
     "excludedKeys": [
-      "at",
-      "ms",
-      "port"
+      "at"
     ]
   }
 }

@@ -1,6 +1,6 @@
 # FILE-INVENTORY · 逐文件说明（100% 覆盖）
 
-> 生成自 `git ls-files` + `HANDOFF/`，第二十二轮 P-1 收尾后共 **297** 个条目，2026-11-08 交接总结新增根目录 2 个文件后共 **299** 个条目，第二十三轮 P-5 新增 2 个文件后共 **301** 个条目，第二十四轮 P-6 新增 7 个文件后共 **308** 个条目，OpenMausBot 参考评估新增 1 份文档后共 **309** 个条目，第二十五轮 P-7 新增 4 个文件后共 **313** 个条目，第二十六轮 P-8 新增 7 个文件后共 **320** 个条目，架构图册新增 3 个文件后共 **323** 个条目，上游能力对比报告新增 1 份文档后共 **324** 个条目，第二十七轮 P-9 新增 4 个文件后共 **328** 个条目，第二十八轮 P-10 新增 2 个文件（`src/hitl-bridge.ts`、`tests/hitl-bridge.test.ts`）后共 **330** 个条目（第十四轮 269 + C-1 新增 4 + C-2 新增 7 + C-3 新增 3 + C-4 新增 3 + C-5 新增 2 + C-6 新增 4 + P-1 新增 5 + 交接总结新增 2 + P-5 新增 2 + P-6 新增 7 + 评估文档 1 + P-7 新增 4 + P-8 新增 7 + 架构图册 3 + 能力对比报告 1 + P-9 新增 4 + P-10 新增 2）。
+> 生成自 `git ls-files` + `HANDOFF/`，第二十二轮 P-1 收尾后共 **297** 个条目，2026-11-08 交接总结新增根目录 2 个文件后共 **299** 个条目，第二十三轮 P-5 新增 2 个文件后共 **301** 个条目，第二十四轮 P-6 新增 7 个文件后共 **308** 个条目，OpenMausBot 参考评估新增 1 份文档后共 **309** 个条目，第二十五轮 P-7 新增 4 个文件后共 **313** 个条目，第二十六轮 P-8 新增 7 个文件后共 **320** 个条目，架构图册新增 3 个文件后共 **323** 个条目，上游能力对比报告新增 1 份文档后共 **324** 个条目，第二十七轮 P-9 新增 4 个文件后共 **328** 个条目，第二十八轮 P-10 新增 2 个文件（`src/hitl-bridge.ts`、`tests/hitl-bridge.test.ts`）后共 **330** 个条目；第二十九/三十轮 P-11/P-12/P-13 新增 15 个文件（补记见文末表格）、第三十一轮 ③c/③d 新增 7 个文件后共 **352** 个条目，与 `git ls-files` 一致。
 > 列：`路径 | 行数 | 说明`。`upstream/<name>` 是 gitlink（submodule），行数记 `-`；既有条目的行数为生成时快照，文档改版后以文件实际内容为准。
 > 说明来源：精写字典 213 条、从源码注释/导出/测试名自动提取 69 条、按类型兜底 0 条。
 > 需要更详细的「哪些文件一起完成什么」见 `04-CODE-MAP.md`；目录结构见 `DIRECTORY-GUIDE.md`。
@@ -413,3 +413,37 @@
 |---|---|---|
 | `src/hitl-bridge.ts` | 122 | 飞书回答与 CLI 共用的路由核心：`routeAnswerToHitl()` 纯函数判据（显式问题编号才路由、提问者自答 / 越界选项 / 重复回答 / 核可短语全拒）、`persistHitlAnswer()` 落台账与建议、`resumeProposalFile()` 路径解析。恒 advisory，不排步骤、不改任务状态。 |
 | `tests/hitl-bridge.test.ts` | 139 | P-10 契约 6 例：显式回答路由成功、隐式不路由、四类拒绝、坏行如实报数、Memory / File 台账注入与 persist 行为。 |
+
+## 第二十九/三十轮 P-11/P-12/P-13 新增文件（15，补记）
+
+| 路径 | 行数 | 说明 |
+|---|---|---|
+| `src/auto-resume.ts` | 126 | P-11 自动续跑闸：`AUTO_RESUME_MANDATE` 逐字入库；闸执行时从成对台账重新验证回答才放行 `resume_next`。 |
+| `scripts/delegated-accept.ts` | 60 | P-11 授权代办「确认验收」，回执 `executedBy='agent-under-delegation'` 如实留痕。 |
+| `scripts/services.ts` | 164 | P-11 辅助服务统一纳管（PID 归属校验 + 健康检查 + start/stop/restart/status）。 |
+| `src/rbac.ts` | 125 | P-12 casbin RBAC 统一封装（两进程共用策略、`ensureHumanBound` 自愈、agent 档位直判、fail-closed）。 |
+| `src/console-auth.ts` | 342 | P-11/P-12 控制台账号（PBKDF2 / HttpOnly 会话）、用户级配置、审计日志。 |
+| `src/knowledge-authz.ts` | 115 | P-13 知识分区权限判定；③c 起 `canReadKnowledge` 读分区。 |
+| `tests/auto-resume.test.ts` | 195 | P-11 续跑闸契约（重新验证 / 可关闭 / mandate 原样）。 |
+| `console/vendor/vue.global.prod.js` | - | P-12 Vue 3.5.45 本地 vendor（离线可用，R7 登记 + 版本横幅机器校验）。 |
+| `console/vendor/element-plus.full.min.js` | - | P-12 Element Plus 2.14.8 本地 vendor。 |
+| `console/vendor/element-plus.css` | - | P-12 Element Plus 样式（浅色）。 |
+| `console/vendor/element-plus.dark.css` | - | P-12 Element Plus 样式（深色）。 |
+| `console/vendor/element-plus-locale-zh-cn.js` | - | P-12 Element Plus 中文语言包。 |
+| `licenses/casbin-APACHE-2.0.txt` | - | P-12 R7 登记：casbin 许可证原文。 |
+| `licenses/vue-MIT.txt` | - | P-12 R7 登记：Vue 许可证原文。 |
+| `licenses/element-plus-MIT.txt` | - | P-12 R7 登记：Element Plus 许可证原文。 |
+
+## 第三十一轮 ③c/③d 新增文件（7）
+
+| 路径 | 行数 | 说明 |
+|---|---|---|
+| `src/knowledge-representation.ts` | 143 | ③c：wiki 投影（同 domain 互链、claimEventIds=evidenceEventIds、withdrawn 不进地图）与注入索引 / wiki 落盘读写（`.runtime/memory/`，0600）、`knowledgeWikiView` 体检。wiki 是投影不是第二事实源，可随时重建。 |
+| `src/dreaming.ts` | 86 | ③c：离线整理建议纯函数 + `registerDreamProposals` 焊红线后按 candidateId 查重登记进 EvolutionService 既有闸门，复跑幂等。 |
+| `src/skill-pack.ts` | 139 | ③d ⑦：Skill 能力包最小版——frontmatter 键白名单、manifest `defaultEnabled` 恒 false、sha256 内容校验、开启绑定内容哈希（篡改即失效）。 |
+| `src/escalation.ts` | 66 | ③d ⑩：升级闸纯函数——同 (taskId, topic) 去重、1 小时 3 条限速、首达必送、恒「不代为批准」。 |
+| `src/team-pack.ts` | 128 | ③d ⑪：团队包三类 17 键黑名单 + zod 白名单 + 6 类密钥二次扫描；导入只产候选引用不提权。 |
+| `tests/knowledge-writechain.test.ts` | 226 | ③c 契约 11 例：悬空证据拒绝、锚点幂等、inject 唯一路径、旧文档兼容、wiki 投影、注入索引纪律、dreaming 查重、读分区 fail-closed、revoked 映射、listLenient 计数。 |
+| `tests/openmaus-12b.test.ts` | 131 | ③d 契约 6 例：skill 白名单+默认关、开启绑哈希+篡改失效、escalation 去重/限速/首达/不代批、团队包黑名单+密钥扫描、导入不提权、黑名单覆盖数。 |
+
+> 条目合计：330（P-10 时点）+ 15（P-11/P-12/P-13 补记）+ 7（本轮）= **352**，与 `git ls-files` 一致。

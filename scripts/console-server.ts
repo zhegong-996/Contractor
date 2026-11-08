@@ -32,10 +32,17 @@ export const CONSOLE_READ_ACTIONS: readonly string[] = [
   'network-view', 'ontology-view', 'context-pack', 'memory-search',
   'v06-agent-registry-view', 'v06-evolution-view', 'v06-execution-view',
   'knowledge-list', 'knowledge-get', // P-13：知识条目列表与单条详情（读）
+  'knowledge-wiki', // 13a ②③：知识地图投影与注入索引的只读体检
 ] as const;
 
 /** P-13 知识写入动作：登录即可调，分区权限由 bridge 端 casbin 统一判定。 */
 const KNOWLEDGE_WRITE_ACTIONS: readonly string[] = ['knowledge-create', 'knowledge-update', 'knowledge-delete'] as const;
+
+/** 13a ④：离线整理建议登记进 C-6 候选闸门——登录即可提（与 improvement-propose 同语义），人审在治理台账。 */
+const DREAMING_ACTIONS: readonly string[] = ['dreaming-run'] as const;
+
+/** 读通道也要按真实登录用户判分区（个人区仅归属者与管理员可见）。 */
+const KNOWLEDGE_READ_ACTOR_ACTIONS: readonly string[] = ['knowledge-list', 'knowledge-get'] as const;
 
 /** 管理动作 → 所需权限（casbin RBAC 按策略放行）。 */
 const ADMIN_ACTIONS: Record<string, string> = {
@@ -222,8 +229,12 @@ async function handleAdmin(action: string, payload: Record<string, unknown>, ses
       const key = String(payload.key ?? '');
       const revision = String(payload.revision ?? '');
       if (!key || !revision) throw new Error('需要 key 与 revision');
-      const result = await bridgeRequest('POST', `/tasks/${taskId}/knowledge-review`, { key, revision, state });
-      auth.audit('knowledge.review', session.username, { taskId, key, state, status: result.status });
+      // 13a ③：确认时可由真人显式选择「同步提升到注入索引」；确认人按真实登录
+      // 用户留痕（confirmedBy），不再笼统记 local-operator。
+      const inject = payload.inject === true;
+      const result = await bridgeRequest('POST', `/tasks/${taskId}/knowledge-review`,
+        { key, revision, state, inject, actorUser: session.username });
+      auth.audit('knowledge.review', session.username, { taskId, key, state, inject, status: result.status });
       return { ok: result.status === 200, response: safeParse(result.body) };
     }
     case 'admin-task-control': {
@@ -329,13 +340,21 @@ export function createConsoleServer(): Server {
           return;
         }
         if (CONSOLE_READ_ACTIONS.includes(action)) {
-          const result = await proxy(action, body);
+          // 读通道注入真实登录用户（个人区条目按分区过滤，仅归属者与管理员可见）。
+          const result = await proxy(action, body, KNOWLEDGE_READ_ACTOR_ACTIONS.includes(action) ? session.username : undefined);
           res.writeHead(result.status, { 'Content-Type': 'application/json; charset=utf-8' });
           res.end(result.payload);
           return;
         }
         // P-13：知识写入（登录即可，分区判定在 bridge）。
         if (KNOWLEDGE_WRITE_ACTIONS.includes(action)) {
+          const result = await proxy(action, body, session.username);
+          res.writeHead(result.status, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(result.payload);
+          return;
+        }
+        // 13a ④：离线整理建议 → C-6 候选闸门（登录即可提，人审走治理台账）。
+        if (DREAMING_ACTIONS.includes(action)) {
           const result = await proxy(action, body, session.username);
           res.writeHead(result.status, { 'Content-Type': 'application/json; charset=utf-8' });
           res.end(result.payload);

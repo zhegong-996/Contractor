@@ -14,14 +14,17 @@
   // ---------------------------------------------------------------- API 层
   // 按动作区分超时：未登记动作走默认 12 秒快速失败；重放 / 体检类只读动作放宽。
   // P-5 红线：view-summary 是分页摘要（毫秒级），不给慢请求开口子。
-  const READ_TIMEOUT = { 'memory-replay': 20000, 'memory-guard': 20000, 'trace-view': 20000, 'knowledge-list': 20000 };
+  // knowledge-wiki / dreaming-run 要逐任务读知识文档并跑体检 / 登记，走 30 秒宽限。
+  const READ_TIMEOUT = { 'memory-replay': 20000, 'memory-guard': 20000, 'trace-view': 20000, 'knowledge-list': 20000, 'knowledge-wiki': 30000, 'dreaming-run': 30000 };
   const CACHE_MS = 4000;
   const readCache = new Map();
   const inFlight = new Map();
+  // 只读动作才允许短缓存；写动作（admin- / knowledge- 写 / settings- / dreaming-）不缓存。
+  const cacheable = action => !action.startsWith('admin-') && !action.startsWith('knowledge-') && !action.startsWith('settings-') && !action.startsWith('dreaming-');
 
   async function api(action, payload = {}) {
     const key = action + ':' + JSON.stringify(payload);
-    if (!action.startsWith('admin-') && !action.startsWith('knowledge-') && !action.startsWith('settings-')) {
+    if (cacheable(action)) {
       const hit = readCache.get(key);
       if (hit && Date.now() - hit.at < CACHE_MS) return hit.value;
       if (inFlight.has(key)) return inFlight.get(key);
@@ -34,11 +37,11 @@
       const data = await response.json().catch(() => ({}));
       if (response.status === 401) { const e = new Error(data.error || '请先登录'); e.login = true; throw e; }
       if (!response.ok) throw new Error(data.error || '请求失败');
-      if (!action.startsWith('admin-') && !action.startsWith('knowledge-') && !action.startsWith('settings-'))
+      if (cacheable(action))
         readCache.set(key, { at: Date.now(), value: data });
       return data;
     })().finally(() => inFlight.delete(key));
-    if (!action.startsWith('admin-') && !action.startsWith('knowledge-') && !action.startsWith('settings-'))
+    if (cacheable(action))
       inFlight.set(key, task);
     return task;
   }
@@ -766,18 +769,40 @@
               <pre class="code-block" v-if="serviceOutput">{{ serviceOutput }}</pre>
             </el-tab-pane>
             <el-tab-pane v-if="can('knowledge-review')" label="知识审核" name="review">
-              <el-alert title="确认或撤回候选知识；确认后才会被任务引用。编辑已确认的知识会自动回到待审核。" type="info" :closable="false" style="margin-bottom:10px" />
+              <el-alert title="确认或撤回候选知识；确认后才会被任务引用。编辑已确认的知识会自动回到待审核。确认时可选「同步提升到注入索引」——只有人审批准的知识才会出现在组织级索引里。" type="info" :closable="false" style="margin-bottom:10px" />
               <el-table :data="candidates" size="default">
                 <el-table-column prop="key" label="标识" min-width="200" />
                 <el-table-column prop="title" label="标题" min-width="200" show-overflow-tooltip />
                 <el-table-column prop="owner" label="归属者" width="140" />
-                <el-table-column label="操作" width="180">
+                <el-table-column label="操作" width="260">
                   <template #default="{ row }">
-                    <el-button size="small" type="success" plain @click="review(row, 'confirmed')">确认</el-button>
-                    <el-button size="small" type="warning" plain @click="review(row, 'withdrawn')">撤回</el-button>
+                    <el-button size="small" type="success" plain @click="openReview(row, 'confirmed')">确认…</el-button>
+                    <el-button size="small" type="warning" plain @click="review(row, 'withdrawn', false)">撤回</el-button>
                   </template>
                 </el-table-column>
               </el-table>
+
+              <el-divider content-position="left">知识地图与注入索引（13a · 投影体检）</el-divider>
+              <el-alert title="知识地图与注入索引都是知识文档的投影（可重建，不是第二事实源）：地图回答「组织沉淀了哪些知识、断言能否查回事实源」，索引只收人审批准提升的已确认知识标题；任务输入（Context Pack）另按预算组装正文。" type="info" :closable="false" style="margin-bottom:10px" />
+              <div style="margin-bottom:10px">
+                <el-button size="small" :loading="wikiBusy" @click="loadWiki">体检 / 重建投影</el-button>
+                <el-button size="small" :loading="dreamBusy" @click="runDreaming">离线整理：把建议登记进改进闸门</el-button>
+              </div>
+              <el-descriptions v-if="wikiView" :column="3" size="small" border style="margin-bottom:10px">
+                <el-descriptions-item label="知识记录">{{ wikiView.records }}</el-descriptions-item>
+                <el-descriptions-item label="地图页面 / 链接">{{ wikiView.wiki.pages }} / {{ wikiView.wiki.links }}</el-descriptions-item>
+                <el-descriptions-item label="地图体积">{{ wikiView.wiki.bytes }} / {{ wikiView.corpusBytes }} 字节</el-descriptions-item>
+                <el-descriptions-item label="悬空链接">{{ wikiView.wiki.danglingLinks.length }}</el-descriptions-item>
+                <el-descriptions-item label="断言无出处">{{ wikiView.wiki.ungroundedClaims.length }}</el-descriptions-item>
+                <el-descriptions-item label="索引条目 / 被裁">{{ wikiView.injected.entries.length }} / {{ wikiView.injected.omitted }}</el-descriptions-item>
+              </el-descriptions>
+              <el-alert v-if="wikiView && wikiView.wiki.bloated" title="知识地图体积超过原始语料：抽象为零，需要先裁剪" type="warning" :closable="false" style="margin-bottom:10px" />
+              <el-table v-if="dreamResult" :data="dreamResult.proposals" size="small" style="margin-bottom:10px">
+                <el-table-column prop="kind" label="建议类型" width="150" />
+                <el-table-column prop="target" label="对象" min-width="200" show-overflow-tooltip />
+                <el-table-column prop="reason" label="原因" min-width="300" show-overflow-tooltip />
+              </el-table>
+              <el-alert v-if="dreamResult" :title="'本次登记 ' + dreamResult.registered.length + ' 条候选改进（重复跳过 ' + dreamResult.skippedDuplicates + ' 条）；全部待工程闸门与真人批准，离线整理不自动采用。'" type="success" :closable="false" />
             </el-tab-pane>
             <el-tab-pane label="待答问题" name="hitl">
               <el-alert title="回答仍在飞书对话里进行；这里只读查看当前挂起的人工问题与续跑建议。" type="info" :closable="false" style="margin-bottom:10px" />
@@ -825,6 +850,16 @@
             <el-button type="primary" :loading="newAccount.busy" @click="createAccount">创建</el-button>
           </template>
         </el-dialog>
+
+        <el-dialog v-model="reviewDialog.visible" title="确认知识" width="480px">
+          <p style="margin:0 0 12px">{{ reviewDialog.row ? reviewDialog.row.title : '' }}</p>
+          <el-checkbox v-model="reviewDialog.inject">同步提升到注入索引（组织级知识目录，仅人审批准的条目）</el-checkbox>
+          <el-alert title="提升后该条目标题进入注入索引（≤200 行 / 25KB 的小指针层）；任务输入按需加载正文，不额外占预算。再次编辑会自动退出索引。" type="info" :closable="false" style="margin-top:12px" />
+          <template #footer>
+            <el-button @click="reviewDialog.visible = false">取消</el-button>
+            <el-button type="primary" @click="confirmReview">确认</el-button>
+          </template>
+        </el-dialog>
       </div>`,
     setup(props) {
       const tab = ref('accounts');
@@ -868,9 +903,32 @@
         serviceOutput.value = r.__error ? ('失败：' + r.__error) : (r.output || '完成');
         await loadServices();
       };
-      const review = async (row, state) => {
-        try { await api('admin-knowledge-review', { taskId: row.taskId, key: row.key, revision: row.revision, state }); ElementPlus.ElMessage.success(state === 'confirmed' ? '已确认' : '已撤回'); await loadKnowledge(); }
+      const review = async (row, state, inject) => {
+        try { await api('admin-knowledge-review', { taskId: row.taskId, key: row.key, revision: row.revision, state, inject: inject === true }); ElementPlus.ElMessage.success(state === 'confirmed' ? '已确认' : '已撤回'); await loadKnowledge(); }
         catch (e) { ElementPlus.ElMessage.error(String(e.message || e)); }
+      };
+      // 13a ③：确认对话框——提升到注入索引只能由人在确认这一刻显式选择。
+      const reviewDialog = reactive({ visible: false, row: null, inject: false });
+      const openReview = (row, state) => { if (state !== 'confirmed') return review(row, state, false); reviewDialog.row = row; reviewDialog.inject = false; reviewDialog.visible = true; };
+      const confirmReview = async () => {
+        const row = reviewDialog.row; reviewDialog.visible = false;
+        if (row) await review(row, 'confirmed', reviewDialog.inject);
+      };
+      // 13a ②③④：知识地图 / 注入索引体检与离线整理（只读投影 + 候选登记）。
+      const wikiView = ref(null), wikiBusy = ref(false), dreamResult = ref(null), dreamBusy = ref(false);
+      const loadWiki = async () => {
+        wikiBusy.value = true;
+        try { const r = await safe('knowledge-wiki'); if (r.__error) ElementPlus.ElMessage.error('体检失败：' + r.__error); else wikiView.value = r; }
+        finally { wikiBusy.value = false; }
+      };
+      const runDreaming = async () => {
+        dreamBusy.value = true; dreamResult.value = null;
+        try {
+          const r = await api('dreaming-run', {});
+          dreamResult.value = r;
+          ElementPlus.ElMessage.success('已登记 ' + (r.registered ?? []).length + ' 条候选改进');
+        } catch (e) { ElementPlus.ElMessage.error(String(e.message || e)); }
+        finally { dreamBusy.value = false; }
       };
       const feishu = async execute => {
         feishuOutput.value = '生成中…';
@@ -891,7 +949,8 @@
       });
       return { tab, accounts, userSettings, policyText, policyNote, adminServices, serviceOutput, auditEntries, feishuOutput,
         candidates, hitlPending, newAccount, roles, roleLabels, can, createAccount, changeRole, toggleDisabled,
-        serviceControl, review, feishu, fmtTime };
+        serviceControl, review, feishu, fmtTime,
+        reviewDialog, openReview, confirmReview, wikiView, wikiBusy, loadWiki, dreamResult, dreamBusy, runDreaming };
     },
   };
 

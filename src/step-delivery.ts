@@ -176,6 +176,8 @@ export class TrackedStepQueue implements StepQueue {
     return full;
   }
   id() { return this.inner.id() + '+delivery'; }
+  /** 12b ⑧：对外动作登记透传（组合不改语义，投递事件由调用方自行追加）。 */
+  markOutwardAction(runToken: string, action: string) { return this.inner.markOutwardAction(runToken, action); }
   eventsView(): DeliveryEvent[] { return this.events.map(event => ({ ...event })); }
   async enqueueSteps(runId: string, specs: StepSpec[]) {
     const result = await this.inner.enqueueSteps(runId, specs);

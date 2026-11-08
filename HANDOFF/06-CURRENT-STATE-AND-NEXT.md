@@ -1,6 +1,6 @@
 # 06 · 当前状态与下一步（接手者最该看的一份）
 
-## 1. 状态快照（第三十轮 P-12/P-13）
+## 1. 状态快照（第三十一轮 ③c/③d）
 
 | 阶段 | 状态 | 交付 |
 |---|---|---|
@@ -16,8 +16,10 @@
 | **生产项 P-9/P-10 双向回路与漏洞修复** | ✅ **第二十七 / 二十八轮完成**：回路契约 + 三个执行链节点留痕 + 回流建议；五个真实缺陷修复 + 飞书显式回答接进 HITL 台账（恒 advisory） | 见第 11 节 |
 | **生产项 P-11 回答自动续跑 + 授权代办 + 服务纳管** | ✅ **第二十九轮完成**：用户三连拍板（自动续跑闸 / step 真实业务单 SUI-129·SUI-135 授权代办核可 / 四个已取消服务重启纳管） | 见第 12 节 |
 | **P-12 RBAC + 用户级配置 + 前端重写；P-13 知识分区 CRUD** | ✅ **第三十轮完成**：casbin RBAC（两进程共用）、用户级配置（本人读写 / 管理员总览）、Vue 3 + Element Plus 前端重写（本地 vendor）、知识 create/update/delete + 分区权限 | 见第 13 节 |
+| **③c 记忆写入链四项（第 13 条 (a)）** | ✅ **第三十一轮完成**：证据锚点 + 悬空拒绝、wiki 投影（非第二事实源）、注入索引与 Context Pack 分工、Dreaming 接 C-6 闸门；配套读分区与控制台审核升级 | 见第 14 节 |
+| **③d OpenMausBot 五项（第 12 条 (b)）** | ✅ **第三十一轮完成**：Skill 能力包、对外动作不重跑（崩溃回收 + 显式失败双闸）、委托树血缘 + generation、升级只通知不代批 + 限速、团队包黑名单 / 密钥扫描 / 导入不提权 | 见第 14 节 |
 
-系统能跑、全套回归全绿（**540/540 单测**、**`console:smoke` 49/49**、**`memory:hierarchy` 16/16**、**`guard:smoke` 22/22**、**`steps:smoke` 54/54**、**`router:smoke` 31/31、`agents:smoke` 43/43、`shapes:smoke` 36/36、`evolution:smoke` 45/45、`loop:smoke` 17/17**、上游 clean（含 casbin / Vue / Element Plus 新登记）、`host:pg` 21/21）。`HEAD = origin/main = 远端 main`。C-1 起每次代码改动都重跑全套；本机 PG 17.10 专属库 `suitme_collab_c1` 已可真跑。服务现状：3100 / 4180 / 4190 / 4192 / 4194（+git 9418）全部运行中，由 `scripts/services.ts` 统一纳管。
+系统能跑、全套回归全绿（**557/557 单测**、**`console:smoke` 55/55**、**`memory:hierarchy` 16/16**、**`guard:smoke` 22/22**（golden 基线已人审重冻结）、**`steps:smoke` 61/61**、**`host:pg` 24/24**、**`router:smoke` 31/31、`agents:smoke` 43/43、`shapes:smoke` 36/36、`evolution:smoke` 45/45、`loop:smoke` 18/18**、上游 clean（含 casbin / Vue / Element Plus 登记））。`HEAD = origin/main = 远端 main`。C-1 起每次代码改动都重跑全套；本机 PG 17.10 专属库 `suitme_collab_c1` 已可真跑。服务现状：3100 / 4180 / 4190 / 4192 / 4194（+git 9418）+ console 4200 全部运行中，由 `scripts/services.ts` 统一纳管。
 
 ## 2. B2 已完成（四项，均带真跑证据）
 
@@ -187,3 +189,20 @@
 - **验证**：`npm test` **540/540**、`tsc`、`console:smoke` **49/49**（未登录 401 / 错口令 401 / viewer 越权 403 / 用户配置读写 / admin 总览 / casbin 策略查看 / 知识分区正负例（viewer 建 team 拒、建改删自己 personal 可、admin 改他人 personal 拒）/ 六视图渲染 / 主题切换 / 425px / 零海外文案）、`audit:upstream clean`（casbin + Vue + Element Plus 三项新登记 + vendor 版本横幅机器校验）。
 - **测试契约换代**：console-shell / agent-registry / evolution / shape-assessment / step-execution 等 8 个文件的断言从旧手写 DOM（`card(...)`、`[data-view]`）换成 Vue 结构语义，红线语义不变（六视图、无网页发起、只读边界、中文产品词、职责中文名、空编制降级）。修掉 19 个回归失败，其中两处真实缺陷：`collaboration-intake.ts` 的 `execution` 配置缺省时 TypeError 吞掉回执通知（改防御式访问）；`.runtime/config.json` 执行形态被 P-11 实验切到 step（maxStepsPerRun=7200），按交付口径回滚 `loop`。
 - **红线（全部不变）**：任务发起仍在飞书（静态页无原生表单、无 create-task）；验收核可仍在原会话（授权代办见第 12 节）；默认底座仍 `paperclip`；执行形态默认 `loop`；前端显隐只是体验优化，判定以后端 casbin 为准。
+
+## 14. 第三十一轮 ③c/③d：记忆写入链四项改造 + OpenMausBot 五项（用户拍板「继续吧」）
+
+- **③c（`08` 第 13 条 (a) 四项）**：
+  - **证据锚点**：`KnowledgeService.propose/revise` 服务端自动追加一条 `fact-extracted` 记忆事件（idempotencyKey `${stage}:${taskId}:${key}` 防重，revise 用 contentHash 后缀）；调用方提供的 `evidenceEventIds` 逐条校验存在性，悬空即抛错拒绝写入；旧文档向后兼容（体检如实报缺口，不编造事件 id）。
+  - **wiki 是投影不是第二事实源**：canonical 仍在 Paperclip 任务文档；`knowledgeToWikiPages` 同 domain 互链防悬空、`claimEventIds=evidenceEventIds`、withdrawn 不进地图；`.runtime/memory/wiki-pages.json` 可随时重建；只读 action `knowledge-wiki` 体检 + 落盘投影。
+  - **注入索引与 Context Pack 分工**：`buildKnowledgeInjectedIndex` 只收 confirmed + 人签 + 证据 + 人审 `injected=true` 的条目标题（≤200 行 / 25KB 持久小指针层）；`collect()` 只带指针不带正文、不占 192KB Pack 预算（manifest 不加新 kind，不动快照校验契约）；**提升只发生在人审确认**（review 的 `inject` 选项，revise 恒重置 false）——无证据的旧记录即使人审确认 + inject 也不进索引（红线联动已验证）。
+  - **Dreaming 接 C-6**：`src/dreaming.ts` 纯函数建议（不模型判 salience）→ `registerDreamProposals` 焊红线断言后按 `candidateId('dreaming', 0, reason+target)` 查重 → `EvolutionService.propose` 登记进既有工程闸门 / 人审 / 灰度链；端到端真跑首跑 24 条建议全部登记、复跑 0 登记 24 跳过（幂等）。
+  - **配套**：`canReadKnowledge` 读分区（personal 仅归属者本人 + admin 档；console 代理虽是 bridge admin，actorUser 由可信端注入后按真实登录用户判定）；`listLenient()` 宽松列举（坏行跳过计数）；控制台知识审核改 reviewDialog（inject 复选框）+ 知识地图体检卡片 + 离线整理入口；`dreaming-run` 写审计 `dreaming.run` 留痕。
+- **③d（`08` 第 12 条 (b) 五项，全部只借思想、零代码引入）**：
+  - **⑦ Skill 能力包**：`src/skill-pack.ts`——SKILL.md frontmatter 键白名单、manifest（version x.y.z / triggerTerms / `defaultEnabled` 恒 `false`）、sha256 内容校验、开启绑定 `contentSha256`（内容变即失效需重开）。
+  - **⑧ 对外动作不重跑**：steps 表新列 `outward_actions` + `markOutwardAction`（**发生时**登记，running 态生效、幂等去重、journal `STEP-OUTWARD`）+ `recoverStaleSteps` 分流 `interrupted` 终态（携带已发动作清单，是否补跑由人决定）/ `ready` 可重试；**本轮修复两处真实红线缺口**：显式 `failStep` 对已对外动作的步同样标 interrupted（原实现会自动重试导致校验失败后重复发信）、PG `recoverStaleSteps` 返回值漏带 status 字段。
+  - **⑨ 委托树血缘 + generation**：steps 表新列 `parent_step_id`（跨 run 连通）+ `generation`（每次领取 +1，迟到旧 token 属旧代、完成校验天然拒绝）；`lineageOf` PG 用递归 CTE（深度封顶 32 防环）、内存链表上溯。
+  - **⑩ 升级通道**：`src/escalation.ts` 纯函数闸——同 (taskId, topic) 窗口去重、1 小时 3 条限速、首个新问题必达、文案恒「不代为批准」；接 `runtime-bridge.gateNotification` 的 mustDeliver 分支（静音留 `v06.escalation-muted`、放行留 `v06.escalation-notified`）。
+  - **⑪ 团队包**：`src/team-pack.ts`——权限 / 凭据 / 模型三类 17 键黑名单 + zod 键白名单 + 6 类密钥二次扫描（sk- / Bearer / ghp_ / 私钥块 / DSN 等）；`importTeamPack` 只产候选引用不提权、unknownAgents 如实标出。
+- **验证**：`npm test` **557/557**（+11 ③c + 6 ③d）、`steps:smoke` **61/61**（B21/B21b/B22/B23/B24）、`host:pg` **24/24**（PG 真跑对外动作 / 血缘 / generation）、`console:smoke` **55/55**（+6 读分区 / 锚点 / wiki / 注入索引）、`guard:smoke` 22/22（golden 基线人审重冻结，humanReview 第 3 条）、`loop:smoke` 18/18、其余隔离冒烟与构建 / 走查 / 425px / `audit:upstream` 全绿。修三处陈旧断言（steps D3 / agents C-4 的 `card(` 前缀、loop B3 的 `requiresHumanApproval` 位置），均为 P-11/P-12/P-13 轮未跑对应冒烟的累积漂移。
+- **红线（全部不变）**：③c 红线 (c) 全守（不模型判 salience、不自动提升 / 确认、不 TTL 物理删除、不让模型改写 wiki）；升级恒 advisory 不代批；团队包导入不提权；Skill 默认关且绑内容哈希；7 个上游不变；默认底座仍 `paperclip`、执行形态默认 `loop`；飞书仍是唯一发起入口。

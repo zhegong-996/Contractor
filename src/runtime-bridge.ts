@@ -8,6 +8,8 @@
 // auditable before anyone turns it on.
 import { defaultAttentionPolicy, defaultWatchdogPolicy, filterEvent, inspectRun, recoveryFrom,
   type AttentionPolicy, type WatchdogPolicy, type IncomingEvent, type RunHeartbeat } from './runtime-guard.ts';
+// 12b ⑩：升级通道「只通知不代批」+ 限速静音（纯函数，状态从 audit 表重建）。
+import { escalationGate, ESCALATION_WINDOW_MS, type EscalationEvent } from './escalation.ts';
 
 export type PolicyProvider = (space: string) => Promise<{ attention: AttentionPolicy; watchdog: WatchdogPolicy }>;
 
@@ -46,7 +48,9 @@ export interface NotificationGate {
 
 export class RuntimeGuardBridge {
   constructor(
-    readonly store: { audit: (action: string, issueId: string, detail: unknown) => void },
+    /** 12b ⑩：升级闸需要从 audit 表重建窗口状态；无 db 的测试桩自动退化为「无历史可查」。 */
+    readonly store: { audit: (action: string, issueId: string, detail: unknown) => void;
+      db?: { prepare: (sql: string) => { all: (...args: any[]) => any[] } } },
     readonly policies?: PolicyProvider,
     readonly enforce = false,
     readonly protectHumanNotifications = true,
@@ -92,6 +96,10 @@ export class RuntimeGuardBridge {
    * The actual enforcement point: low-value / self-progress outbox rows are
    * not sent when `enforce` is on. Human-required messages always pass, and
    * a task waiting on a person is recorded as `waiting-human` (never a stall).
+   *
+   * 12b ⑩（第三十一轮）：人必达消息之上再叠一层「升级通道闸」——同一问题
+   * 等待期间不重复打扰、1 小时窗口最多 3 条升级通知，超出静音并留痕计数；
+   * 恒不代批（通知文案不带也不代替批准动作）。首个新问题必达，不因限速漏发。
    */
   async gateNotification(input: {
     taskId: string; notificationId: string; summary: string; at?: string;
@@ -107,10 +115,34 @@ export class RuntimeGuardBridge {
       status: mustDeliver && /^(ask|v06:grant-request|v06:transfer):/.test(input.notificationId)
         ? 'waiting-human' : 'running',
     }, space);
-    const deliver = !this.enforce || mustDeliver || observation.attention.wake;
-    const reason = !this.enforce ? '只观测：未启用拦截'
+    let deliver = !this.enforce || mustDeliver || observation.attention.wake;
+    let reason = !this.enforce ? '只观测：未启用拦截'
       : mustDeliver ? '人工介入/结果通知，必须送达（等待人工不算卡死）'
         : observation.attention.reason;
+    // 升级通道闸：只作用于人必达的升级类通知；被静音的如实记 audit 可追溯。
+    if (mustDeliver) {
+      const windowStart = new Date(Date.parse(at) - ESCALATION_WINDOW_MS).toISOString();
+      const rows = this.store.db
+        ? (this.store.db.prepare("SELECT value FROM audit WHERE action='v06.escalation-notified' AND at >= ? ORDER BY at")
+          .all(windowStart) as { value: string }[])
+        : [];
+      const history: EscalationEvent[] = rows
+        .map(row => { try { return JSON.parse(row.value) as EscalationEvent; } catch { return null; } })
+        .filter((event): event is EscalationEvent => event !== null);
+      const escalation = escalationGate(history,
+        { taskId: input.taskId, topic: input.summary.slice(0, 160), at: Date.parse(at) });
+      if (!escalation.notify) {
+        deliver = false;
+        reason = `升级通道静音（${escalation.reason}）；不代批，新问题不受限速影响`;
+        this.store.audit('v06.escalation-muted', input.taskId,
+          { notificationId: input.notificationId, topic: input.summary.slice(0, 160), reason: escalation.reason,
+            windowCount: escalation.windowCount, mustDeliver: true, advisory: true });
+      } else {
+        this.store.audit('v06.escalation-notified', input.taskId,
+          { taskId: input.taskId, topic: input.summary.slice(0, 160), at: Date.parse(at),
+            notificationId: input.notificationId, windowCount: escalation.windowCount });
+      }
+    }
     this.store.audit('v06.notification-gated', input.taskId,
       { notificationId: input.notificationId, deliver, mustDeliver, reason, enforced: this.enforce });
     return { deliver, reason, mustDeliver, observation };

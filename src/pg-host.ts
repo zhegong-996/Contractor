@@ -38,10 +38,14 @@ export function assertLocalPgDsn(dsn: string): string {
   return dsn;
 }
 
-export type StepSpec = { kind: string; payload?: Record<string, unknown> };
+export type StepSpec = { kind: string; payload?: Record<string, unknown>; parentStepId?: number };
 export type ClaimedStep = {
   id: number; runId: string; stepNo: number; kind: string; status: string;
   runToken: string; claimedBy: string; attempts: number; payload: Record<string, unknown>;
+  /** 12b ⑨：委托树血缘（父步 id，跨 run 委托时由派活方带上）与领取代数。 */
+  parentStepId: number | null; generation: number;
+  /** 12b ⑧：本步已产生的对外动作（发消息 / 交付 / 发布），崩溃回收时据此判「不重跑」。 */
+  outwardActions: string[];
 };
 export type RunStateStep = {
   stepNo: number; kind: string; status: string; claimedBy: string | null;
@@ -80,9 +84,17 @@ const DDL = [
      run_token text, attempts integer NOT NULL DEFAULT 0,
      payload jsonb NOT NULL DEFAULT '{}'::jsonb, result jsonb, checkpoint jsonb,
      model_calls integer NOT NULL DEFAULT 0,
+     parent_step_id bigint REFERENCES ${S}.steps(id),
+     generation integer NOT NULL DEFAULT 0,
+     outward_actions text[] NOT NULL DEFAULT '{}'::text[],
      created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now(),
      UNIQUE (run_id, step_no))`,
   `CREATE INDEX IF NOT EXISTS steps_ready_idx ON ${S}.steps (status, id) WHERE status = 'ready'`,
+  // 12b ⑧⑨（第三十一轮）：既有库的幂等迁移——委托树血缘（parent_step_id）、
+  // 迟到事件隔离（generation，每次领取 +1）、对外副作用清单（outward_actions）。
+  `ALTER TABLE ${S}.steps ADD COLUMN IF NOT EXISTS parent_step_id bigint REFERENCES ${S}.steps(id)`,
+  `ALTER TABLE ${S}.steps ADD COLUMN IF NOT EXISTS generation integer NOT NULL DEFAULT 0`,
+  `ALTER TABLE ${S}.steps ADD COLUMN IF NOT EXISTS outward_actions text[] NOT NULL DEFAULT '{}'::text[]`,
 ];
 
 function issueRow(row: any) {
@@ -97,7 +109,10 @@ function issueRow(row: any) {
 function stepRow(row: any): ClaimedStep {
   return { id: Number(row.id), runId: row.run_id, stepNo: Number(row.step_no), kind: row.kind,
     status: row.status, runToken: row.run_token, claimedBy: row.claimed_by,
-    attempts: Number(row.attempts), payload: row.payload ?? {} };
+    attempts: Number(row.attempts), payload: row.payload ?? {},
+    parentStepId: row.parent_step_id === null || row.parent_step_id === undefined ? null : Number(row.parent_step_id),
+    generation: Number(row.generation ?? 0),
+    outwardActions: Array.isArray(row.outward_actions) ? row.outward_actions.map(String) : [] };
 }
 
 /**
@@ -333,9 +348,10 @@ export class PgHostPlatform implements HostPlatformPort {
       for (const spec of specs) {
         stepNo += 1;
         await client.query(
-          `INSERT INTO ${S}.steps (run_id, step_no, kind, status, payload) VALUES ($1,$2,$3,$4,$5)
+          `INSERT INTO ${S}.steps (run_id, step_no, kind, status, payload, parent_step_id) VALUES ($1,$2,$3,$4,$5,$6)
            ON CONFLICT (run_id, step_no) DO NOTHING`,
-          [runId, stepNo, spec.kind, stepNo === 1 ? 'ready' : 'queued', JSON.stringify(spec.payload ?? {})]);
+          [runId, stepNo, spec.kind, stepNo === 1 ? 'ready' : 'queued', JSON.stringify(spec.payload ?? {}),
+            spec.parentStepId ?? null]);
       }
       return { runId, enqueued: specs.length, ready: specs.length ? 1 : 0 };
     });
@@ -354,9 +370,9 @@ export class PgHostPlatform implements HostPlatformPort {
       for (const spec of specs) {
         stepNo += 1;
         const result = await client.query(
-          `INSERT INTO ${S}.steps (run_id, step_no, kind, status, payload) VALUES ($1,$2,$3,'ready',$4)
+          `INSERT INTO ${S}.steps (run_id, step_no, kind, status, payload, parent_step_id) VALUES ($1,$2,$3,'ready',$4,$5)
            ON CONFLICT (run_id, step_no) DO NOTHING`,
-          [runId, stepNo, spec.kind, JSON.stringify(spec.payload ?? {})]);
+          [runId, stepNo, spec.kind, JSON.stringify(spec.payload ?? {}), spec.parentStepId ?? null]);
         inserted += result.rowCount ?? 0;
       }
       return { runId, enqueued: inserted, ready: inserted };
@@ -365,6 +381,8 @@ export class PgHostPlatform implements HostPlatformPort {
   /**
    * 领一步：FOR UPDATE SKIP LOCKED 保证多个 worker 并发时不会抢到同一步；
    * runToken 是这一步的唯一凭据，进程崩了也能由 recoverStaleSteps 回收。
+   * 12b ⑨：每次领取 generation+1——迟到的旧 runToken 即使撞上窗口，也属于
+   * 旧代；完成校验（status='running' + token 匹配）天然拒绝跨代结算。
    */
   async claimStep(workerId: string, runId?: string): Promise<ClaimedStep | null> {
     await this.ensure();
@@ -377,29 +395,32 @@ export class PgHostPlatform implements HostPlatformPort {
            ORDER BY id FOR UPDATE SKIP LOCKED LIMIT 1
          )
          UPDATE ${S}.steps s SET status='running', claimed_by=$1, run_token=$3,
-           attempts=s.attempts+1, updated_at=now()
+           attempts=s.attempts+1, generation=s.generation+1, updated_at=now()
          FROM next WHERE s.id=next.id
          RETURNING s.*`, [workerId, runId ?? null, token]);
       if (!rows[0]) return null;
       await this.journal(client, 'STEP-CLAIM', `/steps/${rows[0].id}`,
-        { runId: rows[0].run_id, stepNo: Number(rows[0].step_no), workerId });
+        { runId: rows[0].run_id, stepNo: Number(rows[0].step_no), workerId, generation: Number(rows[0].generation) });
       return stepRow(rows[0]);
     });
   }
   /** 完成当前步并入下一棒：两者在同一事务里，避免「做完了但没排下一步」。 */
   async completeStep(runToken: string, result: Record<string, unknown> = {},
-    options: { next?: StepSpec; checkpoint?: Record<string, unknown>; modelCalls?: number } = {}) {
+    options: { next?: StepSpec; checkpoint?: Record<string, unknown>; modelCalls?: number;
+      /** 12b ⑧：本步已真实发生的对外动作（发消息 / 交付 / 发布）。一旦登记，崩溃回收后标 interrupted 不重跑。 */
+      outwardActions?: string[] } = {}) {
     await this.ensure();
     return await this.write(async client => {
       const held = await client.query(
         `SELECT * FROM ${S}.steps WHERE run_token=$1 AND status='running' FOR UPDATE`, [runToken]);
       if (!held.rows[0]) throw new Error('runToken 无效或该步已结束；不得重复写结果');
       const current = stepRow(held.rows[0]);
+      const outward = [...new Set([...(current.outwardActions ?? []), ...(options.outwardActions ?? [])])].filter(Boolean);
       await client.query(
         `UPDATE ${S}.steps SET status='done', result=$2, checkpoint=$3, model_calls=$4,
-           updated_at=now() WHERE id=$1`,
+           outward_actions=$5, updated_at=now() WHERE id=$1`,
         [current.id, JSON.stringify(result), JSON.stringify(options.checkpoint ?? {}),
-          Math.max(0, Math.trunc(options.modelCalls ?? 0))]);
+          Math.max(0, Math.trunc(options.modelCalls ?? 0)), outward]);
       // 先激活预先排好的下一棒；没有预排步骤时，才按 options.next 动态插入。
       // 两者都在同一事务里，不会出现「做完了但没排下一步」或「两步并跑」。
       const candidate = current.stepNo + 1;
@@ -410,15 +431,17 @@ export class PgHostPlatform implements HostPlatformPort {
       let nextStepNo: number | null = promoted.rows[0] ? Number(promoted.rows[0].step_no) : null;
       if (options.next && nextStepNo === null) {
         const inserted = await client.query(
-          `INSERT INTO ${S}.steps (run_id, step_no, kind, status, payload)
-           VALUES ($1,$2,$3,'ready',$4) ON CONFLICT (run_id, step_no) DO NOTHING RETURNING step_no`,
-          [current.runId, candidate, options.next.kind, JSON.stringify(options.next.payload ?? {})]);
+          `INSERT INTO ${S}.steps (run_id, step_no, kind, status, payload, parent_step_id)
+           VALUES ($1,$2,$3,'ready',$4,$5) ON CONFLICT (run_id, step_no) DO NOTHING RETURNING step_no`,
+          [current.runId, candidate, options.next.kind, JSON.stringify(options.next.payload ?? {}),
+            options.next.parentStepId ?? null]);
         if (inserted.rows[0]) nextStepNo = Number(inserted.rows[0].step_no);
       }
       await this.journal(client, 'STEP-DONE', `/steps/${current.id}`,
-        { runId: current.runId, stepNo: current.stepNo, nextStepNo });
+        { runId: current.runId, stepNo: current.stepNo, nextStepNo, generation: current.generation,
+          outwardActions: outward.length });
       return { runId: current.runId, stepNo: current.stepNo, nextStepNo,
-        modelCalls: Math.max(0, Math.trunc(options.modelCalls ?? 0)) };
+        modelCalls: Math.max(0, Math.trunc(options.modelCalls ?? 0)), outwardActions: outward };
     });
   }
   /** 失败按 attempts 决定是否重试；重试会重置 token，不会让旧凭据继续生效。 */
@@ -429,29 +452,85 @@ export class PgHostPlatform implements HostPlatformPort {
         `SELECT * FROM ${S}.steps WHERE run_token=$1 AND status='running' FOR UPDATE`, [runToken]);
       if (!held.rows[0]) throw new Error('runToken 无效或该步已结束');
       const step = stepRow(held.rows[0]);
-      const retryable = step.attempts < maxAttempts;
+      // 12b ⑧：已对外动作的步显式失败也不自动重跑（重跑会重复发信 / 重复交付），
+      // 与崩溃回收同一判据标 interrupted 终态，是否补跑由人在台账上决定。
+      const outward = (step.outwardActions ?? []).length > 0;
+      const retryable = !outward && step.attempts < maxAttempts;
+      const status = outward ? 'interrupted' : (retryable ? 'ready' : 'failed');
       await client.query(
         `UPDATE ${S}.steps SET status=$2, run_token=NULL, claimed_by=NULL,
            result=$3, updated_at=now() WHERE id=$1`,
-        [step.id, retryable ? 'ready' : 'failed', JSON.stringify({ error })]);
+        [step.id, status, JSON.stringify({ error, ...(outward ? { outwardActions: step.outwardActions } : {}) })]);
       await this.journal(client, 'STEP-FAIL', `/steps/${step.id}`,
-        { runId: step.runId, stepNo: step.stepNo, retryable, error });
-      return { runId: step.runId, stepNo: step.stepNo, status: retryable ? 'ready' : 'failed', retryable };
+        { runId: step.runId, stepNo: step.stepNo, retryable, error, ...(outward ? { interruptedNotRerun: true } : {}) });
+      return { runId: step.runId, stepNo: step.stepNo, status, retryable };
     });
   }
-  /** 崩溃恢复：超时仍在 running 的步回收为 ready，旧 runToken 作废。 */
-  async recoverStaleSteps(staleSeconds = 60) {
+  /**
+   * 12b ⑧：对外动作**发生时**登记（发消息 / 交付 / 发布的前后各调一次）。
+   * 只在 running 态生效（幂等去重）；进程崩在「已发信、未完成」之间，
+   * recoverStaleSteps 仍能据此判 interrupted 不重跑。
+   */
+  async markOutwardAction(runToken: string, action: string): Promise<boolean> {
+    await this.ensure();
+    return await this.write(async client => {
+      const clean = String(action ?? '').trim().slice(0, 200);
+      if (!clean) return false;
+      const { rowCount } = await client.query(
+        `UPDATE ${S}.steps SET outward_actions = (
+           SELECT COALESCE(array_agg(DISTINCT item), '{}'::text[])
+           FROM unnest(outward_actions || $2::text[]) AS item)
+         WHERE run_token=$1 AND status='running'`, [runToken, [clean]]);
+      if (rowCount) await this.journal(client, 'STEP-OUTWARD', '/steps', { runToken: runToken.slice(0, 8), action: clean });
+      return (rowCount ?? 0) > 0;
+    });
+  }
+  /**
+   * 崩溃恢复：超时仍在 running 的步回收，旧 runToken 作废。
+   * 12b ⑧：已产生对外动作（发消息 / 交付 / 发布）的步标 `interrupted` 终态
+   * **绝不重跑**（重跑会重复发信 / 重复交付）；无对外副作用的步才回收为
+   * ready 允许重试。是否人工补跑由人在台账上决定，回收器不擅自重放。
+   */
+  async recoverStaleSteps(staleSeconds = 60): Promise<
+    Array<{ id: number; runId: string; stepNo: number;
+      status?: 'ready' | 'interrupted'; outwardActions?: string[] }>> {
     await this.ensure();
     return await this.write(async client => {
       const { rows } = await client.query(
-        `UPDATE ${S}.steps SET status='ready', run_token=NULL, claimed_by=NULL, updated_at=now()
+        `UPDATE ${S}.steps SET
+           status = CASE WHEN array_length(outward_actions, 1) > 0 THEN 'interrupted' ELSE 'ready' END,
+           run_token=NULL, claimed_by=NULL, updated_at=now()
          WHERE status='running' AND updated_at < now() - make_interval(secs => $1)
-         RETURNING id, run_id, step_no`, [staleSeconds]);
+         RETURNING id, run_id, step_no, status, outward_actions`, [staleSeconds]);
+      const interrupted = rows.filter(row => row.status === 'interrupted')
+        .map(row => ({ id: Number(row.id), runId: row.run_id, stepNo: Number(row.step_no),
+          status: 'interrupted' as const, outwardActions: (row.outward_actions ?? []).map(String) }));
+      const retried = rows.filter(row => row.status !== 'interrupted')
+        .map(row => ({ id: Number(row.id), runId: row.run_id, stepNo: Number(row.step_no),
+          status: 'ready' as const }));
       if (rows.length) await this.journal(client, 'STEP-RECOVER', '/steps', {
-        recovered: rows.map(row => ({ id: Number(row.id), runId: row.run_id, stepNo: Number(row.step_no) })),
+        recovered: retried,
+        interruptedNotRerun: interrupted,
+        note: '已对外动作的步标 interrupted 不重跑；是否补跑由人决定',
       });
-      return rows.map(row => ({ id: Number(row.id), runId: row.run_id, stepNo: Number(row.step_no) }));
+      // interrupted 项携带已发生的对外动作清单（供人审决定是否补跑）；ready 项无对外动作。
+      return [...retried, ...interrupted];
     });
+  }
+  /** 12b ⑨：委托树血缘——向上追溯父步链（跨 run 也沿 parent_step_id 连通）。 */
+  async lineageOf(stepId: number): Promise<{ id: number; runId: string; stepNo: number; kind: string; status: string; generation: number }[]> {
+    await this.ensure();
+    const { rows } = await this.pool.query(
+      `WITH RECURSIVE chain AS (
+         SELECT id, run_id, step_no, kind, status, generation, parent_step_id, 0 AS depth
+           FROM ${S}.steps WHERE id = $1
+         UNION ALL
+         SELECT s.id, s.run_id, s.step_no, s.kind, s.status, s.generation, s.parent_step_id, c.depth + 1
+           FROM ${S}.steps s JOIN chain c ON s.id = c.parent_step_id
+         WHERE c.depth < 32
+       ) SELECT * FROM chain ORDER BY depth`, [stepId]);
+    return rows.map(row => ({ id: Number(row.id), runId: row.run_id, stepNo: Number(row.step_no),
+      kind: row.kind, status: row.status, generation: Number(row.generation) }));
   }
   async runState(runId: string): Promise<RunStateStep[]> {
     await this.ensure();

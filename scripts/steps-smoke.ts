@@ -173,6 +173,71 @@ async function main() {
   check('B17 空队列不产生任何状态，也不写日志',
     empty.claimed === false && (await emptyQ.runState('none')).length === 0);
 
+  // ---- 12b ⑧⑨：对外副作用不重跑 + 委托树血缘 / generation -------------------
+  // ⑧ 的关键语义：对外动作必须「发生时」登记（markOutwardAction），不能等 complete——
+  // 崩在「已发信未完成」之间也要能判出不重跑。
+  let outwardClock = 0;
+  const outwardQ = new InMemoryStepQueue(() => outwardClock);
+  await outwardQ.enqueueSteps('B21', [{ kind: 'tool-call', payload: { tool: 'sha256', input: 'o' } }]);
+  const outwardClaim = await outwardQ.claimStep('w1', 'B21');
+  // 该步 running 中已对外发消息：当场登记，随后崩溃在「已发信未完成」之间。
+  const outwardMarked = await outwardQ.markOutwardAction(outwardClaim!.runToken, 'feishu-reply:om_1');
+  outwardClock = 120_000;
+  const outwardRecovered = await outwardQ.recoverStaleSteps(60);
+  let outwardTokenDead = false;
+  try { await outwardQ.completeStep(outwardClaim!.runToken, {}); } catch { outwardTokenDead = true; }
+  const afterRecover = (await outwardQ.runState('B21'));
+  // interrupted 是终态：不能再被领取重跑（会重复发信）。
+  let interruptedNotClaimable = false;
+  try { interruptedNotClaimable = (await outwardQ.claimStep('w2', 'B21')) === null; } catch { interruptedNotClaimable = true; }
+  check('B21 已对外动作的步回收为 interrupted 终态，绝不重跑',
+    outwardMarked && outwardRecovered.length === 1 && outwardTokenDead && interruptedNotClaimable
+      && outwardRecovered[0]!.status === 'interrupted'
+      && (outwardRecovered[0]!.outwardActions?.includes('feishu-reply:om_1') === true)
+      && afterRecover.some(s => s.status === 'interrupted'));
+  // ⑧ 补充语义：已对外动作的步「显式失败」也不自动重跑（与崩溃回收同一判据）——
+  // 否则执行器发完消息后校验失败，自动重试会重复发信。
+  const failOutQ = new InMemoryStepQueue(() => 0);
+  await failOutQ.enqueueSteps('B21b', [{ kind: 'tool-call', payload: { tool: 'sha256', input: 'o3' } }]);
+  const failOutClaim = await failOutQ.claimStep('w1', 'B21b');
+  await failOutQ.markOutwardAction(failOutClaim!.runToken, 'feishu-reply:om_2');
+  const failOutResult = await failOutQ.failStep(failOutClaim!.runToken, '校验失败但已发信');
+  check('B21b 已对外动作的步显式失败也标 interrupted，不自动重跑',
+    failOutResult.status === 'interrupted' && failOutResult.retryable === false
+      && (await failOutQ.runState('B21b')).every(s => s.status === 'interrupted')
+      && (await failOutQ.claimStep('w2', 'B21b')) === null);
+  // 无对外副作用的步回收后仍可重试（既有语义不回退）。
+  let plainClock = 0;
+  const plainQ = new InMemoryStepQueue(() => plainClock);
+  await plainQ.enqueueSteps('B22', [{ kind: 'tool-call', payload: { tool: 'sha256', input: 'p' } }]);
+  await plainQ.claimStep('w1', 'B22');
+  plainClock = 120_000;
+  const plainRecovered = await plainQ.recoverStaleSteps(60);
+  check('B22 无对外副作用的步回收为 ready 可重试', plainRecovered.length === 1
+    && plainRecovered[0]!.status === 'ready' && (await plainQ.claimStep('w2', 'B22')) !== null);
+  // 委托树：跨 run 的子步挂 parentStepId，血缘向上连通；每次领取 generation+1。
+  const lineageQ = new InMemoryStepQueue();
+  await lineageQ.enqueueSteps('B23-parent', [{ kind: 'worker-tick', payload: {} }]);
+  const parentClaim = await lineageQ.claimStep('w1', 'B23-parent');
+  await lineageQ.completeStep(parentClaim!.runToken, { delegated: true });
+  // 子步在另一个 run（B23-child），靠 parentStepId 跨 run 挂到父步。
+  await lineageQ.enqueueReadySteps('B23-child', [{ kind: 'worker-tick', payload: {},
+    parentStepId: parentClaim!.id }]);
+  const childClaim = await lineageQ.claimStep('w2', 'B23-child');
+  const lineage = await lineageQ.lineageOf!(childClaim!.id);
+  check('B23 委托树血缘连通（子步沿 parent 向上追到父步）',
+    lineage.length >= 2 && lineage.some(node => node.id === parentClaim!.id)
+      && lineage[0]!.id === childClaim!.id);
+  // 同一步失败后重新领取：generation+1，迟到的旧 token 属于旧代、完成校验拒绝。
+  const childFail = await lineageQ.failStep(childClaim!.runToken, '模拟失败重试', 3);
+  let childOldTokenDead = false;
+  try { await lineageQ.completeStep(childClaim!.runToken, {}); } catch { childOldTokenDead = true; }
+  const childAgain = await lineageQ.claimStep('w3', 'B23-child');
+  check('B24 每次领取 generation+1，迟到旧 token 属于旧代',
+    childFail.status === 'ready' && childFail.retryable === true && childOldTokenDead
+      && childAgain!.generation === (childClaim!.generation + 1)
+      && parentClaim!.generation >= 1);
+
   const idemQ = new InMemoryStepQueue();
   await idemQ.enqueueSteps('B20', [{ kind: 'tool-call', payload: { tool: 'sha256', input: 'i' } }]);
   await driveSteppedLoop({ queue: idemQ, runId: 'B20', principal: 'worker-a',
@@ -205,9 +270,9 @@ async function main() {
     && /driveLegacyLoop/.test(assistant) && /driveSteppedPump/.test(assistant));
   check('D3 v06 / server / 控制台只读白名单都含执行视图',
     /case 'execution-view':/.test(read('src/v06.ts'))
-    && /'execution-view'\]/.test(read('src/server.ts'))
+    && /'execution-view'/.test(read('src/server.ts'))
     && /'v06-execution-view'/.test(read('scripts/console-server.ts'))
-    && /card\('长程执行'/.test(read('console/app.js')));
+    && /#header>长程执行</.test(read('console/app.js')));
   check('D4 配置层有 step 必须配 local-pg 的校验',
     /execution\.mode === 'step' && cfg\.host\.provider !== 'local-pg'/.test(read('src/config.ts')));
   check('D5 脚本入口齐全', /"steps:smoke"/.test(read('package.json'))

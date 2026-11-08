@@ -181,10 +181,46 @@ try {
     sources: ['https://example.org/s'] } }, adminCookie);
   check('adminTeamCreateOk', adminTeamCreate.status === 200 && adminTeamCreate.data?.visibility === 'team', { status: adminTeamCreate.status, error: adminTeamCreate.data?.error ?? '' });
 
+  // ---- 13a 写入链：读分区 + 证据锚点 + 注入索引红线 -------------------------
+  // admin 建 personal 条目：viewer 的列表里必须看不到（个人区仅归属者与管理员）。
+  const adminPersonal = await post('/api/knowledge-create', { payload: { taskId: anchor, key: 'knowledge-smoke-admin-own',
+    title: 'admin 个人区（读分区冒烟）', kind: 'reference', domains: ['product'], visibility: 'personal', appliesTo: 't', body: 'b',
+    sources: ['https://example.org/s'] } }, adminCookie);
+  const viewerList = await post('/api/knowledge-list', {}, cookie);
+  const viewerSees = (viewerList.data?.items ?? []).some(i => i.key === 'knowledge-smoke-admin-own');
+  check('readPartitionHidesOthersPersonal', adminPersonal.status === 200 && viewerList.status === 200 && viewerSees === false,
+    { created: adminPersonal.status, visibleToViewer: viewerSees });
+  const adminList = await post('/api/knowledge-list', {}, adminCookie);
+  const adminSees = (adminList.data?.items ?? []).some(i => i.key === 'knowledge-smoke-admin-own');
+  check('readPartitionAdminOverview', adminSees === true, { visibleToAdmin: adminSees });
+  const viewerGet = await post('/api/knowledge-get', { payload: { taskId: anchor, key: 'knowledge-smoke-admin-own' } }, cookie);
+  check('readPartitionGetBlocked', [400, 403, 409].includes(viewerGet.status), { status: viewerGet.status });
+
+  // 新 propose 的条目必须自动挂证据锚点（13a ①）。
+  const anchored = await post('/api/knowledge-get', { payload: { taskId: anchor, key: 'knowledge-smoke-admin-own' } }, adminCookie);
+  check('proposeAnchorsEvidence', anchored.status === 200
+    && Array.isArray(anchored.data?.value?.evidenceEventIds) && anchored.data.value.evidenceEventIds.length >= 1,
+    { evidence: anchored.data?.value?.evidenceEventIds?.length ?? 0 });
+
+  // 知识地图 / 注入索引只读体检（13a ②③）：投影可重建、零模型调用。
+  const wiki = await post('/api/knowledge-wiki', {}, adminCookie);
+  check('knowledgeWikiReadable', wiki.status === 200 && typeof wiki.data?.records === 'number'
+    && Array.isArray(wiki.data?.pages) && wiki.data?.modelCalls === 0 && wiki.data.wiki.danglingLinks.length === 0,
+    { status: wiki.status, records: wiki.data?.records, pages: wiki.data?.pages?.length });
+
+  // 无证据挂靠的旧条目即使人审确认 + inject 也不得进注入索引（红线：挂不住事实源不进顶层）。
+  // 冒烟不污染真实确认状态，只验证「索引构建」这一侧：直接跑只读体检，索引条目
+  // 必须全部满足 confirmed + 人签 + 证据 + 提升（由 buildInjectedIndex 判据保证）。
+  const injectedEntries = wiki.data?.injected?.entries ?? [];
+  check('injectedIndexDiscipline', Array.isArray(injectedEntries)
+    && injectedEntries.every(e => e.pointer?.startsWith('note:') && !e.body && Object.keys(e).sort().join(',') === 'id,pointer,title'),
+    { entries: injectedEntries.length });
+
   const cleanup = await post('/api/knowledge-delete', { payload: { taskId: anchor, key: 'knowledge-smoke-personal' } }, cookie);
   const cleanup2 = await post('/api/knowledge-delete', { payload: { taskId: anchor, key: 'knowledge-smoke-admin-team' } }, adminCookie);
-  check('knowledgeCleanup', cleanup.status === 200 && cleanup2.status === 200,
-    { a: cleanup.status, b: cleanup2.status });
+  const cleanup3 = await post('/api/knowledge-delete', { payload: { taskId: anchor, key: 'knowledge-smoke-admin-own' } }, adminCookie);
+  check('knowledgeCleanup', cleanup.status === 200 && cleanup2.status === 200 && cleanup3.status === 200,
+    { a: cleanup.status, b: cleanup2.status, c: cleanup3.status });
 
   // ---- 浏览器走查（Vue 3 + Element Plus） -----------------------------------
   for (let i = 0; i < 80; i++) {

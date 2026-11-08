@@ -23,7 +23,8 @@
 | `src/members.ts` | 成员身份解析、`gate()`、成员级 `reads` / `v06Reads` 白名单。**新增只读 action 必须同步 `server.ts` 与这里两处**。 |
 | `src/rbac.ts` | **P-12**：casbin RBAC 统一封装（Apache-2.0 上游引擎）。`initRbac()` 幂等加载策略文件（缺省从 `ROLE_PERMISSIONS` 种子生成）、`rbacEnforce()` 同步 fail-closed、`ensureHumanBound()` 跨进程绑定自愈；人四档走 `g` 绑定，agent 三档按档位直判。bridge 与 console 两进程共用 `.runtime/console/rbac_policy.csv`。 |
 | `src/console-auth.ts` | **P-11/P-12**：控制台账号（PBKDF2 口令、HttpOnly 会话）、用户级配置 `ConsoleUserSettings`（本人读写 / 管理员总览打码）、审计日志；casbin 逻辑委托 `rbac.ts`。 |
-| `src/knowledge-authz.ts` | **P-13**：知识分区权限判定。`canCreateKnowledge` / `canWriteKnowledge`（personal 仅归属者 / team 运营+ / org 管理员+，agent 按 `scopeCovers` + 档位）。 |
+| `src/knowledge-authz.ts` | **P-13**：知识分区权限判定。`canCreateKnowledge` / `canWriteKnowledge`（personal 仅归属者 / team 运营+ / org 管理员+，agent 按 `scopeCovers` + 档位）；**③c 起** `canReadKnowledge` 读分区（personal 仅归属者本人 + admin 档，console 代理按真实登录用户判定）。 |
+| `src/knowledge-representation.ts` | **③c**：wiki 投影与注入索引落盘。`knowledgeToWikiPages`（同 domain 互链、claimEventIds=evidenceEventIds、withdrawn 不进地图）、`toTranscriptEvents`（撤权类标 revoked）、`writeWikiProjection` / `readWikiProjection` / `writeInjectedIndex` / `readInjectedIndex`（`.runtime/memory/`，0600）、`knowledgeWikiView` 体检（listLenient + skippedDocuments 如实计数）。**wiki 是投影不是第二事实源**，canonical 仍在任务文档、可随时重建。 |
 | `plugins/knowledge-workspaces/src/worker.ts` | 插件 worker：只做 action 转发，携带宿主不可变 `actor`（UI 不能指定操作人）。 |
 | `plugins/knowledge-workspaces/src/action-name.ts` | action 名 → URL 路径段映射。 |
 | `plugins/knowledge-workspaces/src/manifest.ts` | 插件清单与 SDK 入口声明。 |
@@ -60,7 +61,8 @@
 
 | 文件 | 职责 |
 |---|---|
-| `src/knowledge.ts` | 知识的规范存储与修订历史，`reusable()`（要求 `state==='confirmed'`）。 |
+| `src/knowledge.ts` | 知识的规范存储与修订历史，`reusable()`（要求 `state==='confirmed'`）。**③c 起**：propose/revise 服务端自动追加 `fact-extracted` 证据锚点（idempotencyKey 防重）、`evidenceEventIds` 悬空即抛错拒绝（向后兼容旧文档）、review 的 `inject` 选项是人审确认的唯一提升路径（revise 恒重置 false）、`listLenient()` 宽松列举（坏行跳过计数）。 |
+| `src/dreaming.ts` | **③c**：离线整理（Dreaming）——`dreamFromKnowledge` 从知识记录产纯函数建议（不模型判 salience），`registerDreamProposals` 焊红线断言后按 candidateId 查重登记进 `EvolutionService` 既有 C-6 闸门（工程回放 / 人审 / 灰度），复跑幂等。 |
 | `src/graph.ts` | Cognee 子进程 RPC 封装、`CogneeL1Reader`、pin 的 commit。 |
 | `src/ontology.ts` | 知识空间字典（GraphSchema/JSON Schema）与 `automaticExtraction` 状态。 |
 | `src/semantic-recall.ts` | 设备端 Apple NL 词向量、混合召回、语义索引读写。 |
@@ -68,7 +70,7 @@
 | `src/knowledge-edges.ts` | L2 边状态（draft/accepted/reusable）、`invalidateEdges`、`buildContextPack`。 |
 | `src/org-extraction.ts` | 从 L1 投影确定性抽取 L2 组织图（`modelCalls=0`），含 ModelExtractionAdapter 与 `buildTaskGraphMirror`。 |
 | `src/org-ontology.ts` | 组织图 TBox 校验（常量已上移到 `architecture-contracts.ts`，此处再导出保持兼容）。 |
-| `src/context.ts` | 任务上下文裁剪、InputRef、证据哈希。 |
+| `src/context.ts` | 任务上下文裁剪、InputRef、证据哈希。**③c 起** collect() 的 layers 加 `injectedIndex` 持久指针层（只有 id/title/pointer，不占 192KB Context Pack 预算；manifest 不加新 kind，不动快照校验契约）。 |
 | `src/context-grant.ts` | 跨空间 Context Grant（申请/批准/拒绝/撤销/分离审批）。 |
 | `src/evidence.ts` | 证据引用校验（含用户授权的原型移植）。 |
 | **`src/memory-log.ts`** | **B1**：append-only 共享记忆事件主干、幂等、桥接 `routing-decided`。 |
@@ -90,12 +92,17 @@ B2 的只读 / 真跑入口：`scripts/memory-replay.ts`、`scripts/memory-smoke
 | `src/assistant-turn.ts` | 一轮模型调用编排与中文业务 prompt（40 行）、CLI 适配。 |
 | `src/assistant-runner.ts` / `src/runner.ts` / `src/native-worker.ts` | Autoloop worker 执行、回执恢复、原生 worker 装配；P-1 起无常驻 `while`，按 `config.execution.mode` 分派 legacy / stepped 泵。 |
 | `src/step-runner.ts` | `npm run step:once` 一次进程一步；P-11 起执行「续跑闸」（从台账重新验证回答后放行接续步）。 |
+| `src/step-execution.ts` | **P-1/P-6**：`StepQueue` 契约 + `InMemoryStepQueue` / `PgStepQueue` 适配器 + `executeOneStep()` / 泵。**③d ⑧⑨ 起**：`markOutwardAction`（对外动作发生时登记，接口必选）、`lineageOf`（血缘查询，可选）、ClaimedStep 带 `parentStepId` / `generation` / `outwardActions`、RecoveredStep 带 `status: 'ready' \| 'interrupted'`；`failStep` 对已对外动作的步同样标 interrupted 不自动重跑。 |
+| `src/pg-host.ts` | **C-1**：PG 宿主（事务 / ACL / 成本账本 / heartbeat / `SKIP LOCKED` 步进队列）。**③d ⑧⑨ 起** steps 表新增 `parent_step_id` / `generation` / `outward_actions` 三列（幂等迁移），`claimStep` 每次领取 generation+1、`recoverStaleSteps` 区分 interrupted（携带已发动作清单）/ ready、`lineageOf` 用递归 CTE（深度封顶 32）、`markOutwardAction` 幂等去重并写 journal `STEP-OUTWARD`。 |
 | `src/auto-resume.ts` | **P-11**：回答后自动续跑闸——`AUTO_RESUME_MANDATE` 逐字入库；闸执行时从成对台账重新验证回答才放行 `resume_next`。 |
 | `src/assistant-tools.ts` | 任务绑定工具集暴露。 |
 | `src/agent-services.ts` | 服务 Agent 职责与版本。 |
 | `src/service-network.ts` | A2A 服务委派、Link 合同、`route/start/dispatch/rpc`。 |
 | `src/coordination.ts` | Super Agent `policy.ts` 准入与范围判断、运行时工具白名单、事件订阅。 |
-| `src/runtime-guard.ts` / `src/runtime-bridge.ts` | 注意力预算、干预、Watchdog 与真实执行链接线。 |
+| `src/runtime-guard.ts` / `src/runtime-bridge.ts` | 注意力预算、干预、Watchdog 与真实执行链接线。**③d 起** `runtime-bridge.gateNotification` 的 mustDeliver 分支接 `escalation.ts` 升级闸（去重 / 限速 / 静音留痕 `v06.escalation-muted`）。 |
+| `src/skill-pack.ts` | **③d ⑦**：Skill 能力包最小版——SKILL.md frontmatter 键白名单、manifest（version x.y.z / triggerTerms / `defaultEnabled` 恒 false）、sha256 内容校验、`enableSkill` 绑定内容哈希（篡改即失效需重开）、`skillIntact` 开启态完整性判据。 |
+| `src/escalation.ts` | **③d ⑩**：升级闸纯函数——同 (taskId, topic) 窗口去重、1 小时 3 条限速、首个新问题必达、文案恒「不代为批准」（恒 advisory，绝不代批）。 |
+| `src/team-pack.ts` | **③d ⑪**：团队包审查——权限/凭据/模型三类 17 键黑名单 + zod 键白名单 + 6 类密钥二次扫描（sk- / Bearer / ghp_ / 私钥块 / DSN 等）；`importTeamPack` 只产候选引用不提权，unknownAgents 如实标出。 |
 | `src/model-settings.ts` | 模型三档预备策略（不存 Key）。 |
 | `src/roles.ts` / `src/transfer.ts` / `src/workspace-policy.ts` / `src/organization-signals.ts` | 职能注册表、责任转移、空间策略、组织信号。 |
 | `src/feishu-org.ts` | 飞书组织映射草案、scope 缺失报告、owner 决策、`orgAuthCommand`。 |

@@ -31,7 +31,7 @@ import { TeamMembers } from './members.ts';
 // P-8：把 P-7 的记忆分层守门以只读 advisory 接进真实数据（不改写入链）。
 import { guardKnowledge, collectTranscript, assertGuardIsAdvisory } from './knowledge-guard.ts';
 // P-13：知识写入链的分区权限判定（人与 agent 共用 casbin，见 src/rbac.ts）。
-import { canWriteKnowledge, canCreateKnowledge, type KnowledgeActor } from './knowledge-authz.ts';
+import { canWriteKnowledge, canCreateKnowledge, canReadKnowledge, type KnowledgeActor } from './knowledge-authz.ts';
 import { initRbac, syncHumans, ensureHumanBound } from './rbac.ts';
 // P-9：双向协作回路的一等契约；三个执行链节点把真实事件留痕后，由只读体检汇总。
 import {
@@ -49,6 +49,10 @@ import { configureRouter, getRouter, planCoverage } from './router.ts';
 import { configureAgentRegistry, getAgentRegistry } from './agent-registry.ts';
 import { getMemoryLog, readBridgedEvents } from './memory-log.ts';
 import { memoryReplayReport } from './memory-projections.ts';
+// 13a（第 13 条写入链改造落地）：知识表示层投影 / 注入索引 / 离线整理建议。
+import { knowledgeWikiView, writeWikiProjection, writeInjectedIndex } from './knowledge-representation.ts';
+import { dreamFromKnowledge, registerDreamProposals } from './dreaming.ts';
+import { EvolutionService, defaultEvolutionDeps } from './evolution.ts';
 // P-5：控制台只读摘要（服务端分页 / 字段裁剪），原 view 逐字保留。
 import { buildWorkspaceSummary, parseViewSummaryPage, visibleTasksFor, type HostTitle } from './workspace-summary.ts';
 
@@ -194,7 +198,7 @@ const server = createServer(async (req, res) => {
       // Reads recheck their own scope and revisions. They need not wait behind
       // indexing or native process reconciliation; mutations keep the single lane.
       const v06Reads=['roles-view','role-route','role-hints','role-snapshot','transfer-view','transfer-policy','dispatch-guard','grant-widen','grant-check','edges-view','edge-impact','label-check','policy-view','verification-level','topology-advice','inflight-policy','signals','review-readiness','ontology-meta','ontology-view','ontology-query','attention-policy','attention-filter','watchdog-policy','watchdog-inspect','plan-view','round-view','acceptance-export','acceptance-report-view','org-overview','org-mapping-view','context-pack','l2-status','l2-edges-view','l2-graph-view','agent-registry-view','acceptance-crew','evolution-view','execution-view'];
-      const readOnly=['view','view-summary','team-members','agent-services','agent-build','development-view','delivery-status','service-status','routing-status','memory-replay','memory-guard','loop-guard','network-view','memory-status','memory-search','memory-annotations','context-pack','context-record','context-search','ontology-view','model-settings','system-status','trace-view','knowledge-list','knowledge-get'].includes(action)||action==='knowledge-graph'&&payload.project!==true||action.startsWith('v06-')&&v06Reads.includes(action.slice(4));
+      const readOnly=['view','view-summary','team-members','agent-services','agent-build','development-view','delivery-status','service-status','routing-status','memory-replay','memory-guard','loop-guard','network-view','memory-status','memory-search','memory-annotations','context-pack','context-record','context-search','ontology-view','model-settings','system-status','trace-view','knowledge-list','knowledge-get','knowledge-wiki'].includes(action)||action==='knowledge-graph'&&payload.project!==true||action.startsWith('v06-')&&v06Reads.includes(action.slice(4));
       const runWorkspace=readOnly?<T>(job:()=>Promise<T>)=>withFeishuReads(job):serialize;
       res.end(JSON.stringify(await runWorkspace(async () => {
         workspaceActor = await teamMembers.gate(action, payload, workspaceActor);
@@ -224,7 +228,7 @@ const server = createServer(async (req, res) => {
           const report=guardKnowledge({records,transcript:collectTranscript(events)});
           assertGuardIsAdvisory(report);
           return {...report,source:'local-store',documentBodiesNotRead:true,
-            note:'只读体检：不读宿主知识正文、不改任务状态/授权/验收；缺事实源挂靠是第 13 条待拍板的写入链改造，不是本动作的故障'};
+            note:'只读体检：不读宿主知识正文、不改任务状态/授权/验收。新 propose/revise 已按 13a 挂靠证据锚点；存量旧记录缺 evidenceEventIds 时如实报缺口，不回填、不编造事件 id'};
         }
         if(action==='loop-guard'){
           // P-9 只读体检：汇总三个真实执行链节点的留痕，判「两条相反方向的移动」
@@ -307,14 +311,31 @@ const server = createServer(async (req, res) => {
         if (action === 'rebind-agent-service') return agentServices.rebind(payload.taskId, payload.version, workspaceActor, assistant);
         if (action === 'model-settings') return modelSettings.read(workspaceActor);
         // ---- P-13 知识写入链：人（console 注入 actorUser）与 agent 的分区 CRUD ----
+        // 读通道同样按真实登录用户判定分区（第三十一轮补 P-13 的读边界）：
+        // console 代理虽是 bridge admin，actorUser 由可信端注入后按本人判，
+        // 个人区条目仅归属者与管理员可见，冒充他人只会降权不会提权。
+        const knowledgeReadActor = (): KnowledgeActor => typeof payload.actorUser === 'string' && /^[a-zA-Z0-9_-]{2,32}$/.test(payload.actorUser)
+          ? { kind: 'human', username: payload.actorUser }
+          : workspaceActor.agent
+            ? { kind: 'agent', key: workspaceActor.agent, agent: getAgentRegistry().agents.find(a => a.key === workspaceActor.agent) }
+            : { kind: 'human', username: workspaceActor.userId ?? 'local-operator' };
+        // 读判定同样先自愈跨进程绑定（fail-closed 方向：宁可多拒不可越权）。
+        if (action === 'knowledge-list' || action === 'knowledge-get') {
+          const pre = knowledgeReadActor();
+          if (pre.kind === 'human') await ensureHumanBound(pre.username);
+        }
         if (action === 'knowledge-list') {
           // 宽松列举：任务文档里 knowledge-* 但非结构化条目的（如 knowledge-context
           // 引用文件）如实跳过，不让一条坏行挡住整个列表。
+          const readerActor = knowledgeReadActor();
           const records = [];
           for (const task of store.list()) {
             const docs = await control.pc.get<any[]>(`/issues/${task.id}/documents`).catch(() => []);
             for (const doc of (docs ?? []).filter(d => /^knowledge-[a-z0-9-]{1,36}$/.test(d.key ?? ''))) {
-              try { records.push(await knowledge.read({ taskId: task.id, key: doc.key })); } catch { /* 非条目文档跳过 */ }
+              try {
+                const record = await knowledge.read({ taskId: task.id, key: doc.key });
+                if (canReadKnowledge(readerActor, record.value).allowed) records.push(record);
+              } catch { /* 非条目文档跳过 */ }
             }
           }
           return { items: records.map(r => ({ taskId: r.ref.taskId, key: r.ref.key, revision: r.revision,
@@ -324,7 +345,36 @@ const server = createServer(async (req, res) => {
         }
         if (action === 'knowledge-get') {
           const record = await knowledge.read({ taskId: String(payload.taskId ?? ''), key: String(payload.key ?? '') });
+          const gate = canReadKnowledge(knowledgeReadActor(), record.value);
+          if (!gate.allowed) throw new Error('未授权：' + gate.reason);
           return { value: record.value, revision: record.revision };
+        }
+        if (action === 'knowledge-wiki') {
+          // 13a ②③ 只读体检 + 投影落盘：wiki 与注入索引都是 canonical 知识文档
+          // 的投影（可重建、不是第二事实源）；体检只读不改，缺口如实报出。
+          const view = await knowledgeWikiView(knowledge);
+          writeWikiProjection(view.pages);
+          writeInjectedIndex(view.injected);
+          return view;
+        }
+        if (action === 'dreaming-run') {
+          // 13a ④：离线整理建议 → C-6 候选改进闸门。登记（proposed）不越权：
+          // 工程闸门 / 真人批准 / 灰度全部走既有治理台账；重复跑按 candidateId
+          // 查重，不堆重复候选。恒 modelCalls=0。
+          const { records: listed, skipped: skippedDocs } = await knowledge.listLenient();
+          const records = listed.map(entry => entry.value);
+          const { events } = readBridgedEvents();
+          const proposals = dreamFromKnowledge(records, events);
+          const evolution = new EvolutionService(defaultEvolutionDeps(config));
+          const actor = workspaceActor.userId ? 'user:' + workspaceActor.userId : workspaceActor.agent ? 'agent:' + workspaceActor.agent : 'local-operator';
+          const result = registerDreamProposals(
+            ({ title, reason }) => evolution.propose({ title, reason, sourceTaskId: 'dreaming', sourceRound: 0, targets: [], actor }),
+            evolution.view().candidates.map(candidate => candidate.id),
+            proposals);
+          store.audit('dreaming.run', payload.taskId ?? config.companyId ?? 'organization',
+            { actor, proposals: proposals.length, registered: result.registered.length, skippedDuplicates: result.skippedDuplicates, skippedDocuments: skippedDocs });
+          return { ...result, skippedDocuments: skippedDocs,
+            note: '离线整理只提建议（恒待人复核）；提升 / 修正的执行仍走人审确认与知识审核，不自动采用' };
         }
         if (action === 'knowledge-create' || action === 'knowledge-update' || action === 'knowledge-delete') {
           // actorUser 由可信端（console）注入：/workspace 全程已鉴权（插件/管理
@@ -579,7 +629,11 @@ const server = createServer(async (req, res) => {
         if (!actor.admin) throw new Error('Unauthorized');
         if (action === 'knowledge-attach') return knowledge.attach(store.get(task.id), data.refs);
         if (!['confirmed', 'withdrawn'].includes(data.state)) throw new Error('Invalid review state');
-        return knowledge.review({ taskId: task.id, key: data.key }, data.state, data.revision, 'local-operator');
+        // 13a ③：确认时可由真人显式选择「同步提升到注入索引」；提升只能发生
+        // 在人审确认这一刻（console 全程已鉴权后传 inject，agent 链路无此位）。
+        return knowledge.review({ taskId: task.id, key: data.key }, data.state, data.revision,
+          typeof data.actorUser === 'string' && data.actorUser ? data.actorUser : 'local-operator',
+          { inject: data.inject === true });
       }
       if (action === 'claim') {
         const agent = actor.agent ?? data.agent;

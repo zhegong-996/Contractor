@@ -25,18 +25,26 @@ import { MISSION_STATE_LABELS, SETTLE_QUIET_SECONDS, RUNTIME_CAPABILITIES } from
 
 // --- 队列契约（与 C-1 PgHostPlatform 的步进方法同形） ----------------------
 
-export type StepSpec = { kind: string; payload?: Record<string, unknown> };
+export type StepSpec = { kind: string; payload?: Record<string, unknown>; parentStepId?: string };
 export type ClaimedStep = {
   id: string; runId: string; stepNo: number; kind: string; status: string;
   runToken: string; claimedBy: string; attempts: number; payload: Record<string, unknown>;
+  /** 12b ⑨：委托树血缘与领取代数（每次领取 +1，迟到旧 token 属于旧代）。 */
+  parentStepId?: string | null; generation: number;
+  /** 12b ⑧：本步已产生的对外动作，崩溃回收时据此判「不重跑」。 */
+  outwardActions?: string[];
 };
 export type StepState = {
   stepNo: number; kind: string; status: string; claimedBy: string | null;
   attempts: number; modelCalls: number; result: unknown; checkpoint: unknown;
 };
-export type RecoveredStep = { id: string; runId: string; stepNo: number };
+export type RecoveredStep = { id: string; runId: string; stepNo: number;
+  /** 12b ⑧：interrupted = 已对外动作的步被回收后不重跑（终态，是否补跑由人决定）。 */
+  status?: 'ready' | 'interrupted'; outwardActions?: string[] };
 export type CompleteOptions = {
   next?: StepSpec; checkpoint?: Record<string, unknown>; modelCalls?: number;
+  /** 12b ⑧：本步已真实发生的对外动作（发消息 / 交付 / 发布）。 */
+  outwardActions?: string[];
 };
 export type CompleteResult = { runId: string; stepNo: number; nextStepNo: number | null; modelCalls: number };
 export type FailResult = { runId: string; stepNo: number; status: string; retryable: boolean };
@@ -52,9 +60,16 @@ export interface StepQueue {
   enqueueReadySteps(runId: string, specs: StepSpec[]): Promise<{ runId: string; enqueued: number; ready: number }>;
   claimStep(workerId: string, runId?: string): Promise<ClaimedStep | null>;
   completeStep(runToken: string, result?: Record<string, unknown>, options?: CompleteOptions): Promise<CompleteResult>;
+  /**
+   * 12b ⑧：对外动作**发生时**就登记（发消息 / 交付 / 发布的前后各调一次），
+   * 不能等 completeStep——进程崩在「已发信、未完成」之间也要能判出不重跑。
+   */
+  markOutwardAction(runToken: string, action: string): Promise<boolean>;
   failStep(runToken: string, error: string, maxAttempts?: number): Promise<FailResult>;
   recoverStaleSteps(staleSeconds?: number): Promise<RecoveredStep[]>;
   runState(runId: string): Promise<StepState[]>;
+  /** 12b ⑨：委托树血缘——向上追溯父步链（可选实现；PG 与内存队列都提供）。 */
+  lineageOf?(stepId: string): Promise<{ id: string; runId: string; stepNo: number; kind: string; status: string; generation: number }[]>;
 }
 
 export const STEP_KINDS = ['tool-call', 'model-call', 'worker-tick', 'human-gate'] as const;
@@ -74,6 +89,7 @@ type MemStep = {
   claimedBy: string | null; runToken: string | null; attempts: number;
   payload: Record<string, unknown>; result: unknown; checkpoint: unknown;
   modelCalls: number; updatedAt: number;
+  parentStepId: string | null; generation: number; outwardActions: string[];
 };
 
 /** 与 PgHostPlatform 的 SKIP LOCKED / 事务内入下一棒语义等价的可注入实现。 */
@@ -85,7 +101,8 @@ export class InMemoryStepQueue implements StepQueue {
   private snapshot(step: MemStep): ClaimedStep {
     return { id: step.id, runId: step.runId, stepNo: step.stepNo, kind: step.kind,
       status: step.status, runToken: step.runToken!, claimedBy: step.claimedBy!,
-      attempts: step.attempts, payload: { ...step.payload } };
+      attempts: step.attempts, payload: { ...step.payload },
+      parentStepId: step.parentStepId, generation: step.generation, outwardActions: [...step.outwardActions] };
   }
   async enqueueSteps(runId: string, specs: StepSpec[]) {
     return this.insert(runId, specs, false);
@@ -102,18 +119,20 @@ export class InMemoryStepQueue implements StepQueue {
       if (this.steps.some(s => s.runId === runId && s.stepNo === start)) continue;
       this.steps.push({ id: `${runId}:${start}`, runId, stepNo: start, kind: spec.kind,
         status: immediate || start === 1 ? 'ready' : 'queued', claimedBy: null, runToken: null, attempts: 0,
-        payload: { ...(spec.payload ?? {}) }, result: null, checkpoint: null, modelCalls: 0,
-        updatedAt: this.now() });
+        payload: { ...(spec.payload ?? {}) }, result: null, checkpoint: null,
+        modelCalls: 0, updatedAt: this.now(),
+        parentStepId: spec.parentStepId ?? null, generation: 0, outwardActions: [] });
       inserted += 1;
     }
     return { runId, enqueued: inserted, ready: immediate ? inserted : (inserted ? 1 : 0) };
   }
   async claimStep(workerId: string, runId?: string): Promise<ClaimedStep | null> {
     // 单线程内一次性完成「找 ready + 置 running」，等价于 PG 的锁内更新。
+    // 12b ⑨：每次领取 generation+1，迟到的旧 runToken 属于旧代，完成校验天然拒绝。
     const step = this.steps.find(s => s.status === 'ready' && (!runId || s.runId === runId));
     if (!step) return null;
     step.status = 'running'; step.claimedBy = workerId; step.runToken = 'tok-' + randomUUID();
-    step.attempts += 1; step.updatedAt = this.now();
+    step.attempts += 1; step.generation += 1; step.updatedAt = this.now();
     return this.snapshot(step);
   }
   private held(runToken: string): MemStep {
@@ -126,6 +145,8 @@ export class InMemoryStepQueue implements StepQueue {
     const modelCalls = Math.max(0, Math.trunc(options.modelCalls ?? 0));
     step.status = 'done'; step.result = { ...result };
     step.checkpoint = { ...(options.checkpoint ?? {}) }; step.modelCalls = modelCalls;
+    // 12b ⑧：登记本步已发生的对外动作；崩溃回收时据此判「不重跑」。
+    step.outwardActions = [...new Set([...step.outwardActions, ...(options.outwardActions ?? [])])].filter(Boolean);
     step.runToken = null; step.updatedAt = this.now();
     const candidate = step.stepNo + 1;
     const promoted = this.steps.find(s => s.runId === step.runId && s.stepNo === candidate && s.status === 'queued');
@@ -135,27 +156,56 @@ export class InMemoryStepQueue implements StepQueue {
       this.steps.push({ id: `${step.runId}:${candidate}`, runId: step.runId, stepNo: candidate,
         kind: options.next.kind, status: 'ready', claimedBy: null, runToken: null, attempts: 0,
         payload: { ...(options.next.payload ?? {}) }, result: null, checkpoint: null,
-        modelCalls: 0, updatedAt: this.now() });
+        modelCalls: 0, updatedAt: this.now(),
+        parentStepId: options.next.parentStepId ?? null, generation: 0, outwardActions: [] });
       nextStepNo = candidate;
     }
     return { runId: step.runId, stepNo: step.stepNo, nextStepNo, modelCalls };
   }
   async failStep(runToken: string, error: string, maxAttempts = 3): Promise<FailResult> {
     const step = this.held(runToken);
-    const retryable = step.attempts < maxAttempts;
-    step.status = retryable ? 'ready' : 'failed'; step.result = { error };
+    // 12b ⑧：已对外动作的步显式失败也不自动重跑——重跑会重复发信 / 重复交付，
+    // 与崩溃回收同一判据标 interrupted 终态，是否补跑由人在台账上决定。
+    const outward = step.outwardActions.length > 0;
+    const retryable = !outward && step.attempts < maxAttempts;
+    step.status = outward ? 'interrupted' : (retryable ? 'ready' : 'failed');
+    step.result = { error, ...(outward ? { outwardActions: [...step.outwardActions] } : {}) };
     step.runToken = null; step.claimedBy = null; step.updatedAt = this.now();
     return { runId: step.runId, stepNo: step.stepNo, status: step.status, retryable };
+  }
+  /** 12b ⑧：对外动作发生时登记（running 态即可写），崩溃回收据此判 interrupted。 */
+  async markOutwardAction(runToken: string, action: string): Promise<boolean> {
+    const step = this.steps.find(s => s.runToken === runToken && s.status === 'running');
+    if (!step || !action.trim()) return false;
+    if (!step.outwardActions.includes(action)) step.outwardActions.push(action);
+    return true;
   }
   async recoverStaleSteps(staleSeconds = 60): Promise<RecoveredStep[]> {
     const recovered: RecoveredStep[] = [];
     for (const step of this.steps) {
       if (step.status === 'running' && this.now() - step.updatedAt > staleSeconds * 1000) {
-        step.status = 'ready'; step.runToken = null; step.claimedBy = null; step.updatedAt = this.now();
-        recovered.push({ id: step.id, runId: step.runId, stepNo: step.stepNo });
+        // 12b ⑧：已对外动作（发消息 / 交付 / 发布）的步标 interrupted 终态，
+        // 绝不重跑——重跑会重复发信 / 重复交付；是否人工补跑由人决定。
+        const interrupted = step.outwardActions.length > 0;
+        step.status = interrupted ? 'interrupted' : 'ready';
+        step.runToken = null; step.claimedBy = null; step.updatedAt = this.now();
+        recovered.push({ id: step.id, runId: step.runId, stepNo: step.stepNo,
+          status: interrupted ? 'interrupted' : 'ready',
+          ...(interrupted ? { outwardActions: [...step.outwardActions] } : {}) });
       }
     }
     return recovered;
+  }
+  /** 12b ⑨：委托树血缘——沿 parentStepId 向上追溯（跨 run 连通，深度封顶防环）。 */
+  async lineageOf(stepId: string): Promise<{ id: string; runId: string; stepNo: number; kind: string; status: string; generation: number }[]> {
+    const chain: MemStep[] = [];
+    let cursor = this.steps.find(s => s.id === stepId);
+    while (cursor && chain.length < 32) {
+      chain.push(cursor);
+      cursor = cursor.parentStepId ? this.steps.find(s => s.id === cursor!.parentStepId) : undefined;
+    }
+    return chain.map(step => ({ id: step.id, runId: step.runId, stepNo: step.stepNo,
+      kind: step.kind, status: step.status, generation: step.generation }));
   }
   async runState(runId: string): Promise<StepState[]> {
     return this.steps.filter(s => s.runId === runId).sort((a, b) => a.stepNo - b.stepNo)
@@ -173,23 +223,48 @@ export class PgStepQueue implements StepQueue {
     return new PgStepQueue(new PgHostPlatform(assertLocalPgDsn(pgDsn(config)), config));
   }
   id() { return 'local-pg'; }
-  enqueueSteps(runId: string, specs: StepSpec[]) { return this.host.enqueueSteps(runId, specs); }
-  enqueueReadySteps(runId: string, specs: StepSpec[]) { return this.host.enqueueReadySteps(runId, specs); }
+  enqueueSteps(runId: string, specs: StepSpec[]) {
+    return this.host.enqueueSteps(runId, specs.map(spec => this.toHostSpec(spec)));
+  }
+  enqueueReadySteps(runId: string, specs: StepSpec[]) {
+    return this.host.enqueueReadySteps(runId, specs.map(spec => this.toHostSpec(spec)));
+  }
+  /** 本契约的血缘 id 是字符串，PG 层是 bigint：入队方向字符串 → 数字。 */
+  private toHostSpec(spec: StepSpec) {
+    return { kind: spec.kind, payload: spec.payload,
+      ...(spec.parentStepId !== undefined ? { parentStepId: Number(spec.parentStepId) } : {}) };
+  }
   async claimStep(workerId: string, runId?: string): Promise<ClaimedStep | null> {
     const step = await this.host.claimStep(workerId, runId);
-    return step ? { ...step, id: String(step.id) } : null;
+    return step ? { ...step, id: String(step.id), parentStepId: step.parentStepId === null ? null : String(step.parentStepId) } : null;
   }
   async completeStep(runToken: string, result: Record<string, unknown> = {}, options: CompleteOptions = {}) {
-    const done = await this.host.completeStep(runToken, result, options);
+    // next 的 parentStepId 在本契约是字符串、PG 层是 bigint：出队方向同样转换。
+    const done = await this.host.completeStep(runToken, result, {
+      checkpoint: options.checkpoint,
+      modelCalls: options.modelCalls,
+      outwardActions: options.outwardActions,
+      next: options.next ? this.toHostSpec(options.next) : undefined,
+    });
     return { runId: done.runId, stepNo: done.stepNo, nextStepNo: done.nextStepNo, modelCalls: done.modelCalls };
   }
+  markOutwardAction(runToken: string, action: string) { return this.host.markOutwardAction(runToken, action); }
   async failStep(runToken: string, error: string, maxAttempts = 3) {
     const failed = await this.host.failStep(runToken, error, maxAttempts);
     return { runId: failed.runId, stepNo: failed.stepNo, status: failed.status, retryable: failed.retryable };
   }
   async recoverStaleSteps(staleSeconds = 60) {
+    // 12b ⑧：status 与 outwardActions 如实透传（interrupted 携带已发动作清单）。
     return (await this.host.recoverStaleSteps(staleSeconds))
-      .map(row => ({ id: String(row.id), runId: row.runId, stepNo: row.stepNo }));
+      .map(row => ({ id: String(row.id), runId: row.runId, stepNo: row.stepNo,
+        ...(row.status ? { status: row.status } : {}),
+        ...(row.outwardActions ? { outwardActions: row.outwardActions.map(String) } : {}) }));
+  }
+  /** 12b ⑨：血缘查询透传（PG 用递归 CTE，见 pg-host.ts lineageOf）。 */
+  async lineageOf(stepId: string) {
+    return (await this.host.lineageOf(Number(stepId)))
+      .map(row => ({ id: String(row.id), runId: row.runId, stepNo: row.stepNo,
+        kind: row.kind, status: row.status, generation: row.generation }));
   }
   runState(runId: string) { return this.host.runState(runId); }
   close() { return this.host.close(); }

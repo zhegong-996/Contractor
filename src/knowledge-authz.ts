@@ -93,3 +93,23 @@ export function canCreateKnowledge(actor: KnowledgeActor, visibility: 'personal'
   if (visibility === 'personal') return { allowed: true, reason: '个人区知识可自由创建' };
   return canWriteKnowledge(actor, { visibility, owner: actorSub(actor), domains: ['*'] }, 'create');
 }
+
+/**
+ * 读分区判定（第三十一轮补 P-13 的读边界）：个人区条目仅归属者本人与管理员
+ * 可见（「管理员可以看到所有的」）；协作区 / 组织区登录即可读——知识读取链
+ * 本就要求 confirmed 才可复用，列表与详情不放宽该复用红线。
+ * console 代理虽是 bridge admin 身份，但 actorUser 由可信端注入后按真实登录
+ * 用户判定，冒充他人只会降权不会提权。
+ */
+export function canReadKnowledge(actor: KnowledgeActor, entry: KnowledgeEntryLike): KnowledgeAuthzResult {
+  const visibility = entryVisibility(entry);
+  if (visibility !== 'personal') return { allowed: true, reason: '协作区 / 组织区条目登录即可读' };
+  const sub = actorSub(actor);
+  const owner = entry.owner ?? '';
+  if (owner && owner === sub) return { allowed: true, reason: '个人区条目，归属者本人可读' };
+  // 管理员总览：人 admin 档、agent supervisor 档（与写判定的 org 档位对齐）。
+  const tier = actor.kind === 'human' ? sub : agentTier(actor.agent);
+  if (rbacEnforce(tier, 'knowledge-write-org'))
+    return { allowed: true, reason: '管理员总览：个人区条目对 admin 档可见' };
+  return { allowed: false, reason: `个人区条目仅归属者（${owner || '未登记'}）本人与管理员可见` };
+}

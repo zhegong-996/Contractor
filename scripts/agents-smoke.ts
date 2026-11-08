@@ -234,7 +234,7 @@ check('C-4 服务端、Router、A2A、v06、控制台五处接线齐全',
   && /handoffEnvelope\(/.test(src('src/service-network.ts'))
   && /case 'agent-registry-view'/.test(src('src/v06.ts'))
   && /case 'acceptance-crew'/.test(src('src/v06.ts'))
-  && /card\('Agent 编制'/.test(src('console/app.js'))
+  && /#header>Agent 编制</.test(src('console/app.js'))
   && /'v06-agent-registry-view'/.test(src('scripts/console-server.ts'))
   && /agentRegistry: agentRegistrySchema\.default/.test(src('src/config.ts')),
   { files: ['src/server.ts', 'src/router.ts', 'src/service-network.ts', 'src/v06.ts',

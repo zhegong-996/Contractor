@@ -77,6 +77,9 @@ const intake = readFileSync(path.join(root, 'src/collaboration-intake.ts'), 'utf
 const serverSource = readFileSync(path.join(root, 'src/server.ts'), 'utf8');
 const answerSource = readFileSync(path.join(root, 'scripts/step-answer.ts'), 'utf8');
 const bridgeSource = readFileSync(path.join(root, 'src/hitl-bridge.ts'), 'utf8');
+// P-11 起红线字样（requiresHumanApproval / autoExecute:false）在 collaboration-loop.ts 强制，
+// CLI 入口只复用 hitl-bridge 的同一判据；断言跟随真正强制处。
+const loopContract = readFileSync(path.join(root, 'src/collaboration-loop.ts'), 'utf8');
 check('B1 回执入口复用 Autoloop 回执协议并登记上行事件',
   /resultFrom\(/.test(controller) && /fromAutoloopReceipt\(/.test(controller)
     && /loop\.upstream/.test(controller) && /continuationPolicy:\s*'wake_assignee'/.test(controller),
@@ -88,7 +91,7 @@ check('B2 人的补充说明与飞书入站都登记下行应答，且真正唤�
 check('B3 回答入口复用 Runner 成对留痕并桥接回流建议（CLI 与飞书共用同一判据）',
   /answerHuman\(/.test(bridgeSource) && /bridgeAnswerToResume\(/.test(bridgeSource)
     && /assertResumeProposal\(/.test(bridgeSource)
-    && /requiresHumanApproval/.test(answerSource)
+    && /requiresHumanApproval/.test(loopContract)
     && /routeAnswerToHitl\(/.test(answerSource) && /routeAnswerToHitl\(/.test(intake),
   { bridge: true, cli: /routeAnswerToHitl\(/.test(answerSource), feishu: /routeAnswerToHitl\(/.test(intake) });
 check('B4 只读体检接进服务端并同步三处白名单',
