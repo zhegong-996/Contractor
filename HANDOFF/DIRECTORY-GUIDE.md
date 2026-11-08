@@ -1,7 +1,7 @@
 # 09 · 目录结构完全指南（接手必读）
 
 > 目标：搞清楚**每个目录是干什么的、哪些入库、产物放哪、新文件该放哪**。
-> 根目录：`/Users/gong.zhe/Developer/ai-native-collab`｜第二十二轮 P-1 收尾后 `git ls-files` 共 **297** 个入库文件（含 `HANDOFF/` 14 个）；新增根目录总览后 **299** 个，第二十三轮 P-5 新增 2 个后 **301** 个，第二十四轮 P-6 新增 7 个（`src/step-hitl.ts` / `src/step-delivery.ts` / `src/mission-state.ts` / `scripts/step-answer.ts` / 两组契约测试 / `licenses/runner-MIT.txt`）后为 **308** 个；OpenMausBot 参考评估新增 1 份文档后为 **309** 个，第二十五轮 P-7 新增 4 个文件（`src/memory-hierarchy.ts` / `tests/memory-hierarchy.test.ts` / `scripts/memory-hierarchy-smoke.ts` / `docs/REFERENCE-anthropic-agent-memory.md`）后为 **313** 个，第二十六轮 P-8 新增 7 个文件（`src/knowledge-guard.ts` / `src/behavior-baseline.ts` / `tests/knowledge-guard.test.ts` / `tests/behavior-baseline.test.ts` / `tests/p8-contracts.test.ts` / `scripts/guard-smoke.ts` / `fixtures/behavior-golden.json`）后为 **320** 个。
+> 根目录：`/Users/gong.zhe/Developer/ai-native-collab`｜第二十二轮 P-1 收尾后 `git ls-files` 共 **297** 个入库文件（含 `HANDOFF/` 14 个）；新增根目录总览后 **299** 个，第二十三轮 P-5 新增 2 个后 **301** 个，第二十四轮 P-6 新增 7 个（`src/step-hitl.ts` / `src/step-delivery.ts` / `src/mission-state.ts` / `scripts/step-answer.ts` / 两组契约测试 / `licenses/runner-MIT.txt`）后为 **308** 个；OpenMausBot 参考评估新增 1 份文档后为 **309** 个，第二十五轮 P-7 新增 4 个文件（`src/memory-hierarchy.ts` / `tests/memory-hierarchy.test.ts` / `scripts/memory-hierarchy-smoke.ts` / `docs/REFERENCE-anthropic-agent-memory.md`）后为 **313** 个，第二十六轮 P-8 新增 7 个文件（`src/knowledge-guard.ts` / `src/behavior-baseline.ts` / `tests/knowledge-guard.test.ts` / `tests/behavior-baseline.test.ts` / `tests/p8-contracts.test.ts` / `scripts/guard-smoke.ts` / `fixtures/behavior-golden.json`）后为 **320** 个，架构图册新增 3 个文件（`docs/architecture-atlas.html` / `docs/ARCHITECTURE-ATLAS.md` / `scripts/atlas-check.mjs`）后为 **323** 个。
 
 ## 1. 完整目录树（带说明）
 
@@ -42,7 +42,7 @@ ai-native-collab/                       仓库根（main 分支）
 │   ├── knowledge-guard.ts              P-8 守门只读接真实数据（advisory 体检，不改写入链）
 │   ├── behavior-baseline.ts            P-8 冻结基线 / golden diff / 双臂旗标 / 出站工具面硬断言
 │   └── vendor/prime-query.ts           从 Prime Agent 移植的检索权重（必须保留 MIT 版权头）
-├── scripts/                           ★ CLI / 服务 / 构建 / 冒烟（57 个文件，含 .py/.swift/.mjs）
+├── scripts/                           ★ CLI / 服务 / 构建 / 冒烟（58 个文件，含 .py/.swift/.mjs）
 │   ├── memory-journey.ts / memory-checkpoint.ts  B2 真跑脚本（会写 .runtime/memory/）
 │   ├── host-pg-smoke.ts                        C-1 PG 真跑 21/21（专属库 suitme_collab_c1）
 │   ├── console-server.ts / console-smoke.mjs   C-2 独立控制台承载与浏览器冒烟
@@ -54,6 +54,7 @@ ai-native-collab/                       仓库根（main 分支）
 │   └── step-answer.ts                  P-6 真人口：回答人工问题（不排后续步骤、不等于验收）
 │   └── memory-hierarchy-smoke.ts       P-7 分层规则隔离真跑 16/16（不写真实 B1 主干）
 │   └── guard-smoke.ts                  P-8 真实数据联合真跑 22/22（含 HTTP memory-guard）
+│   └── atlas-check.mjs                 架构图册静态自检 11/11（离线、无外部依赖）
 ├── tests/                             ★ 回归测试（72 个 .test.ts，node:test）
 │   ├── memory-hierarchy.test.ts       P-7 记忆分层规则契约 20 例
 │   ├── knowledge-guard.test.ts         P-8 守门体检契约 12 例
@@ -85,10 +86,11 @@ ai-native-collab/                       仓库根（main 分支）
 │   ├── deepseek-harness/              DeepSeek Harness（scope/工具装配）
 │   ├── cognee/                        Cognee（图存储/DataPoint/BM25）
 │   └── acceptance/                    lobehub/acceptance（只读格式契约）
-├── docs/                              ★ 项目文档（23 个 .md，全部入库）
+├── docs/                              ★ 项目文档（24 个 .md + 1 个 .html，全部入库）
 │   ├── design/workbench.md            工作台设计稿
 │   └── REFERENCE-openmausbot.md       OpenMausBot 完整参考评估（只调研，未引入代码）
 │   └── REFERENCE-anthropic-agent-memory.md  Anthropic agent memory 逐层对照与 8 条差距清单
+│   └── architecture-atlas.html / ARCHITECTURE-ATLAS.md  可离线打开的四视角架构图册与索引
 ├── locales/                           构建期中文壳词典（shell.zh-CN.json）
 ├── integrations/deepseek/             DeepSeek Harness 的 LLM 客户端替换层（2 个 .ts）
 ├── licenses/                          上游许可证全文（5 个 .txt，含 Runner MIT）

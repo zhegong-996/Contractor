@@ -1,6 +1,6 @@
 # FILE-INVENTORY · 逐文件说明（100% 覆盖）
 
-> 生成自 `git ls-files` + `HANDOFF/`，第二十二轮 P-1 收尾后共 **297** 个条目，2026-11-08 交接总结新增根目录 2 个文件后共 **299** 个条目，第二十三轮 P-5 新增 2 个文件后共 **301** 个条目，第二十四轮 P-6 新增 7 个文件后共 **308** 个条目，OpenMausBot 参考评估新增 1 份文档后共 **309** 个条目，第二十五轮 P-7 新增 4 个文件后共 **313** 个条目，第二十六轮 P-8 新增 6 个文件后共 **320** 个条目（第十四轮 269 + C-1 新增 4 + C-2 新增 7 + C-3 新增 3 + C-4 新增 3 + C-5 新增 2 + C-6 新增 4 + P-1 新增 5 + 交接总结新增 2 + P-5 新增 2 + P-6 新增 7 + 评估文档 1 + P-7 新增 4 + P-8 新增 7（src/knowledge-guard.ts、src/behavior-baseline.ts、tests/knowledge-guard.test.ts、tests/behavior-baseline.test.ts、tests/p8-contracts.test.ts、scripts/guard-smoke.ts、fixtures/behavior-golden.json）。
+> 生成自 `git ls-files` + `HANDOFF/`，第二十二轮 P-1 收尾后共 **297** 个条目，2026-11-08 交接总结新增根目录 2 个文件后共 **299** 个条目，第二十三轮 P-5 新增 2 个文件后共 **301** 个条目，第二十四轮 P-6 新增 7 个文件后共 **308** 个条目，OpenMausBot 参考评估新增 1 份文档后共 **309** 个条目，第二十五轮 P-7 新增 4 个文件后共 **313** 个条目，第二十六轮 P-8 新增 7 个文件后共 **320** 个条目，架构图册新增 3 个文件后共 **323** 个条目（第十四轮 269 + C-1 新增 4 + C-2 新增 7 + C-3 新增 3 + C-4 新增 3 + C-5 新增 2 + C-6 新增 4 + P-1 新增 5 + 交接总结新增 2 + P-5 新增 2 + P-6 新增 7 + 评估文档 1 + P-7 新增 4 + P-8 新增 7 + 架构图册 3）。
 > 列：`路径 | 行数 | 说明`。`upstream/<name>` 是 gitlink（submodule），行数记 `-`；既有条目的行数为生成时快照，文档改版后以文件实际内容为准。
 > 说明来源：精写字典 213 条、从源码注释/导出/测试名自动提取 69 条、按类型兜底 0 条。
 > 需要更详细的「哪些文件一起完成什么」见 `04-CODE-MAP.md`；目录结构见 `DIRECTORY-GUIDE.md`。
@@ -123,7 +123,7 @@
 | `src/knowledge-guard.ts` | 199 | ★ P-8 守门只读接真实数据：逐条跑挂靠校验、如实报缺事实源、不编造事件 id；`advisory:true / blocking:false / modelCalls:0`。 |
 | `src/behavior-baseline.ts` | 263 | ★ P-8 冻结快照 / golden diff / 纯评分器 / 双臂三旗标 / 出站 MCP 工具面签名与不暴露硬断言 / 决策留痕隔离。 |
 
-## 脚本与服务 scripts/（54）
+## 脚本与服务 scripts/（55）
 
 | 路径 | 行数 | 说明 |
 |---|---|---|
@@ -187,6 +187,8 @@
 | `scripts/memory-hierarchy-smoke.ts` | 170 | ★ P-7 隔离真跑 16/16：复现 1.77 倍「地图」失败、离线整理只读、真实 B1 主干行数前后不变。 |
 
 | `scripts/guard-smoke.ts` | 197 | ★ P-8 真实数据联合真跑 22/22：冻结基线、真实 16 个出站工具、100 条路由留痕、真实 HTTP `memory-guard`、日志行数前后不变。 |
+
+| `scripts/atlas-check.mjs` | 68 | ★ 图册静态自检：四张 SVG 可访问性标签、CSS 变量定义覆盖、无外部依赖与敏感内容，11 项检查。 |
 
 ## 回归测试 tests/（69）
 
@@ -305,7 +307,7 @@
 | `plugins/knowledge-workspaces/src/worker.ts` | 26 | 插件 worker：所有读写都走 action 通道，携带宿主不可变 actor（UI 不能指定操作人）。 |
 | `plugins/knowledge-workspaces/tsconfig.json` | 12 | 插件独立 TypeScript 配置（build:workspaces 会检查）。 |
 
-## 项目文档 docs/（24）
+## 项目文档 docs/（26）
 
 | 路径 | 行数 | 说明 |
 |---|---|---|
@@ -332,7 +334,8 @@
 | `docs/WORKSPACES.md` | 70 | 知识空间与使用说明。 |
 | `docs/agent-integration.md` | 75 | Agent 接入与 CLI 适配说明。 |
 | `docs/design/workbench.md` | 11 | 工作台视觉/交互设计稿。 |
-
+| `docs/ARCHITECTURE-ATLAS.md` | 54 | ★ 系统架构图册索引：四张图分别回答什么、一张 Mermaid 总览、口径来源与优先级、维护约定。 |
+| `docs/architecture-atlas.html` | 331 | ★ 可离线打开的单页图册：产品主闭环 / 用户与界面 / 技术四层 / 共享记忆分层四张 SVG，另附功能地图、成熟度三档、红线与端口表；浅色 / 深色主题自足，无外部资源。 |
 | `docs/REFERENCE-anthropic-agent-memory.md` | 128 | ★ Anthropic《The components of agent memory》逐层对照：五层 hierarchy 与本仓库映射、评估数据、8 条按价值排序差距清单、「参考即记忆 + 规则」、明确不照搬项与 `conceptReferences` 来源登记。**网页文章无开源代码许可证，只借思想、未复制正文 / 代码**。 |
 
 ## 上游 submodule upstream/（7）

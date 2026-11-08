@@ -30,6 +30,7 @@ npm run memory:smoke        # 临时目录真跑三条红线，ok:true
 npm run memory:checkpoint   # 真实日志增量应用，checksum 与全量对照
 npm run memory:hierarchy    # P-7 分层规则隔离真跑 16/16（不写真实 B1 主干）
 npm run guard:smoke         # P-8 真实数据联合真跑 22/22（只读，含 HTTP memory-guard）
+npm run atlas:check         # 架构图册静态自检 11/11（变量覆盖 / 离线自足 / 无敏感内容）
 npm run memory:journey      # 真实 bridge action 全链路 + 端到端撤权（会写真实日志）
 npm run routing:status      # allWired:true、threeTier.recommended:false
 npm run host:smoke          # 非 Paperclip 宿主 ok:true

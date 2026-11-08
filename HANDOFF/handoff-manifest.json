@@ -18,7 +18,7 @@
     "path": "/Users/gong.zhe/Developer/ai-native-collab",
     "remote": "https://github.com/zhegong-996/suitme-collab.git",
     "branch": "main",
-    "codeBaseCommit": "以 git rev-parse HEAD 为准（第二十六轮 P-8 代码与文档一并提交推送；HEAD = origin/main = 远端 main）",
+    "codeBaseCommit": "以 git rev-parse HEAD 为准（第二十六轮 P-8 与架构图册文档一并提交推送；HEAD = origin/main = 远端 main）",
     "originMainAtGeneration": "same-as-HEAD",
     "remoteMainAtGeneration": "same-as-HEAD",
     "note": "不再写死 hash：交接包生成时的 b58631c / f6611e0 / 4aa6fb0 / 8d3c455 / c27d7c0 / 3a563d3 均为历史。代码与文档在同一提交里一并推送。",
@@ -262,12 +262,12 @@
   ],
   "fileInventory": {
     "path": "HANDOFF/FILE-INVENTORY.md",
-    "totalEntries": 320,
+    "totalEntries": 323,
     "handWrittenDescriptions": 213,
     "autoExtractedDescriptions": 69,
     "fallback": 0,
     "uncovered": 0,
-    "note": "第十四轮 269 + C-1 新增 4 + C-2 新增 7 + C-3 新增 3 + C-4 新增 3 + C-5 新增 2 + C-6 新增 4 + P-1 新增 5（src/step-execution.ts、src/loop-pump.ts、src/step-runner.ts、scripts/steps-smoke.ts、tests/step-execution.test.ts）+ 2026-11-08 交接总结新增 2（HANDOFF.md、PROJECT-SUMMARY.md）+ P-5 新增 2（src/workspace-summary.ts、tests/workspace-summary.test.ts）+ P-6 新增 7（src/step-hitl.ts、src/step-delivery.ts、src/mission-state.ts、scripts/step-answer.ts、tests/step-hitl.test.ts、tests/step-delivery.test.ts、licenses/runner-MIT.txt）+ 评估文档 1（docs/REFERENCE-openmausbot.md）+ P-7 新增 4（src/memory-hierarchy.ts、tests/memory-hierarchy.test.ts、scripts/memory-hierarchy-smoke.ts、docs/REFERENCE-anthropic-agent-memory.md）+ P-8 新增 7（src/knowledge-guard.ts、src/behavior-baseline.ts、tests/knowledge-guard.test.ts、tests/behavior-baseline.test.ts、tests/p8-contracts.test.ts、scripts/guard-smoke.ts、fixtures/behavior-golden.json）；既有文件修改不计新增"
+    "note": "第十四轮 269 + C-1 新增 4 + C-2 新增 7 + C-3 新增 3 + C-4 新增 3 + C-5 新增 2 + C-6 新增 4 + P-1 新增 5（src/step-execution.ts、src/loop-pump.ts、src/step-runner.ts、scripts/steps-smoke.ts、tests/step-execution.test.ts）+ 2026-11-08 交接总结新增 2（HANDOFF.md、PROJECT-SUMMARY.md）+ P-5 新增 2（src/workspace-summary.ts、tests/workspace-summary.test.ts）+ P-6 新增 7（src/step-hitl.ts、src/step-delivery.ts、src/mission-state.ts、scripts/step-answer.ts、tests/step-hitl.test.ts、tests/step-delivery.test.ts、licenses/runner-MIT.txt）+ 评估文档 1（docs/REFERENCE-openmausbot.md）+ P-7 新增 4（src/memory-hierarchy.ts、tests/memory-hierarchy.test.ts、scripts/memory-hierarchy-smoke.ts、docs/REFERENCE-anthropic-agent-memory.md）+ P-8 新增 7（src/knowledge-guard.ts、src/behavior-baseline.ts、tests/knowledge-guard.test.ts、tests/behavior-baseline.test.ts、tests/p8-contracts.test.ts、scripts/guard-smoke.ts、fixtures/behavior-golden.json）+ 架构图册 3（docs/architecture-atlas.html、docs/ARCHITECTURE-ATLAS.md、scripts/atlas-check.mjs）；既有文件修改不计新增"
   },
   "nextSteps": [
     "先读根目录 HANDOFF.md（接手总纲）与 PROJECT-SUMMARY.md（项目总结），再读 HANDOFF/00-START-HERE.md、06-CURRENT-STATE-AND-NEXT.md、docs/PRD-v0.6.md §10C、07-RULES-AND-BOUNDARIES.md",
@@ -322,11 +322,12 @@
     "agentsSmoke": "ok:true, 43/43 checks（隔离内存 Trace）",
     "shapesSmoke": "ok:true, 36/36 checks（扁平 shape.ready=true/recommended=false；分层 true/true）",
     "evolutionSmoke": "ok:true, 45/45 checks（隔离临时台账，不写真实 .runtime/evolution/events.jsonl 与 .runtime/memory/events.jsonl）",
+    "atlasCheck": "ok:true, 11/11 checks（四张 SVG 可访问性、CSS 变量覆盖、离线自足、无敏感内容；Chrome headless 浅色/深色/全页截图核对通过）",
     "guardSmoke": "ok:true, 22/22 checks（真实数据联合真跑：冻结基线 61 项一致、16 个出站工具通过不暴露断言、100 条路由留痕独立、真实 HTTP memory-guard 200 / 7ms、22 条真实知识记录如实报缺挂靠、B1/路由日志行数不变）",
     "memoryHierarchySmoke": "ok:true, 16/16 checks（隔离确定性数据；复现 1.77 倍地图失败、离线整理只读、真实 B1 主干 40 行前后不变；不写真实 .runtime/memory/events.jsonl）",
     "stepsSmoke": "ok:true, 54/54 checks（隔离内存队列 + 本机 PG 专属库 + 真实子进程跨进程领步；新增 E 段 HITL 成对留痕、F 段队列送达证据、G 段四项借思想守门；不写 B1 记忆主干）"
   },
   "authoritativeOnly": true,
   "portableCopyNote": "WorkBuddy 工作区 handoff/ 与 SuitMe-HANDOFF.zip 已停用、不再维护；详细交接唯一权威位置为仓库内 HANDOFF/，根目录 HANDOFF.md / PROJECT-SUMMARY.md 为同仓库内同步维护的总览入口。",
-  "codeBaseCommit": "以 git rev-parse HEAD 为准（第二十六轮 P-8 代码与文档一并提交推送；HEAD = origin/main = 远端 main）"
+  "codeBaseCommit": "以 git rev-parse HEAD 为准（第二十六轮 P-8 与架构图册文档一并提交推送；HEAD = origin/main = 远端 main）"
 }

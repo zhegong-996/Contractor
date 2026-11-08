@@ -147,6 +147,7 @@ npm test                         # 本次交接复跑：413/413，0 fail
 | 想找什么 | 看哪里 |
 |---|---|
 | 一眼看懂整个项目 | `PROJECT-SUMMARY.md`（系统架构 / 产品功能架构 / 业务流程 / 依赖与协议） |
+| 一眼看懂四张架构图 | `docs/architecture-atlas.html`（可离线打开：产品闭环 / 用户与界面 / 技术四层 / 记忆分层）、`docs/ARCHITECTURE-ATLAS.md`（索引与总览） |
 | 接手、环境、命令、红线、下一步 | `HANDOFF/` 包（入口 `HANDOFF/README.md`） |
 | 产品需求与可验收条款 | `docs/PRD-v0.6.md`（尤其 §5 FR、§6 主流程、§10C C-P1~C-P8） |
 | 设计定稿（不等于全部实现） | `docs/ARCHITECTURE-v0.6.md` |
