@@ -46,7 +46,16 @@ test('构建期收敛侧栏的 Skills / 连接服务入口，保留其余导航'
   assert.doesNotMatch(coord.code, /label: "Connectors"/);
   // 收敛后的代码仍是合法 TSX / TS，可被 Babel 解析。
   assert.doesNotThrow(() => chineseShell(classic.code, '/repo/ui/src/components/Sidebar.production.tsx'));
-  assert.equal(DOMESTIC_NAV_RULES.length, 4);
+  assert.equal(DOMESTIC_NAV_RULES.length, 7);
+});
+
+test('页面标题去掉上游品牌尾缀，数组闭合括号不被吞掉', () => {
+  const source = 'const parts = [...pageParts, ...companyPart, "Paperclip"];';
+  const adapted = domesticShell(source, '/repo/ui/src/context/BreadcrumbContext.tsx');
+  assert.deepEqual(adapted.hidden, ['breadcrumb-brand']);
+  assert.equal(adapted.code, 'const parts = [...pageParts, ...companyPart];');
+  // 收敛后仍是合法 TS，可被 Babel 解析（回归：曾因正则吞掉 `]` 语法报错）。
+  assert.doesNotThrow(() => chineseShell(adapted.code, '/repo/ui/src/context/BreadcrumbContext.tsx'));
 });
 
 test('只在本项目之外不改文件：非目标文件与页面内容原样返回', () => {
@@ -109,7 +118,7 @@ test('中文壳构建顺序与安装/启动链路：先收敛再翻译，默认�
   assert.match(build, /suitme-domestic\.js/);
   assert.match(read('scripts/install-upstream.ts'), /build-chinese-shell\.ts/);
   assert.match(read('scripts/up.ts'), /suitme-domestic\.js/);
-  assert.match(read('locales/shell.zh-CN.json'), /"Integrations": "集成"/);
+  assert.match(read('locales/i18n-zh-CN.json'), /"Integrations": "集成"/);
 });
 
 test('国内服务清单：状态来自实时探测，未接通项不放空壳链接', () => {

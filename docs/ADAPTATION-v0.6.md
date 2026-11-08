@@ -1100,3 +1100,11 @@ Agent 感知不到执行环境差异，**不等于权限可以跨环境放大**�
 **不变的边界**：L1 投影零模型红线；网页不发起任务（发起仍在飞书）；7 个上游不变；key 不进仓库；测试与隔离冒烟不触发真实外部调用（凭据装载只在启动路径）。
 
 **验证**：npm test 563/563、tsc、三构建、console:smoke 55/55、guard:smoke 22/22（golden 两次合法重冻结均留人审记录）、steps 61/61、host:pg、loop 18、router 31 / agents 43 / shapes 36 / evolution 45 / memory:hierarchy 16；DeepSeek 真跑（自动 cognify + console 检索）通过；五服务 + git 全部在线。
+
+## 000000000000000000000000000000000000 第三十五轮边界声明（36 位零：Paperclip 前端国内化 + i18n 标准多语言 + 三上游功能审计）
+
+**用户拍板**：「还是用我们最开始用的那套海外的开源项目前端吧，Paperclip，不过要去掉所有海外的部分，适配国内」+「多语言用 i18n 就行」+ 睡前指令「做好了验证一下，是不是把 Agent Auto Loop 的项目，包括 Super Agent 以及 Lob Hub（结合 acceptance）的功能全部实现出来了」。
+
+**已发生**：前端主界面仍是 3100 Paperclip 工作台（中文壳构建），本轮把它彻底国内化。① i18next 标准多语言接入：语言数据单一来源 `locales/i18n-zh-CN.json`（i18next resources 结构，445 词条，英文原文作 key），构建期注入上游 en/zh-CN 双语言包并把 DEFAULT_LOCALE 切到 zh-CN（上游 UI 目前零 t() 调用，i18next 是架构就位；硬编码文案由词典替换层兜底，两层同源）。② 词典层增强：JSXText 空白归一化、显示属性扩展（message/action/mobileLabel/effect/subtitle）、显示映射表启发式（snake_case 键 + 首字母大写值）。③ 海外清理：页面标题去 Paperclip 品牌尾缀；活动动词表 29 条中文化；运行时间/计数模板中文化；设置页治理、可观测性、部署块全中文。④ `docs/FEATURE-PARITY.md` 三上游功能对照审计（Autoloop / Super-agent / Acceptance 逐项对照 + 四个拍板过的未做边界）。⑤ 真实页面文本探查与六张截图留证。
+
+**未发生（如实）**：上游 UI 源码与提交未改（全部为构建期 transform）；未引入第 8 个上游或新 npm 依赖；`LLM Wiki` 子页签名是服务端插件注册名（运行时数据，词典层够不着，如实保留）；图表图例部分状态词（Done/Blocked/Cancelled/Backlog）来自运行时数据映射，本轮未覆盖；默认底座 local-pg + step、飞书唯一发起入口、真人验收红线均不变；4200 自研控制台与 3100 工作台并行保留。7 个上游 submodule、`audit:upstream clean:true` 不变。

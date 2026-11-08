@@ -1,0 +1,76 @@
+# 上游功能实现对照（第三十五轮审计）
+
+> 用户问题：是否把 Agent Autoloop、Super Agent、LobeHub（结合 acceptance）的功能全部实现出来了？
+> 本文按三个上游的公开功能面逐项对照本仓库实现位置与验证证据。**结论先说：核心功能全部落地且在生产链上真实接通；四个「未做」项均为产品拍板过的边界（飞书唯一入口等），不是遗漏。**
+
+审计时间：2026-11-09（第三十五轮）。运行基线：`1b484e8`，`npm test` 563/563。
+
+## 1. Agent Autoloop（KKKKhazix/agent-autoloop · MIT · 国内开源）
+
+上游形态：零依赖内核 + 四方向插件（事件 / Agent / 通道 / 交付流水线），「拿不准才发卡片问你」。
+
+| Autoloop 功能 | SuitMe 实现 | 位置与证据 |
+|---|---|---|
+| **挂起零消耗**（等拍板时进程退出，不烧 Token） | step 模式：一次进程只跑一步；HITL 等人期间进程退出，状态外置 PG 步进队列（`checkout-retry-runToken`），回来接原会话续跑 | `src/step-runner.ts`、`src/pg-host.ts`、`steps:smoke` 61/61；第三十二轮起为默认执行形态 |
+| **事件溯源**（断电不丢、每步可追溯） | append-only 事件主干 + 四类投影 + checkpoint 增量应用（checksum 与全量逐字节对照） | `src/event-stream.ts`、`src/memory-log.ts`、`npm run memory:checkpoint` |
+| **指令数据分离**（Issue 的话进不了提示词、改不了目录权限） | `runtimeGuard.enforce` 生产链开启；指令与数据红线（R 系列） | `src/runtime-guard.ts`、契约测试 |
+| **跳数熔断**（Agent 互相触发超限自动停） | `maxStepsPerRun` 步数上限（默认 60，可配 20000）+ mission 六态守门（failed 不重放） | `src/config.ts`、`src/mission-state.ts`、`src/step-execution.ts` |
+| **事件插件**（定时 / GitHub / 业务系统 / 轮询） | 飞书唯一发起入口（上游 `feishuTrigger` 原版）+ 插件工作台发起；**定时调度器与 GitHub 监听未接，见第 5 节** | `src/upstream.ts`、`src/collaboration-intake.ts` |
+| **Agent 插件**（一行配置接任意 CLI Agent） | 上游 `worker/agents.ts` `adapterFor` 原版装载（codex / claude / command / acp 四 adapter） | `src/upstream.ts`、`agents:smoke` 43/43；3100 代理页 13 agents |
+| **通道插件**（飞书 / 钉钉 / 企微 / 桌面通知） | 飞书通道（上游 `feishu-channel` 原版，长键 sha256 幂等）+ 桌面通知 + 升级限速静音（1 小时 3 次）；**钉钉/企微未接，见第 5 节** | `src/channels.ts`、`src/escalation.ts` |
+| **拍板卡片 → 点一下接着干完** | HITL 台账 `askHuman`/`answerHuman` 成对留痕 + 第二十九轮「回答后自动续跑」授权代办 | `src/step-hitl.ts`、`src/auto-resume.ts`、`scripts/step-answer.ts` |
+| **自动闭环：到点复查** | 「later」送达证据 + 步进队列推进；**定时唤醒未部署**，见第 5 节 | `src/step-delivery.ts` |
+| **代码交付流水线**（审代码→检查→合并→上线→核对） | 本机 Git 自动合并 / 自动发布（第八轮起 GitHub 主链路换本机 Git），上线核对走平台证据 | `src/local-git.ts`、`src/platform-evidence.ts` |
+| **Token / 费用统计** | PG 成本账本逐调用入账 + 3100 总览「本月花费 / Run Activity」可视化 | `src/pg-host.ts` 成本账本、3100 dashboard |
+
+## 2. Super-agent（deepseek-ai/dsh-superagent-prototype · MIT · 研究原型）
+
+上游形态：监听 GitHub + 飞书，被允许的人要活才开工单，自有会话与目录里干完，原会话回答；web panel 显示需要人的事。
+
+| Super-agent 功能 | SuitMe 实现 | 位置与证据 |
+|---|---|---|
+| 监听 IM、被要求才开工单 | 飞书触发（上游 `feishu-trigger` 原版：`feishuTrigger` / `feishuThreadId` / `feishuTriggerId`）→ 协作接单 | `src/upstream.ts`、`src/collaboration-intake.ts` |
+| 自有 agent 会话与目录干活 | autoloop worker session + 签出目录隔离（读 / 写权限分级） | `src/step-execution.ts`、`agents:smoke` |
+| **在原会话回答**（不另开线程） | P-9 双向协作回路：上行回执 / 提问 / 请示，下行发起 / 回答 / 接续 / 核可 | `src/collaboration-loop.ts`、`loop:smoke`、`step-mode-guide`（SUI-135 交付物） |
+| web panel（显示需要人处理的事） | 3100 工作台「待办 / Needs you」+ 审批页 + 4200 只读控制台 | `console/`、Paperclip UI |
+| 授权模型（谁可以要活 / 花钱） | casbin RBAC（bridge 与 console 两进程共用策略）+ 原会话核可红线 + 飞书组织身份映射 | `src/rbac.ts`、`src/feishu-org.ts` |
+| 策略评估（settingsPolicy / assessmentOutcome） | 上游 `policy.ts` 纯函数原版复用 | `src/upstream.ts` 声明装载 |
+| 「占用最少人类注意力」哲学 | 按需打扰：升级只通知不代批、限速静音、HITL 只在拿不准时发卡、挂起零消耗 | `src/escalation.ts`、产品红线 |
+
+## 3. Acceptance（lobehub/acceptance · Apache-2.0）+ LobeHub 设计语言
+
+上游形态：「Agent 说做完了，Acceptance 让你先看证据再验收」——把请求变成可观察 checks，跑真实产品，发布带截图 / 录屏 / 日志的报告，接受或逐条打回，打回的记忆会沉淀。
+
+| Acceptance 功能 | SuitMe 实现 | 位置与证据 |
+|---|---|---|
+| **开工前锁定验收计划**（改了能发现） | `acceptance-plan.ts`：内容哈希 + Paperclip 文档修订号双重锁定，替换即检出 | 契约测试 + SUI-54 真实单 |
+| 把请求变成可观察 checks | 逐项独立判定 passed / failed / blocked（不为凑绿放宽） | `src/acceptance-round.ts` |
+| 证据分类与绑定（截图 / 录屏 / 日志） | `evidenceKind: captured / imported / authored` + 独立视觉评审（本机 Apple Vision 真跑识别 80 段文字） | `src/event-stream.ts`、`src/visual-review.ts`、`src/vision-semantics.ts` |
+| 一条链接团队可审的报告 | `export-acceptance`：`result.json` / `report.md` / assets，兼容上游契约与文件布局 | `src/acceptance-interop.ts`、`scripts/export-acceptance.ts` |
+| **打回的记忆**（criteria / 失败例 / 变更） | C-6 沉淀回流：自查标准回流为交付前强制比对 + evolution 台账（候选改进 → 工程闸门 → 人审 → 版本 / 灰度 / 可回滚） | `src/evolution.ts`、`src/evolution-ledger.ts`、`evolution:smoke` 45/45 |
+| 每个决定显示是谁做的 | 人签链 candidate → confirmed → withdrawn + 全量审计留痕 | `src/memory-log.ts`、审计页 |
+| LobeHub 观感（**不复制代码**，Community License 禁止） | 4200 控制台布局 / 卡片 / 明暗主题 / 会话气泡时间线参考其设计语言，自研 Vue 3 + Element Plus | `console/`；许可证边界见 `docs/OPEN-SOURCE-COMPLIANCE.md` |
+
+## 4. Paperclip（本体上游 · MIT）
+
+作为任务真源、调度核心与 3100 工作台宿主原版复用；SuitMe 插件（`plugins/knowledge-workspaces`）经 Plugin SDK 挂载。本输出就是它的 UI（中文壳 + 国内适配层）。
+
+## 5. 如实未做（均为拍板过的产品边界，不是遗漏）
+
+| 项 | 上游 | 不做的原因 |
+|---|---|---|
+| 定时调度器（cron 事件源） | Autoloop 事件插件 | 「飞书是唯一发起入口」为用户拍板红线；例行任务能力在 Paperclip Routines 中保留 |
+| GitHub 监听接单 | Super-agent | 第八轮起 GitHub 主链路换本机 Git 交付台（用户主动取消 4194） |
+| 钉钉 / 企微 / Slack / Discord 通道 | Autoloop 通道插件 | 国内以飞书为主；通道层 `channels.ts` 是适配器架构，接新通道是配置工作不是改造 |
+| 定时唤醒复查（scheduled follow-up） | Autoloop 自动闭环 | 「later」送达证据与队列推进已留痕；定时唤醒需常驻调度进程，与挂起零消耗的取舍尚未拍板 |
+
+## 6. 验证命令（全部真跑）
+
+```sh
+npm test            # 563/563（含三个上游装载的契约测试）
+npm run steps:smoke # 61/61：step 模式 + HITL 闭环 + 送达证据
+npm run agents:smoke    # 43/43：Agent 编制与 adapter
+npm run loop:smoke  # 18/18：双向协作回路
+npm run evolution:smoke # 45/45：沉淀回流（打回记忆）
+npm run audit:upstream  # clean:true：上游固定提交与许可证
+```

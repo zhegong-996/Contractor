@@ -29,7 +29,7 @@ const ADAPTERS: Record<string, string[]> = {
   paperclip: ['src/paperclip.ts', 'src/store.ts', 'src/controller.ts', 'src/server.ts', 'src/commands.ts',
     'plugins/knowledge-workspaces/src/ui/index.tsx', 'plugins/knowledge-workspaces/src/ui/styles.ts',
     'plugins/knowledge-workspaces/src/ui/v06-panels.tsx', 'plugins/knowledge-workspaces/src/worker.ts',
-    'scripts/build-chinese-shell.ts', 'locales/shell.zh-CN.json',
+    'scripts/build-chinese-shell.ts', 'locales/i18n-zh-CN.json', 'src/shell-locale.ts', 'src/shell-domestic.ts',
     'scripts/install-workspace-plugin.ts', 'scripts/install-wiki.ts'],
   superagent: ['src/upstream.ts', 'src/feishu-sources.ts'],
   autoloop: ['src/upstream.ts', 'src/native-worker.ts', 'src/assistant-turn.ts'],

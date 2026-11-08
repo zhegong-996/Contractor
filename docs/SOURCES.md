@@ -20,7 +20,7 @@
 
 src/upstream.ts 声明本项目用到的接口并加载固定源码；出站包装只把过长通知标识映射为飞书允许的稳定幂等键。动态包边界避免把未使用的 DeepSeek Harness 宿主及其 peer dependencies 拉进本项目的类型检查；实际执行的是上游实现。测试覆盖这些真实导出，而非本地仿制实现。
 
-中文宿主通过 `scripts/build-chinese-shell.ts` 在构建阶段应用 `locales/shell.zh-CN.json`：只替换展示文案，不修改上游工作树、许可证、路由、API 枚举或用户内容；复用原生 Vite / React 构建。国内环境适配层 `src/shell-domestic.ts` 在此基础上做两件事：构建期收敛侧栏的技能库 / 连接服务入口，以及通过**同源静态资源** `suitme-domestic.js` 在运行时隐藏数据驱动、且**未连接**的海外集成卡片；脚本不注入 DOM 翻译、不改写业务内容、不发出任何网络请求，也不碰本项目插件页面。`npm run build:chinese-shell` 可复现中文资源，`npm run install:upstream` 末尾与 `npm run up` 启动前都会保证它生效；重新执行上游原版 UI 构建可恢复原界面。插件自己的文案仍由各插件维护，覆盖范围见 SYSTEM-ARCHITECTURE.md。
+中文宿主通过 `scripts/build-chinese-shell.ts` 在构建阶段应用 `locales/i18n-zh-CN.json`（第三十五轮起为 i18next 标准结构、单一数据源，445 词条；同文件词条同时注入上游 i18next 的 en/zh-CN 语言包并把 DEFAULT_LOCALE 切到 zh-CN）：只替换展示文案，不修改上游工作树、许可证、路由、API 枚举或用户内容；复用原生 Vite / React 构建。国内环境适配层 `src/shell-domestic.ts` 在此基础上做两件事：构建期收敛侧栏的技能库 / 连接服务入口，以及通过**同源静态资源** `suitme-domestic.js` 在运行时隐藏数据驱动、且**未连接**的海外集成卡片；脚本不注入 DOM 翻译、不改写业务内容、不发出任何网络请求，也不碰本项目插件页面。`npm run build:chinese-shell` 可复现中文资源，`npm run install:upstream` 末尾与 `npm run up` 启动前都会保证它生效；重新执行上游原版 UI 构建可恢复原界面。插件自己的文案仍由各插件维护，覆盖范围见 SYSTEM-ARCHITECTURE.md。
 
 第十七轮 C-2 起，另有一层**自研独立控制台** `console/`：不依赖 Plugin SDK、不依赖宿主的 3100 页面，由 `scripts/console-server.ts` 只在回环地址按需提供，通过 `config.bridgePort` 访问本机动作分发口。第三十轮 P-12 起升级为**登录制 + casbin RBAC**：浏览器会话经 HttpOnly cookie 鉴权，只读动作走白名单、知识写入与用户配置走本人/分区判定、管理动作按角色权限放行，密钥不出服务端；前端复用 Vue 3 + Element Plus（本地 vendor）。中文展示语言由 `console/app.js` 的 `DOMESTIC_TERMS` 统一收敛。`npm run console` 按需启动、`npm run console:smoke` 真跑验证，均**不新增常驻服务**；旧插件工作台仍保留作为可回退实现。
 

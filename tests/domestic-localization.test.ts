@@ -9,7 +9,7 @@ import { domesticIndexHtml } from '../src/shell-domestic.ts';
 import { buildServiceStatus, type ProbeResult, type ServiceStatusInput } from '../src/service-status.ts';
 
 const read = (file: string) => readFileSync(path.join(root, file), 'utf8');
-const dictionary = JSON.parse(read('locales/shell.zh-CN.json')) as Record<string, string>;
+const dictionary = (JSON.parse(read('locales/i18n-zh-CN.json')) as { translation: Record<string, string> }).translation;
 const uiDir = path.join(root, 'plugins/knowledge-workspaces/src/ui');
 const visibleUiLines = () => readdirSync(uiDir)
   .filter(file => file.endsWith('.tsx') || file.endsWith('.ts'))

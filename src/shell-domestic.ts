@@ -14,7 +14,25 @@ export interface DomesticNavRule {
   id: string;
   file: RegExp;
   pattern: RegExp;
+  /** 命中后的替换文本；缺省为删除（维持原有收敛行为）。 */
+  replacement?: string;
 }
+
+// 活动记录动词表（activity-format.ts 的 ACTIVITY_ROW_VERBS，纯显示文案）。
+// key 与上游逐字对应；未列出的 key 原样保留，不猜。
+const ACTIVITY_VERBS_ZH: Record<string, string> = {
+  'created': '创建了', 'updated': '更新了', 'read': '已读', 'marked unread': '标为未读',
+  'checked out': '签出了', 'released': '释放了', 'commented on': '在…补充了讨论',
+  'deleted a comment on': '在…删除了讨论', 'attached file to': '在…添加了附件',
+  'removed attachment from': '在…移除了附件',
+  'created document for': '为…创建了文档', 'updated document on': '更新了…的文档',
+  'locked document on': '锁定了…的文档', 'unlocked document on': '解锁了…的文档',
+  'updated details on': '更新了…的详情', 'changed status on': '变更了…的状态',
+  'linked a task to': '把任务关联到', 'unlinked a task from': '把任务移出',
+  'attached a file to': '在…添加了附件', 'added a label to': '给…加了标签',
+  'removed a label from': '给…移除标签', 'updated a document on': '更新了…的文档',
+  'completed': '完成了', 'handed off': '交接了',
+};
 
 export const DOMESTIC_NAV_RULES: DomesticNavRule[] = [
   { id: 'sidebar-skills', file: /Sidebar\.production\.tsx/,
@@ -25,6 +43,18 @@ export const DOMESTIC_NAV_RULES: DomesticNavRule[] = [
     pattern: /^[ \t]*\{ label: "Skills", to: "\/skills",[^}]*\},[ \t]*\r?\n/m },
   { id: 'coordinator-connectors', file: /CoordinatorSidebar\.tsx/,
     pattern: /^[ \t]*\{ label: "Connectors", to: "\/apps",[^}]*\},[ \t]*\r?\n/m },
+  // 页面标题尾缀去掉上游品牌「Paperclip」，只保留组织名（SuitMe 协作台）。
+  // 注意不能吞掉数组闭合括号：只删 `, "Paperclip"` 这一段。
+  { id: 'breadcrumb-brand', file: /BreadcrumbContext\.tsx/,
+    pattern: /, "Paperclip"(?=\])/ },
+  // 总览 / 代理页的运行时间与计数模板（动态插值，词典层够不着）。
+  // 中文无复数变化，整体换成语序自然的模板。
+  { id: 'finished-ago-template', file: /ActiveAgentsPanel\.tsx/,
+    pattern: /`Finished \$\{relativeTime\(run\.finishedAt\)\}`/,
+    replacement: '`${relativeTime(run.finishedAt)}前完成`' },
+  { id: 'more-runs-template', file: /ActiveAgentsPanel\.tsx/,
+    pattern: /`\$\{hiddenRunCount\} more active\/recent run\$\{hiddenRunCount === 1 \? "" : "s"\}`/,
+    replacement: '`${hiddenRunCount} 个进行中/最近运行`' },
 ];
 
 export function domesticShell(source: string, file: string): { code: string; hidden: string[] } {
@@ -32,8 +62,15 @@ export function domesticShell(source: string, file: string): { code: string; hid
   const hidden: string[] = [];
   for (const rule of DOMESTIC_NAV_RULES) {
     if (!rule.file.test(file.replaceAll('\\', '/'))) continue;
-    const next = code.replace(rule.pattern, '');
+    const next = code.replace(rule.pattern, rule.replacement ?? '');
     if (next !== code) { hidden.push(rule.id); code = next; }
+  }
+  // 活动动词表：只对 activity-format.ts 的显示映射做逐条翻译，key 逐字对应。
+  if (/activity-format\.ts$/.test(file.replaceAll('\\', '/'))) {
+    for (const [english, chinese] of Object.entries(ACTIVITY_VERBS_ZH)) {
+      const next = code.replace(new RegExp(`(\\.(?:created|updated|[a-z_]+)": )"${english.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"`), `$1"${chinese}"`);
+      if (next !== code) { code = next; hidden.push('activity-verbs'); }
+    }
   }
   return { code, hidden };
 }
