@@ -1,6 +1,6 @@
 # 06 · 当前状态与下一步（接手者最该看的一份）
 
-## 1. 状态快照（第二十二轮 P-1）
+## 1. 状态快照（第二十三轮 P-5）
 
 | 阶段 | 状态 | 交付 |
 |---|---|---|
@@ -9,8 +9,9 @@
 | **B2 读取链切换** | ✅ **完成并验证** | 见第 2 节：投影召回融合、按主体精确撤权、真实一单端到端撤权、增量 checkpoint |
 | **C 三层 Router + 底座切换** | ✅ **C-0 ~ C-6 分步清单全部完成并收口** | 见第 3 节分步清单 |
 | **生产项 P-1 长程循环单步化** | ✅ **第二十二轮完成**：单步执行器接上 C-1 的 PG 队列，默认 loop 可回退 | 见第 6 节 P-1 交付与证据 |
+| **生产项 P-5 控制台快照服务端分页 / 裁剪** | ✅ **第二十三轮完成**：新增只读 `view-summary`，原 `view` 逐字保留 | 见第 7 节 P-5 交付与证据 |
 
-系统能跑、全套回归全绿（**413/413 单测**、11/11 真实浏览器走查、**`console:smoke` 全绿、`router:smoke` 31/31、`agents:smoke` 43/43、`shapes:smoke` 36/36、`evolution:smoke` 45/45、`steps:smoke` 40/40**、上游 clean、`host:pg` 21/21）。`HEAD = origin/main = 远端 main`。C-1 起每次代码改动都重跑全套；本机 PG 17.10 专属库 `suitme_collab_c1` 已可真跑。
+系统能跑、全套回归全绿（**424/424 单测**、11/11 真实浏览器走查、**`console:smoke` 全绿（含 4 项摘要检查）、`router:smoke` 31/31、`agents:smoke` 43/43、`shapes:smoke` 36/36、`evolution:smoke` 45/45、`steps:smoke` 40/40**、上游 clean、`host:pg` 21/21）。`HEAD = origin/main = 远端 main`。C-1 起每次代码改动都重跑全套；本机 PG 17.10 专属库 `suitme_collab_c1` 已可真跑。
 
 ## 2. B2 已完成（四项，均带真跑证据）
 
@@ -77,7 +78,8 @@
 - Cognee 原生 `cognify` 真实外部模型调用未发生（缺端点与凭据，本轮未外发任何业务材料）。
 - 企业微信 / 腾讯文档 / 钉钉 / 国内代码托管 / 公有云 CI / 海外 SaaS 未接通，按约定**没有入口**；将来要加入口必须先配置并实测接通。
 - 生产发布、业务仓库发布、真实外部 PR/CI、全员 SSO 均未发生。
-- **C-6 已完成（第二十一轮）**：自查标准回流到交付前强制比对、候选改进的工程闸门 + 人审 + 版本 / 灰度 / 回滚、四项错误效果对比均已落地并真跑 45/45。**第二十二轮 P-1 已完成长程循环单步化**（`runner.ts` / `assistant-runner.ts` 无常驻 `while`；`steps:smoke` 40/40，含真实 PG 跨进程接力），详见第 6 节。**剩余为生产项**：切换默认 `config.host.provider`、把真实业务单切到 step 模式验证、autoloop worker 内部子调用逐次拆分、真实外部模型端点与远端工具沙箱 / 多机切换、金额成本账本接入效果看板。
+- **C-6 已完成（第二十一轮）**：自查标准回流到交付前强制比对、候选改进的工程闸门 + 人审 + 版本 / 灰度 / 回滚、四项错误效果对比均已落地并真跑 45/45。**第二十二轮 P-1 已完成长程循环单步化**（`runner.ts` / `assistant-runner.ts` 无常驻 `while`；`steps:smoke` 40/40，含真实 PG 跨进程接力），详见第 6 节。**第二十三轮 P-5 已完成控制台只读快照的服务端分页 / 裁剪**（见第 7 节），原 `view` 逐字保留。**剩余生产项如下，仍需用户确认或外部凭据**：切换默认 `config.host.provider`、把真实业务单切到 step 模式验证、autoloop worker 内部子调用逐次拆分、真实外部模型端点与远端工具沙箱 / 多机切换、金额成本账本接入效果看板。
+- **外部候选（第二十三轮，只评估、未引入任何代码）**：用户给出 `github.com/yicheng47/runner` 的终端 Agent 协作层架构图，问 Agent 相关部分能否直接引用 / 移植 / 复用参考。核实当前 `main` 为 **MIT**（但 2026-08-22 ~ 09-22 发布版本为 GPL-3.0-only 且仍按该许可提供）、**Rust** 桌面栈，与本项目不同栈且整仓引用会引入第 8 个上游。三档结论（只借思想 / 移植 `ask_human` 成对 HITL 留痕与 durable queue 的 ack 两块纯协议 / 整仓直接引用）与红线见 `HANDOFF/08` 第 11 条、`docs/ADAPTATION-v0.6.md` 最新边界节，**待用户拍板，接手者不要擅自开始移植**。
 
 ### C-4 交付与证据（第十九轮）
 
@@ -115,3 +117,11 @@
 - **真跑 40/40**：`npm run steps:smoke` 在隔离内存队列 + 本机 PG 专属库 `suitme_collab_c1` + 真实子进程上跑完整链与全部反例。第一棒由 `step:once` 领走 `counter=1` 并原子激活第二棒；第二棒由 `COLLAB_STEP_ENVIRONMENT=另一台机器` 的独立进程领走 `counter=2`、`previousEnvironment=本机执行环境`；旧 `runToken` 作废、崩溃回收、缺身份 / 范围不一致 fail-closed、未登记步骤 / 模型步 / 人工步 / 白名单外工具一律拒绝；真跑前后 B1 主干行数不变。用唯一 `runId`，**不调用 `resetForTest()`**、不清空他人数据。`tests/step-execution.test.ts` 13 例，全套 **413/413**。
 - **真实服务端**：`v06-execution-view` HTTP 200（`mode=loop`、`steppedReady=false`、`missing=6`）；控制台代理只读 200、写动作 403；`console:smoke` 全绿，四张演示截图 `errorCards:0`。
 - **如实边界**：真实业务单未在 step 模式跑过；无任何外部模型调用；autoloop worker 内部一次 tick 的多次子调用尚未逐次拆分（当前 tick 级单步）；远端沙箱 / 多机切换 / Redis / 金额成本账本未落地；`host:pg` 的 `resetForTest()` 会清空专属测试库，`steps:smoke` 的 append-only 留痕不保证长期保留。
+
+## 7. P-5 交付与证据（第二十三轮，控制台只读快照服务端分页 / 裁剪）
+
+- **代码**：`src/workspace-summary.ts`（`parseViewSummaryPage()` 参数夹取、`visibleTasksFor()` 与 `view` 逐字一致的身份过滤、`buildWorkspaceSummary()` 确定性纯函数与字段白名单）；`server.ts` 新增只读 `view-summary` 分支（只从本机任务索引 + 工作区目录组装，宿主 issue 标题按当前页并发取、单条 2 秒超时即降级）；`members.ts` 的 `reads`、`console-server.ts` 的 `CONSOLE_READ_ACTIONS` 同步登记；`console/app.js` 四处改用摘要、走默认 8 秒快速失败，`view` 的 30 秒宽限只留给兼容调用；`tests/workspace-summary.test.ts` 9 例 + `tests/console-shell.test.ts` 2 例；`scripts/console-smoke.mjs` 补 4 项真跑检查。
+- **真跑（真实服务端 HTTP）**：`view` **509,283 bytes / 4.02 秒** → `view-summary` **5,678 bytes / 0.076 秒**，`limit=2` 为 **1,078 bytes / 0.019 秒**；`taskCount=10`、`page.total=10`、`hasMore=false`、`titleSource=host`、`fieldsClipped=true`；任务对象只有 7 个白名单字段，序列化结果不含 `snapshots` / `body` / `context` / `sourceAccess`。
+- **回归**：`npm test` **424/424**、`tsc`、两个构建、425px 响应式、工作台走查 **11/11**、`console:smoke` 全绿（含 4 项新检查，且旧 `/api/view` 仍 200 / 10 条真实任务，旧链路未回退）、`router:smoke` 31/31、`agents:smoke` 43/43、`shapes:smoke` 36/36、`evolution:smoke` 45/45、`steps:smoke` 40/40、`host:pg` 21/21、记忆重放 / checkpoint、`audit:upstream clean:true`、`git diff --check`。
+- **环境处置**：本轮开始时 3100 / 4180 进程带失效文件代理，`fs` 读取报 `connect failed: Connection refused`，宿主静态页 500、`view` 一度 409 并随后崩溃；按 `HANDOFF/00` 第 3 / 5 节既定流程用干净环境重启 4180 / 3100 并重挂插件后恢复，走查 11/11。未改上游源码、未重启 4190 / 4192 / 4194 / 9418。
+- **如实边界**：摘要只用于展示索引，不承载工作稿正文 / 授权明细 / 验收判断；`view` 逐字保留，插件工作台未改动；宿主标题为 advisory，缺失时标 `titleSource=local/partial` 并用本机任务索引首行兜底；控制台只读白名单 16 → 17 项、仍无写入口；默认底座仍 `paperclip`、飞书仍是唯一发起入口；真人业务验收 SUI-129 仍未发生。其余剩余生产项未动，仍需用户确认或外部凭据。

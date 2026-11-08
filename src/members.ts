@@ -85,7 +85,9 @@ export class TeamMembers {
   async gate(action: string, payload: any, actor: WorkspaceActor): Promise<WorkspaceActor> {
     if(actor.agent&&!actor.userId)await this.checkAgentOwner(actor.agent);
     if (actor.admin || !actor.userId) return actor;
-    const reads = ['view', 'agent-services', 'agent-build', 'development-view', 'delivery-status', 'service-status', 'routing-status', 'memory-replay', 'trace-view', 'team-members', 'member-pair-code', 'network-view', 'memory-search', 'memory-status', 'memory-annotations', 'context-pack', 'context-record', 'context-search', 'knowledge-graph'];
+    // P-5：view-summary 是 view 的服务端裁剪版，同样是只读、同样按身份过滤，
+    // 因此与 view 走同一条成员读取放行链，不新增任何写入口。
+    const reads = ['view', 'view-summary', 'agent-services', 'agent-build', 'development-view', 'delivery-status', 'service-status', 'routing-status', 'memory-replay', 'trace-view', 'team-members', 'member-pair-code', 'network-view', 'memory-search', 'memory-status', 'memory-annotations', 'context-pack', 'context-record', 'context-search', 'knowledge-graph'];
     if (reads.includes(action)) return actor;
     // v0.6: owner-level permissions are enforced inside V06Services (org owner /
     // workspace owner / function owner). Keep the original admin flag intact so

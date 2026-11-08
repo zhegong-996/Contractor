@@ -39,6 +39,8 @@ import { configureRouter, getRouter, planCoverage } from './router.ts';
 import { configureAgentRegistry, getAgentRegistry } from './agent-registry.ts';
 import { getMemoryLog, readBridgedEvents } from './memory-log.ts';
 import { memoryReplayReport } from './memory-projections.ts';
+// P-5：控制台只读摘要（服务端分页 / 字段裁剪），原 view 逐字保留。
+import { buildWorkspaceSummary, parseViewSummaryPage, visibleTasksFor, type HostTitle } from './workspace-summary.ts';
 
 const config = loadConfig(); const credentials = secrets();
 // C-3：用组织形态配置装配单一 Router；五个派活点此后都经它写同一份 Trace。
@@ -173,11 +175,12 @@ const server = createServer(async (req, res) => {
       // Reads recheck their own scope and revisions. They need not wait behind
       // indexing or native process reconciliation; mutations keep the single lane.
       const v06Reads=['roles-view','role-route','role-hints','role-snapshot','transfer-view','transfer-policy','dispatch-guard','grant-widen','grant-check','edges-view','edge-impact','label-check','policy-view','verification-level','topology-advice','inflight-policy','signals','review-readiness','ontology-meta','ontology-view','ontology-query','attention-policy','attention-filter','watchdog-policy','watchdog-inspect','plan-view','round-view','acceptance-export','acceptance-report-view','org-overview','org-mapping-view','context-pack','l2-status','l2-edges-view','l2-graph-view','agent-registry-view','acceptance-crew','evolution-view','execution-view'];
-      const readOnly=['view','team-members','agent-services','agent-build','development-view','delivery-status','service-status','routing-status','memory-replay','network-view','memory-status','memory-search','memory-annotations','context-pack','context-record','context-search','ontology-view','model-settings','system-status','trace-view'].includes(action)||action==='knowledge-graph'&&payload.project!==true||action.startsWith('v06-')&&v06Reads.includes(action.slice(4));
+      const readOnly=['view','view-summary','team-members','agent-services','agent-build','development-view','delivery-status','service-status','routing-status','memory-replay','network-view','memory-status','memory-search','memory-annotations','context-pack','context-record','context-search','ontology-view','model-settings','system-status','trace-view'].includes(action)||action==='knowledge-graph'&&payload.project!==true||action.startsWith('v06-')&&v06Reads.includes(action.slice(4));
       const runWorkspace=readOnly?<T>(job:()=>Promise<T>)=>withFeishuReads(job):serialize;
       res.end(JSON.stringify(await runWorkspace(async () => {
         workspaceActor = await teamMembers.gate(action, payload, workspaceActor);
-        if(workspaceActor.userId&&action!=='view')store.audit('member.action',payload.taskId??config.companyId!,{userId:workspaceActor.userId,action});
+        // P-5：view-summary 与 view 同为高频只读快照，同样不逐次写成员审计，避免切一次视图多一条噪声。
+        if(workspaceActor.userId&&action!=='view'&&action!=='view-summary')store.audit('member.action',payload.taskId??config.companyId!,{userId:workspaceActor.userId,action});
         // v0.6: all new semantic objects reach the human through the same
         // channel renderer (conversation text + workbench link + optional card).
         if(action.startsWith('v06-'))return v06.dispatch(action.slice(4),payload,workspaceActor,{workbenchUrl:config.paperclipUrl,channel:'workspace',actorUserId:workspaceActor.userId??'local-operator'});
@@ -317,6 +320,40 @@ const server = createServer(async (req, res) => {
           const task = await workspaces.createTask(payload.task, workspaceActor);
           if (payload.delegate && assistant.available()) await assistant.delegate(task.id, true, z.enum(['prepare', 'advance']).parse(payload.mode ?? 'advance'), '', workspaceActor, payload.task.requestKey);
           return task;
+        }
+        // P-5：控制台摘要。只从本机任务索引 + 工作区目录组装分页白名单，不读任何
+        // 工作稿正文、不逐条跑授权重评 / 服务网络 / 助手实时详情（这些正是原 view
+        // 415KB / 10~12 秒的来源）。原 view 逐字保留给插件工作台，随时可回退。
+        if (action === 'view-summary') {
+          const page = parseViewSummaryPage(payload);
+          const catalog = workspaces.catalog();
+          const visible = visibleTasksFor(workspaceActor, store.list());
+          const slice = visible.slice(page.offset, page.offset + page.limit);
+          const hostTitles: Record<string, HostTitle | undefined> = {};
+          await Promise.all(slice.map(async item => {
+            let timer: ReturnType<typeof setTimeout> | undefined;
+            try {
+              // 标题只是展示增强：单个宿主请求超时 / 失败就降级到本地任务索引，
+              // 不改变任务列表、统计或任何验收相关状态。
+              const issue: any = await Promise.race([
+                workspaces.pc.get('/issues/' + item.id),
+                new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('宿主标题读取超时')), 2000); }),
+              ]);
+              if (issue?.companyId !== config.companyId) return;
+              hostTitles[item.id] = { title: String(issue.title ?? ''), goal: String(issue.description ?? '') };
+            } catch { /* advisory：缺一条标题也照常返回摘要 */ }
+            finally { if (timer) clearTimeout(timer); }
+          }));
+          return buildWorkspaceSummary({
+            tasks: visible, actor: workspaceActor,
+            spaceCount: Object.keys(catalog.spaces).length, sourceCount: catalog.sources.length,
+            feishuConnected: workspaceActor.admin && Boolean(catalog.feishuConnection),
+            assistantAvailable: assistant.available(),
+            configurableAgents: workspaceActor.admin
+              ? Object.entries(config.agents).filter(([key, a]) => a.enabled && key !== config.assistant?.agentKey && secrets().paperclipTokens?.[key]).length
+              : 0,
+            limit: page.limit, offset: page.offset, hostTitles,
+          });
         }
         const result = await workspaces.dispatch(action, payload, workspaceActor);
         if (action === 'view') {

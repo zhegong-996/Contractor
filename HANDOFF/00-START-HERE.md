@@ -16,7 +16,7 @@
 cd /Users/gong.zhe/Developer/ai-native-collab
 git status --short --branch       # 应为干净且与 origin/main 一致
 git log -3 --oneline
-npm test                          # 基线：413/413
+npm test                          # 基线：424/424（第二十三轮 P-5 新增 11 例契约）
 ```
 
 ## 2. 干净环境（很重要）

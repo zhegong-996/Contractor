@@ -96,7 +96,7 @@ test('C-3 只读请求做 in-flight 去重并短缓存，避免并发重复请�
   assert.ok(app.includes('readCache.set(key, { at: Date.now(), value: data })'), '只缓存成功结果');
   assert.match(app, /finally\(\(\) => inFlight\.delete\(key\)\)/, '失败也要释放 in-flight');
   // C-5：真实浏览器测得 view 返回 415KB / 10~12 秒，统一 8 秒会稳定超时，
-  // 因此按动作区分超时，重快照单独宽限、其余只读仍快速失败。
+  // 因此按动作区分超时。P-5 起控制台已改拉服务端分页摘要，view 宽限只留给兼容调用。
   assert.match(app, /const READ_TIMEOUT = \{ view: 30000 \}/, '工作区快照要有单独宽限');
   assert.match(app, /signal: AbortSignal\.timeout\(READ_TIMEOUT\[action\] \?\? 8000\)/, '超时保护不能丢，且按动作区分');
   assert.match(app, /const CACHE_MS = 1500/);
@@ -117,6 +117,22 @@ test('C-4 编制视图走只读白名单，不新增写动作或新网页入口'
   assert.match(server, /'v06-agent-registry-view'/);
   assert.ok(!html.includes('新建任务'));
   assert.ok(!app.includes('acceptance-crew'), '控制台不开验收编组的写入 / 派单动作');
+});
+
+test('P-5 控制台改拉服务端分页摘要，不再请求全量工作区快照', () => {
+  assert.doesNotMatch(app, /safe\('view'\)/, '控制台不得再请求全量 view');
+  assert.ok((app.match(/safe\('view-summary'\)/g) ?? []).length >= 4, '用到任务列表的视图都要改');
+  assert.match(app, /actions: \['view-summary'/);
+  assert.match(server, /'view-summary'/, '新增只读动作必须登记进控制台白名单');
+  assert.match(app, /const READ_TIMEOUT = \{ view: 30000 \}/);
+  assert.doesNotMatch(app, /'view-summary': 30000/, '摘要走默认 8 秒，不给慢请求开口子');
+});
+
+test('P-5 摘要只用于展示索引，不承载工作稿正文或验收判断', () => {
+  for (const field of ['snapshots', 'sourceAccess', 'state.history']) {
+    assert.ok(!app.includes(field), `摘要视图不得读取完整现场字段：${field}`);
+  }
+  assert.match(app, /原发起人在原会话用中文确认验收/);
 });
 
 test('C-2 静态资源自足，不依赖外部脚本或样式', () => {

@@ -57,7 +57,7 @@ npm run delivery:demo       # 本机 Git 链路；4194/9418 停机时 gitProtoco
 | `build:workspaces` / `build:chinese-shell` | 通过 / `hiddenEntries` 4、`missed: []`、`warning: null`（前台重跑） |
 | `test:responsive` | 425px `393/393`、溢出 0、按钮 44px、`problems: []` |
 | `test:walkthrough` | **11 / 11**，`failures: []`（旧插件工作台未回退） |
-| `console` 只读超时 | 真实浏览器测得 `view` 415KB / 10~12 秒；改为按动作区分超时（`view` 30 秒、其余 8 秒），保留去重与短缓存，截图 `errorCards:0`；**服务端分页未做**，列为后续性能项 |
+| `console` 只读超时 | 真实浏览器测得 `view` 415KB / 10~12 秒；改为按动作区分超时（`view` 30 秒、其余 8 秒），保留去重与短缓存，截图 `errorCards:0`；**第二十三轮 P-5 已完成服务端分页 / 裁剪**：控制台改拉 `view-summary`（5.5KB / 0.076 秒），`view` 的 30 秒宽限只留给兼容调用，详见本节末尾第二十三轮实测 |
 | `evolution:smoke` | **45/45 `ok:true`**：闸门五种阻断、标准变更防蒙混、禁改对象拒绝、Agent 自批 / 跳闸门 / 无人审灰度被拦、真人批准 → 灰度 20% → 生效 → 回滚、四项效果指标与不可比标注、台账两次重放一致、坏行留痕；真实治理台账 / B1 主干行数前后不变、已锁定清单字节未变；报告 `.runtime/evolution-smoke.json` 不入库 |
 | `v06-evolution-view`（真实 HTTP / 控制台代理） | **200**：1 条沉淀标准 / 闸门已强制 / 0 次自查登记 / 暂无候选改进 / 效果不可比；控制台写动作 `v06-self-check-record` **403** |
 | `console:smoke` | **`ok:true`**：6/6 视图、真实任务 10 条、主题切换持久化、425px `425/425`、可见文案零海外品牌、无输入框、写动作 403 |
@@ -72,6 +72,18 @@ npm run delivery:demo       # 本机 Git 链路；4194/9418 停机时 gitProtoco
 | `host:smoke` / `host:pg` | `ok:true` / **`ok:true`、21/21**（事务、并发领取、步进链、崩溃恢复、token 幂等） |
 | `cognee:native status` | `configured:false`（缺 4 个环境变量，未外发业务材料） |
 | `git diff --check` / staged 敏感扫描 | 通过 / 无 `.runtime`、无真实身份 |
+
+## 3. 第二十三轮 P-5 实测结果（2026-11-08，服务端分页 / 裁剪）
+
+| 项 | 结果 |
+|---|---|
+| `npm test` | **424 / 424**（第二十二轮 413 + 9 例摘要契约 + 2 例控制台契约） |
+| 真实服务端 HTTP 对比 | `view` **509,283 bytes / 4.02 秒**；`view-summary` **5,678 bytes / 0.076 秒**；`limit=2` **1,078 bytes / 0.019 秒**（历史浏览器端到端 415KB / 10~12 秒） |
+| 响应结构 | `taskCount=10`、`page.total=10`、`hasMore=false`、`titleSource=host`、`fieldsClipped=true`；任务对象 7 个白名单字段；不含 `snapshots` / `body` / `context` / `sourceAccess` |
+| `console:smoke` 新增 4 项 | `summaryReady`（5,678 bytes / 94ms）、`summaryClipped`、`summaryPageHonest`、`summaryPaged`（`limit=2` 返回 2 条、`total` 仍 10）全绿；旧 `/api/view` 仍 200 且 10 条真实任务 |
+| 既有回归不回退 | `tsc`、`build:workspaces`、`build:chinese-shell ok:true`、`test:responsive`、`test:walkthrough` **11/11**、`router:smoke` 31/31、`agents:smoke` 43/43、`shapes:smoke` 36/36、`evolution:smoke` 45/45、`steps:smoke` 40/40、`host:pg` 21/21、`host:smoke`、`memory:replay` / `memory:checkpoint`、`routing:status`、`audit:upstream clean:true`、`git diff --check` |
+| 环境处置 | 3100 / 4180 进程带失效文件代理导致静态页 500、`view` 409 并随后崩溃；按 `HANDOFF/00` 既定流程用干净环境重启并重挂插件后恢复，走查 11/11。未改上游源码、未重启已取消服务 |
+| 如实边界 | 摘要只用于展示索引，不含工作稿正文 / 授权明细 / 验收判断；`view` 逐字保留；宿主标题 advisory 降级；只读白名单 16 → 17 项；默认底座仍 `paperclip`；真人业务验收 SUI-129 仍未发生 |
 
 > `memory:replay` 的 `eventCount` 会随真实业务动作增长，`duplicateIds` / `danglingCausedBy` 也可能保留历史行（append-only 日志不物理删除）。**判定标准是 `replayTwiceEqual` / `deterministic` / `logErrors` 为空，以及 `memory:journey` 的 `lineageComplete`**，不是固定数字。第十四轮修复前真实日志曾有 6 条悬空 lineage，旧行仍在，新链路已为 0。
 

@@ -44,6 +44,27 @@ try {
   check('realTasks', viewRes.status === 200 && Array.isArray(viewData.tasks) && viewData.tasks.length > 0,
     { status: viewRes.status, tasks: viewData.tasks?.length ?? 0, error: viewRes.status === 200 ? undefined : viewBody.slice(0, 300) });
 
+  // P-5：控制台改拉服务端分页摘要，真跑核对体积、字段裁剪与分页口径。
+  const summaryStarted = performance.now();
+  const summaryRes = await fetch(base + '/api/view-summary', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+  const summaryRaw = await summaryRes.text();
+  const summaryMs = Math.round(performance.now() - summaryStarted);
+  let summary = {};
+  try { summary = JSON.parse(summaryRaw); } catch {}
+  const summaryBytes = Buffer.byteLength(summaryRaw);
+  check('summaryReady', summaryRes.status === 200 && Array.isArray(summary.tasks) && summary.fieldsClipped === true,
+    { status: summaryRes.status, bytes: summaryBytes, ms: summaryMs, tasks: summary.tasks?.length ?? 0 });
+  check('summaryClipped', summaryBytes < 32768 && !summaryRaw.includes('"snapshots"') && !summaryRaw.includes('"body"'),
+    { bytes: summaryBytes });
+  check('summaryPageHonest', summary.taskCount === summary.page?.total && typeof summary.page?.hasMore === 'boolean',
+    { taskCount: summary.taskCount, total: summary.page?.total });
+
+  const pagedRes = await fetch(base + '/api/view-summary', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ payload: { limit: 2 } }) });
+  let paged = {};
+  try { paged = await pagedRes.json(); } catch {}
+  check('summaryPaged', pagedRes.status === 200 && paged.tasks?.length <= 2 && paged.page?.total === summary.taskCount,
+    { tasks: paged.tasks?.length, total: paged.page?.total, expected: summary.taskCount });
+
   const writeRes = await fetch(base + '/api/create-task', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
   check('writeBlocked', writeRes.status === 403, { status: writeRes.status });
   check('readOnlyAllowlist', CONSOLE_READ_ACTIONS.length >= 9 && !CONSOLE_READ_ACTIONS.includes('create-task'),

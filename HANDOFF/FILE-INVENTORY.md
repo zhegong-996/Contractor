@@ -1,6 +1,6 @@
 # FILE-INVENTORY · 逐文件说明（100% 覆盖）
 
-> 生成自 `git ls-files` + `HANDOFF/`，第二十二轮 P-1 收尾后共 **297** 个条目，2026-11-08 交接总结新增根目录 2 个文件后共 **299** 个条目（第十四轮 269 + C-1 新增 4 + C-2 新增 7 + C-3 新增 3 + C-4 新增 3 + C-5 新增 2 + C-6 新增 4 + P-1 新增 5 + 交接总结新增 2 个入库文件）。
+> 生成自 `git ls-files` + `HANDOFF/`，第二十二轮 P-1 收尾后共 **297** 个条目，2026-11-08 交接总结新增根目录 2 个文件后共 **299** 个条目，第二十三轮 P-5 新增 2 个文件后共 **301** 个条目（第十四轮 269 + C-1 新增 4 + C-2 新增 7 + C-3 新增 3 + C-4 新增 3 + C-5 新增 2 + C-6 新增 4 + P-1 新增 5 + 交接总结新增 2 + P-5 新增 2）。
 > 列：`路径 | 行数 | 说明`。`upstream/<name>` 是 gitlink（submodule），行数记 `-`；既有条目的行数为生成时快照，文档改版后以文件实际内容为准。
 > 说明来源：精写字典 213 条、从源码注释/导出/测试名自动提取 69 条、按类型兜底 0 条。
 > 需要更详细的「哪些文件一起完成什么」见 `04-CODE-MAP.md`；目录结构见 `DIRECTORY-GUIDE.md`。
@@ -17,7 +17,7 @@
 | `HANDOFF/05-VALIDATION-AND-COMMANDS.md` | 126 | 全套回归命令、第二十二轮 P-1 实测结果（含 host:pg 21/21、console:smoke、router:smoke 31/31、agents:smoke 43/43、shapes:smoke 36/36、evolution:smoke 45/45、steps:smoke 40/40）、真实 HTTP 冒烟模板、服务端口表、排障速查、提交前检查。 |
 | `HANDOFF/06-CURRENT-STATE-AND-NEXT.md` | 61 | 当前状态快照、B2 四项真跑证据、C-0~C-6 分步清单（含两条新增产品原则）、按配置的三层判断、去 Paperclip 化路线。 |
 | `HANDOFF/07-RULES-AND-BOUNDARIES.md` | 44 | 红线与边界：业务验收身份、隐私与 .runtime、服务约束、许可证、前端入口、工程约束。 |
-| `HANDOFF/08-OPEN-DECISIONS.md` | 82 | 10 个条目（6 项待拍板 + 产品形态 ②、B2 范围、组织形态可配置与自演进、Paperclip 去留四条历史记录）：外部模型凭据、真人验收、部门 scope、外部服务、已停服务、pi 指代。 |
+| `HANDOFF/08-OPEN-DECISIONS.md` | 95 | 11 个条目（7 项待拍板 + 产品形态 ②、B2 范围、组织形态可配置与自演进、Paperclip 去留四条历史记录）：外部模型凭据、真人验收、部门 scope、外部服务、已停服务、pi 指代、第 11 条 Runner 的 Agent 协作层直接引用 / 移植 / 只借思想三档评估。 |
 | `HANDOFF/DIRECTORY-GUIDE.md` | 154 | ★ 目录完全指南：完整目录树、每个顶层目录作用与入库状态、7 个 submodule、.runtime 详解、构建产物位置、新文件该放哪。 |
 | `HANDOFF/FILE-INVENTORY.md` | 328 | ★ 本文件：全部入库文件逐文件一行说明（路径 / 行数 / 用途），用于快速定位。 |
 | `HANDOFF/README.md` | 62 | 交接包总索引：5 分钟接手路径、包内每个文件的说明、根目录两份总览入口、一句话现状与检查清单。 |
@@ -113,6 +113,7 @@
 | `src/evolution-ledger.ts` | 325 | ★ C-6 独立 append-only 治理台账：7 类事件、`modelCalls=0`、内容哈希 / 幂等键、状态机守门、两次重放 checksum 一致；刻意不并入 B1 主干。 |
 | `src/evolution.ts` | 486 | ★ C-6 自查闸门 / 工程回放闸门 / 四项效果指标 / `EvolutionService` 统一编排；`assertDeliverySelfCheck()` 接在 `Controller.publish()` 之前。 |
 | `src/agent-registry.ts` | 324 | ★ C-4 组织级 Agent 注册表：可扩展职责槽位 / 生效范围 / 内容哈希版本 / 配置快照 / `resolveAssignment` / `handoffEnvelope` / `reviewCrew` / 单例装配；确定性工程层 `modelCalls=0`。 |
+| `src/workspace-summary.ts` | 138 | ★ P-5 控制台只读摘要：`parseViewSummaryPage()` 分页参数夹取、`visibleTasksFor()` 身份过滤、`buildWorkspaceSummary()` 确定性纯函数与字段白名单；不读工作稿正文、不发起网络请求。 |
 
 ## 脚本与服务 scripts/（51）
 
@@ -245,6 +246,7 @@
 | `tests/step-execution.test.ts` | 203 | ★ P-1 契约 13 例：配置与只读视图 / 队列并发与旧令牌 / 一次一步与换机器 / 步间重评 / 拒绝反例 / 崩溃回收 / 确定性摘要 / 双泵 / 接线守门。 |
 | `tests/evolution.test.ts` | 239 | C-6 契约 12 例：自查五种阻断 / 工程回放闸门 / 状态机红线 / 效果不可比 / 独立台账 / 配置与接线守门。 |
 | `tests/shape-assessment.test.ts` | 175 | C-5 契约 10 例：按配置判定 / 真实在岗主管 / 防跳级反例 / 形态闭环与启用三层分离 / 接线守门。 |
+| `tests/workspace-summary.test.ts` | 139 | ★ P-5 契约 9 例：默认分页与全量计数 / 越界空页 / 参数夹取 / 身份过滤 / 字段白名单不泄露内部状态 / 宿主标题优先与截断 / partial 与 local 降级 / 两次逐字节一致 / 空页不编造。 |
 
 ## 独立控制台 console/（3）
 

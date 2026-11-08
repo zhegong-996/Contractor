@@ -304,7 +304,7 @@ Redis（用 PG `FOR UPDATE SKIP LOCKED` 等价，切换点为 `claimStep / compl
 
 **已实现但默认未启用**：`config.host.provider=local-pg`、`config.execution.mode=step`（默认 `paperclip` + `loop`，可逐字回退）、Cognee 原生管线（缺端点与凭据）、组织映射草案（未导入职能注册表）。
 
-**剩余生产项**：切换默认底座并把真实业务单切到 step 模式验证；autoloop worker 内部子调用逐次拆分（当前 tick 级单步）；真实外部模型端点 / 远端工具沙箱 / 多机切换 / Redis；金额成本账本接入效果看板；控制台 `view` 快照 415KB / 10~12 秒的服务端分页裁剪。
+**剩余生产项**：切换默认底座并把真实业务单切到 step 模式验证；autoloop worker 内部子调用逐次拆分（当前 tick 级单步）；真实外部模型端点 / 远端工具沙箱 / 多机切换 / Redis；金额成本账本接入效果看板。~~控制台 `view` 快照的服务端分页裁剪~~ 已于**第二十三轮 P-5 完成**：新增只读 `view-summary`（分页 + 字段白名单），控制台改拉摘要，真实服务端 509,283 bytes / 4.02 秒 → 5,678 bytes / 0.076 秒，原 `view` 逐字保留给插件工作台。
 
 **需用户拍板**：外部模型端点与凭据、SUI-129 真人验收、飞书部门 scope 授权、国内 / 海外外部服务是否接通、已取消服务长期状态、「pi」的指代；以及「何时切换默认 `config.host.provider`」。
 

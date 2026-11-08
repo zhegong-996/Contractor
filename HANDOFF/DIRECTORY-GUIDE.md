@@ -1,7 +1,7 @@
 # 09 · 目录结构完全指南（接手必读）
 
 > 目标：搞清楚**每个目录是干什么的、哪些入库、产物放哪、新文件该放哪**。
-> 根目录：`/Users/gong.zhe/Developer/ai-native-collab`｜第二十二轮 P-1 收尾后 `git ls-files` 共 **297** 个入库文件（含 `HANDOFF/` 14 个）；2026-11-08 新增根目录总览 `HANDOFF.md` / `PROJECT-SUMMARY.md` 后为 **299** 个。
+> 根目录：`/Users/gong.zhe/Developer/ai-native-collab`｜第二十二轮 P-1 收尾后 `git ls-files` 共 **297** 个入库文件（含 `HANDOFF/` 14 个）；2026-11-08 新增根目录总览 `HANDOFF.md` / `PROJECT-SUMMARY.md` 后为 **299** 个；第二十三轮 P-5 新增 `src/workspace-summary.ts` 与 `tests/workspace-summary.test.ts` 后为 **301** 个。
 
 ## 1. 完整目录树（带说明）
 
@@ -19,7 +19,7 @@ ai-native-collab/                       仓库根（main 分支）
 │   ├── 05-VALIDATION-AND-COMMANDS.md  回归命令、预期输出、排障
 │   ├── 06-CURRENT-STATE-AND-NEXT.md   B2 证据；C-0~C-6 清单与产品原则
 │   ├── 07-RULES-AND-BOUNDARIES.md     红线与边界
-│   ├── 08-OPEN-DECISIONS.md           7 项待拍板 + 3 条已解决
+│   ├── 08-OPEN-DECISIONS.md           7 项待拍板 + 4 条已解决（第 11 条 Runner 移植范围）
 │   ├── DIRECTORY-GUIDE.md             ★ 本文件：目录完全指南
 │   ├── SYNC-STATUS.md                 ★ 唯一位置声明、commit 与接手校验
 │   ├── FILE-INVENTORY.md               ★ 逐文件一行说明（100% 覆盖入库文件）
@@ -31,6 +31,7 @@ ai-native-collab/                       仓库根（main 分支）
 │   ├── evolution.ts                    C-6 自查闸门 / 工程回放闸门 / 四项效果指标
 │   ├── agent-registry.ts               C-4 组织级 Agent 编制 / 职责解析 / A2A 交接 / 验收编组
 │   └── router.ts                               C-3 单一 Router：planRoute / 配置快照 / 唯一写入口
+│   ├── workspace-summary.ts            P-5 控制台只读摘要：分页夹取 / 身份过滤 / 字段白名单
 │   ├── step-execution.ts              P-1 单步执行契约 / 队列适配器 / 步间重评 / 只读状态
 │   ├── loop-pump.ts                   P-1 双泵：legacy 逐字等价 / stepped 会话快照外置
 │   └── step-runner.ts                 P-1 step:once：一次进程只跑一步
@@ -44,7 +45,8 @@ ai-native-collab/                       仓库根（main 分支）
 │   ├── shapes-smoke.ts                 C-5 两种形态各跑真实一单 36/36
 │   └── router-smoke.ts                         C-3 三种组织形态隔离真跑 31/31
 │   └── steps-smoke.ts                  P-1 单步执行真跑 40/40（PG 专属库 + 真实子进程）
-├── tests/                             ★ 回归测试（65 个 .test.ts，node:test）
+├── tests/                             ★ 回归测试（66 个 .test.ts，node:test）
+│   ├── workspace-summary.test.ts        P-5 摘要契约 9 例（分页 / 身份 / 白名单 / 确定性）
 │   ├── agent-registry.test.ts          C-4 注册表契约 14 例
 │   ├── evolution.test.ts               C-6 沉淀回流与自演进契约 12 例
 │   ├── step-execution.test.ts          P-1 单步执行契约 13 例

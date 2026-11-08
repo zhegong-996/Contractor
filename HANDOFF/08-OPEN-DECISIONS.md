@@ -1,7 +1,7 @@
 # 08 · 需要用户拍板的事项（接手者不要擅自决定）
 
 > 这些是**产品/隐私层面的选择**，不是代码缺口。每一项都写清冲突与可选方案，问过用户再动。
-> 共 10 个条目：**6 项仍待拍板**（第 2 / 3 / 4 / 6 / 7 / 8 项）。第 1 项（产品形态冲突）已于第十五轮由用户拍板 ②，第 5 项（B2 范围与优先级）已于第十四轮按既有口径完成，第 9 项（组织形态可配置与自演进）已于第十五轮补遗由用户明确，第 10 项（Paperclip 去留）已于第十七轮定为方向 (a)「不引入第 8 个上游、继续去宿主化」；四者保留为历史记录，不再需要拍板。**第 10 项遗留的「何时切换默认 `config.host.provider`」属于后续时机确认，不是方向重选**。
+> 共 11 个条目：**7 项仍待拍板**（第 2 / 3 / 4 / 6 / 7 / 8 / 11 项）。第 1 项（产品形态冲突）已于第十五轮由用户拍板 ②，第 5 项（B2 范围与优先级）已于第十四轮按既有口径完成，第 9 项（组织形态可配置与自演进）已于第十五轮补遗由用户明确，第 10 项（Paperclip 去留）已于第十七轮定为方向 (a)「不引入第 8 个上游、继续去宿主化」；四者保留为历史记录，不再需要拍板。**第 10 项遗留的「何时切换默认 `config.host.provider`」属于后续时机确认，不是方向重选**；第 11 项是第二十三轮新增的 Runner 移植范围评估。
 
 ## 1. 产品形态冲突（✅ 第十五轮已拍板 ②，保留为历史记录）
 
@@ -80,3 +80,13 @@
 - **第十九轮进展**：C-4 已落地组织级 Agent 编制（`src/agent-registry.ts`）并接进 Router / A2A / 验收链，「谁有资格接这一棒」不再由宿主或字符串决定；默认空编制保持扁平，主链路继续往 `HostPlatformPort` / `PgHostPlatform` 收。
 
 - **第二十一轮进展**：C-6 已完成沉淀回流与自演进闭环——交付前逐条强制自查、候选改进的工程回放闸门 + 真人批准 + 版本 / 灰度 / 可回滚、四项效果对比；治理台账独立于 B1 主干，`npm run evolution:smoke` 真跑 45/45。C-0 ~ C-6 分步清单全部完成，Paperclip 去留仍是「不引入第 8 个上游、继续去宿主化」，默认底座仍可回退；后续待拍板的是**何时切换默认 `config.host.provider`** 与金额成本账本是否接入效果看板。**第二十二轮进展**：P-1 已完成长程循环单步化——`runner.ts` / `assistant-runner.ts` 无常驻 `while`，`config.execution.mode` 默认 `loop` 可回退、`step` 必须配 `local-pg`；`src/step-execution.ts` / `loop-pump.ts` / `step-runner.ts` 落地，`npm run steps:smoke` 在本机 PG 专属库 + 真实子进程上真跑 40/40（第二棒由另一台机器接力领走）。默认仍未启用、真实业务单未在 step 模式跑过、无外部模型调用、worker 内部子调用尚未逐次拆分。仍不引入第 8 个上游、默认底座仍 `paperclip`、可回退。
+
+## 11. Runner 的 Agent 协作层：直接引用 / 移植 / 只借思想（🆕 第二十三轮评估，待拍板）
+
+- **用户本轮给出**：`https://github.com/yicheng47/runner` 与一张中文架构图，问「像 Agent 相关的部分是不是可以为我们所用，可以直接引用过来，把代码拿过来做移植，或者说复用参考」。本轮只做核实与评估，**未引入任何代码、未登记新上游、未改 `sources.lock.json`**。
+- **核实结果**：当前 `main` 为 **MIT**（Copyright (c) 2026 Yicheng Wang，允许商用 / 闭源 / 修改 / 再分发，保留版权声明即可）；README 明确 **2026-08-22 ~ 2026-09-22 发布的版本是 GPL-3.0-only 且仍按该许可提供**，固定来源必须锁 MIT 提交、避开该窗口。仓库为 **Rust**（GPUI 桌面壳 + `runnerd` 守护进程 + `runner` CLI + `alacritty_terminal` / `portable-pty` / `rusqlite`），487 star、2026-11-07 仍活跃。核心不变量是「每个 mission 只有一份可变共享状态：append-only `events.ndjson`」，SQLite 只放配置与生命周期元数据。
+- **(a) 只借思想、零代码引入（推荐）**：把 Mission 派生状态词表（Working / Settled 连续安静 30s / Needs you / Failed / Interrupted / Ended）、Runtime Adapter 的能力声明与「不存 argv 只存 launch definition」、事件 schema 的 `id / from / to / kind / type / payload` 约定、「配置与 live coordination 分层」写进本仓库设计；不新增上游、不动刚全绿的 424/424 基线。它与本项目 B1 主干、四类投影、`agent-registry.ts`、`router.ts`、P-1 `StepQueue` 高度同构，照搬代码是重复建设。
+- **(b) 移植两块纯协议（需用户明确同意 + R7 六步）**：① `ask_human → human_question → human_response` 成对 correlated signal（`question_id` 即 `human_question` 自己的 id，因果放 payload），补 `step-runner.ts` 的 `human-gate` 步；② durable queue 的 cumulative ack / at-least-once notification / 投递就绪判断，补 `PgStepQueue` 的「已送达执行端」证据。用 **TypeScript 重写**而非复制 Rust，保留原始 MIT 版权头；须固定 MIT 提交、`licenses/` 存原文、更新 `THIRD_PARTY_NOTICES.md` / `sources.lock.json` / `docs/SOURCES.md`、纳入 `audit:upstream`，即新增第 8 个来源登记（与第 10 项方向 (a) 有张力，需用户明确改口）。
+- **(c) 整仓 / submodule 直接引用（不建议）**：Rust + GPUI + PTY 与本项目不同栈，无法直接编译进 TS/Node 链路；还会引入第 8 个上游、带来桌面壳与终端模拟器等无关依赖。
+- **红线（三档都不能碰）**：Runner 的 `human_response` 只把答案送回提问的 Agent，**绝不能**替代「原发起人在原会话用中文确认验收 任务编号」；Runner 的 `Archive` 由系统把 mission 标 completed，本仓库不得引入「系统自动完成即验收」语义；上游源码不改、`.runtime` 证据不入库、4190 / 4192 / 4194 / 9418 不重启。
+- **状态**：本轮已把评估写入 `docs/ADAPTATION-v0.6.md` 最新边界节；是否进入 (b) 由用户拍板，接手者不要擅自开始移植。

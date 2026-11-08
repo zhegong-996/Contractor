@@ -743,3 +743,16 @@ Cognee `cognify` 的真实外部模型调用未发生（缺端点与凭据）；
 | 基线复跑 | `npm test` **413/413、0 fail**；`git diff --check` 通过；`HANDOFF/handoff-manifest.json` JSON 解析通过（`rootEntryFiles: 2`、`totalEntries: 299`） |
 | 提交与推送 | 文档与代码基线一并提交并 push 到 `origin/main`；提交后以 `git status --short --branch` 校验 `HEAD = origin/main` 且工作区干净 |
 | 严格边界 | **未改动任何 `src/` / `scripts/` / `tests/` 代码**，未改产品口径、未改上游源码或提交、未新增依赖、未重启服务；默认仍 `config.execution.mode=loop` + `host.provider=paperclip`；真人业务验收 SUI-129 仍未发生；4190 / 4192 / 4194 / 9418 保持停机；`.runtime/` 证据不入库 |
+
+## 第二十三轮：生产项 P-5 控制台只读快照的服务端分页与裁剪（2026-11-08）
+
+| 项 | 结果 |
+|---|---|
+| `npm test` | **424 / 424**（第二十二轮 413 + 新增 9 例摘要契约 + 2 例控制台契约） |
+| 新增代码 | `src/workspace-summary.ts`（分页参数夹取 / 身份过滤 / 确定性纯函数 / 字段白名单）、`tests/workspace-summary.test.ts` 9 例；`server.ts` 新增只读 `view-summary` 分支；三处只读白名单与 `console/app.js` 四处调用同步；`console:smoke` 补 4 项检查 |
+| **真实服务端 HTTP 对比** | 同一台本机 `view` **509,283 bytes / 4.02 秒**；`view-summary` **5,678 bytes / 0.076 秒**；`limit=2` **1,078 bytes / 0.019 秒**。体积约 1.1%，耗时约 1/53。历史浏览器端到端基线为 415KB / 10~12 秒 |
+| 响应结构实测 | `taskCount=10`、`page.total=10`、`hasMore=false`、`titleSource=host`、`fieldsClipped=true`；任务对象 7 个白名单字段；序列化结果不含 `snapshots` / `body` / `context` / `sourceAccess` |
+| `console:smoke` | `ok:true`、`failed: []`；`summaryReady`（5,678 bytes / 94ms）、`summaryClipped`、`summaryPageHonest`、`summaryPaged` 四项新检查全绿；6/6 视图、主题持久化、425px、零海外文案、写动作 403；旧 `/api/view` 仍 200 且 10 条真实任务（旧链路未回退） |
+| 既有回归不回退 | `npx tsc --noEmit`、`build:workspaces`、`build:chinese-shell ok:true`、`test:responsive` 无溢出、`test:walkthrough` **11/11**、`console:smoke`、`router:smoke` 31/31、`agents:smoke` 43/43、`shapes:smoke` 36/36、`evolution:smoke` 45/45、`steps:smoke` 40/40、`host:pg` 21/21、`host:smoke`、`memory:replay` / `memory:checkpoint`、`routing:status`、`audit:upstream clean:true`、`git diff --check` |
+| 环境处置 | 本轮开始时 3100 / 4180 带失效文件代理，`fs` 读取报 `connect failed: Connection refused`，宿主静态页 500、`view` 一度 409 并随后崩溃；按 `HANDOFF/00` 既定流程用干净环境重启 4180 / 3100 并重挂插件后恢复，走查 11/11。未改上游源码、未重启 4190 / 4192 / 4194 / 9418 |
+| 如实边界 | 摘要只用于展示索引，不含工作稿正文 / 授权明细 / 验收判断；`view` 逐字保留；宿主标题是 advisory，缺失即降级到本机任务索引并标 `titleSource=local/partial`；控制台只读白名单 16 → 17 项，仍无写入口；飞书仍是唯一发起入口；默认底座仍 `paperclip`；真人业务验收 SUI-129 仍未发生；其余剩余生产项未动 |

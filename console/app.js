@@ -2,10 +2,10 @@
   'use strict';
 
   const VIEWS = [
-    { id: 'overview', title: '概览', glyph: '◎', subtitle: '同一份共享现场，人和助手各看自己该看的', actions: ['view', 'memory-status', 'routing-status'] },
-    { id: 'collaboration', title: '协作', glyph: '⇄', subtitle: '谁接、谁派、谁干，都在一条责任链上', actions: ['view', 'trace-view', 'routing-status', 'v06-agent-registry-view', 'v06-evolution-view', 'v06-execution-view'] },
+    { id: 'overview', title: '概览', glyph: '◎', subtitle: '同一份共享现场，人和助手各看自己该看的', actions: ['view-summary', 'memory-status', 'routing-status'] },
+    { id: 'collaboration', title: '协作', glyph: '⇄', subtitle: '谁接、谁派、谁干，都在一条责任链上', actions: ['view-summary', 'trace-view', 'routing-status', 'v06-agent-registry-view', 'v06-evolution-view', 'v06-execution-view'] },
     { id: 'knowledge', title: '知识', glyph: '▤', subtitle: '资料、证据与组织关系，按身份逐步重评', actions: ['memory-status', 'memory-replay', 'system-status'] },
-    { id: 'acceptance', title: '验收', glyph: '✓', subtitle: '开工前锁定清单，逐项判定后由发起人确认', actions: ['view', 'v06-org-overview'] },
+    { id: 'acceptance', title: '验收', glyph: '✓', subtitle: '开工前锁定清单，逐项判定后由发起人确认', actions: ['view-summary', 'v06-org-overview'] },
     { id: 'services', title: '服务', glyph: '◈', subtitle: '本机与国内服务的实时状态，没连接不放空入口', actions: ['service-status', 'system-status'] },
     { id: 'settings', title: '设置', glyph: '⚙', subtitle: '运行关系与预备策略，只做查看，不发起任务', actions: ['system-status', 'model-settings'] },
   ];
@@ -60,8 +60,8 @@
   // 只读请求的 in-flight 去重 + 短缓存：视图本身和顶部状态条会同时请求同一个
   // action，并发重复请求会在超时边界下一起挂掉。只合并同一时刻的相同只读请求，
   // 不改变任何数据、不缓存失败结果。
-  // view 会带回整个工作区快照，真实浏览器实测 10~12 秒 / 400KB+（宿主数据增长后
-  // 从约 5 秒退化），单独给宽限；其余只读动作仍 8 秒快速失败，不让一个慢请求拖住整页。
+  // P-5：控制台改拉服务端分页摘要（几 KB / 毫秒级），走默认 8 秒快速失败；
+  // 原 view 会带回整个工作区快照（实测 10~12 秒 / 400KB+），只给兼容调用保留宽限。
   const inFlight = new Map();
   const readCache = new Map();
   const CACHE_MS = 1500;
@@ -107,7 +107,7 @@
   }
 
   async function renderOverview() {
-    const [view, memory, routing] = await Promise.all([safe('view'), safe('memory-status'), safe('routing-status')]);
+    const [view, memory, routing] = await Promise.all([safe('view-summary'), safe('memory-status'), safe('routing-status')]);
     const tasks = Array.isArray(view.tasks) ? view.tasks : [];
     state.tasks = tasks;
     const events = routing.projection?.eventCount ?? routing.eventCount ?? 0;
@@ -131,7 +131,7 @@
 
   async function renderCollaboration() {
     const [view, routing, registry, evolution, execution] = await Promise.all([
-      safe('view'), safe('routing-status'), safe('v06-agent-registry-view'),
+      safe('view-summary'), safe('routing-status'), safe('v06-agent-registry-view'),
       safe('v06-evolution-view'), safe('v06-execution-view'),
     ]);
     const tasks = Array.isArray(view.tasks) ? view.tasks : state.tasks;
@@ -238,7 +238,7 @@
   }
 
   async function renderAcceptance() {
-    const [view, org] = await Promise.all([safe('view'), safe('v06-org-overview')]);
+    const [view, org] = await Promise.all([safe('view-summary'), safe('v06-org-overview')]);
     const tasks = Array.isArray(view.tasks) ? view.tasks : state.tasks;
     const accepted = tasks.filter(task => task.phase === 'accepted').length;
     const pending = tasks.filter(task => ['review', 'in_progress', 'dispatched'].includes(task.phase)).length;
@@ -326,7 +326,7 @@
     try {
       $('content').innerHTML = await RENDERERS[view.id]();
       paintThreads();
-      const [status, viewData, routing] = await Promise.all([safe('service-status'), safe('view'), safe('routing-status')]);
+      const [status, viewData, routing] = await Promise.all([safe('service-status'), safe('view-summary'), safe('routing-status')]);
       state.facts = {
         tasks: Array.isArray(viewData.tasks) ? viewData.tasks.length : (state.tasks.length || '—'),
         connected: status.connected ?? '—',
