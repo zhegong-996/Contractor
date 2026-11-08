@@ -16,6 +16,7 @@ import{TraceBridge,type TraceInput}from'./trace-bridge.ts';
 import{acceptanceChainEnabled,reviewerIdFor,type VisualArtifact}from'./visual-review.ts';
 import{assertReviewerCapable}from'./independent-review.ts';
 import { getRouter } from './router.ts';
+import { fromAutoloopReceipt, mapFollowupToAnswer } from './collaboration-loop.ts';
 import { recordMemory } from './memory-log.ts';
 import { EvolutionService, defaultEvolutionDeps, assertDeliverySelfCheck } from './evolution.ts';
 import type { V06Services } from './v06.ts';
@@ -162,6 +163,18 @@ export class Controller {
     if (!text.trim()) throw new Error('Reply is empty');
     const task = this.store.get(id);
     await this.pc.post(`/issues/${task.id}/comments`, { body: text, clientRequestId: stableUuid(eventId), resume: false });
+    // 上游协议耦合：把人的补充说明 / 回答登记成「人 → 执行端」的下行应答。
+    // 只作 append-only 观察留痕，真正唤醒下一轮仍是下面的 phase='ready' + wakeup/retry；
+    // 「确认验收」是核可而非回答，mapFollowupToAnswer 会明确拒收。
+    try {
+      const inbound = mapFollowupToAnswer(text, task.senderId ?? 'originator');
+      if (inbound.accepted) this.store.audit('loop.downstream', task.id, {
+        eventId, actor: task.senderId ?? 'originator',
+        kind: inbound.questionId ? 'answer' : 'supplement',
+        questionId: inbound.questionId, choice: inbound.choice, acceptance: false,
+        ...(inbound.questionId ? { inReplyTo: inbound.questionId } : {}),
+      });
+    } catch { /* observation only */ }
     if (task.phase === 'running') return { appended: true };
     if (task.phase === 'unknown') throw new Error('Previous run must be reconciled before resuming');
     task.phase = 'ready'; delete task.lease; this.store.save(task);
@@ -280,6 +293,16 @@ export class Controller {
       usage: reading?.usage ?? reading?.sessionUsage, outcome: nextPhase,
       at: new Date().toISOString(),
     }));
+    // 上游协议耦合：Autoloop 回执的 ask / notice / later / outcome 在这里归一成
+    // 「执行端 → 人」的上行回路事件。回执只要求人侧 review，绝不等于验收；
+    // 只作观察留痕，不改变回执结果、不拦截业务、不写 B1 记忆主干。
+    try {
+      this.store.audit('loop.upstream', task.id, {
+        receiptId: input.receiptId, agent: input.agent,
+        events: fromAutoloopReceipt({ result: parsed.result, receiptId: input.receiptId,
+          taskId: task.id, agent: input.agent, at: Date.now() }),
+      });
+    } catch { /* observation only */ }
     return parsed.result;
   }
   async publish(id: string) {

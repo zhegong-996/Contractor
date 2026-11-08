@@ -48,3 +48,5 @@
 - 撤权是状态写入，不是物理删除；`source-revoked` 全局阻断派生记忆，`grant-revoked` 不得放大成全局屏蔽。
 - 确定性链路 `modelCalls=0`：设备端 Apple NL 词向量与确定性 L2 抽取不调用模型；`assertDeterministic()` 非零即拒绝，不静默降级。
 - 每轮交付：全套回归 + 文档同步（README / SYSTEM-ARCHITECTURE / ADAPTATION 最新边界 / VALIDATION）+ 提交并 push 到 `origin/main`。
+- **双向回路是硬要求，但流转自动化 ≠ 决策自动化**：`loopReport()` 必须能判出「未应答上行 / 答完不回流 / 回执无人复核 / 单向推送段」；任何上行提问都要有下行应答，任何回执都要有人侧复核。回执 ≠ 验收、回答 ≠ 放行、续跑建议恒 `autoExecute:false / requiresHumanApproval:true / notAcceptance:true`；不得借「全自动化」把验收 / 授权 / 核可下放给执行端。
+- **复用上游可耦合，但不得借耦合放宽边界**：`src/upstream.ts` 运行时加载的是**未修改的上游源码**，新增协议映射只能消费其输出并作 append-only 观察留痕；不得改上游提交、不得引入第 8 个上游 / submodule / gitlink、不得把 `enterprise/` 专有代码或 Rust / Electron 栈复制进来。

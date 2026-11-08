@@ -30,6 +30,7 @@
     "memory:smoke": "node --import tsx scripts/memory-smoke.ts",
     "memory:hierarchy": "node --import tsx scripts/memory-hierarchy-smoke.ts",
     "guard:smoke": "node --import tsx scripts/guard-smoke.ts",
+    "loop:smoke": "node --import tsx scripts/loop-smoke.ts",
     "atlas:check": "node scripts/atlas-check.mjs",
     "test:cross-role": "node --import tsx scripts/smoke-cross-role.ts --run",
     "install:upstream": "node --import tsx scripts/install-upstream.ts",

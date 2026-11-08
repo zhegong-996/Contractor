@@ -82,9 +82,41 @@
 2. **人不是一个人**：发起人、三级 owner、独立评审者、跨空间授权审批方（是目标 Workspace owner，不是申请方主管）、资料负责人各有不可下放的职责；最终核可只能由原发起人在原会话完成。
 3. **执行端是本机 CLI 进程，不是云端 Agent 服务**：平台会 spawn 它并接收回执，但公网服务发现、云端自动派单、多机执行都未接通；确定性链路 `modelCalls=0` 不覆盖 CLI 自身发生的模型调用（那些进 `usage` 与回执）。
 
-**一个需要用户知道的实操边界**：现在「Agent 提问 → 找人 → 回答 → 继续跑」这条闭环**在主链路上是通的，但在新的单步 / HITL 链路上是断的**。若产品目标是让「单步长程执行」也具备同等请示能力，缺口是三件事：飞书入站回答写入 HITL 台账、`human_response` 之后按回答排后续步骤、把 `step` 模式从 `steps:smoke` 推进到真实业务单。这三件涉及写入链改造与默认配置切换，已登记在 `HANDOFF/08` 第 13 条待拍板，接手者不得擅自开始。
+**双向流动的口径（第二十七轮 P-9 修订）**：用户明确指出「必须要有两条相反方向的移动……不能是单向的」。核查后确认：**主链路本来就是双向的**——下行 `/collab` 发起 / 授权 / 补充说明，上行回执 / `ask_user_questions` / checkpoint，人的补充说明经 `controller.reply()` 追加 comment、置 `phase='ready'`、wakeup/retry **自动启动下一轮**（`src/controller.ts:161-178`），SUI-4 有真实消息证据。真正断的是 P-6 新加的**单步 HITL 台账**：`step:answer` 原本只追加答案并明确「不排后续步骤、不改任务状态」，回答送回提问者之后就消失了。P-9 把这条半回路补上了（见第 7 节）。
 
-## 6 口径来源
+**关于「全自动化」要分清**：本项目追求的是**流转自动化**，不是**决策自动化**。两条方向要自动接通、自动唤醒、自动把结果带回给人；但验收、放行、授权、核可这些决定权不下放给执行端，回执 ≠ 验收、回答 ≠ 放行。这是产品红线（`HANDOFF/07`），不是能力缺陷，也不是「没做成全自动化」。
+
+## 6 参考产出复盘：前四轮参考偏在了哪里
+
+用户问「我让你参考那几个开源项目，不知道你参考成了什么样子」。逐文件核对后的事实是：**四轮参考的产出全部落在治理 / 评估 / 只读体检侧，零项落在双向执行回路侧**。
+
+| 参考对象 | 实际落地 | 性质 | 与双向回路的关系 |
+|---|---|---|---|
+| Runner（MIT @ `a42d1331`） | `src/step-hitl.ts`、`src/step-delivery.ts`、`src/mission-state.ts` | 成对留痕、送达证据、状态派生 | **拿了「留痕」，砍了「回流」** |
+| OpenMausBot（Apache-2.0 @ `3f81576`） | `src/behavior-baseline.ts`、`fixtures/behavior-golden.json`、`tests/p8-contracts.test.ts` | 冻结基线 / golden diff / 双臂旗标 / 出站工具面断言 | 评估与守门，不参与执行链 |
+| Anthropic agent memory | `src/memory-hierarchy.ts`、`src/knowledge-guard.ts` | 知识沉淀五条规则 + 只读体检 | 知识治理，与执行回路无关 |
+| 上游七仓 | `docs/REFERENCE-capability-comparison.md` | 对比分析 | 只写报告 |
+
+**最该纠正的一处**：Runner 的 `human_response` 原义就是「把答案送回提问的 Agent，让它接着跑」，本仓库只取了「编号即问题 id、因果放载荷」这个数据契约，却在 `scripts/step-answer.ts` 里主动写成「不排后续步骤、不修改任务状态」——把回路砍成半条。Autoloop 的 `ask / notice / resolve / later` 在本文第 2 节被判为「找人请示最深」，却没有把「回答后接原会话继续」落地；OpenMausBot 的 question / approval 卡片回写通道同样没接。更关键的是，`HANDOFF/08` 第 13 条把「回流缺口」登记成**待拍板**，等于用流程纪律把本该做的核心能力推回给用户。P-9 就是对这次偏差的纠正，不是又一轮「参考报告」。
+
+## 7 双向回路落地（P-9）：耦合进具体代码执行链
+
+按用户「从具体代码执行落地的过程来看，可以复用那些开源项目中的部分，把它们耦合进来」的要求，本轮不再另起孤岛模块，而是把协议接在**已有的执行链节点**上。
+
+**先说清「复用」的真实层次**。本仓库 `src/upstream.ts:6-13,29-30` 本来就在运行时直接加载**未修改的上游源码**：`superagent/src/sources/feishu-trigger.ts` 与 `feishu-channel.ts`、`autoloop/worker/contract.ts`（`readMessage` / `resultFrom`）、`autoloop/worker/agents.ts`，以及静态导出的 `deepseek-harness/.../serialization.ts`；`acceptance-interop.ts` 复用 `lobehub/acceptance` 的报告 schema。所以「代码级耦合」在这条主链上是既成事实——`controller.receipt()` 里的 `resultFrom()` 就是上游函数。Runner / OpenMausBot / Anthropic 不直接 import 代码，原因是不同栈（Rust / Electron 桌面）、会引入第 8 个上游、`enterprise/` 是专有许可、且三者只提供协议思想；它们按 `sources.lock.json` 的 `protocolReferences` / `conceptReferences` 登记，用 TypeScript 重写协议语义，不复制源码。
+
+| 耦合点 | 上游可复用部分 | 接进哪个执行链函数 | 作用 |
+|---|---|---|---|
+| ① 执行端 → 人 | Autoloop 回执 `ask / notice / later / outcome`（`upstream/autoloop/docs/protocol.md:141-167`，经 `resultFrom()` 解析） | `src/controller.ts` 的 `receipt()` → `fromAutoloopReceipt()` → `loop.upstream` 审计留痕 | 回执与提问登记成**上行**事件；回执强制 `expectsHumanAction:'review'`，不等于验收 |
+| ② 人 → 执行端（任务入口） | 同一协议的 `continuationPolicy:'wake_assignee'` + 补充说明语义 | `src/controller.ts` 的 `reply()` → `mapFollowupToAnswer()` → `loop.downstream` 留痕；原有 `phase='ready'` + wakeup/retry 继续生效 | 人的回答登记成**下行**应答，与上行提问成对 |
+| ③ 人 → 执行端（飞书入站） | Super Agent 的 IM 事件归一化（`upstream/superagent/src/sources/feishu-trigger.ts`） | `src/collaboration-intake.ts` 的 `ingest()` → `mapFollowupToAnswer()` → `loop.downstream` 留痕；原有 `delegate()` 唤醒不变 | 飞书「补充说明」写回通道接通，不改任务状态、不把回答当验收 |
+| ④ 半回路闭合 | Runner `human_response` 回流语义（`protocolReferences.runner`） | `scripts/step-answer.ts` → `bridgeAnswerToResume()` → 独立 append-only `resume-proposals.jsonl` | 答案不再消失：产出明确的「下一步由原发起人在原会话接续」建议 |
+
+`src/collaboration-loop.ts` 是这一层的**一等契约**（纯函数、零 IO / 零模型）：显式定义下行 8 类 / 上行 6 类动作，`loopReport()` 判出「完整回合 / 未应答上行 / 答完不回流 / 回执无人复核 / 单向推送段」，`attachImplicitReplies()` 让真人直接回一句「继续」也能按时间就近配对，`assertLoopAdvisory()` 焊死回执 ≠ 验收、回答 ≠ 放行、不得自动执行。只读 action `loop-guard` 汇总三处真实留痕。
+
+**如实边界**：真实业务单尚未在这条链上跑过，所以 `loop-guard` 当前如实报 `bidirectional:false`、四个耦合点计数为 0，**没有编造事件把体检跑绿**；`npm run loop:smoke` 的 C/D/E 段用真实执行链函数在隔离临时目录跑通「提问 → 真人回答 → 回流建议 → 半回路闭合」。仍未做的仍是产品决策：自动排后续步骤、把 `step` 模式从 `steps:smoke` 推进到真实业务单、飞书回答直接写入 HITL 台账——这些会把「回答」变成「放行」，需真人拍板，不擅自推进。
+
+## 8 口径来源
 
 - 上游事实：`upstream/*/README.md`、`upstream/*/docs/`、`upstream/superagent/docs/00{1,2,3,5}-*.md`、`upstream/autoloop/docs/protocol.md`、`upstream/deepseek-harness/docs/{architecture,agent-lifecycle}.md` 与 `docs/subsystems/{approval,user-questions,workflow}.md`、`upstream/paperclip/README.md`、`upstream/acceptance/skills/acceptance/SKILL.md`。
 - 本仓库事实：`src/server.ts`、`src/controller.ts`、`src/mcp.ts`、`src/assistant-turn.ts`、`src/runner.ts`、`src/service-network.ts`、`src/step-hitl.ts`、`scripts/step-answer.ts`、`docs/VALIDATION.md`、`HANDOFF/07-RULES-AND-BOUNDARIES.md`、`HANDOFF/08-OPEN-DECISIONS.md`、`docs/ADAPTATION-v0.6.md` 最新边界节。

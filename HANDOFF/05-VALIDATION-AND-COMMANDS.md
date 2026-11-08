@@ -6,7 +6,7 @@
 cd /Users/gong.zhe/Developer/ai-native-collab
 export NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost NODE_USE_ENV_PROXY=0
 
-npm test                    # 499/499（基线）
+npm test                    # 521/521（基线）
 npx tsc --noEmit            # 退出 0
 npm run build:workspaces    # 插件 UI 打包 + 类型检查
 npm run build:chinese-shell # hiddenEntries 4 条、missed []、warning null
@@ -42,6 +42,7 @@ npm run evolution:smoke     # C-6 完整闭环 + 全部反例 45/45（隔离治�
 npm run steps:smoke         # P-1 完整链 + 全部反例 40/40（唯一 runId，不 reset 他人数据）
 npm run step:once           # P-1 一次进程只跑一步；默认 loop 下不连库、如实返回未启用
 npm run console:smoke       # 临时端口 + Chrome 真跑，输出 .runtime/console-smoke.json
+npm run loop:smoke          # P-9 双向回路：真实 HTTP + 隔离子进程提问/回答/回流建议，16/16
 npm run cognee:native -- status   # enabled:true, configured:false（缺 4 个环境变量）
 npm run delivery:demo       # 本机 Git 链路；4194/9418 停机时 gitProtocolClonePull 为 false，属预期
 ```
@@ -133,7 +134,17 @@ npm run delivery:demo       # 本机 Git 链路；4194/9418 停机时 gitProtoco
 | 既有回归不回退 | `memory:hierarchy` 16/16、`steps:smoke` 54/54、`router:smoke` 31/31、`agents:smoke` 43/43、`shapes:smoke` 36/36、`evolution:smoke` 45/45、`host:pg` 21/21、走查 11/11、`console:smoke failed: []`、两个构建、425px、`tsc`、`audit:upstream clean:true`、`git diff --check` |
 | 如实边界 | 只读体检不等于写入链改造；第 13 条四项与第 12 条 (b) 五项仍待拍板；默认仍 `loop` + `paperclip`，无外部模型调用；SUI-129 仍未核可 |
 
-## 7. 真实 HTTP 冒烟模板（admin token 从 `.runtime/secrets.json` 读，不入库）
+## 7. 第二十七轮 P-9 实测结果（2026-11-08，双向协作回路）
+
+| 项 | 结果 |
+|---|---|
+| `npm test` | **521 / 521**（499 + 16 例回路契约 + 6 例常态契约） |
+| `npm run loop:smoke` | **16/16 `ok:true`**；A 真实 HTTP 200 / advisory、B 四个执行链耦合点、C 真实子进程回答 + 建议落盘、D 半回路 → 完整回合（staleAnswers 1→0、closedCycles 0→1）、E 飞书补充说明就近配对、F 只读红线 |
+| `loop-guard` | HTTP 200、`advisory:true`、`blocking:false`、`modelCalls:0`；**如实报 `bidirectional:false` 与耦合点计数 0** |
+| 冻结基线 | golden diff 抓到白名单 18→19，人审后手工更新并写 `humanReview` |
+| 既有回归 | `guard:smoke` 22/22、`steps:smoke` 54/54、`memory:hierarchy` 16/16、tsc、两构建、425px、走查 11/11、`console:smoke failed: []`、`audit:upstream clean:true`、`git diff --check` |
+
+## 8. 真实 HTTP 冒烟模板（admin token 从 `.runtime/secrets.json` 读，不入库）
 
 ```sh
 node --import tsx --input-type=module -e "
@@ -153,7 +164,7 @@ req.on('error', e => console.log('ERR', e.message)); req.end(payload);
 
 把 path 换成 `routing-status` / `service-status` / `delivery-status` / `system-status` 可查其它只读状态。改过 `src/server.ts` / `src/v06.ts` / `src/workspaces.ts` 等服务端代码后先 `npm run restart:bridge`。
 
-## 8. 服务端口表
+## 9. 服务端口表
 
 | 端口 | 用途 | 交接状态 | 启动方式 |
 |---|---|---|---|
@@ -166,7 +177,7 @@ req.on('error', e => console.log('ERR', e.message)); req.end(payload);
 | 5432 | 本机 PG 17 专属库 suitme_collab_c1 | 运行中（用户既有实例） | 不新建服务；只连回环，勿动其它库 |
 | 4200（按需） | 自研独立控制台 | 不常驻 | `npm run console` 才启动，只绑 127.0.0.1；冒烟用随机端口，跑完即关 |
 
-## 9. 排障速查
+## 10. 排障速查
 
 | 现象 | 根因 | 处理 |
 |---|---|---|
@@ -182,7 +193,7 @@ req.on('error', e => console.log('ERR', e.message)); req.end(payload);
 | `v06-l2-extract` 报「边指向不存在的节点」 | `memory-index` 先自动抽过一次，任务级镜像未带入全局已有节点 | `buildTaskGraphMirror()` 补齐，见 `tests/l2-extraction.test.ts` |
 | 真实日志出现 `danglingCausedBy` | `reviewSource` 用评审前 revision，确认事件被幂等去重 | 已改用 `reviewedRevision`；历史行不物理删除，重放如实记录 |
 
-## 10. 提交前检查（每轮都做）
+## 11. 提交前检查（每轮都做）
 
 ```sh
 git status --short

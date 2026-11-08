@@ -2,7 +2,7 @@ import { createServer, request as httpRequest, type IncomingMessage } from 'node
 import { spawn } from 'node:child_process';
 import { timingSafeEqual, randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
-import { existsSync, readdirSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import readline from 'node:readline';
 import path from 'node:path';
 import { loadConfig, runtime, secrets } from './config.ts';
@@ -30,6 +30,11 @@ import { TeamMemory } from './team-memory.ts';
 import { TeamMembers } from './members.ts';
 // P-8：把 P-7 的记忆分层守门以只读 advisory 接进真实数据（不改写入链）。
 import { guardKnowledge, collectTranscript, assertGuardIsAdvisory } from './knowledge-guard.ts';
+// P-9：双向协作回路的一等契约；三个执行链节点把真实事件留痕后，由只读体检汇总。
+import {
+  loopReport, attachImplicitReplies, fromHitlLedger, loopSignature,
+  type LoopEvent, type HitlEventLike,
+} from './collaboration-loop.ts';
 import { AgentServices } from './agent-services.ts';
 import { OntologyService } from './ontology.ts';
 import { V06Services } from './v06.ts';
@@ -177,7 +182,7 @@ const server = createServer(async (req, res) => {
       // Reads recheck their own scope and revisions. They need not wait behind
       // indexing or native process reconciliation; mutations keep the single lane.
       const v06Reads=['roles-view','role-route','role-hints','role-snapshot','transfer-view','transfer-policy','dispatch-guard','grant-widen','grant-check','edges-view','edge-impact','label-check','policy-view','verification-level','topology-advice','inflight-policy','signals','review-readiness','ontology-meta','ontology-view','ontology-query','attention-policy','attention-filter','watchdog-policy','watchdog-inspect','plan-view','round-view','acceptance-export','acceptance-report-view','org-overview','org-mapping-view','context-pack','l2-status','l2-edges-view','l2-graph-view','agent-registry-view','acceptance-crew','evolution-view','execution-view'];
-      const readOnly=['view','view-summary','team-members','agent-services','agent-build','development-view','delivery-status','service-status','routing-status','memory-replay','memory-guard','network-view','memory-status','memory-search','memory-annotations','context-pack','context-record','context-search','ontology-view','model-settings','system-status','trace-view'].includes(action)||action==='knowledge-graph'&&payload.project!==true||action.startsWith('v06-')&&v06Reads.includes(action.slice(4));
+      const readOnly=['view','view-summary','team-members','agent-services','agent-build','development-view','delivery-status','service-status','routing-status','memory-replay','memory-guard','loop-guard','network-view','memory-status','memory-search','memory-annotations','context-pack','context-record','context-search','ontology-view','model-settings','system-status','trace-view'].includes(action)||action==='knowledge-graph'&&payload.project!==true||action.startsWith('v06-')&&v06Reads.includes(action.slice(4));
       const runWorkspace=readOnly?<T>(job:()=>Promise<T>)=>withFeishuReads(job):serialize;
       res.end(JSON.stringify(await runWorkspace(async () => {
         workspaceActor = await teamMembers.gate(action, payload, workspaceActor);
@@ -205,6 +210,44 @@ const server = createServer(async (req, res) => {
           assertGuardIsAdvisory(report);
           return {...report,source:'local-store',documentBodiesNotRead:true,
             note:'只读体检：不读宿主知识正文、不改任务状态/授权/验收；缺事实源挂靠是第 13 条待拍板的写入链改造，不是本动作的故障'};
+        }
+        if(action==='loop-guard'){
+          // P-9 只读体检：汇总三个真实执行链节点的留痕，判「两条相反方向的移动」
+          // 是否真的闭合。不读宿主正文、不改任务状态/授权/验收、不拦截业务；
+          // 真实链路尚无留痕时如实报 bidirectional:false，绝不编造事件跑绿。
+          const rows=store.db.prepare("SELECT id,at,action,issue_id,value FROM audit WHERE action IN ('loop.upstream','loop.downstream') ORDER BY id").all() as {id:number;at:string;action:string;issue_id:string|null;value:string}[];
+          const collected:LoopEvent[]=[];let upstreamRows=0,downstreamRows=0;
+          for(const row of rows){
+            let value:any;try{value=JSON.parse(row.value);}catch{continue;}
+            const at=Date.parse(row.at)||0,taskId=row.issue_id??'';
+            if(row.action==='loop.upstream'){
+              upstreamRows++;
+              for(const event of (Array.isArray(value.events)?value.events:[]))collected.push(event as LoopEvent);
+            }else{
+              downstreamRows++;
+              collected.push({id:'down:'+String(value.eventId??row.id),direction:'downstream',
+                kind:value.kind==='answer'?'answer':'supplement',at,taskId,
+                actor:String(value.actor??'originator'),acceptance:false,
+                ...(value.inReplyTo?{inReplyTo:String(value.inReplyTo)}:{})});
+            }
+          }
+          const readLedger=(file:string):Record<string,unknown>[]=>existsSync(file)
+            ?readFileSync(file,'utf8').split('\n').filter(Boolean).flatMap(line=>{try{return [JSON.parse(line) as Record<string,unknown>];}catch{return [];}})
+            :[];
+          const hitlFile=runtime('step-hitl','events.jsonl');
+          const hitl=readLedger(hitlFile) as unknown as HitlEventLike[];
+          collected.push(...fromHitlLedger({events:hitl}));
+          const proposalFile=runtime('step-hitl','resume-proposals.jsonl');
+          const proposals=readLedger(proposalFile)
+            .filter(p=>p&&typeof p.id==='string'&&typeof p.responseId==='string')
+            .map(p=>({id:String(p.id),inReplyTo:String(p.responseId)}));
+          const events=attachImplicitReplies(collected);
+          const report=loopReport({events,humanOwners:config.feishu.allowedSenders,resumeProposals:proposals});
+          return {...report,signature:loopSignature(report),advisory:true,blocking:false,modelCalls:0,
+            couplingPoints:{receiptRows:upstreamRows,replyRows:downstreamRows,
+              hitlEvents:hitl.length,resumeProposals:proposals.length},
+            source:'local-audit + step-hitl ledger',documentBodiesNotRead:true,
+            note:'只读回路体检：上行（回执/提问/请示）与下行（发起/回答/接续/核可）必须成对；回执≠验收、回答≠放行，续跑建议仍待真人在原会话确认'};
         }
         if(action==='routing-status'){
           const {events,errors}=readRoutingEvents();const projection=replayRouting(events);

@@ -1,5 +1,6 @@
 import {TeamMembers} from './members.ts';
 import { feishuTrigger } from './upstream.ts';
+import { mapFollowupToAnswer } from './collaboration-loop.ts';
 import { createHash } from 'node:crypto';
 import type { AgentServices } from './agent-services.ts';
 import type { Workspaces } from './workspaces.ts';
@@ -65,6 +66,18 @@ export class CollaborationIntake {
     const detail = match[2]?.trim() ?? '接续';
     if (!['接续', '暂停'].includes(detail)) await this.assistant.taskContext.note(task.id, detail, { admin: true });
     await this.assistant.delegate(task.id, detail !== '暂停', state.delegation?.mode ?? 'advance', state.delegation?.instruction ?? '', { admin: true }, trigger.id);
+    // 上游协议耦合：飞书「补充说明」本来就会经 delegate 唤醒下一轮，这里补上
+    // 「人 → 执行端」的下行应答留痕，使 IM 写回与执行端上行提问能对成回路。
+    // 只作观察留痕，不写 HITL 台账、不改任务状态、不把回答当验收。
+    try {
+      const inbound = mapFollowupToAnswer(trigger.text, trigger.actor.id);
+      if (inbound.accepted && detail !== '暂停') this.w.store.audit('loop.downstream', task.id, {
+        eventId: trigger.id, actor: trigger.actor.id,
+        kind: inbound.questionId ? 'answer' : 'supplement',
+        questionId: inbound.questionId, choice: inbound.choice, acceptance: false,
+        ...(inbound.questionId ? { inReplyTo: inbound.questionId } : {}),
+      });
+    } catch { /* observation only */ }
     if (!followup) this.w.store.notify('collab-intake:' + trigger.id, task.id, `${task.identifier} 已${detail === '暂停' ? '暂停自动处理' : '接续'}；沿用当前任务、来源和授权范围。\n${this.w.config.paperclipUrl}/SUI/knowledge-workspaces`);
     this.w.store.db.prepare('UPDATE events SET state=? WHERE id=?').run('done', trigger.id);
     return { taskId: task.id, resumed: detail !== '暂停' };

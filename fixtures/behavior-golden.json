@@ -7,12 +7,19 @@
       "change": "checks.readOnlyAllowlist.actions: 17 -> 18",
       "reason": "本轮新增只读 action memory-guard 并同步三处白名单，属预期配置变化，不是行为退化；guard:smoke 的 golden diff 如实抓到该差异后经人审更新基线。",
       "reviewer": "本轮交付者（用户已授权查漏补缺）"
+    },
+    {
+      "at": "2026-11-08",
+      "round": "第二十七轮 P-9",
+      "change": "checks.readOnlyAllowlist.actions: 18 -> 19",
+      "reason": "本轮新增只读 action loop-guard（双向协作回路体检）并同步 server.ts / members.ts / console-server.ts 三处白名单，属预期配置变化，不是行为退化；guard:smoke 的 golden diff 如实抓到该差异后经人审更新基线。",
+      "reviewer": "本轮交付者（用户已要求把双向回流耦合进执行链）"
     }
   ],
   "frozen": {
     "schemaVersion": 1,
     "kind": "console",
-    "signature": "ae3b3163a8286e3d7f1a471a114977cc",
+    "signature": "d63474361bbbd2474469b336dc1d5e92",
     "entries": [
       {
         "key": "checks.allViewsRendered.ok",
@@ -52,7 +59,7 @@
       },
       {
         "key": "checks.readOnlyAllowlist.actions",
-        "value": "18"
+        "value": "19"
       },
       {
         "key": "checks.readOnlyAllowlist.ok",

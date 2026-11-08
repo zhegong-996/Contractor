@@ -50,7 +50,7 @@ npm test                         # 本次交接复跑：413/413，0 fail
 
 ---
 
-## 2. 现在做到哪（第二十六轮 P-8 收口状态）
+## 2. 现在做到哪（第二十七轮 P-9 收口状态）
 
 | 阶段 | 状态 | 关键交付 |
 |---|---|---|
@@ -66,7 +66,7 @@ npm test                         # 本次交接复跑：413/413，0 fail
 
 严格顺序 **A → B → C → 生产项，不并行**；C 的每一步都单独真跑验收过。最新边界声明是 `docs/ADAPTATION-v0.6.md` 的 `0.000000000000000000000000000` 节；最新验证记录是 `docs/VALIDATION.md` 第二十六轮。
 
-**最后一轮全套回归（第二十六轮 P-8）**：`npm test` **499/499**、`guard:smoke` **22/22**、`memory:hierarchy` **16/16**、`tsc`、两个构建、425px 响应式、真实浏览器走查 11/11、`console:smoke failed: []`、`router:smoke` 31/31、`agents:smoke` 43/43、`shapes:smoke` 36/36、`evolution:smoke` 45/45、`steps:smoke` **54/54**、`host:pg` 21/21、记忆重放/checkpoint、上游审计 clean、`git diff --check`。第二十五轮基线 465/465，本轮新增 34 例契约；真实 HTTP `memory-guard` 200 / 7 ms，22 条真实知识记录全部如实报缺事实源挂靠、未编造事件 id 跑绿。
+**最后一轮全套回归（第二十七轮 P-9）**：`npm test` **521/521**、`loop:smoke` **16/16**、`guard:smoke` **22/22**、`memory:hierarchy` **16/16**、`tsc`、两个构建、425px 响应式、真实浏览器走查 11/11、`console:smoke failed: []`、`router:smoke` 31/31、`agents:smoke` 43/43、`shapes:smoke` 36/36、`evolution:smoke` 45/45、`steps:smoke` **54/54**、`host:pg` 21/21、记忆重放/checkpoint、上游审计 clean、`git diff --check`。第二十六轮基线 499/499，本轮新增 22 例契约；`loop-guard` 真实 HTTP 200 且如实报 `bidirectional:false`（真实业务单未在该链跑过，未编造事件）；真实 HTTP `memory-guard` 200 / 7 ms，22 条真实知识记录全部如实报缺事实源挂靠、未编造事件 id 跑绿。
 
 ---
 
@@ -121,7 +121,7 @@ npm test                         # 本次交接复跑：413/413，0 fail
 
 ## 6. 已实现 / 仅契约 / 未发生（口径必须持续收窄）
 
-**已实现且有回归证据**：中文指令、派单/交接、限时授权、Context Pack 裁剪、知识候选→采用/撤回、开工前锁定清单 + 逐项报告 + Trace、本机 Git 交付链（含自动合并与预览发布）、组织映射、国内服务实时探测、B1/B2 共享记忆与撤权/checkpoint、PG 事务与并发领取、独立控制台六视图、单一 Router 与两种组织形态、Agent 编制、交付前强制自查、单步执行器跨进程续跑、控制台只读快照的服务端分页 / 字段裁剪（P-5，真实 HTTP 对比）、Runner 两块协议语义移植与四项借思想（P-6：HITL 成对留痕、队列累计确认 / 至少一次通知 / 投递就绪、六态派生 / 能力声明 / 分层 / 快照不回溯；445/445 单测与 `steps:smoke` 54/54 真跑，MIT 固定来源、未引入第 8 个上游）、Anthropic agent memory 分层参考的规则守门与「参考即记忆」（P-7：知识挂靠事实源、wiki 链接与规模护栏、注入顶层只留索引、离线整理只提建议、外部参考按候选沉淀；465/465 单测与 `memory:hierarchy` 16/16 真跑，网页文章仅借思想、登记 `conceptReferences`）、查漏补缺与取长补短（P-8：守门只读接入真实数据、冻结基线与 golden diff、双臂统计旗标、出站 MCP 不暴露硬断言、决策留痕隔离；499/499 单测与 `guard:smoke` 22/22 真跑）。
+**已实现且有回归证据**：中文指令、派单/交接、限时授权、Context Pack 裁剪、知识候选→采用/撤回、开工前锁定清单 + 逐项报告 + Trace、本机 Git 交付链（含自动合并与预览发布）、组织映射、国内服务实时探测、B1/B2 共享记忆与撤权/checkpoint、PG 事务与并发领取、独立控制台六视图、单一 Router 与两种组织形态、Agent 编制、交付前强制自查、单步执行器跨进程续跑、控制台只读快照的服务端分页 / 字段裁剪（P-5，真实 HTTP 对比）、Runner 两块协议语义移植与四项借思想（P-6：HITL 成对留痕、队列累计确认 / 至少一次通知 / 投递就绪、六态派生 / 能力声明 / 分层 / 快照不回溯；445/445 单测与 `steps:smoke` 54/54 真跑，MIT 固定来源、未引入第 8 个上游）、Anthropic agent memory 分层参考的规则守门与「参考即记忆」（P-7：知识挂靠事实源、wiki 链接与规模护栏、注入顶层只留索引、离线整理只提建议、外部参考按候选沉淀；465/465 单测与 `memory:hierarchy` 16/16 真跑，网页文章仅借思想、登记 `conceptReferences`）、查漏补缺与取长补短（P-8：守门只读接入真实数据、冻结基线与 golden diff、双臂统计旗标、出站 MCP 不暴露硬断言、决策留痕隔离；499/499 单测与 `guard:smoke` 22/22 真跑）、双向协作回路与上游协议真实耦合（P-9：把 Autoloop 回执、飞书补充说明、Runner 成对回答接成上行/下行回路，回流建议补上 P-6 半回路；521/521 单测与 `loop:smoke` 16/16 真跑，7 个上游不变）。
 
 **仅契约 / 预备配置，不等于启用**：模型三档策略（不存 Key）、L2 组织图草稿（人审后生效）、飞书部门 scope 授权命令（需本人在飞书确认）、Cognee 原生 LLM / embedding / cognify 链路（代码已实现、允许外部端点，但缺端点与凭据，**真实调用从未发生**）、`config.execution.mode=step`（可真跑但默认未启用）、`config.host.provider=local-pg`（可真跑但默认仍是 `paperclip`）。
 
@@ -151,7 +151,7 @@ npm test                         # 本次交接复跑：413/413，0 fail
 | 接手、环境、命令、红线、下一步 | `HANDOFF/` 包（入口 `HANDOFF/README.md`） |
 | 产品需求与可验收条款 | `docs/PRD-v0.6.md`（尤其 §5 FR、§6 主流程、§10C C-P1~C-P8） |
 | 设计定稿（不等于全部实现） | `docs/ARCHITECTURE-v0.6.md` |
-| 最新实现边界 | `docs/ADAPTATION-v0.6.md` `0.000000000000000000000000000` 节（第二十六轮 P-8） |
+| 最新实现边界 | `docs/ADAPTATION-v0.6.md` `0.0000000000000000000000000000` 节（第二十七轮 P-9） |
 | 现状架构与接入状态 | `docs/SYSTEM-ARCHITECTURE.md` |
 | 验证证据 | `docs/VALIDATION.md`、`HANDOFF/05-VALIDATION-AND-COMMANDS.md`（第 6 节为 P-8 实测） |
 | 复用来源与协议 | `docs/SOURCES.md`、`docs/UPSTREAM-ADAPTERS.md`、`docs/OPEN-SOURCE-COMPLIANCE.md`、`THIRD_PARTY_NOTICES.md`、`sources.lock.json` |

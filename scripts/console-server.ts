@@ -19,7 +19,7 @@ const consoleDir = path.join(root, 'console');
 /** 控制台允许读取的动作；写操作一律不开放。与 bridge 的只读分发保持一致。 */
 export const CONSOLE_READ_ACTIONS: readonly string[] = [
   // P-5：控制台改拉服务端分页摘要；view 保留给插件工作台与兼容调用。
-  'view', 'view-summary', 'service-status', 'system-status', 'memory-status', 'memory-replay', 'memory-guard',
+  'view', 'view-summary', 'service-status', 'system-status', 'memory-status', 'memory-replay', 'memory-guard', 'loop-guard',
   'routing-status', 'trace-view', 'model-settings', 'v06-org-overview',
   'network-view', 'ontology-view', 'context-pack', 'memory-search',
   'v06-agent-registry-view', 'v06-evolution-view', 'v06-execution-view',

@@ -800,3 +800,18 @@ Cognee `cognify` 的真实外部模型调用未发生（缺端点与凭据）；
 | 修掉的真实缺陷 | 体检签名未覆盖记录内容 → `recordFingerprint`；注入顶层截断被静默吞掉 → `injectedOmitted` + finding；冻结基线 `localeCompare` 跨区域漂移 → 字节序 |
 | 既有回归不回退 | `memory:hierarchy` 16/16、`steps:smoke` 54/54、`router:smoke` 31/31、`agents:smoke` 43/43、`shapes:smoke` 36/36、`evolution:smoke` 45/45、`host:pg` 21/21、两套真实浏览器走查 11/11 与 `failed: []`、两个构建、425px、`tsc`、`audit:upstream clean:true`、`git diff --check` |
 | 如实边界 | 只读体检不等于写入链改造；第 13 条四项仍待拍板，第 12 条 (b) 五项仍待拍板；默认仍 `loop` + `paperclip`，无外部模型调用、未引入第 8 个上游或 npm 依赖；SUI-129 仍未核可 |
+
+## 第二十七轮 · P-9 双向协作回路与上游协议真实耦合（2026-11-08）
+
+| 项 | 结果 |
+|---|---|
+| 触发 | 用户质疑「不能是单向的」并追问「之前是不是做错了 / 参考成了什么样子」；追加要求「从具体代码执行落地的过程来看，可以复用那些开源项目中的部分，把它们耦合进来」 |
+| 方向纠正 | 四轮参考产出（Runner / OpenMausBot / Anthropic / 上游七仓）全部落在治理 / 评估 / 只读体检侧，零项落在双向执行回路；复盘见 `docs/REFERENCE-capability-comparison.md` 第 6、7 节 |
+| 主链路核实 | 本来就是双向：`controller.reply()` 追加 comment + `phase='ready'` + wakeup/retry 自动启动下一轮；断的是 P-6 单步 HITL 台账「答完就消失」 |
+| 四个耦合点 | `controller.receipt()`（Autoloop 回执 → 上行）、`controller.reply()` 与 `collaboration-intake.ingest()`（补充说明 → 下行）、`step:answer`（Runner 成对回答 → 回流建议）、`loop-guard`（只读汇总） |
+| `npm test` | **521 / 521**（499 + 16 例双向回路契约 + 6 例常态契约） |
+| `npm run loop:smoke` | **16/16 `ok:true`**：真实 HTTP 200 / advisory / blocking:false；真实子进程「提问→真人回答→建议落盘」；无建议 staleAnswers:1→有建议 0、closedCycles:0→1；B1 / 路由 / 任务状态 / 回路审计前后不变 |
+| `loop-guard` 真实响应 | HTTP 200、`advisory:true`、`blocking:false`、`modelCalls:0`；**如实报 `bidirectional:false` 与四个耦合点计数 0**（真实业务单尚未在该链跑过，未编造事件） |
+| 冻结基线人审 | `guard:smoke` golden diff 抓到 `checks.readOnlyAllowlist.actions` **18→19**，人审确认为新增只读 action `loop-guard` 的预期配置变化，手工更新基线并追加 `humanReview`（时间 / 轮次 / 变化 / 理由 / 审核人）；真跑脚本仍不得自动改写 |
+| 既有回归不回退 | `guard:smoke` 22/22、`steps:smoke` 54/54、`memory:hierarchy` 16/16、`router:smoke` 31/31、`agents:smoke` 43/43、`shapes:smoke` 36/36、`evolution:smoke` 45/45、`host:pg` 21/21、两套浏览器走查 11/11 与 `failed: []`、两个构建、425px、`tsc`、`audit:upstream clean:true`、`git diff --check` |
+| 如实边界 | **流转自动化 ≠ 决策自动化**：两条方向自动接通，验收 / 放行 / 授权 / 核可仍不下放；真实业务单未跑过、`step` 默认 `loop`、无外部模型调用、7 个上游不变、SUI-129 仍未核可；自动排后续步骤与飞书直写 HITL 台账仍待拍板 |

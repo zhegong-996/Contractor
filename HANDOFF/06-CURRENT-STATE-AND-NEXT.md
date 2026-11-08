@@ -1,6 +1,6 @@
 # 06 · 当前状态与下一步（接手者最该看的一份）
 
-## 1. 状态快照（第二十六轮 P-8）
+## 1. 状态快照（第二十七轮 P-9）
 
 | 阶段 | 状态 | 交付 |
 |---|---|---|
@@ -14,7 +14,7 @@
 | **生产项 P-7 Anthropic agent memory 分层参考 +「参考即记忆」规则** | ✅ **第二十五轮完成**：五组纯函数守门（挂靠 / wiki 护栏 / 注入索引 / 只读 Dreaming / 参考按候选沉淀）；网页文章仅借思想、登记在 `conceptReferences`，不是第 8 个上游 | 见第 9 节 P-7 交付与证据 |
 | **生产项 P-8 查漏补缺 + 取长补短** | ✅ **第二十六轮完成**：守门以只读 `memory-guard` 接真实数据；冻结基线 / golden diff / 双臂旗标 / 出站不暴露硬断言 / 决策留痕隔离落地 | 见第 10 节 P-8 交付与证据 |
 
-系统能跑、全套回归全绿（**499/499 单测**、**`memory:hierarchy` 16/16**、**`guard:smoke` 22/22**、11/11 真实浏览器走查、**`console:smoke` 全绿、`router:smoke` 31/31、`agents:smoke` 43/43、`shapes:smoke` 36/36、`evolution:smoke` 45/45、`steps:smoke` 54/54**、上游 clean、`host:pg` 21/21）。`HEAD = origin/main = 远端 main`。C-1 起每次代码改动都重跑全套；本机 PG 17.10 专属库 `suitme_collab_c1` 已可真跑。
+系统能跑、全套回归全绿（**521/521 单测**、**`memory:hierarchy` 16/16**、**`guard:smoke` 22/22**、11/11 真实浏览器走查、**`console:smoke` 全绿、`router:smoke` 31/31、`agents:smoke` 43/43、`shapes:smoke` 36/36、`evolution:smoke` 45/45、`steps:smoke` 54/54**、上游 clean、`host:pg` 21/21）。`HEAD = origin/main = 远端 main`。C-1 起每次代码改动都重跑全套；本机 PG 17.10 专属库 `suitme_collab_c1` 已可真跑。
 
 ## 2. B2 已完成（四项，均带真跑证据）
 
@@ -155,5 +155,13 @@
 - **取长**：`src/behavior-baseline.ts` 落地冻结快照 / golden diff / 纯评分器 / 双臂三旗标 / 工具面版本化签名 / 出站不暴露硬断言 / 决策留痕隔离断言；`fixtures/behavior-golden.json` 是从真实 `console:smoke` 报告冻结的 61 条稳定字段（字节序排序），真跑脚本不得自动改写。`tests/p8-contracts.test.ts` 把三处白名单、真实 MCP 工具面、基线不可篡改固化进每次 `npm test`。
 - **冻结基线人审**：全套回归后 golden diff 抓到白名单计数 17→18，确认为本轮新增只读 action 的合法变化，人审后手工更新基线并留 `humanReview` 记录；真跑脚本不得自动改写。
 - **修掉的真实缺陷**：体检签名未覆盖记录内容（`recordFingerprint`）、注入顶层截断被静默吞掉（`injectedOmitted` + finding）、冻结基线 `localeCompare` 跨区域漂移（改字节序）；既有 B1 投影排序未动，避免影响已验证 checksum。
-- **真跑**：`npm test` **499/499**、`npm run guard:smoke` **22/22**、`memory:hierarchy` 16/16、`steps:smoke` 54/54、`tsc`、两个构建、425px、走查 11/11、`console:smoke failed: []`、各隔离冒烟、`audit:upstream clean:true`、`git diff --check`。
-- **如实边界**：只读体检不是写入链改造；第 13 条四项与第 12 条 (b) 五项仍待拍板；默认 `loop` + `paperclip` 未变、无外部模型调用、未引入第 8 个上游或 npm 依赖、人签红线未放宽；SUI-129 仍未核可。
+- **真跑**：`npm test` **521/521**、`npm run loop:smoke` **16/16**、`npm run guard:smoke` **22/22**、`memory:hierarchy` 16/16、`steps:smoke` 54/54、`tsc`、两个构建、425px、走查 11/11、`console:smoke failed: []`、各隔离冒烟、`audit:upstream clean:true`、`git diff --check`。
+- **如实边界**：P-9 只接通双向留痕与回流建议，真实业务单尚未在该链跑过（`loop-guard` 如实报 `bidirectional:false`、耦合点计数 0），流转自动化不等于决策自动化；只读体检不是写入链改造；第 13 条四项与第 12 条 (b) 五项仍待拍板；默认 `loop` + `paperclip` 未变、无外部模型调用、未引入第 8 个上游或 npm 依赖、人签红线未放宽；SUI-129 仍未核可。
+
+## 11. 第二十七轮 P-9：双向协作回路（用户质疑后的方向纠正）
+
+- **用户质疑**：「必须要有两条相反方向的移动……不能是单向的」「之前是不是做错了？我让你参考那几个开源项目，不知道你参考成了什么样子？」；追加「从具体代码执行落地的过程来看，可以复用那些开源项目中的部分，把它们耦合进来」。
+- **核实**：主链路（飞书 IM / `controller.reply()`）本来双向且会自动唤醒下一轮；断的是 P-6 单步 HITL 台账「答完就消失」。四轮参考产出全部在治理 / 评估 / 只读体检侧，零项在双向执行回路——这是真实偏差，已写入 `docs/REFERENCE-capability-comparison.md` 第 6 节复盘。
+- **交付**：`src/collaboration-loop.ts`（下行 8 类 / 上行 6 类、`loopReport()` 回路判据、`attachImplicitReplies()` 就近配对、`bridgeAnswerToResume()` 回流建议、`fromAutoloopReceipt()` 与 `fromHitlLedger()` 上游归一化）；只读 action `loop-guard`（三处白名单同步）；`scripts/step-answer.ts` 产出并持久化回流建议到独立 append-only 台账；`tests/collaboration-loop.test.ts` 16 例、`tests/p9-contracts.test.ts` 6 例常态契约、`scripts/loop-smoke.ts` + `npm run loop:smoke` 16/16。
+- **真实耦合**：`src/upstream.ts` 运行时直接加载未修改的 Super Agent / Autoloop / DeepSeek Harness 源码，`controller.receipt()` 的 `resultFrom()` 就是上游函数；本轮把它的输出接成上行回路事件，并在 `controller.reply()` / `collaboration-intake.ingest()` 登记下行应答。7 个上游不变、未新增 submodule / npm 依赖。
+- **红线**：回执 ≠ 验收、回答 ≠ 放行、续跑建议恒 `autoExecute:false / requiresHumanApproval:true / notAcceptance:true`；`assertLoopAdvisory()` 焊死只读。自动排后续步骤、飞书回答直写 HITL 台账、`step` 默认切换仍待拍板。

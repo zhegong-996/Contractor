@@ -16,7 +16,7 @@
 cd /Users/gong.zhe/Developer/ai-native-collab
 git status --short --branch       # 应为干净且与 origin/main 一致
 git log -3 --oneline
-npm test                          # 基线：499/499（第二十六轮 P-8 新增 34 例契约）
+npm test                          # 基线：521/521（第二十七轮 P-9 新增 22 例契约）
 ```
 
 ## 2. 干净环境（很重要）
@@ -47,7 +47,7 @@ export NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost NODE_USE_ENV_PR
 
 ```sh
 export NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost NODE_USE_ENV_PROXY=0
-npm test                    # 499/499
+npm test                    # 521/521
 npx tsc --noEmit
 npm run build:workspaces
 npm run build:chinese-shell
