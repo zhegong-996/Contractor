@@ -35,7 +35,7 @@
 | `05-VALIDATION-AND-COMMANDS.md` | 全套回归命令清单、每项预期输出、真实链路冒烟脚本（含 `memory:journey` / `memory:checkpoint` / `host:pg` / `console:smoke` / `router:smoke`）、排障手册、服务端口表。 |
 | `06-CURRENT-STATE-AND-NEXT.md` | 当前状态快照：A/B1/B2 已完成证据、**C-1 的 PG 真跑交付与 C-0~C-6 + 收尾清单**、三条新增产品约束、三层判断结论、去 Paperclip 化路线。 |
 | `07-RULES-AND-BOUNDARIES.md` | 不可越过的红线：业务验收身份、隐私与 `.runtime`、许可证边界、已取消服务不得重启、上游源码不改、测试隔离。 |
-| `08-OPEN-DECISIONS.md` | 需要用户拍板才能动的事项（**6 项待拍板**；第 11 条 Runner 移植范围已于第二十四轮拍板 (b) 并完成 + 产品形态 ②、B2 范围、组织形态可配置与自演进、PG 与长程执行四条已解决历史记录），含冲突说明与可选方案。 |
+| `08-OPEN-DECISIONS.md` | 需要用户拍板才能动的事项（**7 项待拍板**，含第 12 条 OpenMausBot 落地范围；第 11 条 Runner 移植范围已于第二十四轮拍板 (b) 并完成 + 产品形态 ②、B2 范围、组织形态可配置与自演进、PG 与长程执行四条已解决历史记录），含冲突说明与可选方案。 |
 | `SYNC-STATUS.md` | ★ 唯一位置声明、代码基线/提交关系、接手校验命令、本目录内阅读顺序。 |
 | `handoff-manifest.json` | 机器可读元数据：commit、远端、测试结果、C 产品约束、服务状态、包内文件清单、下一步与开放决策。 |
 

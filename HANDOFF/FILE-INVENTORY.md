@@ -1,6 +1,6 @@
 # FILE-INVENTORY · 逐文件说明（100% 覆盖）
 
-> 生成自 `git ls-files` + `HANDOFF/`，第二十二轮 P-1 收尾后共 **297** 个条目，2026-11-08 交接总结新增根目录 2 个文件后共 **299** 个条目，第二十三轮 P-5 新增 2 个文件后共 **301** 个条目，第二十四轮 P-6 新增 7 个文件后共 **308** 个条目（第十四轮 269 + C-1 新增 4 + C-2 新增 7 + C-3 新增 3 + C-4 新增 3 + C-5 新增 2 + C-6 新增 4 + P-1 新增 5 + 交接总结新增 2 + P-5 新增 2 + P-6 新增 7）。
+> 生成自 `git ls-files` + `HANDOFF/`，第二十二轮 P-1 收尾后共 **297** 个条目，2026-11-08 交接总结新增根目录 2 个文件后共 **299** 个条目，第二十三轮 P-5 新增 2 个文件后共 **301** 个条目，第二十四轮 P-6 新增 7 个文件后共 **308** 个条目，OpenMausBot 参考评估新增 1 份文档后共 **309** 个条目（第十四轮 269 + C-1 新增 4 + C-2 新增 7 + C-3 新增 3 + C-4 新增 3 + C-5 新增 2 + C-6 新增 4 + P-1 新增 5 + 交接总结新增 2 + P-5 新增 2 + P-6 新增 7 + 评估文档 1）。
 > 列：`路径 | 行数 | 说明`。`upstream/<name>` 是 gitlink（submodule），行数记 `-`；既有条目的行数为生成时快照，文档改版后以文件实际内容为准。
 > 说明来源：精写字典 213 条、从源码注释/导出/测试名自动提取 69 条、按类型兜底 0 条。
 > 需要更详细的「哪些文件一起完成什么」见 `04-CODE-MAP.md`；目录结构见 `DIRECTORY-GUIDE.md`。
@@ -17,7 +17,7 @@
 | `HANDOFF/05-VALIDATION-AND-COMMANDS.md` | 145 | 全套回归命令、第二十二轮 P-1 / 第二十三轮 P-5 / 第二十四轮 P-6 实测结果（含 `npm test` 445/445、`steps:smoke` 54/54、E 段 HITL / F 段送达证据 / G 段四项借思想、host:pg 21/21、各隔离冒烟）、真实 HTTP 冒烟模板、服务端口表、排障速查、提交前检查。 |
 | `HANDOFF/06-CURRENT-STATE-AND-NEXT.md` | 130 | 当前状态快照（第二十四轮 P-6）、B2 四项真跑证据、C-0~C-6 分步清单、按配置的三层判断、去 Paperclip 化路线、P-1 / P-5 / P-6 三轮生产项交付与证据、剩余生产项与待拍板事项。 |
 | `HANDOFF/07-RULES-AND-BOUNDARIES.md` | 44 | 红线与边界：业务验收身份、隐私与 .runtime、服务约束、许可证、前端入口、工程约束。 |
-| `HANDOFF/08-OPEN-DECISIONS.md` | 95 | 11 个条目（6 项待拍板 + 产品形态 ②、B2 范围、组织形态可配置与自演进、Paperclip 去留四条历史记录 + 第 11 条 Runner 已于第二十四轮拍板 (b) 并完成）：外部模型凭据、真人验收、部门 scope、外部服务、已停服务、pi 指代、Runner 移植范围三档结论与红线。 |
+| `HANDOFF/08-OPEN-DECISIONS.md` | 103 | 12 个条目（7 项待拍板 + 产品形态 ②、B2 范围、组织形态可配置与自演进、Paperclip 去留四条历史记录 + 第 11 条 Runner 已拍板完成）：外部模型凭据、真人验收、部门 scope、外部服务、已停服务、pi 指代、第 12 条 OpenMausBot 落地范围三档结论与红线。 |
 | `HANDOFF/DIRECTORY-GUIDE.md` | 154 | ★ 目录完全指南：完整目录树、每个顶层目录作用与入库状态、7 个 submodule、.runtime 详解、构建产物位置、新文件该放哪。 |
 | `HANDOFF/FILE-INVENTORY.md` | 328 | ★ 本文件：全部入库文件逐文件一行说明（路径 / 行数 / 用途），用于快速定位。 |
 | `HANDOFF/README.md` | 62 | 交接包总索引：5 分钟接手路径、包内每个文件的说明、根目录两份总览入口、一句话现状与检查清单。 |
@@ -290,7 +290,7 @@
 | `plugins/knowledge-workspaces/src/worker.ts` | 26 | 插件 worker：所有读写都走 action 通道，携带宿主不可变 actor（UI 不能指定操作人）。 |
 | `plugins/knowledge-workspaces/tsconfig.json` | 12 | 插件独立 TypeScript 配置（build:workspaces 会检查）。 |
 
-## 项目文档 docs/（22）
+## 项目文档 docs/（23）
 
 | 路径 | 行数 | 说明 |
 |---|---|---|
@@ -307,6 +307,7 @@
 | `docs/MEMORY-ARCHITECTURE-v0.7.md` | 94 | ★ 方案 B 全文：append-only 事件主干、四类投影、撤权 lineage、B2 投影召回 / 精确撤权 / checkpoint 与真跑证据、C 边界。 |
 | `docs/OPEN-SOURCE-COMPLIANCE.md` | 119 | 开源复用与许可证合规说明（已复用/可复用/禁止复用三分类）。 |
 | `docs/PRD-v0.6.md` | 412 | ★ 产品需求文档：FR 编号、R1–R5 红线、§10A 前端形态约束（S5/S6 已废弃）、§10C C 阶段产品约束 C-P1~C-P5、Q4 复用矩阵。 |
+| `docs/REFERENCE-openmausbot.md` | 133 | ★ OpenMausBot 完整参考评估（固定 Apache-2.0 提交 `3f81576`）：两进程架构、决策模型/自动路由、Agent 定义与团队包、Assignment 委托树、driver SPI 与 shadow 降级、Skill 版本化、出入站 MCP 边界、三层行为评测；含逐项对照表、11 条按价值排序的差距清单、明确不做的红线与 `enterprise/` 许可证边界。**只调研，未引入任何代码/依赖/服务**。 |
 | `docs/ROUTING-AND-HOST-v0.7.md` | 165 | ★ A 阶段方案全文：RoutingDecision、共享 Trace、三层判断、HostPlatformPort、开源候选矩阵与 6.1 C 阶段新增产品约束。 |
 | `docs/SOURCES.md` | 46 | 上游来源与引入方式记录。 |
 | `docs/SYSTEM-ARCHITECTURE.md` | 241 | ★ 「现在是什么」：技术四层、产品与业务架构、前端分层、统一路由 Trace、共享记忆主干。 |

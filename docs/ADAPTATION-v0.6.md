@@ -28,6 +28,8 @@
 
 **如实边界**：`human_response` 只把答案送回提问者，**绝不替代**原发起人在原会话用中文「确认验收 任务编号」；SUI-129 仍未核可。Runner 的 `Archive` 由系统把 mission 标 completed，本仓库**没有**引入这种自动完成语义；未接通飞书写回通道，真人回答目前只有本机 CLI 入口，不是网页入口。默认 `config.execution.mode=loop`、`host.provider=paperclip` 未变；未引入第 8 个上游、未新增 npm 依赖、未改上游提交、未发生任何外部模型调用；4190 / 4192 / 4194 / 9418 保持停机。**剩余生产项**（仍需用户确认或外部凭据）：切换默认底座、真实业务单切 step、worker 内部子调用逐次拆分、真实外部模型端点 / 远端沙箱 / 多机切换、金额成本账本接入效果看板。
 
+**外部候选评估：OpenMausBot（本轮只调研、未引入任何代码）**：用户给出 `github.com/milind-soni/OpenMausBot` 并要求完整通读 Agent / Harness / Router / 运行分发 / 定义 / Skill / MCP，找出本仓库没做但有价值的点。固定提交 `3f81576655ca45af91bfaaa63dc37251222828eb`（v0.1.148），主体 **Apache-2.0**（由 MIT 转授权），但 **`enterprise/` 是独立 source-available 许可、禁止复用**。完整对照与 11 条差距清单见 `docs/REFERENCE-openmausbot.md`，待拍板事项见 `HANDOFF/08` 第 12 条。结论摘要：它是「聊天应用形态的 bot 团队 + 本机 harness server + 单一 SSE 事件流」，与本仓库的协作台 / 验收责任链是两种形态，**整体不该搬**；本仓库已有且更严的是确定性配置路由（`modelCalls=0`）、组织级 Agent 编制与不回溯快照、append-only 主干与投影、单步队列与送达证据、只读白名单。真正缺且有价值的是**「怎么证明一次协作行为是对的」**：行为轨迹基线 + golden diff、冻结快照纯评分器、双臂对照的 `non-discriminating` / `high-variance` 旗标、tool-choice 回归与版本化判据，其次是工程层自动决策的独立留痕与出站 MCP「不暴露」清单硬断言。这些都能在不引入第 8 个上游、不接外部模型、不放宽人签红线的前提下自研落地。**明确不做**：外部服务一等入口、调外部小模型做路由、五级审批与自动批准、`enterprise/` 代码、整仓引入、r/w 合并式快照。本轮未改动任何 `src/` / `scripts/` / `tests/` 代码。
+
 ---
 
 ## 0.000000000000000000000000 生产项 P-5：控制台只读快照的服务端分页与裁剪（2026-11-08 · 第二十三轮）

@@ -136,7 +136,7 @@ npm test                         # 本次交接复跑：413/413，0 fail
 4. 金额成本账本接入四项效果看板（当前单任务成本用「模型调用次数 / 任务」代理，不编造金额）。
 5. ✅ **第二十三轮已完成**：控制台改用服务端分页摘要 `view-summary`（真实服务端 5,678 bytes / 0.076 秒），原 `view` 逐字保留给插件工作台；详见 `HANDOFF/06` 第 7 节。
 
-**需要用户拍板**（`HANDOFF/08`，共 11 条，其中 6 条仍待拍板）：外部模型端点与凭据、SUI-129 真人验收、飞书部门 scope 授权、国内/海外外部服务是否接通、已取消服务长期状态、「pi」的指代。第 10 条「Paperclip 去留」方向已定为 (a) 不引入第 8 个上游、继续去宿主化，但**何时切换默认底座**仍需用户确认。第 11 条「Runner 移植范围」已于第二十四轮由用户拍板 (b) 并执行：两块协议用 TypeScript 重写、四项只借思想，固定 MIT 提交 `a42d1331`、R7 六步登记完成，**未引入 submodule / gitlink / Rust 源码，7 个上游不变**；详见 `HANDOFF/06` 第 8 节与 `docs/ADAPTATION-v0.6.md` 最新边界节。
+**需要用户拍板**（`HANDOFF/08`，共 12 条，其中 7 条仍待拍板）：外部模型端点与凭据、SUI-129 真人验收、飞书部门 scope 授权、国内/海外外部服务是否接通、已取消服务长期状态、「pi」的指代、**OpenMausBot 参考评估的落地范围（第 12 条）**。第 10 条「Paperclip 去留」方向已定为 (a) 不引入第 8 个上游、继续去宿主化，但**何时切换默认底座**仍需用户确认。第 11 条「Runner 移植范围」已于第二十四轮由用户拍板 (b) 并执行：两块协议用 TypeScript 重写、四项只借思想，固定 MIT 提交 `a42d1331`、R7 六步登记完成，**未引入 submodule / gitlink / Rust 源码，7 个上游不变**；详见 `HANDOFF/06` 第 8 节与 `docs/ADAPTATION-v0.6.md` 最新边界节。第 12 条是同轮新增的 OpenMausBot 完整调研（固定 Apache-2.0 提交 `3f81576`，`enterprise/` 独立许可禁止复用），只评估、未引入任何代码；结论与 11 条按价值排序的差距清单见 `docs/REFERENCE-openmausbot.md`，推荐先做行为轨迹基线 / 冻结快照评分器 / 双臂统计旗标 / tool-choice 回归 / 自动决策留痕 / 出站 MCP 不暴露硬断言这六项，均不需要新上游或外部模型。
 
 ---
 
@@ -148,11 +148,12 @@ npm test                         # 本次交接复跑：413/413，0 fail
 | 接手、环境、命令、红线、下一步 | `HANDOFF/` 包（入口 `HANDOFF/README.md`） |
 | 产品需求与可验收条款 | `docs/PRD-v0.6.md`（尤其 §5 FR、§6 主流程、§10C C-P1~C-P8） |
 | 设计定稿（不等于全部实现） | `docs/ARCHITECTURE-v0.6.md` |
-| 最新实现边界 | `docs/ADAPTATION-v0.6.md` `0.00000000000000000000000` 节 |
+| 最新实现边界 | `docs/ADAPTATION-v0.6.md` `0.0000000000000000000000000` 节（第二十四轮 P-6） |
 | 现状架构与接入状态 | `docs/SYSTEM-ARCHITECTURE.md` |
 | 验证证据 | `docs/VALIDATION.md`、`HANDOFF/05-VALIDATION-AND-COMMANDS.md` |
 | 复用来源与协议 | `docs/SOURCES.md`、`docs/UPSTREAM-ADAPTERS.md`、`docs/OPEN-SOURCE-COMPLIANCE.md`、`THIRD_PARTY_NOTICES.md`、`sources.lock.json` |
 | 机器可读交接元数据 | `HANDOFF/handoff-manifest.json` |
+| 外部候选评估（Runner / OpenMausBot） | `docs/ADAPTATION-v0.6.md` 最新边界节、`docs/REFERENCE-openmausbot.md`（OpenMausBot 完整对照与差距清单） |
 
 **冲突时的优先级**：`docs/ADAPTATION-v0.6.md` 最新边界声明 → `docs/VALIDATION.md` 最新验证记录 → `docs/PRD-v0.6.md` §10C → `HANDOFF/06` → 其余历史轮次文档。`HANDOFF/` 是详细交接说明的唯一权威目录；根目录 `HANDOFF.md` 与 `PROJECT-SUMMARY.md` 是与之同步维护的总览入口。
 

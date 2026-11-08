@@ -241,7 +241,7 @@
     },
     {
       "path": "HANDOFF/08-OPEN-DECISIONS.md",
-      "purpose": "需用户拍板的事项（第 10 项已于第十七轮按方向 (a) 定调；其余仍待拍板）"
+      "purpose": "12 个条目、7 项仍待拍板；第 11 条 Runner 已拍板完成，第 12 条 OpenMausBot 落地范围待拍板"
     },
     {
       "path": "HANDOFF/DIRECTORY-GUIDE.md",
@@ -262,12 +262,12 @@
   ],
   "fileInventory": {
     "path": "HANDOFF/FILE-INVENTORY.md",
-    "totalEntries": 308,
+    "totalEntries": 309,
     "handWrittenDescriptions": 213,
     "autoExtractedDescriptions": 69,
     "fallback": 0,
     "uncovered": 0,
-    "note": "第十四轮 269 + C-1 新增 4 + C-2 新增 7 + C-3 新增 3 + C-4 新增 3 + C-5 新增 2 + C-6 新增 4 + P-1 新增 5（src/step-execution.ts、src/loop-pump.ts、src/step-runner.ts、scripts/steps-smoke.ts、tests/step-execution.test.ts）+ 2026-11-08 交接总结新增 2（HANDOFF.md、PROJECT-SUMMARY.md）+ P-5 新增 2（src/workspace-summary.ts、tests/workspace-summary.test.ts）+ P-6 新增 7（src/step-hitl.ts、src/step-delivery.ts、src/mission-state.ts、scripts/step-answer.ts、tests/step-hitl.test.ts、tests/step-delivery.test.ts、licenses/runner-MIT.txt）；既有文件修改不计新增"
+    "note": "第十四轮 269 + C-1 新增 4 + C-2 新增 7 + C-3 新增 3 + C-4 新增 3 + C-5 新增 2 + C-6 新增 4 + P-1 新增 5（src/step-execution.ts、src/loop-pump.ts、src/step-runner.ts、scripts/steps-smoke.ts、tests/step-execution.test.ts）+ 2026-11-08 交接总结新增 2（HANDOFF.md、PROJECT-SUMMARY.md）+ P-5 新增 2（src/workspace-summary.ts、tests/workspace-summary.test.ts）+ P-6 新增 7（src/step-hitl.ts、src/step-delivery.ts、src/mission-state.ts、scripts/step-answer.ts、tests/step-hitl.test.ts、tests/step-delivery.test.ts、licenses/runner-MIT.txt）+ 评估文档 1（docs/REFERENCE-openmausbot.md）；既有文件修改不计新增"
   },
   "nextSteps": [
     "先读根目录 HANDOFF.md（接手总纲）与 PROJECT-SUMMARY.md（项目总结），再读 HANDOFF/00-START-HERE.md、06-CURRENT-STATE-AND-NEXT.md、docs/PRD-v0.6.md §10C、07-RULES-AND-BOUNDARIES.md",
@@ -286,7 +286,8 @@
     "国内/海外外部服务是否接通",
     "已取消服务的长期状态",
     "\"pi\" 的指代（当前按 earendil-works/pi 理解）",
-    "Paperclip 去留：第十七轮已按方向 (a) 定调——不引入第 8 个上游，自己做国内化 + 独立控制台；第十八轮 C-3 单一 Router、第十九轮 C-4 组织级 Agent 编制、第二十轮 C-5 按配置评估口径、第二十一轮 C-6 沉淀回流闭环、第二十二轮 P-1 长程循环单步化均已去宿主化，默认底座仍 paperclip、可回退"
+    "OpenMausBot 参考评估的落地范围（第 12 条）：推荐先做行为轨迹基线 / 冻结快照评分器 / 双臂统计旗标 / tool-choice 回归 / 自动决策留痕 / 出站 MCP 不暴露硬断言；详见 docs/REFERENCE-openmausbot.md",
+    "历史记录（已定调，不再待拍板）：第 10 项 Paperclip 去留按方向 (a) 不引入第 8 个上游；第 11 项 Runner 移植范围已于第二十四轮拍板 (b) 并完成"
   ],
   "doNot": [
     "不要重启 4190/4192/4194/9418",

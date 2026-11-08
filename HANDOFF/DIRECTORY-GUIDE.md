@@ -1,7 +1,7 @@
 # 09 · 目录结构完全指南（接手必读）
 
 > 目标：搞清楚**每个目录是干什么的、哪些入库、产物放哪、新文件该放哪**。
-> 根目录：`/Users/gong.zhe/Developer/ai-native-collab`｜第二十二轮 P-1 收尾后 `git ls-files` 共 **297** 个入库文件（含 `HANDOFF/` 14 个）；新增根目录总览后 **299** 个，第二十三轮 P-5 新增 2 个后 **301** 个，第二十四轮 P-6 新增 7 个（`src/step-hitl.ts` / `src/step-delivery.ts` / `src/mission-state.ts` / `scripts/step-answer.ts` / 两组契约测试 / `licenses/runner-MIT.txt`）后为 **308** 个。
+> 根目录：`/Users/gong.zhe/Developer/ai-native-collab`｜第二十二轮 P-1 收尾后 `git ls-files` 共 **297** 个入库文件（含 `HANDOFF/` 14 个）；新增根目录总览后 **299** 个，第二十三轮 P-5 新增 2 个后 **301** 个，第二十四轮 P-6 新增 7 个（`src/step-hitl.ts` / `src/step-delivery.ts` / `src/mission-state.ts` / `scripts/step-answer.ts` / 两组契约测试 / `licenses/runner-MIT.txt`）后为 **308** 个；OpenMausBot 参考评估新增 1 份文档后为 **309** 个。
 
 ## 1. 完整目录树（带说明）
 
@@ -76,11 +76,12 @@ ai-native-collab/                       仓库根（main 分支）
 │   ├── deepseek-harness/              DeepSeek Harness（scope/工具装配）
 │   ├── cognee/                        Cognee（图存储/DataPoint/BM25）
 │   └── acceptance/                    lobehub/acceptance（只读格式契约）
-├── docs/                              ★ 项目文档（21 个 .md，全部入库）
-│   └── design/workbench.md            工作台设计稿
+├── docs/                              ★ 项目文档（22 个 .md，全部入库）
+│   ├── design/workbench.md            工作台设计稿
+│   └── REFERENCE-openmausbot.md       OpenMausBot 完整参考评估（只调研，未引入代码）
 ├── locales/                           构建期中文壳词典（shell.zh-CN.json）
 ├── integrations/deepseek/             DeepSeek Harness 的 LLM 客户端替换层（2 个 .ts）
-├── licenses/                          上游许可证全文（4 个 .txt）
+├── licenses/                          上游许可证全文（5 个 .txt，含 Runner MIT）
 ├── fixtures/                          联调夹具（yml / html / png / mjs）
 ├── .github/workflows/ci.yml           GitHub Actions CI 配置
 ├── workspaces/                        ⛔ 联调仓库 checkout（被 .gitignore 忽略）
