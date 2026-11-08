@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { root, runtime, secrets } from './config.ts';
 import { reusable } from './knowledge.ts';
+import { triggerAutoCognify } from './cognee-native.ts';
 import type { Workspaces, WorkspaceActor } from './workspaces.ts';
 import type { L1Projection, L1Reader } from './org-extraction.ts';
 import { assertL1Isolated } from './org-extraction.ts';
@@ -29,6 +30,7 @@ export class KnowledgeGraph {
   }
   async run(id: string, revision: string, project: boolean, actor: WorkspaceActor, taskId?: string) {
     if (project) this.w.manager(actor);
+    let nativeCognify: { triggered: boolean; dataset?: string; reason?: string } | undefined;
     const before = await this.source(id, actor, taskId);
     if (before.record.revision !== revision) throw new Error('来源版本已变化，请核对当前版本后生成图谱');
     const { TeamMemory } = await import('./team-memory.ts');
@@ -55,8 +57,14 @@ export class KnowledgeGraph {
     if ((await memory.annotations(id,revision))?.proof !== annotation?.proof) throw new Error('图谱处理期间概念关系已变化，结果不交付');
     if (after.record.revision !== before.record.revision || after.record.hash !== before.record.hash) throw new Error('图谱处理期间资料或权限已变化，结果不交付');
     if (project) { writeFileSync(path.join(folder, 'ready.json'), JSON.stringify({ sourceId: id, revision, commit: cogneeCommit }), { mode: 0o600 });
-      this.w.store.audit('knowledge.graph-projected', id, { revision, engine: 'cognee', nodes: result.nodes.length, edges: result.edges.length, modelCalls: 0 }); }
-    return { ...result, sourceId: id, revision, knowledgeState: after.record.value.state, commit: cogneeCommit, sourceHash: after.record.hash };
+      this.w.store.audit('knowledge.graph-projected', id, { revision, engine: 'cognee', nodes: result.nodes.length, edges: result.edges.length, modelCalls: 0 });
+      // 第三十四轮（用户拍板费用可接受）：L1 零模型投影成功后，自动把该来源正文
+      // cognify 进原生管线（外部 LLM 抽取 + 本机 fastembed）。发后即忘：失败不
+      // 阻塞、不回滚投影；成功 / 失败各写一条审计。零模型红线只约束 L1 投影本身。
+      nativeCognify = triggerAutoCognify(this.w.config, before.record.value, id, revision,
+        (event, sourceId, detail) => this.w.store.audit(event, sourceId, detail));
+    }
+    return { ...result, sourceId: id, revision, knowledgeState: after.record.value.state, commit: cogneeCommit, sourceHash: after.record.hash, ...(nativeCognify ? { nativeCognify } : {}) };
   }
 
   /**

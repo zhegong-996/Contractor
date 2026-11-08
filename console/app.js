@@ -15,12 +15,13 @@
   // 按动作区分超时：未登记动作走默认 12 秒快速失败；重放 / 体检类只读动作放宽。
   // P-5 红线：view-summary 是分页摘要（毫秒级），不给慢请求开口子。
   // knowledge-wiki / dreaming-run 要逐任务读知识文档并跑体检 / 登记，走 30 秒宽限。
-  const READ_TIMEOUT = { 'memory-replay': 20000, 'memory-guard': 20000, 'trace-view': 20000, 'knowledge-list': 20000, 'knowledge-wiki': 30000, 'dreaming-run': 30000 };
+  const READ_TIMEOUT = { 'memory-replay': 20000, 'memory-guard': 20000, 'trace-view': 20000, 'knowledge-list': 20000, 'knowledge-wiki': 30000, 'dreaming-run': 30000, 'cognee-search': 185000 };
   const CACHE_MS = 4000;
   const readCache = new Map();
   const inFlight = new Map();
   // 只读动作才允许短缓存；写动作（admin- / knowledge- 写 / settings- / dreaming-）不缓存。
-  const cacheable = action => !action.startsWith('admin-') && !action.startsWith('knowledge-') && !action.startsWith('settings-') && !action.startsWith('dreaming-');
+  // cognee-search 走外部模型，不缓存（每次都是真实调用）。
+  const cacheable = action => !action.startsWith('admin-') && !action.startsWith('knowledge-') && !action.startsWith('settings-') && !action.startsWith('dreaming-') && action !== 'cognee-search';
 
   async function api(action, payload = {}) {
     const key = action + ':' + JSON.stringify(payload);
@@ -360,6 +361,26 @@
     props: ['session'],
     template: `
       <div>
+        <el-card v-if="canSearch" shadow="never" style="margin-bottom:14px">
+          <template #header>
+            <div class="card-head">
+              <span>语义检索（原生知识管线）</span>
+              <el-tag size="small" effect="plain" type="warning">外部模型调用</el-tag>
+            </div>
+          </template>
+          <div class="field-hint" style="margin-bottom:10px">对已进入原生知识管线（cognify）的材料做语义检索：知识条目「生成图谱」后自动抽取，或命令行手动喂入。提问会发往所配置的外部模型服务汇总；结果为机器生成摘要，请核对原始资料。仅所有者与管理员可用。</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+            <el-input v-model="search.query" placeholder="例如：支付模块有什么风险？谁负责前端？" style="max-width:420px" clearable @keyup.enter="runSearch" />
+            <el-input v-model="search.dataset" placeholder="数据集" style="max-width:170px" />
+            <el-button type="primary" :loading="search.busy" :disabled="!search.query.trim()" @click="runSearch">检索</el-button>
+          </div>
+          <el-alert v-if="search.error" :title="search.error" type="error" :closable="false" />
+          <template v-if="search.results">
+            <div class="field-hint">数据集 {{ search.datasetUsed || search.dataset }} · {{ search.results.length }} 条结果</div>
+            <div v-if="!search.results.length" class="field-hint">没有召回结果——此数据集可能还没有 cognify 过材料；先在知识工作台对来源「生成图谱」（凭据就绪时会自动 cognify）。</div>
+            <pre v-for="(r, i) in search.results" :key="i" class="code-block" style="margin-top:8px">{{ resultText(r) }}</pre>
+          </template>
+        </el-card>
         <el-card shadow="never" style="margin-bottom:14px">
           <template #header>
             <div class="card-head">
@@ -440,6 +461,23 @@
     setup(props) {
       const list = ref({}); const loading = ref(false); const guardText = ref('尚未运行；点击「跑知识体检」获取只读报告。');
       const dialog = ref(false); const saving = ref(false);
+      // 第三十四轮：原生知识管线语义检索（所有者/管理员；跨分区数据集故收口）。
+      const search = reactive({ query: '', dataset: 'suitme-knowledge', busy: false, error: '', results: null, datasetUsed: '' });
+      const canSearch = computed(() => props.session?.role === 'owner' || props.session?.role === 'admin');
+      const resultText = r => typeof r === 'string' ? r
+        : Array.isArray(r?.search_result) ? r.search_result.map(x => typeof x === 'string' ? x : JSON.stringify(x)).join('\n')
+        : typeof r?.text === 'string' ? r.text : JSON.stringify(r, null, 2);
+      const runSearch = async () => {
+        if (!search.query.trim() || search.busy) return;
+        search.busy = true; search.error = ''; search.results = null;
+        try {
+          const r = await api('cognee-search', { query: search.query.trim(), dataset: search.dataset.trim() || 'suitme-knowledge' });
+          search.results = Array.isArray(r.results) ? r.results : [];
+          search.datasetUsed = r.dataset || '';
+          if (!search.results.length) ElementPlus.ElMessage.info('没有召回结果');
+        } catch (e) { search.error = String(e.message || e); }
+        finally { search.busy = false; }
+      };
       const form = reactive({ key: '', title: '', kind: 'reference', domainsText: '', visibility: 'team', appliesTo: '', body: '', sourcesText: '', taskId: '', existing: null });
       const kinds = KNOWLEDGE_KINDS, visibilities = VISIBILITY;
       const items = computed(() => Array.isArray(list.value.items) ? list.value.items : []);
@@ -510,7 +548,8 @@
       };
       onMounted(load);
       return { list, items, loading, guardText, dialog, saving, form, kinds, visibilities, anchorTasks,
-        visLabel, visTag, stateLabel, canEdit, canDelete, canChangeVis, canWriteSome, load, runGuard, openCreate, openEdit, save, remove, fmtTime };
+        visLabel, visTag, stateLabel, canEdit, canDelete, canChangeVis, canWriteSome, load, runGuard, openCreate, openEdit, save, remove, fmtTime,
+        search, canSearch, runSearch, resultText };
     },
   };
 
@@ -583,16 +622,16 @@
               <template #header>本机服务状态</template>
               <el-alert v-if="data.__error" :title="'读取失败：' + data.__error" type="warning" :closable="false" />
               <el-table v-else :data="services" size="default">
-                <el-table-column prop="name" label="服务" width="120">
+                <el-table-column prop="name" label="服务" min-width="150">
                   <template #default="{ row }">{{ clean(row.name) }}</template>
                 </el-table-column>
-                <el-table-column label="状态" width="100">
+                <el-table-column label="状态" width="96">
                   <template #default="{ row }">
-                    <el-tag :type="row.running ? 'success' : 'info'" effect="light">{{ row.running ? '运行中' : '已停止' }}</el-tag>
+                    <el-tag :type="stateTag(row.state)" effect="light">{{ stateText(row.state) }}</el-tag>
                   </template>
                 </el-table-column>
-                <el-table-column prop="label" label="说明" min-width="220" show-overflow-tooltip>
-                  <template #default="{ row }">{{ clean(row.label) }}</template>
+                <el-table-column label="说明（实时探测）" min-width="260" show-overflow-tooltip>
+                  <template #default="{ row }">{{ clean(row.detail || row.setup || '') }}<a v-if="row.url" :href="row.url" target="_blank" rel="noopener" style="margin-left:6px">入口</a></template>
                 </el-table-column>
               </el-table>
             </el-card>
@@ -609,8 +648,12 @@
       const data = ref({}), system = ref({});
       const services = computed(() => Array.isArray(data.value.services) ? data.value.services : []);
       const text = computed(() => system.value.__error ? '读取失败：' + system.value.__error : JSON.stringify(system.value, null, 2));
+      // 第三十四轮修复：service-status 返回的是 state（connected / degraded / unavailable），
+      // 旧代码读不存在的 running 布尔，导致所有服务永远显示「已停止」、说明列为空。
+      const stateText = state => ({ connected: '已接通', degraded: '已降级', unavailable: '未接通' }[state] || state || '未知');
+      const stateTag = state => ({ connected: 'success', degraded: 'warning', unavailable: 'info' }[state] || 'info');
       onMounted(async () => { data.value = await safe('service-status'); system.value = await safe('system-status'); });
-      return { data, services, text, clean };
+      return { data, services, text, clean, stateText, stateTag };
     },
   };
 

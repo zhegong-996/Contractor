@@ -128,14 +128,14 @@ function bridgeRequest(method: 'GET' | 'POST', route: string, payload?: unknown)
   });
 }
 
-function proxy(action: string, body: string, actorUser?: string): Promise<{ status: number; payload: string }> {
+function proxy(action: string, body: string, actorUser?: string, timeoutMs = 20000): Promise<{ status: number; payload: string }> {
   const incoming = body ? JSON.parse(body).payload ?? {} : {};
   // P-13：知识写入动作带上 console 用户身份；bridge 端以 casbin 分区判定。
   const payload = JSON.stringify({ payload: actorUser ? { ...incoming, actorUser } : incoming });
   return new Promise((resolve, reject) => {
     const req = httpRequest({
       hostname: '127.0.0.1', port: loadConfig().bridgePort,
-      path: '/workspace/' + action, method: 'POST', timeout: 20000,
+      path: '/workspace/' + action, method: 'POST', timeout: timeoutMs,
       headers: {
         'Content-Type': 'application/json',
         'Content-Length': Buffer.byteLength(payload),
@@ -342,6 +342,20 @@ export function createConsoleServer(): Server {
         if (CONSOLE_READ_ACTIONS.includes(action)) {
           // 读通道注入真实登录用户（个人区条目按分区过滤，仅归属者与管理员可见）。
           const result = await proxy(action, body, KNOWLEDGE_READ_ACTOR_ACTIONS.includes(action) ? session.username : undefined);
+          res.writeHead(result.status, { 'Content-Type': 'application/json; charset=utf-8' });
+          res.end(result.payload);
+          return;
+        }
+        // 第三十四轮：原生知识语义检索（DeepSeek + 本机 embedding）。cognified
+        // 数据集跨来源共享，无法按成员分区收口，因此控制台侧只放行所有者与
+        // 管理员（bridge 侧本身也是 admin-only），不进通用读白名单。
+        if (action === 'cognee-search') {
+          if (session.role !== 'owner' && session.role !== 'admin') {
+            json(res, 403, { error: '语义检索需要所有者或管理员角色' });
+            return;
+          }
+          // 外部模型检索较慢，放宽到 3 分钟（bridge 侧自身也有 180 秒上限）。
+          const result = await proxy(action, body, undefined, 185000);
           res.writeHead(result.status, { 'Content-Type': 'application/json; charset=utf-8' });
           res.end(result.payload);
           return;

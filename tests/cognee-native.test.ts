@@ -1,12 +1,14 @@
 // Cognee 原生管线：配置打开、凭据只走进程环境、缺配置明确报错、链路不静默降级。
 // 第三十三轮起：embedding 默认本机 fastembed（用户拍板），外部端点是显式回退形态。
+// 第三十四轮起：凭据可持久化到 .runtime/cognee-env.json（启动时装载）；图谱投影
+// 成功后自动 cognify（autoCognify，用户拍板费用可接受）。
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { root, configPath, loadConfig, configSchema } from '../src/config.ts';
 import { resolveCogneeNative, cogneeNativeStatus, assertCogneeNativeReady,
-  cogneeNativeEnv } from '../src/cognee-native.ts';
+  cogneeNativeEnv, triggerAutoCognify, type CogneeNativeConfig } from '../src/cognee-native.ts';
 
 const read = (file: string) => readFileSync(path.join(root, file), 'utf8');
 const config = loadConfig();
@@ -110,4 +112,92 @@ test('系统状态如实区分「已配置」与「未就绪」，不再写死�
   const settings = read('plugins/knowledge-workspaces/src/ui/settings.tsx');
   assert.match(settings, /原生知识管线/);
   assert.doesNotMatch(settings, /不调用任何外部或云端模型网关/);
+});
+
+test('第三十四轮：autoCognify 默认开、共享数据集默认 suitme-knowledge，状态如实标注', () => {
+  assert.equal(config.knowledge.cogneeNative.autoCognify, true);
+  assert.equal(config.knowledge.cogneeNative.dataset, 'suitme-knowledge');
+  const status = cogneeNativeStatus(config, readyEnv);
+  assert.equal(status.autoCognify, true);
+  assert.equal(status.dataset, 'suitme-knowledge');
+  assert.match(status.privacy, /自动外发/);
+  const off = cogneeNativeStatus(configSchema.parse(
+    { ...JSON.parse(readFileSync(configPath, 'utf8')),
+      knowledge: { ...loadConfig().knowledge, cogneeNative: { ...loadConfig().knowledge.cogneeNative, autoCognify: false } } }), readyEnv);
+  assert.equal(off.autoCognify, false);
+  assert.doesNotMatch(off.privacy, /自动外发/);
+});
+
+test('autoCognify 触发器：未配置凭据 / 开关关闭时如实跳过，不触发外部调用', () => {
+  const audits: { event: string; detail: any }[] = [];
+  const audit = (event: string, _id: string, detail: any) => audits.push({ event, detail });
+  // 凭据未配置（显式空 env，确定性）→ 跳过
+  const skipped = triggerAutoCognify(config, { title: 't', body: 'b' }, 'src-1', 'rev-1', audit,
+    () => { throw new Error('测试不应触发真实调用'); }, {});
+  assert.equal(skipped.triggered, false);
+  assert.match(skipped.reason ?? '', /凭据未配置/);
+  // 开关关闭 + 凭据就绪 → 跳过并给出关闭原因
+  const offConfig = configSchema.parse(
+    { ...JSON.parse(readFileSync(configPath, 'utf8')),
+      knowledge: { ...loadConfig().knowledge, cogneeNative: { ...loadConfig().knowledge.cogneeNative, autoCognify: false } } });
+  const off = triggerAutoCognify(offConfig, { title: 't', body: 'b' }, 'src-1', 'rev-1', audit,
+    () => { throw new Error('测试不应触发真实调用'); }, readyEnv);
+  assert.equal(off.triggered, false);
+  assert.match(off.reason ?? '', /autoCognify 已关闭/);
+  assert.equal(audits.length, 0);
+});
+
+test('autoCognify 触发器：凭据就绪时后台触发，成功与失败各写一条审计', async () => {
+  const audits: { event: string; id: string; detail: any }[] = [];
+  const audit = (event: string, id: string, detail: any) => audits.push({ event, id, detail });
+  // 注入 fake runner：绝不触发真实外部调用
+  const calls: any[] = [];
+  const fakeRun = async (_config: any, action: string, payload: any) => {
+    calls.push({ action, payload });
+    if (calls.length === 1) return { ok: true, documents: 1 };
+    throw new Error('模拟外部调用失败');
+  };
+  const ok = triggerAutoCognify(config, { title: '标题', body: '正文' }, 'src-ok', 'rev-ok', audit, fakeRun as any, readyEnv);
+  assert.equal(ok.triggered, true);
+  assert.equal(ok.dataset, 'suitme-knowledge');
+  await new Promise(resolve => setTimeout(resolve, 10));
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].action, 'cognify');
+  assert.match(calls[0].payload.texts[0], /标题[\s\S]*正文/);
+  assert.equal(calls[0].payload.dataset, 'suitme-knowledge');
+  assert.deepEqual(audits.map(a => a.event), ['knowledge.native-cognified']);
+  assert.equal(audits[0].detail.external, true);
+  assert.equal(audits[0].detail.revision, 'rev-ok');
+  // 第二次：runner 失败 → 失败审计，不抛出
+  triggerAutoCognify(config, { title: '标题', body: '正文' }, 'src-bad', 'rev-bad', audit, fakeRun as any, readyEnv);
+  await new Promise(resolve => setTimeout(resolve, 10));
+  assert.deepEqual(audits.map(a => a.event), ['knowledge.native-cognified', 'knowledge.native-cognify-failed']);
+  assert.match(audits[1].detail.error, /模拟外部调用失败/);
+});
+
+test('第三十四轮：cognee-search 管理端 action 已注册且走只读通道；检索结果结构化', () => {
+  const server = read('src/server.ts');
+  assert.match(server, /cognee-search/);
+  assert.match(server, /workspaces\.manager\(workspaceActor\);\s*\n\s*const query/);
+  const python = read('scripts/cognee-native.py');
+  assert.match(python, /to_jsonable/);
+  const cli = read('scripts/cognee-native.ts');
+  assert.match(cli, /persist/);
+  assert.match(cli, /positional/);
+  // graph.ts 的投影钩子：成功投影后触发，失败不影响投影结果
+  const graph = read('src/graph.ts');
+  assert.match(graph, /triggerAutoCognify/);
+  assert.match(graph, /nativeCognify/);
+});
+
+test('凭据持久化：resolve 不读文件（隔离冒烟不经启动装载），装载函数只在启动路径调用', () => {
+  // 显式传入的 env 是唯一来源——这正是测试与冒烟的确定性保证
+  const resolved: CogneeNativeConfig = resolveCogneeNative(config, {});
+  assert.deepEqual(resolved.missing, ['COGNEE_LLM_BASE_URL', 'COGNEE_LLM_API_KEY']);
+  const server = read('src/server.ts');
+  assert.match(server, /loadPersistedCogneeEnvIntoProcess\(\)/);
+  const cli = read('scripts/cognee-native.ts');
+  assert.match(cli, /loadPersistedCogneeEnvIntoProcess\(\)/);
+  // 凭据文件路径固定在 .runtime（gitignored）
+  assert.match(read('src/cognee-native.ts'), /cognee-env\.json/);
 });

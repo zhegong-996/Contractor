@@ -119,15 +119,22 @@ export const configSchema = z.object({
     }).default(() => ({ enabled: true, weight: 0.45 })),
     /**
      * Cognee 原生 LLM 实体抽取 / embedding / cognify（用户 2026-11-07 明确打开）。
-     * 允许外部 OpenAI-compatible 模型 API：这里只存**环境变量名**，凭据与
-     * 端点值只在进程环境里，绝不写进 .runtime/config.json 或仓库。
+     * 允许外部 OpenAI-compatible 模型 API：这里只存**环境变量名**，凭据值优先走
+     * 进程环境；`.runtime/cognee-env.json`（gitignored、0600）作为本机持久化兜底，
+     * 由 server / CLI 启动时装载，绝不写进 .runtime/config.json 或仓库。
      * 用户 2026-11-08 拍板：LLM 走外部 DeepSeek v4 flash，embedding 走本机
      * fastembed（pinned Cognee venv 自带，无需端点与凭据）——provider 默认
      * 'fastembed'；显式配 'custom' 时恢复「外部 OpenAI-compatible embedding 端点」
      * 的旧口径（endpoint/key 缺失仍会列进 missing）。
+     * 用户 2026-11-08 晚间拍板（费用可接受）：图谱投影成功后自动把该来源正文
+     * cognify 进原生管线（autoCognify，默认开；关闭即回到纯手动 CLI 形态）。
      */
     cogneeNative: z.object({
       enabled: z.boolean().default(true),
+      /** 图谱投影（project=true）成功后自动 cognify 该来源正文（用户拍板费用可接受）。 */
+      autoCognify: z.boolean().default(true),
+      /** 自动 cognify 与「知识检索」UI 共用的数据集名。 */
+      dataset: z.string().min(1).default('suitme-knowledge'),
       llm: z.object({
         baseUrlEnv: z.string().min(1).default('COGNEE_LLM_BASE_URL'),
         apiKeyEnv: z.string().min(1).default('COGNEE_LLM_API_KEY'),
@@ -149,11 +156,11 @@ export const configSchema = z.object({
       }).default(() => ({ provider: 'fastembed' as const, baseUrlEnv: 'COGNEE_EMBEDDING_BASE_URL', apiKeyEnv: 'COGNEE_EMBEDDING_API_KEY',
         modelEnv: 'COGNEE_EMBEDDING_MODEL', defaultModel: 'openai/text-embedding-3-small', dimensions: 1536,
         fastembedModel: 'jinaai/jina-embeddings-v2-base-zh', fastembedDimensions: 768 })),
-    }).default(() => ({ enabled: true,
+    }).default(() => ({ enabled: true, autoCognify: true, dataset: 'suitme-knowledge',
       llm: { baseUrlEnv: 'COGNEE_LLM_BASE_URL', apiKeyEnv: 'COGNEE_LLM_API_KEY', modelEnv: 'COGNEE_LLM_MODEL', defaultModel: 'openai/gpt-4o-mini' },
       embedding: { provider: 'fastembed' as const, baseUrlEnv: 'COGNEE_EMBEDDING_BASE_URL', apiKeyEnv: 'COGNEE_EMBEDDING_API_KEY', modelEnv: 'COGNEE_EMBEDDING_MODEL', defaultModel: 'openai/text-embedding-3-small', dimensions: 1536, fastembedModel: 'jinaai/jina-embeddings-v2-base-zh', fastembedDimensions: 768 } })),
   }).default(() => ({ semanticRecall: { enabled: true, weight: 0.45 },
-    cogneeNative: { enabled: true,
+    cogneeNative: { enabled: true, autoCognify: true, dataset: 'suitme-knowledge',
       llm: { baseUrlEnv: 'COGNEE_LLM_BASE_URL', apiKeyEnv: 'COGNEE_LLM_API_KEY', modelEnv: 'COGNEE_LLM_MODEL', defaultModel: 'openai/gpt-4o-mini' },
       embedding: { provider: 'fastembed' as const, baseUrlEnv: 'COGNEE_EMBEDDING_BASE_URL', apiKeyEnv: 'COGNEE_EMBEDDING_API_KEY', modelEnv: 'COGNEE_EMBEDDING_MODEL', defaultModel: 'openai/text-embedding-3-small', dimensions: 1536, fastembedModel: 'jinaai/jina-embeddings-v2-base-zh', fastembedDimensions: 768 } } })),
   // L2 organisation-graph extraction. The default adapter is deterministic:

@@ -20,7 +20,7 @@ import { Workspaces } from './workspaces.ts';
 import { WorkspaceAssistant } from './assistant.ts';
 import { z } from 'zod';
 import { withFeishuReads } from './feishu-sources.ts';
-import { cogneeNativeStatus } from './cognee-native.ts';
+import { cogneeNativeStatus, runCogneeNative, loadPersistedCogneeEnvIntoProcess } from './cognee-native.ts';
 import { CollaborationIntake } from './collaboration-intake.ts';
 import { ModelSettingsService } from './model-settings.ts';
 import { KnowledgeGraph, CogneeL1Reader, cogneeCommit } from './graph.ts';
@@ -56,6 +56,10 @@ import { EvolutionService, defaultEvolutionDeps } from './evolution.ts';
 // P-5：控制台只读摘要（服务端分页 / 字段裁剪），原 view 逐字保留。
 import { buildWorkspaceSummary, parseViewSummaryPage, visibleTasksFor, type HostTitle } from './workspace-summary.ts';
 
+// 第三十四轮（key 持久化）：启动时把 .runtime/cognee-env.json（gitignored、0600）
+// 里的凭据装载进进程环境；已设的进程环境变量优先，不会被覆盖。装载失败（文件
+// 缺失 / 损坏）静默跳过——原生管线状态接口会如实报「未就绪」。
+loadPersistedCogneeEnvIntoProcess();
 const config = loadConfig(); const credentials = secrets();
 // C-3：用组织形态配置装配单一 Router；五个派活点此后都经它写同一份 Trace。
 // C-4：同时装配组织级 Agent 注册表，Router 才校验主管是否真实在岗 / 职责匹配 / 范围覆盖；
@@ -198,7 +202,7 @@ const server = createServer(async (req, res) => {
       // Reads recheck their own scope and revisions. They need not wait behind
       // indexing or native process reconciliation; mutations keep the single lane.
       const v06Reads=['roles-view','role-route','role-hints','role-snapshot','transfer-view','transfer-policy','dispatch-guard','grant-widen','grant-check','edges-view','edge-impact','label-check','policy-view','verification-level','topology-advice','inflight-policy','signals','review-readiness','ontology-meta','ontology-view','ontology-query','attention-policy','attention-filter','watchdog-policy','watchdog-inspect','plan-view','round-view','acceptance-export','acceptance-report-view','org-overview','org-mapping-view','context-pack','l2-status','l2-edges-view','l2-graph-view','agent-registry-view','acceptance-crew','evolution-view','execution-view'];
-      const readOnly=['view','view-summary','team-members','agent-services','agent-build','development-view','delivery-status','service-status','routing-status','memory-replay','memory-guard','loop-guard','network-view','memory-status','memory-search','memory-annotations','context-pack','context-record','context-search','ontology-view','model-settings','system-status','trace-view','knowledge-list','knowledge-get','knowledge-wiki'].includes(action)||action==='knowledge-graph'&&payload.project!==true||action.startsWith('v06-')&&v06Reads.includes(action.slice(4));
+      const readOnly=['view','view-summary','team-members','agent-services','agent-build','development-view','delivery-status','service-status','routing-status','memory-replay','memory-guard','loop-guard','network-view','memory-status','memory-search','memory-annotations','context-pack','context-record','context-search','ontology-view','model-settings','system-status','trace-view','knowledge-list','knowledge-get','knowledge-wiki','cognee-search'].includes(action)||action==='knowledge-graph'&&payload.project!==true||action.startsWith('v06-')&&v06Reads.includes(action.slice(4));
       const runWorkspace=readOnly?<T>(job:()=>Promise<T>)=>withFeishuReads(job):serialize;
       res.end(JSON.stringify(await runWorkspace(async () => {
         workspaceActor = await teamMembers.gate(action, payload, workspaceActor);
@@ -419,6 +423,16 @@ const server = createServer(async (req, res) => {
           return { ok: true, key: ref.key, state: 'withdrawn' };
         }
         if (action === 'knowledge-graph') return graph.run(payload.sourceId, payload.revision, payload.project === true, workspaceActor, payload.taskId);
+        // 第三十四轮：原生知识检索（管理后台「知识检索」页）。管理员专用——cognified
+        // 数据集是跨来源共享的，成员级权限无法按条目收口，因此不开放给成员。
+        if (action === 'cognee-search') {
+          workspaces.manager(workspaceActor);
+          const query = String(payload.query ?? '').trim();
+          if (!query) throw new Error('cognee-search 需要非空 query');
+          return runCogneeNative(config, 'search', { query,
+            dataset: String(payload.dataset ?? '') || config.knowledge.cogneeNative.dataset,
+            topK: Math.min(Math.max(Number(payload.topK) || 10, 1), 20) }, process.env, { timeoutMs: 180000 });
+        }
         if (action === 'ontology-view') return ontology.read(payload.space, workspaceActor);
         if (action === 'ontology-save') return ontology.save(payload.space, payload.schema, payload.revision ?? null, workspaceActor);
         if (action === 'save-model-settings') return modelSettings.save(payload.settings, payload.revision ?? null, workspaceActor);
@@ -443,7 +457,7 @@ const server = createServer(async (req, res) => {
             knowledgeEngine: { name: 'Cognee', commit: cogneeCommit, storage: 'Ladybug', installed: existsSync(runtime('cognee-venv', 'bin', 'python')),
               sourceRevisionGraphs: existsSync(runtime('knowledge-graph')) ? readdirSync(runtime('knowledge-graph')).filter(name => /^[a-f0-9]{64}$/.test(name) && existsSync(runtime('knowledge-graph', name, 'ready.json'))).length : 0,
               automaticExtraction: config.orgExtraction.enabled && config.orgExtraction.autoRunOnIndex,
-              automaticExtractionNote: '指资料入库时的 L2 组织图谱确定性抽取；Cognee 原生 LLM 实体抽取由 cogneeNative 单独控制，两条链路并存',
+              automaticExtractionNote: '指资料入库时的 L2 组织图谱确定性抽取（零模型）；Cognee 原生 LLM 实体抽取由 cogneeNative 单独控制——凭据就绪且 autoCognify 打开时，图谱投影成功后会自动把该来源正文外发给所配置的模型服务 cognify，两条链路并存',
               cogneeNative,
               semanticRecall: config.knowledge.semanticRecall.enabled,
               semanticEngine: 'Apple NaturalLanguage 设备端中英文词向量 + Cognee BM25 混合（降级：本地字符二元组哈希向量）',

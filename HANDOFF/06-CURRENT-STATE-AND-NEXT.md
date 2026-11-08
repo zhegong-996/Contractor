@@ -244,3 +244,28 @@
    - npm 参数坑：`npm run cognee:native cognify --text ...` 会被 npm 吞掉 `--text`，须直接 `node --import tsx scripts/cognee-native.ts ...`。
 
 **不变的边界**：产品知识图谱链路零模型调用红线不变（`cognee-graph.py` L1 投影 `modelCalls:0`）；设备端语义加权是独立链路不被替代；key 不写任何文件；7 个上游不变；飞书仍是唯一任务发起入口。
+
+## 17. 第三十四轮：四缺口修复 + 产品断点审计 + console UI 修复（用户「本地直接用起来」收口）
+
+**用户拍板**：修复第三十三轮审计的缺口 1（cognify 只有 CLI）/ 2（key 不持久）/ 3（search 无 UI）/ 5（npm 吞参数），费用不担心；随后要求「完整看看从功能上产品还有哪里是有断点不完整的，修复处理好……优化好之后启动服务给我看下，我还没有看到过一次」。
+
+**本轮交付与证据**：
+
+1. **cognify 自动接入产品链路**（缺口 1）：`knowledge.cogneeNative.autoCognify`（默认开，`.runtime/config.json` 显式可关）+ `dataset: 'suitme-knowledge'` 共享数据集。`KnowledgeGraph.run(project=true)` L1 零模型投影成功后 `triggerAutoCognify` 发后即忘：正文（标题+正文）外发 DeepSeek 抽取 + 本机 fastembed 向量化；成功写 `knowledge.native-cognified`、失败写 `knowledge.native-cognify-failed`（均含 external:true），失败不阻塞不回滚投影。cognify 进程内串行排队（lancedb 不并发写）+ 默认 10 分钟超时。真跑：重投影既有来源 → `nativeCognify:{triggered:true}`、L1 `modelCalls:0` 不变、审计落账、数据集可检索。
+2. **key 持久化**（缺口 2）：`.runtime/cognee-env.json`（gitignored、0600，键=环境变量名）。`loadPersistedCogneeEnvIntoProcess` 只在 server / CLI 启动时调用（进程环境优先不覆盖）；resolve 本身不读文件——测试与隔离冒烟不经启动装载路径，不会读到真实凭据触发真实调用。CLI 新增 `persist` / `forget` / `load-env`。机器重启后 bridge / console 自动就绪（实测：无 env 重启 → configured:true）。
+3. **search 接进 UI**（缺口 3）：Python 侧 `to_jsonable` 结构化结果；bridge 新 action `cognee-search`（admin-only、只读通道、180 秒）；console-server 单独放行并收口 owner/admin（数据集跨来源无法按分区收口）；console 知识页顶部「语义检索」卡片 + 插件 settings「知识检索」页。console → bridge → DeepSeek 端到端真跑通过。
+4. **CLI 参数**（缺口 5）：位置参数兜底——`npm run cognee:native cognify "正文"` / `search "问题"` 不需要 `--`；`--text` / `--query` 旗标仍可用（`--` 透传文档化）。
+5. **断点审计修复**（用户第二轮指令）：
+   - **ServicesView 字段错配**：旧代码读不存在的 `row.running` → 服务页所有服务永远「已停止」、说明列空白（界面撒谎 bug）。修复为按真实 `state` 渲染（已接通/已降级/未接通 + 实时探测说明 + 入口链接）。修复后实测本机 6 服务 connected。
+   - **vision /health 契约缺口**：返回 `status:'ok'` 而探测判定 `isOk` 要求 `ok===true` → 视觉评审端点永远「端点未启动」。补 `ok:true` 后 vision 转绿。
+   - console 全六视图 + 管理 API 逐一实测（view-summary / service-status / knowledge-list / system-status / v06-org-overview / memory-status / routing-status）全部真实数据；5 个 unavailable 均为未配置的可选外部服务（企业微信/腾讯文档/钉钉/Gitee/公有云 CI），属预期。
+   - 新增 `scripts/owner-screenshots.mjs`（headless Chrome + CDP，owner 身份对运行中 console 截图；凭据运行时从 .runtime 读，不进仓库）。
+6. **golden 基线两次合法重冻结**：`view-服务.textLength` 2458→2624（cogneeNative 状态扩充）→2920（服务页断点修复后说明列出现文字），其余 160 项不变；人审记录按纪律写入 `fixtures/behavior-golden.json`。
+
+**给用户的入口（用户首次看到产品）**：
+- 协作台 console：`http://127.0.0.1:4200/`（账号 `gongzhe`，口令在 `.runtime/console/owner-password.txt`，登录后建议在「管理 → 账号」改口令）
+- 知识工作台（宿主）：`http://127.0.0.1:3100/`
+- 验收报告：`http://127.0.0.1:4192/overview`；代码交付台：`http://127.0.0.1:4194/`
+- 语义检索：console「知识」页顶部（owner/admin），数据集默认 suitme-knowledge；材料进入方式：知识工作台对来源「生成图谱」（自动 cognify）或 CLI `npm run cognee:native cognify "正文"`。
+
+**不变的边界**：L1 投影零模型红线不动（自动 cognify 是投影成功后的独立并行步）；key 不进仓库/config/secrets（只在 .runtime/cognee-env.json 与进程环境）；网页不发起任务（发起仍在飞书）；7 个上游不变。

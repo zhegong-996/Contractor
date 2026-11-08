@@ -21,12 +21,19 @@
       "change": "frozen 重冻结：readOnlyAllowlist.actions 19 -> 22；removed 34 / added 134 个检查项键",
       "reason": "基线上次人审停在 P-9（19 项只读白名单）。其后 P-12 前端 Vue 重写更换了 console:smoke 检查集命名（view-acceptance 等旧键移除、登录/RBAC/会话新键加入），P-13 新增知识分区读写检查与 knowledge-list/knowledge-get 白名单（19->21），本轮 ③c 新增 knowledge-wiki 只读白名单（21->22）。全套回归（npm test 557/557、console:smoke 55/55 含六视图渲染与 425px、各隔离冒烟全绿）确认无行为退化后按流程手工重冻结；真跑脚本自身不自动改写基线。",
       "reviewer": "本轮交付者（用户已授权继续 ③c/③d 两项改造）"
+    },
+    {
+      "at": "2026-11-08",
+      "round": "第三十四轮（用户指令：修复功能断点 + UI 展示）",
+      "change": "frozen 重冻结：checks.view-服务.textLength 2458 -> 2624 -> 2920（唯一变化键，其余 160 项不变）",
+      "reason": "第三十四轮两处预期的服务页口径换代：① system-status 的 cogneeNative 状态如实扩充（autoCognify/dataset/凭据持久化说明）；② 修复 ServicesView 断点——旧代码读不存在的 row.running 布尔导致所有服务永远显示「已停止」、说明列空白，修复后按真实 state 渲染并显示探测说明文字。全套回归（npm test 563/563、console:smoke 55/55 六视图渲染、guard:smoke 其余 21 项全绿）确认无行为退化后按流程手工重冻结；真跑脚本自身不自动改写基线。",
+      "reviewer": "本轮交付者（用户已授权修复断点并优化 UI）"
     }
   ],
   "frozen": {
     "schemaVersion": 1,
     "kind": "console",
-    "signature": "f17f73f94ef49453ceed69a6dbfea9b5",
+    "signature": "c2e4ea544812e2bfc7312a5d88668cfe",
     "entries": [
       {
         "key": "checks.adminAccountsForbidden.ok",
@@ -530,7 +537,7 @@
       },
       {
         "key": "checks.view-服务.textLength",
-        "value": "2458"
+        "value": "2920"
       },
       {
         "key": "checks.view-服务.title",

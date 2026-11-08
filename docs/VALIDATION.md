@@ -880,3 +880,19 @@ Cognee `cognify` 的真实外部模型调用未发生（缺端点与凭据）；
 4. bridge 4180 带 env 重启后 `system-status`：`modelApi:true`、`cogneeNative.configured:true`、`llmModel:openai/deepseek-v4-flash`、`embeddingLocal:true`、`dimensions:768`。
 
 **已知边界**：cognify 仍只有 CLI 入口（产品知识入库不自动外发）；机器重启后 bridge 需带 `COGNEE_LLM_*` 重启；`cognee.search` 返回 Python dict 字符串；DeepSeek 调用有真实费用（$0.14/M 输入 · $0.28/M 输出）。
+
+## 第三十四轮 · 四缺口修复 + 断点审计 + console UI（2026-11-08 深夜）
+
+**改动**：`src/config.ts`（cogneeNative 增 autoCognify/dataset）、`src/cognee-native.ts`（persisted env 读写与启动装载、cognify 串行队列、超时保护、triggerAutoCognify、状态扩充）、`src/graph.ts`（投影成功后自动 cognify 钩子，发后即忘 + 双审计）、`src/server.ts`（cognee-search action、readOnly 白名单、启动装载、状态口径）、`scripts/cognee-native.ts`（位置参数 + persist/forget/load-env）、`scripts/cognee-native.py`（search 结构化 to_jsonable）、`scripts/console-server.ts`（cognee-search 放行收口 owner/admin、proxy 可调超时）、`scripts/vision-server.ts`（/health 补 ok:true）、`console/app.js`（知识页语义检索卡、服务页 state 渲染断点修复）、`plugins/knowledge-workspaces/src/ui/settings.tsx`（知识检索页）、`.runtime/cognee-env.json`（凭据持久化，gitignored 不入库）、`scripts/owner-screenshots.mjs`（截图工具）、`fixtures/behavior-golden.json`（两次合法重冻结 + 人审记录）、`tests/cognee-native.test.ts`（+5 用例）。
+
+**静态与回归**：`npm test` **563/563**、tsc、三构建、`console:smoke` 55/55、`guard:smoke` 22/22、`steps:smoke` 61/61、`host:pg`、`loop:smoke` 18/18、router 31 / agents 43 / shapes 36 / evolution 45 / memory:hierarchy 16、`git diff --check`。
+
+**外部模型真跑**（凭据来自 .runtime/cognee-env.json，机器重启后服务自动装载）：
+1. bridge 无环境变量重启 → `system-status`：`configured:true`、`credentialsPersisted:true`、`autoCognify:true`。
+2. `knowledge-graph project=true`（既有来源重投影）→ L1 `modelCalls:0` 红线不动，返回 `nativeCognify:{triggered:true, dataset:'suitme-knowledge'}`；后台 cognify 完成，审计 `knowledge.native-cognified`（external:true、llmModel:openai/deepseek-v4-flash、embeddingLocal:true）。
+3. console 语义检索（owner 登录 → /api/cognee-search）：「支付模块有什么风险？」（e2e-test 数据集）、「谁负责前端？」→ 均正确召回。
+4. 服务页实测：本机 6 服务 connected（paperclip / bridge / delivery / vision / report / 飞书），vision 由本轮 ok:true 修复转绿。
+
+**console UI 截图**（scripts/owner-screenshots.mjs，owner 身份）：`.runtime/console/owner-01-login.png` ~ `owner-04-overview.png`。
+
+**已知边界**：cognified 共享数据集跨来源，检索收口到 owner/admin；机器重启后检索/自动 cognify 依赖 .runtime/cognee-env.json（删除即回到未配置态）；DeepSeek 调用有真实费用（用户已确认不担心）。

@@ -54,6 +54,17 @@ async def cognify(payload):
             "documents": len(texts), "extractor": "llm", "embedding": "native"}
 
 
+def to_jsonable(value):
+    """把 cognee.search 的返回项转成可 JSON 序列化的结构（dict 保留字段，其余转字符串）。"""
+    if isinstance(value, dict):
+        return {str(k): to_jsonable(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [to_jsonable(v) for v in value]
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    return str(value)
+
+
 async def search(payload):
     import cognee
 
@@ -65,7 +76,7 @@ async def search(payload):
                                   top_k=int(payload.get("topK") or 10))
     items = results if isinstance(results, list) else [results]
     return {"ok": True, "action": "search", "dataset": dataset,
-            "results": [str(item) for item in items[:10] if item is not None]}
+            "results": [to_jsonable(item) for item in items[:10] if item is not None]}
 
 
 def main():

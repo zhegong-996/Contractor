@@ -38,7 +38,10 @@ function respond(res: any, status: number, body: unknown) {
 const server = createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', `http://${host}:${port}`);
   if (req.method === 'GET' && url.pathname === '/health') {
-    respond(res, 200, { status: 'ok', model, engine: 'apple-vision-on-device',
+    // ok:true 与交付台 / 报告服务的健康契约一致（src/service-status.ts 的 isOk
+    // 判定要求响应体 ok===true；此前只有 status:'ok'，导致国内服务清单里视觉
+    // 评审端点永远显示「端点未启动」——第三十四轮修复）。
+    respond(res, 200, { ok: true, status: 'ok', model, engine: 'apple-vision-on-device',
       endpoint: `http://${host}:${port}/v1/chat/completions`, networkEgress: false,
       swiftAvailable: existsSync(swift), script });
     return;

@@ -19,6 +19,41 @@ function WorkspaceConfiguration({ ui }: { ui: UI }) {
   </div></Details>;
 }
 
+function NativeSearch({ ui }: { ui: UI }) {
+  const k = ui.prefix + 'native-search:', [query, setQuery] = useDraft(k + 'query', ''), [dataset, setDataset] = useDraft(k + 'dataset', 'suitme-knowledge');
+  const [results, setResults] = useState<any>(), [busy, setBusy] = useState(false), [error, setError] = useState('');
+  async function run() {
+    setBusy(true); setError('');
+    try { setResults(await ui.read('cognee-search', { query: query.trim(), dataset: dataset.trim() })); }
+    catch (e: any) { setError(String(e?.message ?? e)); setResults(undefined); }
+    finally { setBusy(false); }
+  }
+  return <section className="sm-stack"><div className="sm-section-head"><h2>原生知识检索</h2></div>
+    <p className="sm-small sm-muted">对已进入原生知识管线（cognify：图谱投影后自动抽取 + 手动喂入）的材料做语义检索。提问会发往所配置的外部模型服务汇总；检索结果为机器生成的摘要，请核对原始资料。</p>
+    <form className="sm-form" onSubmit={e => { e.preventDefault(); if (query.trim()) void run(); }}>
+      <div className="sm-form-grid">
+        <label className="sm-field">问题<input className="sm-input" value={query} onChange={e => setQuery(e.target.value)} placeholder="例如：支付模块有什么风险？谁负责前端？" required /></label>
+        <label className="sm-field">数据集<input className="sm-input" value={dataset} onChange={e => setDataset(e.target.value)} /></label>
+      </div>
+      <div><Button disabled={ui.busy || busy || !query.trim()}>{busy ? '检索中…' : '检索'}</Button></div>
+    </form>
+    {error && <p className="sm-error" role="alert">{error}</p>}
+    {busy && <p role="status">正在语义检索（外部模型调用，可能需要几十秒）…</p>}
+    {results && <div className="sm-stack sm-section">
+      <p className="sm-small sm-muted">数据集 {String(results.dataset)} · {Array.isArray(results.results) ? results.results.length : 0} 条结果</p>
+      {Array.isArray(results.results) && results.results.length ? <dl className="sm-document">
+        {results.results.map((item: any, index: number) => {
+          const text = typeof item === 'string' ? item
+            : typeof item?.text === 'string' ? item.text
+            : Array.isArray(item?.search_result) ? item.search_result.map((x: any) => typeof x === 'string' ? x : JSON.stringify(x)).join('\n')
+            : JSON.stringify(item);
+          return <div key={index}><dt>结果 {index + 1}</dt><dd>{text}</dd></div>;
+        })}
+      </dl> : <div className="sm-empty"><strong>没有召回结果</strong>此数据集可能还没有 cognify 过材料；先在知识页对来源「生成图谱」（凭据就绪时会自动 cognify），或用命令行 cognee:native cognify 喂入材料。</div>}
+    </div>}
+  </section>;
+}
+
 export function Settings({ ui }: { ui: UI }) {
   const [tab, setTab] = useDraft(ui.prefix + 'settings-tab', 'models'), [modelData, setModelData] = useDraft<any>(ui.prefix + 'model-data', null), [draft, setDraft] = useDraft<any>(ui.prefix + 'model-draft', null);
   const [system, setSystem] = useState<any>(), [loadError, setLoadError] = useState(''), [saved, setSaved] = useState(false);
@@ -39,7 +74,7 @@ export function Settings({ ui }: { ui: UI }) {
   useEffect(() => { void load().catch((e: any) => { setLoadError(String(e?.message ?? e)); setLoaded(true); }); }, []);
   const tiers: Record<string, string> = { fast: '轻量事务', standard: '复杂分析', code: '开发执行' }, providers: Record<string, string> = { unconfigured: '待选择', gemini: '轻量模型服务', ark: '火山方舟', 'codex-cli': '本地开发工具（代码）', 'claude-cli': '本地开发工具（通用）', other: '其他服务' };
   function profileChange(id: string, key: string, value: any) { setSaved(false); setDraft({ ...draft, profiles: draft.profiles.map((p: any) => p.id === id ? { ...p, [key]: value } : p) }); }
-  return <section className="sm-stack"><nav className="sm-task-stage" aria-label="系统设置"><button aria-pressed={tab === 'models'} onClick={() => setTab('models')}>模型与代理</button><button aria-pressed={tab === 'system'} onClick={() => setTab('system')}>服务与架构</button><button aria-pressed={tab === 'workspace'} onClick={() => setTab('workspace')}>空间与权限</button><button aria-pressed={tab === 'organization'} onClick={() => setTab('organization')}>组织规则</button><button aria-pressed={tab === 'domestic'} onClick={() => setTab('domestic')}>国内服务</button></nav>{tab==='workspace'&&<WorkspaceConfiguration ui={ui}/>}{tab==='organization'&&<OrganizationPanel ui={ui}/>}{tab==='domestic'&&<DomesticServices ui={ui}/>}
+  return <section className="sm-stack"><nav className="sm-task-stage" aria-label="系统设置"><button aria-pressed={tab === 'models'} onClick={() => setTab('models')}>模型与代理</button><button aria-pressed={tab === 'system'} onClick={() => setTab('system')}>服务与架构</button><button aria-pressed={tab === 'workspace'} onClick={() => setTab('workspace')}>空间与权限</button><button aria-pressed={tab === 'organization'} onClick={() => setTab('organization')}>组织规则</button><button aria-pressed={tab === 'search'} onClick={() => setTab('search')}>知识检索</button><button aria-pressed={tab === 'domestic'} onClick={() => setTab('domestic')}>国内服务</button></nav>{tab==='workspace'&&<WorkspaceConfiguration ui={ui}/>}{tab==='organization'&&<OrganizationPanel ui={ui}/>}{tab==='search'&&<NativeSearch ui={ui}/>}{tab==='domestic'&&<DomesticServices ui={ui}/>}
     {loadError && <div className="sm-error" role="alert">{loadError}<Button onClick={() => void load()}>重试</Button></div>}
     {tab === 'models' && (!draft || !modelData ? (loaded ? <p role="alert" className="sm-error">模型配置未读取{loadError ? '：' + loadError : ''}</p> : <p role="status">正在读取模型配置…</p>) : <><div className="sm-section-head"><h2>模型与代理</h2><Badge>新模型服务未启用</Badge></div>
       <p className="sm-small sm-muted">当前协作助手：{modelData.currentAssistant.engine === 'claude' ? '通用开发工具' : '代码开发工具'} · {modelData.currentAssistant.model ?? '未显式指定型号'}。以下保存为预备策略，不切换既有任务，也不发送资料到新服务。</p>
@@ -59,8 +94,8 @@ export function Settings({ ui }: { ui: UI }) {
       <tr><th>本机协作服务</th><td>{system.services.paperclip === 'ok' && system.services.bridge === 'ok' ? '运行中' : '待恢复'}</td></tr><tr><th>飞书事件通道</th><td>{system.services.feishu === 'ready' ? '已连接' : '未连接'}</td></tr>
       <tr><th>业务数据</th><td>{system.storage.primary}</td></tr><tr><th>事件、去重与回执</th><td>本机持久化</td></tr><tr><th>数据库备份</th><td>{system.storage.databaseBackup === 'ok' ? '本机备份正常；异机恢复尚未验证' : '待核对'}</td></tr>
       <tr><th>知识引擎</th><td>{system.knowledgeEngine?.installed ? `知识引擎与图存储；${system.knowledgeEngine.sourceRevisionGraphs} 个来源版本图谱` : '知识引擎尚未安装'}</td></tr>
-      <tr><th>自动知识处理</th><td>{system.knowledgeEngine?.automaticExtraction ? '资料入库时确定性抽取组织图谱；' : '未启用确定性抽取；'}{system.knowledgeEngine?.cogneeNative?.enabled ? '原生模型实体抽取与向量化已打开' : '原生抽取关闭'}</td></tr>
-      <tr><th>原生知识管线</th><td>{system.knowledgeEngine?.cogneeNative?.configured ? `已配置 · ${system.knowledgeEngine.cogneeNative.llmModel} / ${system.knowledgeEngine.cogneeNative.embeddingModel}` : `未就绪 · 缺少环境变量 ${(system.knowledgeEngine?.cogneeNative?.missing ?? []).join('、') || '无'}`}{system.knowledgeEngine?.cogneeNative?.privacy ? ' · ' + system.knowledgeEngine.cogneeNative.privacy : ''}</td></tr>
+      <tr><th>自动知识处理</th><td>{system.knowledgeEngine?.automaticExtraction ? '资料入库时确定性抽取组织图谱；' : '未启用确定性抽取；'}{system.knowledgeEngine?.cogneeNative?.enabled ? '原生模型实体抽取与向量化已打开' : '原生抽取关闭'}{system.knowledgeEngine?.cogneeNative?.autoCognify ? '；凭据就绪时图谱投影后自动 cognify（正文外发）' : ''}</td></tr>
+      <tr><th>原生知识管线</th><td>{system.knowledgeEngine?.cogneeNative?.configured ? `已配置 · ${system.knowledgeEngine.cogneeNative.llmModel} / ${system.knowledgeEngine.cogneeNative.embeddingModel}` : `未就绪 · 缺少环境变量 ${(system.knowledgeEngine?.cogneeNative?.missing ?? []).join('、') || '无'}（可用 cognee:native persist 写入本机凭据文件）`}{system.knowledgeEngine?.cogneeNative?.privacy ? ' · ' + system.knowledgeEngine.cogneeNative.privacy : ''}</td></tr>
       <tr><th>模型服务 / 对象存储</th><td>{system.integrations?.modelApi ? '已接入兼容模型服务（原生知识管线）；对象存储未接入' : '外部模型服务未配置；对象存储未接入'}</td></tr>
       <tr><th>本机向量检索</th><td>{system.integrations?.vectorSearch ? '已启用 · 设备端词向量 + 词法检索混合' : '未启用'}{system.integrations?.vectorSearchNote ? ' · ' + system.integrations.vectorSearchNote : ''}</td></tr>
       <tr><th>独立视觉评审</th><td>{system.integrations?.visionReviewer ?? '未挂接'}</td></tr>
