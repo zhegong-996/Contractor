@@ -540,7 +540,7 @@ Cognee `cognify` 的真实外部模型调用未发生（缺端点与凭据）；
 | 运行代码 / 默认底座 / 上游 | 均未改动；`config.host.provider` 仍 `paperclip`，未移除 Plugin SDK，未引入新上游，未外发业务材料 |
 | 全套回归 | **未重跑**（无运行代码改动，沿用第十四轮 329/329、走查 11/11）；**C-1 起每次代码改动必须重跑全套并在此追加新记录** |
 
-**未落地（已排期 C-4 / C-5 / C-6，不算 bug 也不冒充已完成）**：验收作为可配置协作 Agent、自查标准回流到交付前强制比对、候选改进的评估 / 人审 / 版本 / 灰度 / 回滚、单任务成本与效果看板、`assessThreeTier()` 按当前配置判定。
+**当时未落地、已在后续轮次完成（C-4 / C-5 / C-6，均不算 bug）**：验收作为可配置协作 Agent、自查标准回流到交付前强制比对、候选改进的评估 / 人审 / 版本 / 灰度 / 回滚、单任务成本与效果看板、`assessThreeTier()` 按当前配置判定。
 
 
 ---
@@ -634,7 +634,7 @@ Cognee `cognify` 的真实外部模型调用未发生（缺端点与凭据）；
 
 ### 3. 严格边界（未发生，不是 bug）
 
-真实全量日志含改造前的历史决策，p6 仍为 `false`（历史不回溯改写）；隔离 `router:smoke` 才能看到「全部决策带 Router 快照」。C-4 / C-5 / C-6 未做，默认底座仍 `paperclip`，飞书仍是唯一发起入口，控制台只读白名单未放宽。`.runtime/router-smoke.json` 不入库；`router:smoke` 不写真实 `.runtime/routing/events.jsonl`。4190 / 4192 / 4194 / 9418 保持停机；5432 只连回环专属库。
+真实全量日志含改造前的历史决策，p6 仍为 `false`（历史不回溯改写）；隔离 `router:smoke` 才能看到「全部决策带 Router 快照」。C-4 / C-5 / C-6 当时未做（均已在后续轮次完成），默认底座仍 `paperclip`，飞书仍是唯一发起入口，控制台只读白名单未放宽。`.runtime/router-smoke.json` 不入库；`router:smoke` 不写真实 `.runtime/routing/events.jsonl`。4190 / 4192 / 4194 / 9418 保持停机；5432 只连回环专属库。
 
 ---
 
@@ -663,7 +663,7 @@ Cognee `cognify` 的真实外部模型调用未发生（缺端点与凭据）；
 
 ### 3. 严格边界（未发生，不是 bug）
 
-默认编制为空，所以真实服务端 p8 仍 `false`、三层判断 `recommended=false`；`agents:smoke` 的「在岗 2 跳」是隔离合成编制，不代表组织已配置管理层。C-5 / C-6 未做；`assessThreeTier()` 的 P3 / P4 仍按角色名判定；默认底座仍 `paperclip`；飞书仍是唯一发起入口；未引入第 8 个上游、未改上游提交、未复制 LobeHub 代码。`.runtime/agent-registry-smoke.json` 不入库。
+默认编制为空，所以真实服务端 p8 仍 `false`、三层判断 `recommended=false`；`agents:smoke` 的「在岗 2 跳」是隔离合成编制，不代表组织已配置管理层。C-5 / C-6 当时未做（均已在后续轮次完成）；`assessThreeTier()` 的 P3 / P4 仍按角色名判定；默认底座仍 `paperclip`；飞书仍是唯一发起入口；未引入第 8 个上游、未改上游提交、未复制 LobeHub 代码。`.runtime/agent-registry-smoke.json` 不入库。
 
 ---
 
@@ -691,4 +691,33 @@ Cognee `cognify` 的真实外部模型调用未发生（缺端点与凭据）；
 
 ### 3. 严格边界（未发生，不是 bug）
 
-默认 `config.router.mode=flat`、默认编制为空，真实服务端仍 `recommended=false`；`shapes:smoke` 中分层 `recommended=true` 是**隔离真跑里的分层配置 + 真实在岗编制**，只说明「按该配置可正式启用三层」，不代表组织已配置管理层，也不代表建议所有团队升级。C-6 自演进闭环未做；默认底座仍 `paperclip`；`runner.ts` 常驻 `while` 未切单步；真人业务验收 SUI-129 仍未发生；4190 / 4192 / 4194 / 9418 保持停机。飞书仍是唯一发起入口，控制台只读白名单未放宽；未引入第 8 个上游、未改上游提交、未复制 LobeHub 代码。`.runtime/shapes-smoke.json` 与 `.runtime/console/*.png` 不入库。
+默认 `config.router.mode=flat`、默认编制为空，真实服务端仍 `recommended=false`；`shapes:smoke` 中分层 `recommended=true` 是**隔离真跑里的分层配置 + 真实在岗编制**，只说明「按该配置可正式启用三层」，不代表组织已配置管理层，也不代表建议所有团队升级。C-6 自演进闭环当时未做，已在第二十一轮完成；默认底座仍 `paperclip`；`runner.ts` 常驻 `while` 未切单步；真人业务验收 SUI-129 仍未发生；4190 / 4192 / 4194 / 9418 保持停机。飞书仍是唯一发起入口，控制台只读白名单未放宽；未引入第 8 个上游、未改上游提交、未复制 LobeHub 代码。`.runtime/shapes-smoke.json` 与 `.runtime/console/*.png` 不入库。
+
+## 第二十一轮：C-6 沉淀回流与自演进闭环（2026-11-08）
+
+### 1. 交付
+
+- **自查回流**：`src/evolution.ts` 的 `standardsRevision()` / `evaluateSelfCheck()` / `assertDeliverySelfCheck()`；闸门接在 `Controller.publish()` 之前。五种阻断（无记录 / 缺条 / 未通过 / 空证据 / 旧快照）均给中文原因；放行只留痕、不等于人签。
+- **治理台账与状态机**：`src/evolution-ledger.ts` 独立 append-only 台账（不并入 B1 主干，避免改变既有 checksum），7 类事件、`modelCalls=0`、幂等键、坏行记错、两次重放一致；候选改进从 `proposed` 到 `rolled-back` 全程守门，Agent 自批 / 跳闸门 / 无人审灰度 / 触碰四类禁改对象都被拦并留痕。
+- **工程闸门**：`engineeringGate()` 复用 `memoryReplayReport()`，检查两次重放一致、零模型调用、无坏行与悬空因果、有真实来源；不另造第二套重放。
+- **效果对比**：`aggregateEffects()` / `compareEffects()` 计算通过率 / 返工率 / 单任务成本（模型调用次数代理）/ 人被打断次数；缺观测即 `comparable=false`，不补零、不估算。
+- **接线**：`config.evolution`、`server.ts` 注入与 `v06Reads`、`v06.ts` 七动作统一转发、`console-server.ts` 白名单、`console/app.js`「沉淀与自演进」卡片、`package.json` 新增 `evolution:smoke`。
+- **真跑**：`scripts/evolution-smoke.ts`（45 项）+ `tests/evolution.test.ts`（12 例）。
+
+### 2. 全套回归结果（本轮重跑）
+
+| 项 | 结果 |
+|---|---|
+| `npm test` | **400 / 400**（第二十轮 388 + C-6 新增 12 例契约） |
+| `npx tsc --noEmit` | `TSC_OK` |
+| `evolution:smoke` | **45/45 `ok:true`**：完整闭环 + 全部反例；真实治理台账 / B1 主干行数前后不变，已锁定清单字节未变 |
+| `shapes:smoke` / `router:smoke` / `agents:smoke` | **36/36** / **31/31** / **43/43 `ok:true`**，均不回退 |
+| 两个构建 / 425px / 11 步走查 | `build:workspaces` + `build:chinese-shell` 通过；`test:responsive` 无溢出；`test:walkthrough` **11/11** |
+| `console:smoke` | `ok:true`、`failed: []`；协作视图 6 张卡片、`errorCards:0`，新增「沉淀与自演进」截图 |
+| 真实 HTTP | `v06-evolution-view` **200**（1 条沉淀标准 / 闸门已强制 / 0 次自查登记 / 暂无候选 / 效果不可比）；控制台代理 `v06-self-check-record` **403** |
+| `host:smoke` / `host:pg` / 记忆重放 / checkpoint / `routing:status` / `audit:upstream` | 全绿；`host:pg` 21/21；`allWired:true`；`clean:true` |
+| `git diff --check` | 通过 |
+
+### 3. 严格边界（未发生，不是 bug）
+
+真实业务单上没有触发过「因缺自查而阻断交付」，该路径只在隔离台账与契约测试里真跑，避免产生真实交付副作用；默认 `config.host.provider` 仍 `paperclip`；`runner.ts` 常驻 `while` 未切单步；真实远端沙箱 / 多机切换 / 金额成本账本 / Cognee 原生外部模型调用未发生；真人业务验收 SUI-129 仍未发生；4190 / 4192 / 4194 / 9418 保持停机。飞书仍是唯一发起入口，控制台只读白名单只增加 `v06-evolution-view` 一项；未引入第 8 个上游、未改上游提交、未复制 LobeHub 代码。`.runtime/evolution-smoke.json` 与 `.runtime/console/*.png` 不入库。

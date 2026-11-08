@@ -34,6 +34,7 @@ import { getAgentRegistry, registrySummary, onDuty, agentVersion, reviewCrew,
   type ReviewCrewQuery } from './agent-registry.ts';
 import { recordMemory, readBridgedEvents, sourceEventId, sourceKey } from './memory-log.ts';
 import { replayMemory } from './memory-projections.ts';
+import { EvolutionService, defaultEvolutionDeps, isEvolutionAction } from './evolution.ts';
 
 export interface V06Options {
   workbenchUrl: string;
@@ -64,6 +65,13 @@ export class V06Services {
     this.roles = new RoleRegistryService(this.store, audit);
     this.transfers = new TransferService(this.store, (action, taskId, detail) => this.localStore.audit(action, taskId, detail));
     this.reviewer = reviewer ?? new TraceEvidenceReviewer();
+  }
+  /** C-6：懒加载，既有测试不触碰到治理台账；服务端可注入按真实配置构造的实例。 */
+  private evolutionService?: EvolutionService;
+  setEvolution(service: EvolutionService) { this.evolutionService = service; return this; }
+  private evolution(): EvolutionService { return this.evolutionService ??= new EvolutionService(); }
+  static evolutionWithConfig(config: Parameters<typeof defaultEvolutionDeps>[0]) {
+    return new EvolutionService(defaultEvolutionDeps(config));
   }
   /** Injectable so organisation-mapping contracts can be tested without Lark credentials. */
   private feishuOrg = new FeishuOrgService();
@@ -678,6 +686,9 @@ export class V06Services {
     // The authenticated identity wins. opts.actorUserId is only a display hint
     // for channel rendering and must never be usable to impersonate an owner.
     const who = actor.userId || opts.actorUserId || 'local-operator';
+    // C-6 的七个动作统一走治理服务：只读 view 之外都要真人 / 组织级身份。
+    if (isEvolutionAction(action)) return this.evolution().handle(action, p,
+      { admin: actor.admin, userId: actor.userId, agent: (actor as { agent?: string }).agent });
     switch (action) {
       // A. roles
       case 'roles-view': return this.registryView();

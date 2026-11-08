@@ -20,6 +20,7 @@
     "router:smoke": "node --import tsx scripts/router-smoke.ts",
     "agents:smoke": "node --import tsx scripts/agents-smoke.ts",
     "shapes:smoke": "node --import tsx scripts/shapes-smoke.ts",
+    "evolution:smoke": "node --import tsx scripts/evolution-smoke.ts",
     "host:smoke": "node --import tsx scripts/host-smoke.ts",
     "host:pg": "node --import tsx scripts/host-pg-smoke.ts",
     "memory:replay": "node --import tsx scripts/memory-replay.ts",

@@ -173,6 +173,17 @@ export const configSchema = z.object({
    * 与既有 `agents`（执行引擎配置）、`agent-services.ts`（运行时服务目录）互不覆写。
    */
   agentRegistry: agentRegistrySchema.default(() => defaultAgentRegistry()),
+  /**
+   * C-6：沉淀回流与自演进。交付前自查闸门默认强制（有沉淀标准时必须逐条比对）；
+   * 关闭只影响「是否比对」，不影响最终仍由原发起人确认验收这条红线。
+   * 「候选改进必须真人批准」与「不得改写清单 / 权限 / 人签 / 历史任务」是硬编码
+   * 红线，不提供配置项——避免一次误配置让 Agent 自己把改进改生效。
+   */
+  evolution: z.object({
+    selfCheckGate: z.object({ enabled: z.boolean().default(true) })
+      .default(() => ({ enabled: true as const })),
+    canaryPercent: z.number().int().min(1).max(100).default(20),
+  }).default(() => ({ selfCheckGate: { enabled: true as const }, canaryPercent: 20 })),
 });
 export type Config = z.infer<typeof configSchema>;
 export type Agent = Config['agents'][string];

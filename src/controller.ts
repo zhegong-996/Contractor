@@ -17,6 +17,7 @@ import{acceptanceChainEnabled,reviewerIdFor,type VisualArtifact}from'./visual-re
 import{assertReviewerCapable}from'./independent-review.ts';
 import { getRouter } from './router.ts';
 import { recordMemory } from './memory-log.ts';
+import { EvolutionService, defaultEvolutionDeps, assertDeliverySelfCheck } from './evolution.ts';
 import type { V06Services } from './v06.ts';
 
 /**
@@ -283,6 +284,9 @@ export class Controller {
   }
   async publish(id: string) {
     const task = this.store.get(id); if (task.phase !== 'executed' && task.phase !== 'delivered') throw new Error('Task has no completed execution');
+    // C-6 / C-P4：打回沉淀的自查标准必须在交付前逐条比对；闸门不通过就不许交付。
+    // 放行只是工程层证据，最终验收仍由原发起人在原会话用中文「确认验收」。
+    assertDeliverySelfCheck(id, new EvolutionService(defaultEvolutionDeps(this.config)));
     task.delivery = await this.github.publish(task); task.phase = 'delivered'; this.store.save(task);
     await this.pc.document(task.id, 'delivery', '代码交付（本机 Git）', JSON.stringify(task.delivery, null, 2));
     this.store.notify(`pr:${task.delivery.pr}:${task.delivery.headSha}`, task.id, `${task.identifier} 已提交，等待 CI。\n[查看 PR](${task.delivery.url})`);

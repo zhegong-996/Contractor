@@ -113,7 +113,8 @@ const ontology = new OntologyService(workspaces);
 // v0.6 functional layer: Paperclip native documents for task facts, local
 // config for organisation policy, SQLite for audit only.
 const v06 = new V06Services(store, workspaces.pc, undefined,
-  createIndependentReviewer(config), new CogneeL1Reader(graph));
+  createIndependentReviewer(config), new CogneeL1Reader(graph))
+  .setEvolution(V06Services.evolutionWithConfig(config));
 control.v06 = v06;
 // Auto-extraction hook: after a verified L1 projection is indexed, read that
 // exact revision and draft L2 organisation edges. Best-effort, audited.
@@ -171,7 +172,7 @@ const server = createServer(async (req, res) => {
       const action = url.pathname.slice('/workspace/'.length);
       // Reads recheck their own scope and revisions. They need not wait behind
       // indexing or native process reconciliation; mutations keep the single lane.
-      const v06Reads=['roles-view','role-route','role-hints','role-snapshot','transfer-view','transfer-policy','dispatch-guard','grant-widen','grant-check','edges-view','edge-impact','label-check','policy-view','verification-level','topology-advice','inflight-policy','signals','review-readiness','ontology-meta','ontology-view','ontology-query','attention-policy','attention-filter','watchdog-policy','watchdog-inspect','plan-view','round-view','acceptance-export','acceptance-report-view','org-overview','org-mapping-view','context-pack','l2-status','l2-edges-view','l2-graph-view','agent-registry-view','acceptance-crew'];
+      const v06Reads=['roles-view','role-route','role-hints','role-snapshot','transfer-view','transfer-policy','dispatch-guard','grant-widen','grant-check','edges-view','edge-impact','label-check','policy-view','verification-level','topology-advice','inflight-policy','signals','review-readiness','ontology-meta','ontology-view','ontology-query','attention-policy','attention-filter','watchdog-policy','watchdog-inspect','plan-view','round-view','acceptance-export','acceptance-report-view','org-overview','org-mapping-view','context-pack','l2-status','l2-edges-view','l2-graph-view','agent-registry-view','acceptance-crew','evolution-view'];
       const readOnly=['view','team-members','agent-services','agent-build','development-view','delivery-status','service-status','routing-status','memory-replay','network-view','memory-status','memory-search','memory-annotations','context-pack','context-record','context-search','ontology-view','model-settings','system-status','trace-view'].includes(action)||action==='knowledge-graph'&&payload.project!==true||action.startsWith('v06-')&&v06Reads.includes(action.slice(4));
       const runWorkspace=readOnly?<T>(job:()=>Promise<T>)=>withFeishuReads(job):serialize;
       res.end(JSON.stringify(await runWorkspace(async () => {

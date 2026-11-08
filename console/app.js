@@ -3,7 +3,7 @@
 
   const VIEWS = [
     { id: 'overview', title: '概览', glyph: '◎', subtitle: '同一份共享现场，人和助手各看自己该看的', actions: ['view', 'memory-status', 'routing-status'] },
-    { id: 'collaboration', title: '协作', glyph: '⇄', subtitle: '谁接、谁派、谁干，都在一条责任链上', actions: ['view', 'trace-view', 'routing-status', 'v06-agent-registry-view'] },
+    { id: 'collaboration', title: '协作', glyph: '⇄', subtitle: '谁接、谁派、谁干，都在一条责任链上', actions: ['view', 'trace-view', 'routing-status', 'v06-agent-registry-view', 'v06-evolution-view'] },
     { id: 'knowledge', title: '知识', glyph: '▤', subtitle: '资料、证据与组织关系，按身份逐步重评', actions: ['memory-status', 'memory-replay', 'system-status'] },
     { id: 'acceptance', title: '验收', glyph: '✓', subtitle: '开工前锁定清单，逐项判定后由发起人确认', actions: ['view', 'v06-org-overview'] },
     { id: 'services', title: '服务', glyph: '◈', subtitle: '本机与国内服务的实时状态，没连接不放空入口', actions: ['service-status', 'system-status'] },
@@ -130,8 +130,8 @@
   }
 
   async function renderCollaboration() {
-    const [view, routing, registry] = await Promise.all([
-      safe('view'), safe('routing-status'), safe('v06-agent-registry-view'),
+    const [view, routing, registry, evolution] = await Promise.all([
+      safe('view'), safe('routing-status'), safe('v06-agent-registry-view'), safe('v06-evolution-view'),
     ]);
     const tasks = Array.isArray(view.tasks) ? view.tasks : state.tasks;
     state.tasks = tasks;
@@ -175,8 +175,39 @@
             ['验收', '仍走本机服务与逐项报告'],
             ['红线', '独立评审者不等于产出方；最终由原发起人确认验收'],
           ]));
-    return errorCard(view) + errorCard(routing) + errorCard(registry)
-      + `<div class="content-grid">${timeline}${chain}${orgCard}${crewCard}${explain}</div>`;
+    const evo = evolution || {};
+    const candidates = Array.isArray(evo.candidates) ? evo.candidates : [];
+    const comparison = evo.effectComparison;
+    const fmtEffect = value => typeof value === 'number'
+      ? (Number.isInteger(value) ? String(value) : value.toFixed(3)) : '—';
+    const verdictLabels = { improved: '变好', regressed: '变差', flat: '持平', unknown: '不可比' };
+    const effectRows = comparison && Array.isArray(comparison.rows)
+      ? comparison.rows.map(row => ({
+          title: row.label,
+          meta: verdictLabels[row.verdict] || '不可比',
+          detail: row.delta === null ? row.note
+            : `${fmtEffect(row.before)} → ${fmtEffect(row.after)} · ${row.note}`,
+        })) : [];
+    const violations = Array.isArray(evo.violations) ? evo.violations : [];
+    const evolutionCard = card('沉淀与自演进',
+      '打回原因变成下次交付前的自查项；改进要过回放验证与真人批准，随时可回滚',
+      kvRows([
+        ['交付前自查', evo.selfCheckGateEnabled === false ? '闸门已按配置关闭（仍需人签）'
+          : `已强制 · ${evo.standardsCount || 0} 条沉淀标准`],
+        ['登记与放行', `${evo.selfCheckRuns || 0} 次自查登记 · ${evo.gatePasses || 0} 次闸门放行`],
+        ['候选改进', candidates.length
+          ? candidates.slice(0, 4).map(item => `${clean(item.title)}（${clean(item.stateLabel)}）`).join('；')
+          : '暂无候选改进'],
+        ['当前生效版本', evo.activeVersion ? clean(String(evo.activeVersion)) : '无（未启用任何改进）'],
+        ['效果对比', comparison
+          ? (comparison.comparable ? '前后窗口可对比，见下方四项' : '观测不齐，缺项逐条标不可比')
+          : '尚未登记前后观测窗口，不可比'],
+        ['红线', clean(evo.redLines?.[2] || 'Agent 不能自己让改进生效')],
+      ]) + (effectRows.length ? listRows(effectRows) : '')
+        + (violations.length ? `<p class="note">越权尝试留痕 ${violations.length} 条：${escapeHtml(clean(violations[violations.length - 1]))}</p>` : '')
+        + `<p class="note">${escapeHtml(clean(evo.note || '工程闸门只做确定性回放与清单比对。'))}</p>`);
+    return errorCard(view) + errorCard(routing) + errorCard(registry) + errorCard(evolution)
+      + `<div class="content-grid">${timeline}${chain}${orgCard}${crewCard}${explain}${evolutionCard}</div>`;
   }
 
   async function renderKnowledge() {

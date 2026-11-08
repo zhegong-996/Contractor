@@ -253,3 +253,5 @@ flowchart TD
 ---
 
 > **第二十轮 C-5 补记**：三层评估的口径来源改为当前真实配置——`shapeOptions(getRouter(), getAgentRegistry())`，服务端 `routing-status` 与 CLI 共用；扁平形态按「人机入口直达执行者」判定，不要求主管，也不因历史 supervisor 角色记录而失败；分层形态的主管派活必须同时命中 `config.router.domains[].supervisorAgentKey` 与 `onDuty()` 中带 supervisor 职责的 Agent。`recommended` 与 `shape.ready` 分离，避免把「扁平跑通了」误报成「该升级三层」。B1 / B2 的 append-only 主干仍是三种形态共享的同一份现场，C-5 未新建第二份记忆、未改变读取链与撤权规则。
+
+> **第二十一轮 C-6 补记**：新增 `src/evolution-ledger.ts` 作为**治理事实**的 append-only 台账（自查 / 候选改进 / 工程闸门 / 人审 / 灰度回滚 / 效果快照），与 B1 的**知识事实**主干 `.runtime/memory/events.jsonl` 并列而非合并——合并会改变既有重放 checksum 与 B2 checkpoint 证据，等于回溯改写历史。`src/evolution.ts` 的 `assertDeliverySelfCheck()` 接在 `Controller.publish()` 之前，`engineeringGate()` 直接复用 `memoryReplayReport()` 做确定性回放验证，`aggregateEffects()` / `compareEffects()` 只从显式观测算四项指标。`v06` 的七个 `evolution-*` 动作统一转发，人审 / 灰度只认组织级真人身份；控制台只开放 `v06-evolution-view` 只读动作。默认底座仍 `paperclip`，飞书仍是唯一发起入口。真跑 `npm run evolution:smoke` 45/45。

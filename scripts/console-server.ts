@@ -21,7 +21,7 @@ export const CONSOLE_READ_ACTIONS: readonly string[] = [
   'view', 'service-status', 'system-status', 'memory-status', 'memory-replay',
   'routing-status', 'trace-view', 'model-settings', 'v06-org-overview',
   'network-view', 'ontology-view', 'context-pack', 'memory-search',
-  'v06-agent-registry-view',
+  'v06-agent-registry-view', 'v06-evolution-view',
 ] as const;
 
 const STATIC: Record<string, { file: string; type: string }> = {

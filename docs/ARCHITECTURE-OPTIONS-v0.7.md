@@ -268,4 +268,6 @@ LobeHub 三层的原话依据（赛博禅心《如何让 Super-agent 成为同�
 
 > 二手转载与媒体解读仅用于定位原话，不作为「可直接复用代码」的依据；许可证与复用边界以 `docs/OPEN-SOURCE-COMPLIANCE.md` 与上游 LICENSE 原文为准。
 
-> **第十九轮 C-4 补记**：C-3 的单一 Router 已接上组织级 Agent 编制（`src/agent-registry.ts`），配置里的主管名必须对应真实在岗、职责匹配、范围覆盖的 Agent；默认空编制保持扁平。A2A handoff 与验收编组已落地，第二十轮 C-5 已按当前配置重跑评估：扁平不要求主管、分层主管须真实在岗，`shape.ready` 与 `recommended` 分开表述，扁平 / 分层各跑真实一单；C-6 自演进闭环仍排队。默认扁平配置下三层判断仍 `recommended=false`。
+> **第十九轮 C-4 补记**：C-3 的单一 Router 已接上组织级 Agent 编制（`src/agent-registry.ts`），配置里的主管名必须对应真实在岗、职责匹配、范围覆盖的 Agent；默认空编制保持扁平。A2A handoff 与验收编组已落地，第二十轮 C-5 已按当前配置重跑评估：扁平不要求主管、分层主管须真实在岗，`shape.ready` 与 `recommended` 分开表述，扁平 / 分层各跑真实一单；C-6 自演进闭环已在第二十一轮完成（交付前强制自查 / 候选改进闭环 / 四项效果对比，`evolution:smoke` 45/45）。默认扁平配置下三层判断仍 `recommended=false`。
+
+> **第二十一轮 C-6 补记**：沉淀回流与自演进闭环已落地——`src/evolution-ledger.ts` 是独立于 B1 主干的 append-only 治理台账，`src/evolution.ts` 把 `assertDeliverySelfCheck()` 接在 `Controller.publish()` 之前，工程闸门复用 `memoryReplayReport()` 确定性回放，候选改进必须真人批准并留版本 / 灰度 / 回滚，四项效果指标缺观测即如实不可比。C-0 ~ C-6 分步清单全部完成，默认底座仍 `paperclip`，后续只剩去宿主化与生产项。

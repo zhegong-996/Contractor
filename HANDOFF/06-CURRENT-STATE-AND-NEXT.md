@@ -1,28 +1,28 @@
 # 06 · 当前状态与下一步（接手者最该看的一份）
 
-## 1. 状态快照（第二十轮 C-5）
+## 1. 状态快照（第二十一轮 C-6）
 
 | 阶段 | 状态 | 交付 |
 |---|---|---|
 | **A 收敛整合** | ✅ 完成 | `architecture-contracts.ts` 统一常量、`RoutingDecision` 五维契约、5 派活点同一份 Trace、FR 覆盖三态口径、平台端口抽象 |
 | **B1 记忆主干** | ✅ 完成并验证 | `memory-log.ts` + `memory-projections.ts`、8 处双写、Context Pack 运行时 lineage 过滤、三条红线真跑证据 |
 | **B2 读取链切换** | ✅ **完成并验证** | 见第 2 节：投影召回融合、按主体精确撤权、真实一单端到端撤权、增量 checkpoint |
-| **C 三层 Router + 底座切换** | 🟢 **进行中**（② 已拍板；C-0 / C-0b / C-1 / C-2 / C-3 / C-4 / **C-5 已完成**，C-6 为下一步） | 见第 3 节分步清单 |
+| **C 三层 Router + 底座切换** | 🟢 **进行中**（② 已拍板；C-0 / C-0b / C-1 / C-2 / C-3 / C-4 / C-5 / **C-6 已完成，本轮收尾已提交推送**） | 见第 3 节分步清单 |
 
-系统能跑、全套回归全绿（**388/388 单测**、11/11 真实浏览器走查、**`console:smoke` 全绿、`router:smoke` 31/31、`agents:smoke` 43/43、`shapes:smoke` 36/36**、上游 clean、`host:pg` 21/21）。`HEAD = origin/main = 远端 main`。C-1 起每次代码改动都重跑全套；本机 PG 17.10 专属库 `suitme_collab_c1` 已可真跑。
+系统能跑、全套回归全绿（**400/400 单测**、11/11 真实浏览器走查、**`console:smoke` 全绿、`router:smoke` 31/31、`agents:smoke` 43/43、`shapes:smoke` 36/36、`evolution:smoke` 45/45**、上游 clean、`host:pg` 21/21）。`HEAD = origin/main = 远端 main`。C-1 起每次代码改动都重跑全套；本机 PG 17.10 专属库 `suitme_collab_c1` 已可真跑。
 
 ## 2. B2 已完成（四项，均带真跑证据）
 
 | # | 交付 | 验收证据 |
 |---|---|---|
-| 1 | `src/memory-recall.ts`：投影召回作为**第三路**信号接入 `TeamMemory.search` 融合排序；只在 `reusable()` / `allowed()` / hash 重评**之后**按 `sourceId@revision` 白名单裁剪，读日志失败按 advisory 降级 | `tests/memory-recall.test.ts`；全套 388/388、走查 11/11、既有权限/版本重评测试不回退；`modelCalls=0` |
+| 1 | `src/memory-recall.ts`：投影召回作为**第三路**信号接入 `TeamMemory.search` 融合排序；只在 `reusable()` / `allowed()` / hash 重评**之后**按 `sourceId@revision` 白名单裁剪，读日志失败按 advisory 降级 | `tests/memory-recall.test.ts`；全套 400/400、走查 11/11、既有权限/版本重评测试不回退；`modelCalls=0` |
 | 2 | `grant-revoked` 不再进全局 `revokedSourceIds`，改记 `principalRevocations`；`recallMemory` 按当前 principal 精确排除，未指定主体时 fail-closed；`source-revoked` 仍全局阻断 | 新增「A 撤权不影响 B 的同源记忆」用例，`tests/memory-replay.test.ts` 全绿 |
 | 3 | `npm run memory:journey`：真实 bridge action 跑 `create-source → review confirmed → memory-index → edges-save → l2-extract → context-pack → review withdrawn`；只新建一条专用资料并在末尾撤回，既有资料不动 | `ok:true`；四类投影 before `1/2/1/1` → after `0/0/0/0`，召回 1→0，lineage 失效 4 事件；证据 `.runtime/memory-journey.json`（不入库） |
 | 4 | `src/memory-checkpoint.ts` + `npm run memory:checkpoint`：checkpoint + 增量应用；撤权/乱序/失效祖先等会回溯的情况回退全量，且增量结果始终与全量 checksum 逐字节对照 | 真实日志 `mode:incremental, applied:1, checksumEqual:true`；`tests/memory-checkpoint.test.ts` 6/6（含分批追加、重复行、跨批撤权） |
 
 > B 阶段（B1 + B2）已验收通过。第十五轮用户已按 `08-OPEN-DECISIONS.md` 第 1 条拍板 **② 独立前端应用**，产品形态冲突解除，**C 正式启动**（严格分步，不并行）。三层判断当前仍是 `recommended=false`（8 项前置条件；p8 改用真实在岗数判定，默认空编制为 0 故仍 false），**不把三层当默认答案**。
 
-## 3. C 分步清单（第二十轮 C-5 完成，严格不并行）
+## 3. C 分步清单（第二十一轮 C-6 完成，严格不并行）
 
 | 步骤 | 内容 | 状态 |
 |---|---|---|
@@ -33,8 +33,8 @@
 | C-3 | 五个派活点收敛为单一 `Router`；**读配置决定下一跳**（扁平 1 跳 / 分层 2 跳），不写死三段；保留 legacy 一行回退 | ✅ **完成并真跑**：`npm run router:smoke` **31/31 `ok:true`**，见下方「C-3 交付与证据」 |
 | C-4 | 可配置角色体系：**Agent 实例 + 职责绑定 + 生效范围 + 版本**，职责含个人助手 / 主管 / 执行 / **验收** / 标准起草 / 周期巡检；A2A handoff；验收 Agent 与产品 / 技术 / 运营 Agent 协作；禁止同一 Task 自派自验自环 | ✅ **完成并真跑**：`npm run agents:smoke` **43/43 `ok:true`**，见下方「C-4 交付与证据」 |
 | C-5 | 按配置重跑 `assessThreeTier()`（P3 / P4 改为按当前配置判定）+ **扁平 / 分层两种配置各跑真实一单**，Trace 每步可回放 | ✅ **完成并真跑**：`npm run shapes:smoke` **36/36 `ok:true`**，见下方「C-5 交付与证据」 |
-| C-6 | 沉淀回流与自演进闭环：自查标准回流到交付前强制比对、候选改进 → 工程闸门（回放验证）+ 人审 → 版本 / 灰度 / 可回滚 → 效果对比（通过率、返工率、单任务成本、人被打断次数） | **下一步**（排队） |
-| 收尾 | 全量回归、文档同步、提交推送 | 排队 |
+| C-6 | 沉淀回流与自演进闭环：自查标准回流到交付前强制比对、候选改进 → 工程闸门（回放验证）+ 人审 → 版本 / 灰度 / 可回滚 → 效果对比（通过率、返工率、单任务成本、人被打断次数） | ✅ **完成并真跑**：`npm run evolution:smoke` **45/45 `ok:true`**，见下方「C-6 交付与证据」 |
+| 收尾 | 全量回归、文档同步、提交推送 | ✅ **本轮完成**：`HEAD = origin/main`，工作区干净 |
 
 ### C-1 交付与证据（第十六轮，用户改口「本机可以引入 pgsql 数据库去测试」）
 
@@ -62,7 +62,7 @@
 
 **三层判断当前结论（真实数据）**：C-5 已按当前配置重跑评估。默认 `mode=flat`、编制空，真实全量日志 `routed 7/65`（改造前的历史决策不带 Router 快照、不回溯改写 → p6 仍 false），`shape.mode=flat`、P3 / P4 按扁平口径、`shape.ready=false`、`recommended=false`。p8 现在是防跳级闸门：只有「分层配置 + 真实在岗 Agent + 已配置业务域」才为 true，扁平下 evidence 明说「本形态不需要三层」。C-3 真跑发现只按角色名判定会被合成五阶段数据凑齐，闸门已焊死；C-5 的分层 P4 进一步要求派活方同时命中配置登记与真实在岗主管职责。反面依据：玉伯 OPT 访谈说人是「监工」、同时管 5 个 Agent 已达带宽上限、「暂无法实现 Agent 自主管理 Agent」；LobeHub Community License 禁止复制代码。**C-5 已按当前配置重跑评估**：扁平不要求出现 supervisor、`shape.ready` 与 `recommended` 分开表述；真实服务端因历史决策不回溯，p6 仍 false、`recommended=false`，隔离真跑中只有「分层配置 + 真实在岗主管」才 `recommended=true`。不要为凑评估转绿逼扁平团队硬造管理层，也不要把隔离真跑的分层结论当成组织已配置管理层。
 
-## 4. 去 Paperclip 化路线（② 已拍板；C-1 / C-2 / C-3 / C-4 / C-5 完成）
+## 4. 去 Paperclip 化路线（② 已拍板；C-1 / C-2 / C-3 / C-4 / C-5 / C-6 完成）
 
 - 已完成：五个派活点收敛到单一 `Router`（C-3，9 处调用零直写）；能力收拢到 `HostPlatformPort`；默认 `PaperclipPlatform` 薄包装；`LocalHostPlatform` 不依赖 Paperclip 且 `host:smoke` 真跑通过；**C-1 新增 `PgHostPlatform` 且 `host:pg` 真跑 21/21**；`config.host.provider` 默认仍是 `paperclip`（切换前保持可回退）。
 - **产品形态冲突已解决**：第十五轮用户拍板 ②，`PRD §10A` 的 S5/S6 已废弃，S1–S4 保留；飞书仍是唯一发起入口。见 `08-OPEN-DECISIONS.md` 第 1 条。
@@ -76,7 +76,7 @@
 - Cognee 原生 `cognify` 真实外部模型调用未发生（缺端点与凭据，本轮未外发任何业务材料）。
 - 企业微信 / 腾讯文档 / 钉钉 / 国内代码托管 / 公有云 CI / 海外 SaaS 未接通，按约定**没有入口**；将来要加入口必须先配置并实测接通。
 - 生产发布、业务仓库发布、真实外部 PR/CI、全员 SSO 均未发生。
-- **C 新增待办（已排期，不要提前并行做）**：C-5 已把 `assessThreeTier()` 改成按当前配置判定并接上 C-4 真实 Agent 绑定；**剩余全部归 C-6**：自查标准只展示未回流到交付前强制比对、候选改进的评估 / 人审 / 版本 / 灰度 / 回滚未落地、单任务成本与效果看板未落地。
+- **C-6 已完成（第二十一轮）**：自查标准回流到交付前强制比对、候选改进的工程闸门 + 人审 + 版本 / 灰度 / 回滚、四项错误效果对比均已落地并真跑 45/45。**剩余为生产项**：切换默认 `config.host.provider`、`runner.ts` 常驻循环单步化、远端工具沙箱 / 多机切换、金额成本账本接入效果看板。
 
 ### C-4 交付与证据（第十九轮）
 
@@ -95,3 +95,13 @@
 - **真跑 36/36**：`npm run shapes:smoke` 在隔离内存 Trace 上让扁平 / 分层各跑一单五阶段；每一步带 Router 配置快照与（分层）在岗编制快照，两次 `replayRouting` 逐字节一致、`uniqueDecisions` 与跳数一致、分层两跳 `causedBy` 闭合、人签只在末跳、配置变更不回溯、真跑前后真实日志行数不变。扁平 `shape.ready=true / recommended=false`；分层 `shape.ready=true / recommended=true`。四类防跳级反例（只有角色名、扁平却有在岗 Agent、主管不在岗降级、未声明配置）均不放行。`tests/shape-assessment.test.ts` 10 例，全套 **388/388**。报告 `.runtime/shapes-smoke.json` 不入库。
 - **真实浏览器修复**：演示截图复验时发现 `view` 返回整个工作区快照已增长到 **415KB / 10~12 秒**（C-3 时约 5 秒），前端统一 8 秒只读超时会稳定超时并渲染错误卡片；改为**按动作区分超时**（`view` 30 秒、其余只读仍 8 秒快速失败），保留 in-flight 去重与 1.5 秒成功结果短缓存。`tests/console-shell.test.ts` 的 C-3 契约同步守住；`console:smoke` 全绿、协作视图截图 `errorCards:0`、任务列表与「Agent 编制」卡片均正常。**未做服务端分页 / 裁剪**，如实列为后续性能项。
 - **真实服务端如实**：默认 `mode=flat`、编制空，`routing:status allWired:true`、p6 false、`recommended=false`、`shape.ready=false`；`shape.ready=false` 是真实全量日志仍含改造前不带 Router 快照的历史决策（历史不回溯改写），不是 C-5 未完成，隔离真跑里扁平形态已闭环。
+
+### C-6 交付与证据（第二十一轮）
+
+- **独立治理台账**：`src/evolution-ledger.ts` append-only 记 7 类治理事件，每条 `modelCalls=0`、带内容哈希与幂等键，坏行记 `errors`，两次重放 checksum 一致。**刻意不并入 B1 记忆主干**（会改变既有重放与 checkpoint 证据），两者按 `taskId` / `causedBy` 引用。
+- **交付前强制自查**：`src/evolution.ts` 的 `standardsRevision()` 由服务端算快照、`evaluateSelfCheck()` 逐条比对有无 / 通过 / 证据、`assertDeliverySelfCheck()` 接在 `Controller.publish()` 真正交付之前；无记录 / 缺条 / 未通过 / 空证据 / 旧快照五种全阻断。放行只留痕，不等于人签；无沉淀标准时如实「无项可比」。`config.evolution.selfCheckGate.enabled` 默认 true。
+- **状态机与红线**：`proposed → gate-passed → approved → canary → active → rolled-back`；Agent 自批、跳闸门、无人审灰度、非真人让改进生效、重复登记、触碰「已锁定清单 / 权限规则 / 人签红线 / 历史任务」全部记违规痕且不前进。「生效」只是台账状态，真跑逐字节核对清单与标准文件均未改写。
+- **工程闸门复用既有重放**：`engineeringGate()` 调 `memoryReplayReport()` 检查两次重放一致、`modelCalls=0`、无坏行 / 悬空因果、有真实来源，不另造第二套重放。`aggregateEffects()` / `compareEffects()` 算通过率 / 返工率 / 单任务成本（模型调用次数代理，不编造金额）/ 人被打断次数，缺观测即 `comparable=false`。
+- **接线**：`server.ts` 注入 `V06Services.evolutionWithConfig(config)`、`v06Reads` 加 `evolution-view`；`v06` 七个 `evolution-*` 动作统一转发，人审 / 灰度只认组织级真人；`console-server.ts` 白名单加 `v06-evolution-view`；控制台「协作」视图新增中文「沉淀与自演进」卡片。真实 HTTP 200、控制台写动作 403、`console:smoke` 全绿且 `errorCards:0`。
+- **真跑 45/45**：`npm run evolution:smoke` 在临时目录隔离台账上跑完整闭环与全部反例，前后真实治理台账 / B1 主干行数不变、已锁定清单字节未变；`tests/evolution.test.ts` 12 例，全套 **400/400**。报告 `.runtime/evolution-smoke.json` 不入库。
+- **如实边界**：真实业务单上没有触发过「因缺自查而阻断交付」，该路径只在隔离台账与契约测试里真跑，避免产生真实交付副作用；默认底座仍 `paperclip`，飞书仍是唯一发起入口，4190 / 4192 / 4194 / 9418 保持停机。
