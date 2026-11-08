@@ -16,6 +16,10 @@ const lock = JSON.parse(readFileSync(path.join(root, 'sources.lock.json'), 'utf8
   sources: Record<string, { url: string; commit: string; license: string }>;
   /** 协议语义移植：固定来源但不是 submodule，不得混入 sources / gitlink。 */
   protocolReferences?: Record<string, { commit?: string; license?: string }>;
+  /** 仅借思想的网页 / 论文参考：无代码、无许可证原文，绝不进入 sources / gitlink。 */
+  conceptReferences?: Record<string, {
+    url?: string; rights?: string; usage?: string; files?: string[];
+  }>;
 };
 const notices = readFileSync(path.join(root, 'THIRD_PARTY_NOTICES.md'), 'utf8');
 const flat = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -94,6 +98,27 @@ if (!flat(notices).includes(flat('yicheng47/runner')))
   problems.push('THIRD_PARTY_NOTICES.md 未声明 Runner 协议参考');
 if (paths.length !== 7) problems.push('协议移植不得新增第 8 个上游 submodule / gitlink');
 notes.push(`Runner: MIT @ ${runnerCommit.slice(0, 12)} · 协议语义移植（TS 重写，未新增 submodule）`);
+
+// R7 等价口径（P-7）：网页研究文章没有可留存的代码许可证，按 conceptReferences
+// 登记；审计机器化校验「只借思想、不是上游、不复制正文 / 代码、涉及文件都在库内」。
+const concept = lock.conceptReferences?.['anthropic-agent-memory'];
+if (!concept) problems.push('Anthropic agent memory 概念参考未在 sources.lock.json 登记');
+else {
+  if (concept.url !== 'https://www.anthropic.com/research/components-of-agent-memory')
+    problems.push('Anthropic 概念参考 URL 与固定来源不一致');
+  if (!concept.usage || !/不复制正文|不复制代码/.test(concept.usage) || !/不引入依赖/.test(concept.usage))
+    problems.push('Anthropic 概念参考未声明「不复制正文 / 代码、不引入依赖」');
+  if (concept.files?.some(file => file.startsWith('upstream/')))
+    problems.push('概念参考不得涉及 upstream/ 下的上游源码');
+  for (const file of concept.files ?? [])
+    if (!existsSync(path.join(root, file))) problems.push(`概念参考声明的文件不存在：${file}`);
+  if (lock.sources['anthropic-agent-memory'] || lock.protocolReferences?.['anthropic-agent-memory'])
+    problems.push('概念参考不得混入 sources / protocolReferences（会变成第 8 个上游）');
+  if (!flat(notices).includes(flat('components of agent memory')))
+    problems.push('THIRD_PARTY_NOTICES.md 未声明 Anthropic agent memory 概念参考');
+  notes.push('Anthropic: components of agent memory (2026-11-06) · 仅思想参考，无代码 / 无 LICENSE 原文，conceptReferences 登记');
+}
+if (paths.length !== 7) problems.push('概念参考不得新增第 8 个上游 submodule / gitlink');
 for (const file of readdirSync(path.join(root, 'licenses'))) {
   const text = readFileSync(path.join(root, 'licenses', file), 'utf8');
   if (/\b(AGPL|SSPL|GPLv3|GNU General Public License version 3)\b/i.test(text))

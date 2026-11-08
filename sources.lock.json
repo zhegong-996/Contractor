@@ -46,5 +46,17 @@
       "files": ["src/step-hitl.ts", "src/step-delivery.ts", "src/mission-state.ts", "src/step-runner.ts", "scripts/step-answer.ts"],
       "note": "固定当前 MIT main 提交；2026-08-22 至 2026-09-22 发布版本为 GPL-3.0-only 且仍按该许可提供，已避开该窗口。不是第 8 个上游。"
     }
+  },
+  "conceptReferences": {
+    "anthropic-agent-memory": {
+      "url": "https://www.anthropic.com/research/components-of-agent-memory",
+      "title": "The components of agent memory",
+      "published": "2026-11-06",
+      "author": "Lance Martin",
+      "rights": "© 2026 Anthropic PBC，Engineering 网页研究文章；无开源代码许可证",
+      "usage": "仅借 memory hierarchy / Dreaming / 组织知识沉淀的架构思想；不复制正文段落、不复制代码、不引入依赖或 submodule、不启用外部模型调用",
+      "files": ["docs/REFERENCE-anthropic-agent-memory.md", "src/memory-hierarchy.ts", "tests/memory-hierarchy.test.ts", "scripts/memory-hierarchy-smoke.ts"],
+      "note": "R7 六步针对代码 / 依赖；网页文章无 LICENSE 原文可留存，按 conceptReferences 走登记 + 审计脚本校验 + 零代码引入的等价口径。不是第 8 个上游，sources 七个 pinned submodule 不变。"
+    }
   }
 }

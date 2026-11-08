@@ -770,3 +770,17 @@ Cognee `cognify` 的真实外部模型调用未发生（缺端点与凭据）；
 | `npx tsc --noEmit` / `audit:upstream` / `git diff --check` | 通过 / `clean:true`、`problems: []`（notes 新增 `Runner: MIT @ a42d133139bb`） / 通过 |
 | 既有回归不回退 | `console:smoke` 全绿、`router:smoke` 31/31、`agents:smoke` 43/43、`shapes:smoke` 36/36、`evolution:smoke` 45/45、`host:pg` 21/21、`host:smoke`、记忆重放 / checkpoint、两个构建、425px 响应式、工作台走查 11/11 |
 | 如实边界 | `human_response` 只把答案送回提问者，绝不替代原发起人在原会话「确认验收 任务编号」；执行进程不得自行放行人工步；未接通飞书写回通道，回答目前只有本机 CLI 入口；默认仍 `loop` + `paperclip`，未发生外部模型调用；SUI-129 仍未核可；4190 / 4192 / 4194 / 9418 保持停机 |
+
+## 第二十五轮：P-7 Anthropic agent memory 分层参考与「参考即记忆」规则（2026-11-08）
+
+| 项 | 结果 |
+|---|---|
+| 来源核实 | `https://www.anthropic.com/research/components-of-agent-memory`，Engineering，Published Nov 6, 2026，Written by Lance Martin，© 2026 Anthropic PBC；网页研究文章、无开源代码许可证；完整对照见 `docs/REFERENCE-anthropic-agent-memory.md` |
+| 逐层对照 | `transcripts` / `memory notes` 两层本仓库已有且更严（append-only 主干 + `candidate → confirmed → withdrawn` 人签链）；真缺口是知识挂靠事实源、wiki 链接与规模护栏、注入顶层只留索引、离线整理只提建议、外部参考进入候选链 |
+| `npm test` | **465 / 465**（第二十四轮 445 + `memory-hierarchy.test.ts` 20 例） |
+| `npm run memory:hierarchy` | **16/16 `ok:true`**：A 四层与预算、B 挂靠校验（含悬空 / 撤回 / 无签字反例）、C 知识地图体检与「1.77 倍地图」拒绝（wiki 208,908 bytes / 语料 117,760 bytes）、D 注入索引只留指针与超预算下移、E 离线整理确定性只读与纠偏建议、F 主干不可回溯且真实日志行数不变（40 → 40） |
+| 落地内容 | `src/memory-hierarchy.ts` 五组纯函数：挂靠校验、规则 / 参考沉淀、wiki 体检与护栏、注入索引与预算、只读 Dreaming 建议；`tests/memory-hierarchy.test.ts` 20 例；`scripts/memory-hierarchy-smoke.ts` + `npm run memory:hierarchy` 16 项真跑 |
+| 用户点题落地 | `referenceAsMemory()` / `assertReferenceSedimentation()`：外部参考与自研结论走同一条候选链，恒为 `candidate`、必须带来源与阅读事件、必须带红线警告，采用是后续独立真人动作；离线整理只能提请提升，不能替人放行 |
+| 来源登记 | `sources.lock.json` 新增 `conceptReferences`（不是 `sources` / `protocolReferences`）；`THIRD_PARTY_NOTICES.md` / `docs/SOURCES.md` / `docs/OPEN-SOURCE-COMPLIANCE.md` 同步；`scripts/audit-upstream.ts` 校验不得混入 `sources`、七个 pinned submodule 不变；`clean:true`、`problems: []`。**无 LICENSE 原文可留存，未伪造许可证文件；未复制正文 / 代码；不是第 8 个上游** |
+| 既有回归不回退 | `tsc`、两个构建、425px 响应式、走查 11/11、`console:smoke`、`router:smoke` 31/31、`agents:smoke` 43/43、`shapes:smoke` 36/36、`evolution:smoke` 45/45、`steps:smoke` 54/54、`host:pg` 21/21、`host:smoke`、记忆重放 / checkpoint、`audit:upstream`、`git diff --check` |
+| 如实边界 | 纯函数守门尚未接入真实 `Knowledge` / `Context Pack` / wiki 落盘；未新增只读 action、未改控制台、未改既有投影 / 撤权 / 人签；默认仍 `loop` + `paperclip`，无外部模型调用；SUI-129 仍未核可；4190 / 4192 / 4194 / 9418 保持停机 |

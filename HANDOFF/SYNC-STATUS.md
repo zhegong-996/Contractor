@@ -17,12 +17,12 @@
 
 | 项 | 值 |
 |---|---|
-| **运行代码基线** | 第二十四轮 P-6 完成（Runner 两块协议移植 + 四项借思想；MIT 固定来源、7 个上游不变）；**以 `git rev-parse HEAD` 为准**（交接时的 `b58631c` / `f6611e0` / `4aa6fb0` 均为历史） |
-| 阶段 | A 完成 → B1 完成 → **B2 完成并验证** → **C 全部完成并收口（C-0 ~ C-6 + 收尾）** → **生产项 P-1 已完成** → **P-5 已完成** → **P-6 已完成**（严格分步，不并行） |
+| **运行代码基线** | 第二十五轮 P-7 完成（Anthropic agent memory 分层规则守门；网页文章仅借思想、登记 `conceptReferences`、7 个上游不变）；**以 `git rev-parse HEAD` 为准**（交接时的 `b58631c` / `f6611e0` / `4aa6fb0` 均为历史） |
+| 阶段 | A 完成 → B1 完成 → **B2 完成并验证** → **C 全部完成并收口（C-0 ~ C-6 + 收尾）** → **生产项 P-1 已完成** → **P-5 已完成** → **P-6 已完成** → **P-7 已完成**（严格分步，不并行） |
 | 本文件所在提交 | 随 `main` 前进，clone 后 `git log -1` 即最新 |
 | 同步方式 | 代码与文档一并提交并 push 到 `origin/main`；`HEAD = origin/main = 远端 main` |
 
-第二十四轮 P-6 已重跑全套回归全绿：`npm test` **445/445**、`tsc`、两个构建、`test:responsive`、真实浏览器走查 **11/11**、`console:smoke ok:true`、`router:smoke` 31/31、`agents:smoke` 43/43、`shapes:smoke` 36/36、`evolution:smoke` 45/45、`steps:smoke` **54/54**、`host:pg` 21/21、`host:smoke`、记忆重放 / checkpoint、`routing:status`、`audit:upstream clean`、`git diff --check`。历史轮次：A / B1 / B2 → C-0 ~ C-6 → P-1 长程循环单步化（413/413）→ P-5 控制台快照分页裁剪（424/424）→ P-6 Runner 两块协议移植 + 四项借思想（445/445）。最新结果以 `05` 第 4 节与 `docs/VALIDATION.md` 第二十四轮为准，最新边界见 `docs/ADAPTATION-v0.6.md` `0.0000000000000000000000000` 节。Runner 是协议语义移植（TS 重写、MIT 固定提交、`protocolReferences` 登记），**不是第 8 个上游**。
+第二十五轮 P-7 已重跑全套回归全绿：`npm test` **465/465**、`npm run memory:hierarchy` **16/16**、`tsc`、两个构建、`test:responsive`、真实浏览器走查 **11/11**、`console:smoke ok:true`、`router:smoke` 31/31、`agents:smoke` 43/43、`shapes:smoke` 36/36、`evolution:smoke` 45/45、`steps:smoke` **54/54**、`host:pg` 21/21、`host:smoke`、记忆重放 / checkpoint、`routing:status`、`audit:upstream clean`、`git diff --check`。历史轮次：A / B1 / B2 → C-0 ~ C-6 → P-1（413/413）→ P-5（424/424）→ P-6（445/445）→ P-7 Anthropic agent memory 分层参考与「参考即记忆」规则（465/465）。最新结果以 `05` 第 5 节与 `docs/VALIDATION.md` 第二十五轮为准，最新边界见 `docs/ADAPTATION-v0.6.md` `0.00000000000000000000000000` 节。Runner 是协议语义移植（TS 重写、MIT 固定提交、`protocolReferences` 登记），Anthropic 文章是 `conceptReferences`（只借思想、无代码许可证）；**两者都不是第 8 个上游**。
 
 ## 3. 接手时先跑这三条
 
@@ -31,7 +31,7 @@ cd /Users/gong.zhe/Developer/ai-native-collab
 git status --short --branch                    # 应干净且与 origin/main 一致
 git rev-parse HEAD; git rev-parse origin/main; git ls-remote origin main   # 三者应一致
 npm run agents:smoke                            # C-4 编制真跑 43/43
-npm test                                       # 445/445
+npm test                                       # 465/465
 ```
 
 需要本机服务时先设干净环境（见 `00-START-HERE.md` 第 2 节）：

@@ -1,6 +1,6 @@
 # 06 · 当前状态与下一步（接手者最该看的一份）
 
-## 1. 状态快照（第二十四轮 P-6）
+## 1. 状态快照（第二十五轮 P-7）
 
 | 阶段 | 状态 | 交付 |
 |---|---|---|
@@ -11,8 +11,9 @@
 | **生产项 P-1 长程循环单步化** | ✅ **第二十二轮完成**：单步执行器接上 C-1 的 PG 队列，默认 loop 可回退 | 见第 6 节 P-1 交付与证据 |
 | **生产项 P-5 控制台快照服务端分页 / 裁剪** | ✅ **第二十三轮完成**：新增只读 `view-summary`，原 `view` 逐字保留 | 见第 7 节 P-5 交付与证据 |
 | **生产项 P-6 Runner 两块协议移植 + 四项借思想** | ✅ **第二十四轮完成**：HITL 成对留痕、队列累计确认 / 至少一次通知 / 投递就绪、六态派生 / 能力声明 / 分层 / 快照不回溯；MIT 固定来源、未引入第 8 个上游 | 见第 8 节 P-6 交付与证据 |
+| **生产项 P-7 Anthropic agent memory 分层参考 +「参考即记忆」规则** | ✅ **第二十五轮完成**：五组纯函数守门（挂靠 / wiki 护栏 / 注入索引 / 只读 Dreaming / 参考按候选沉淀）；网页文章仅借思想、登记在 `conceptReferences`，不是第 8 个上游 | 见第 9 节 P-7 交付与证据 |
 
-系统能跑、全套回归全绿（**445/445 单测**、11/11 真实浏览器走查、**`console:smoke` 全绿、`router:smoke` 31/31、`agents:smoke` 43/43、`shapes:smoke` 36/36、`evolution:smoke` 45/45、`steps:smoke` 54/54**、上游 clean、`host:pg` 21/21）。`HEAD = origin/main = 远端 main`。C-1 起每次代码改动都重跑全套；本机 PG 17.10 专属库 `suitme_collab_c1` 已可真跑。
+系统能跑、全套回归全绿（**465/465 单测**、**`memory:hierarchy` 16/16**、11/11 真实浏览器走查、**`console:smoke` 全绿、`router:smoke` 31/31、`agents:smoke` 43/43、`shapes:smoke` 36/36、`evolution:smoke` 45/45、`steps:smoke` 54/54**、上游 clean、`host:pg` 21/21）。`HEAD = origin/main = 远端 main`。C-1 起每次代码改动都重跑全套；本机 PG 17.10 专属库 `suitme_collab_c1` 已可真跑。
 
 ## 2. B2 已完成（四项，均带真跑证据）
 
@@ -136,3 +137,12 @@
 - **执行链接线**：`src/step-execution.ts` 新增 `OneStepInput.hitl`（不注入则完全无副作用）与 `OneStepResult.hitlQuestionId`；`package.json` 新增 `step:answer`。两组新契约测试 21 例，`scripts/steps-smoke.ts` 新增 E / F / G 三段共 14 项真跑检查。
 - **真跑**：`npm test` **445/445**；`npm run steps:smoke` **54/54 `ok:true`**（E 段真实子进程提问 + 真人回答 + 重复 / 匿名被拒、台账未写 B1 主干；F 段真实 PG 队列送达证据与累计确认；G 段四项借思想守门）；`tsc`、两个构建、425px、走查 11/11、`console:smoke`、router 31/31、agents 43/43、shapes 36/36、evolution 45/45、`host:pg` 21/21、`audit:upstream clean:true`、`git diff --check`。
 - **如实边界**：`human_response` 只把答案送回提问者，**绝不替代**原发起人在原会话用中文「确认验收 任务编号」；Runner 由系统归档即标完成的语义没有引入；未接通飞书写回通道，真人回答目前只有本机 CLI 入口、不是网页入口；默认 `loop` + `paperclip` 未变、无外部模型调用；SUI-129 仍未核可。剩余生产项（切默认底座、真实业务单跑 step、worker 子调用拆分、外部端点 / 远端沙箱、金额成本账本）仍需用户确认或外部凭据。
+
+## 9. P-7 交付与证据（第二十五轮，Anthropic agent memory 分层参考）
+
+- **来源**：Anthropic Engineering《The components of agent memory》（2026-11-06，Written by Lance Martin，© 2026 Anthropic PBC），**网页研究文章、无开源代码许可证**；`sources.lock.json` 的 `conceptReferences` 登记，不是第 8 个上游。完整逐层对照与 8 条差距清单见 `docs/REFERENCE-anthropic-agent-memory.md`。
+- **对照结论**：文章的 `transcripts` / `memory notes` 两层本仓库已有且更严（append-only 主干 + 人签候选链 + 四类投影 + checkpoint）；真缺口是「约束上层的规则」与「知识表示层的形态」，与 `modelCalls=0` 确定性链路不冲突的五条规则已落地。
+- **五条规则**：`assertGroundedNotes()`（知识必须挂靠原始事件）、`wikiReport()` / `assertWikiRepresentation()`（链接完整 / 断言有出处 / 不比原始语料大）、`buildInjectedIndex()` / `assertInjectedIndex()`（200 行 / 25 KB、只留索引与指针）、`dreamProposals()` / `assertDreamProposals()` + `assertNoTranscriptRewrite()`（离线整理只提待复核建议、主干只追加）、`validatedRule()` 与 `referenceAsMemory()` / `assertReferenceSedimentation()`（规则含依据与陷阱；**外部参考本身按候选沉淀**）。
+- **用户点题**：「参考本身也是组织记忆」——外部材料与自研结论走同一条 `candidate → confirmed → withdrawn` 候选链，恒为候选、带来源与阅读事件、带红线警告；离线整理只能提请提升，采用仍是独立真人动作。
+- **真跑**：`npm test` **465/465**；`npm run memory:hierarchy` **16/16 `ok:true`**（复现文章 1.77 倍「地图」失败、真实 B1 主干 40 行前后不变）；`tsc`、两个构建、425px、走查 11/11、`console:smoke`、各隔离冒烟、`audit:upstream clean:true`、`git diff --check`。
+- **如实边界**：纯函数守门**尚未接入**真实 `Knowledge` / `Context Pack` / wiki 落盘；未新增只读 action、未改控制台、未改既有投影 / 撤权 / 人签；默认 `loop` + `paperclip` 未变、无外部模型调用；SUI-129 仍未核可。待拍板见 `HANDOFF/08` 第 13 条。

@@ -6,7 +6,7 @@
 cd /Users/gong.zhe/Developer/ai-native-collab
 export NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost NODE_USE_ENV_PROXY=0
 
-npm test                    # 413/413（基线）
+npm test                    # 465/465（基线）
 npx tsc --noEmit            # 退出 0
 npm run build:workspaces    # 插件 UI 打包 + 类型检查
 npm run build:chinese-shell # hiddenEntries 4 条、missed []、warning null
@@ -28,6 +28,7 @@ git diff --check            # 退出 0
 npm run memory:replay       # 只读重放：replayTwiceEqual / deterministic true
 npm run memory:smoke        # 临时目录真跑三条红线，ok:true
 npm run memory:checkpoint   # 真实日志增量应用，checksum 与全量对照
+npm run memory:hierarchy    # P-7 分层规则隔离真跑 16/16（不写真实 B1 主干）
 npm run memory:journey      # 真实 bridge action 全链路 + 端到端撤权（会写真实日志）
 npm run routing:status      # allWired:true、threeTier.recommended:false
 npm run host:smoke          # 非 Paperclip 宿主 ok:true
@@ -100,7 +101,21 @@ npm run delivery:demo       # 本机 Git 链路；4194/9418 停机时 gitProtoco
 | 既有回归不回退 | `tsc`、两个构建、425px 响应式、走查 11/11、`console:smoke`、`router:smoke` 31/31、`agents:smoke` 43/43、`shapes:smoke` 36/36、`evolution:smoke` 45/45、`host:pg` 21/21、`host:smoke`、记忆重放 / checkpoint、`git diff --check` |
 | 如实边界 | `human_response` 只把答案送回提问者、不等于验收；执行进程不得自行放行人工步；未接通飞书写回通道，回答目前只有本机 CLI 入口；默认仍 `loop` + `paperclip`、无外部模型调用；SUI-129 仍未核可 |
 
-## 5. 真实 HTTP 冒烟模板（admin token 从 `.runtime/secrets.json` 读，不入库）
+## 5. 第二十五轮 P-7 实测结果（2026-11-08，Anthropic agent memory 分层参考）
+
+| 项 | 结果 |
+|---|---|
+| `npm test` | **465 / 465**（第二十四轮 445 + `tests/memory-hierarchy.test.ts` 20 例） |
+| `npm run memory:hierarchy` | **16/16 `ok:true`**；隔离确定性数据，不写真实 `.runtime/memory/events.jsonl`（40 → 40 行不变） |
+| A / B 段 | 四层与 200 行 / 25 KB 预算；规则与参考沉淀（含依据、陷阱、恒为候选）；挂靠校验通过并逐一拒绝无留痕 / 悬空 / 已撤回 / 无签字却确认 |
+| C 段 | 健康知识地图链接完整、断言有出处、不膨胀；复现文章 Figure 12：wiki 208,908 bytes / 语料 117,760 bytes = **1.77 倍**被拒；悬空链接 / 重复主题 / 孤立页 / 无出处断言如实列出 |
+| D / E 段 | 注入顶层只放已签字且真人批准提升的条目标题与 `note:` 指针、正文下移；离线整理确定性、只读、待真人复核、`modelCalls=0`，证据漂移 / 悬空链接 / 膨胀 / 超预算各触发对应建议 |
+| F 段 | append-only 主干只追加、历史逐条未变；只读汇总四层齐备；真实 B1 记忆主干行数前后不变 |
+| 来源登记 | `conceptReferences` + `THIRD_PARTY_NOTICES.md` + `docs/SOURCES.md` + `docs/OPEN-SOURCE-COMPLIANCE.md` + `audit:upstream` 机器化校验；`clean:true`、`problems: []`；不是第 8 个上游、未复制正文 / 代码 |
+| 既有回归不回退 | `tsc`、两个构建、425px 响应式、走查 11/11、`console:smoke`、`router:smoke` 31/31、`agents:smoke` 43/43、`shapes:smoke` 36/36、`evolution:smoke` 45/45、`steps:smoke` 54/54、`host:pg` 21/21、`git diff --check` |
+| 如实边界 | 纯函数守门尚未接入真实 `Knowledge` / `Context Pack` / wiki 落盘；未新增只读 action、未改控制台；默认仍 `loop` + `paperclip`，无外部模型调用；SUI-129 仍未核可 |
+
+## 6. 真实 HTTP 冒烟模板（admin token 从 `.runtime/secrets.json` 读，不入库）
 
 ```sh
 node --import tsx --input-type=module -e "
@@ -120,7 +135,7 @@ req.on('error', e => console.log('ERR', e.message)); req.end(payload);
 
 把 path 换成 `routing-status` / `service-status` / `delivery-status` / `system-status` 可查其它只读状态。改过 `src/server.ts` / `src/v06.ts` / `src/workspaces.ts` 等服务端代码后先 `npm run restart:bridge`。
 
-## 6. 服务端口表
+## 7. 服务端口表
 
 | 端口 | 用途 | 交接状态 | 启动方式 |
 |---|---|---|---|
@@ -133,7 +148,7 @@ req.on('error', e => console.log('ERR', e.message)); req.end(payload);
 | 5432 | 本机 PG 17 专属库 suitme_collab_c1 | 运行中（用户既有实例） | 不新建服务；只连回环，勿动其它库 |
 | 4200（按需） | 自研独立控制台 | 不常驻 | `npm run console` 才启动，只绑 127.0.0.1；冒烟用随机端口，跑完即关 |
 
-## 7. 排障速查
+## 8. 排障速查
 
 | 现象 | 根因 | 处理 |
 |---|---|---|
@@ -149,7 +164,7 @@ req.on('error', e => console.log('ERR', e.message)); req.end(payload);
 | `v06-l2-extract` 报「边指向不存在的节点」 | `memory-index` 先自动抽过一次，任务级镜像未带入全局已有节点 | `buildTaskGraphMirror()` 补齐，见 `tests/l2-extraction.test.ts` |
 | 真实日志出现 `danglingCausedBy` | `reviewSource` 用评审前 revision，确认事件被幂等去重 | 已改用 `reviewedRevision`；历史行不物理删除，重放如实记录 |
 
-## 8. 提交前检查（每轮都做）
+## 9. 提交前检查（每轮都做）
 
 ```sh
 git status --short

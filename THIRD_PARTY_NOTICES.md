@@ -228,3 +228,11 @@ Actually reused: two protocol contracts, re-implemented in TypeScript — (1) `a
 Licence history: versions published from 2026-08-22 through 2026-09-22 were released under GPL-3.0-only and remain available under that licence. Only the current MIT `main` commit above is pinned; no release artefact from that window is used.
 
 Preserved boundaries: a `human_response` only returns an answer to the asker — it **never** substitutes for the original initiator's Chinese "确认验收 任务编号" in the originating conversation; the execution process can only raise a question and must never release a `human-gate` step; the HITL ledger is deliberately separate from the B1 memory trunk; no 8th upstream, no PTY/terminal emulator, no external model call and no new web intake entry are introduced.
+
+## Anthropic, "The components of agent memory" — concept reference only (第二十五轮 P-7)
+
+Source: https://www.anthropic.com/research/components-of-agent-memory, Engineering, published 2026-11-06, written by Lance Martin. © 2026 Anthropic PBC. This is a web research article, **not an open-source code repository**: there is no code licence to retain and no LICENSE file to reproduce. It is recorded in the `conceptReferences` section of `sources.lock.json` and is **not** a submodule, a gitlink, a dependency, or an 8th upstream.
+
+Borrowed: the architecture only — a four-layer memory hierarchy (transcripts → notes → wiki-like representations → small injected context), transcript-as-ground-truth correction, linked knowledge maps with an index and a size guard, "leave links behind" at the top layer, and offline consolidation that proposes rather than decides. All implementation is original TypeScript in `src/memory-hierarchy.ts`, with `tests/memory-hierarchy.test.ts` and `scripts/memory-hierarchy-smoke.ts`. The full comparison is `docs/REFERENCE-anthropic-agent-memory.md`.
+
+**No article text or code is reproduced**, no model API was called, and no new package was installed. The article's model-driven salience and automatic promotion are explicitly not adopted: candidate knowledge still requires a human review, the append-only memory trunk is never rewritten, and the original initiator's Chinese acceptance confirmation remains the only business sign-off.

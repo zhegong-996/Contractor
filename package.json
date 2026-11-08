@@ -28,6 +28,7 @@
     "host:pg": "node --import tsx scripts/host-pg-smoke.ts",
     "memory:replay": "node --import tsx scripts/memory-replay.ts",
     "memory:smoke": "node --import tsx scripts/memory-smoke.ts",
+    "memory:hierarchy": "node --import tsx scripts/memory-hierarchy-smoke.ts",
     "test:cross-role": "node --import tsx scripts/smoke-cross-role.ts --run",
     "install:upstream": "node --import tsx scripts/install-upstream.ts",
     "install:wiki": "node --import tsx scripts/install-wiki.ts",
