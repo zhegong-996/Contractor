@@ -18,7 +18,7 @@
     "path": "/Users/gong.zhe/Developer/ai-native-collab",
     "remote": "https://github.com/zhegong-996/suitme-collab.git",
     "branch": "main",
-    "codeBaseCommit": "以 git rev-parse HEAD 为准（第二十七轮 P-9 代码与文档一并提交推送；HEAD = origin/main = 远端 main）",
+    "codeBaseCommit": "以 git rev-parse HEAD 为准（第二十七轮 P-9 代码与文档、以及最新架构说明重写一并提交推送；HEAD = origin/main = 远端 main）",
     "originMainAtGeneration": "same-as-HEAD",
     "remoteMainAtGeneration": "same-as-HEAD",
     "note": "不再写死 hash：交接包生成时的 b58631c / f6611e0 / 4aa6fb0 / 8d3c455 / c27d7c0 / 3a563d3 均为历史。代码与文档在同一提交里一并推送。",
@@ -329,5 +329,5 @@
   },
   "authoritativeOnly": true,
   "portableCopyNote": "WorkBuddy 工作区 handoff/ 与 SuitMe-HANDOFF.zip 已停用、不再维护；详细交接唯一权威位置为仓库内 HANDOFF/，根目录 HANDOFF.md / PROJECT-SUMMARY.md 为同仓库内同步维护的总览入口。",
-  "codeBaseCommit": "以 git rev-parse HEAD 为准（第二十七轮 P-9 代码与文档一并提交推送；HEAD = origin/main = 远端 main）"
+  "codeBaseCommit": "以 git rev-parse HEAD 为准（第二十七轮 P-9 代码与文档、以及最新架构说明重写一并提交推送；HEAD = origin/main = 远端 main）"
 }

@@ -327,7 +327,7 @@
 | `docs/REFERENCE-openmausbot.md` | 133 | ★ OpenMausBot 完整参考评估（固定 Apache-2.0 提交 `3f81576`）：两进程架构、决策模型/自动路由、Agent 定义与团队包、Assignment 委托树、driver SPI 与 shadow 降级、Skill 版本化、出入站 MCP 边界、三层行为评测；含逐项对照表、11 条按价值排序的差距清单、明确不做的红线与 `enterprise/` 许可证边界。**只调研，未引入任何代码/依赖/服务**。 |
 | `docs/ROUTING-AND-HOST-v0.7.md` | 165 | ★ A 阶段方案全文：RoutingDecision、共享 Trace、三层判断、HostPlatformPort、开源候选矩阵与 6.1 C 阶段新增产品约束。 |
 | `docs/SOURCES.md` | 72 | 上游来源与引入方式记录。 |
-| `docs/SYSTEM-ARCHITECTURE.md` | 241 | ★ 「现在是什么」：技术四层、产品与业务架构、前端分层、统一路由 Trace、共享记忆主干。 |
+| `docs/SYSTEM-ARCHITECTURE.md` | 257 | ★ **2026-11-08 重写的最新版**（取代停在第二十二轮 P-1 的旧版）：一页速读、产品与用户视角、最新功能地图（P-1 ~ P-9）、双向协作回路、技术四层与端口、三类状态、记忆分层与只读守门、上游复用三个层次、真实接入边界、验证命令与文档索引。 |
 | `docs/TEAM-NETWORK-MEMORY.md` | 70 | 多人服务协作与团队知识记忆。 |
 | `docs/UPSTREAM-ADAPTERS.md` | 54 | 上游适配代码清单与引用边界。 |
 | `docs/VALIDATION.md` | 817 | ★ 逐轮验证记录（含 B2、C-1 ~ C-6、P-1 全套回归与 2026-11-08 交接文档轮），判断「验证过没有」以此为准。 |
@@ -335,8 +335,8 @@
 | `docs/agent-integration.md` | 75 | Agent 接入与 CLI 适配说明。 |
 | `docs/design/workbench.md` | 11 | 工作台视觉/交互设计稿。 |
 | `docs/REFERENCE-capability-comparison.md` | 123 | ★ 与 7 个上游 Agent / 协作平台的能力对比：形态分层、六环节（发起 / 监管 / 交接 / 对接执行 / 状态回传 / 找人请示）逐项对照、12 条「他们能我们不能」差距分 A 类真实缺口与 B 类刻意不做、反向治理优势、对「人与执行 Agent 中间的协作平台」定位的确认与三点修正；第二十七轮增补第 6 节参考产出复盘、第 7 节双向回路落地与上游复用层次。**只做分析，未引入代码或新服务**。 |
-| `docs/ARCHITECTURE-ATLAS.md` | 54 | ★ 系统架构图册索引：四张图分别回答什么、一张 Mermaid 总览、口径来源与优先级、维护约定。 |
-| `docs/architecture-atlas.html` | 331 | ★ 可离线打开的单页图册：产品主闭环 / 用户与界面 / 技术四层 / 共享记忆分层四张 SVG，另附功能地图、成熟度三档、红线与端口表；浅色 / 深色主题自足，无外部资源。 |
+| `docs/ARCHITECTURE-ATLAS.md` | 56 | ★ 系统架构图册索引：四张图分别回答什么、一张 Mermaid 总览、口径来源与优先级、维护约定。 |
+| `docs/architecture-atlas.html` | 332 | ★ 可离线打开的单页图册（第二十七轮 P-9 口径）：产品主闭环 / 用户与界面 / 技术四层 / 共享记忆分层四张 SVG，另附含双向协作回路的功能地图、成熟度三档、红线与端口表；浅色 / 深色主题自足，无外部资源。 |
 | `docs/REFERENCE-anthropic-agent-memory.md` | 128 | ★ Anthropic《The components of agent memory》逐层对照：五层 hierarchy 与本仓库映射、评估数据、8 条按价值排序差距清单、「参考即记忆 + 规则」、明确不照搬项与 `conceptReferences` 来源登记。**网页文章无开源代码许可证，只借思想、未复制正文 / 代码**。 |
 
 ## 上游 submodule upstream/（7）
@@ -361,8 +361,8 @@
 | `DESIGN.md` | 17 | 总体设计说明。 |
 | `HANDOFF.md` | 189 | ★ 根目录交接总纲（2026-11-08）：5 分钟接手、产品口径、现状、环境命令、代码地图、红线、三档边界、下一步、索引、提交流程、8 个坑；详细权威仍在 `HANDOFF/`。 |
 | `PRODUCT.md` | 13 | 产品定位与能力状态说明（含 Cognee 原生管线已打开的口径）。 |
-| `PROJECT-SUMMARY.md` | 329 | ★ 项目总结（2026-11-08）：系统架构、产品功能架构、业务流程设计、依赖与引用（协议逐一）、验证证据、边界与索引。 |
-| `README.md` | 190 | 项目主入口：交接与总结导航、架构与方案导航、实现边界、本地运行、飞书、交付验收、知识与验证。 |
+| `PROJECT-SUMMARY.md` | 333 | ★ 项目总结（2026-11-08）：系统架构、产品功能架构、业务流程设计、依赖与引用（协议逐一）、验证证据、边界与索引。 |
+| `README.md` | 192 | 项目主入口：交接与总结导航、架构与方案导航、实现边界、本地运行、飞书、交付验收、知识与验证。 |
 | `THIRD_PARTY_NOTICES.md` | 212 | 第三方声明与版权信息。 |
 | `package-lock.json` | 2686 | npm 依赖锁定文件。 |
 | `package.json` | 73 | npm scripts 总表与依赖；新增脚本必须指向真实实现文件。 |

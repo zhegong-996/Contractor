@@ -152,7 +152,7 @@ npm test                         # 本次交接复跑：413/413，0 fail
 | 产品需求与可验收条款 | `docs/PRD-v0.6.md`（尤其 §5 FR、§6 主流程、§10C C-P1~C-P8） |
 | 设计定稿（不等于全部实现） | `docs/ARCHITECTURE-v0.6.md` |
 | 最新实现边界 | `docs/ADAPTATION-v0.6.md` `0.0000000000000000000000000000` 节（第二十七轮 P-9） |
-| 现状架构与接入状态 | `docs/SYSTEM-ARCHITECTURE.md` |
+| 现状功能 / 系统架构 / 技术架构（最新版） | `docs/SYSTEM-ARCHITECTURE.md`（2026-11-08 重写，取代停在第二十二轮 P-1 的旧版） |
 | 验证证据 | `docs/VALIDATION.md`、`HANDOFF/05-VALIDATION-AND-COMMANDS.md`（第 6 节为 P-8 实测） |
 | 复用来源与协议 | `docs/SOURCES.md`、`docs/UPSTREAM-ADAPTERS.md`、`docs/OPEN-SOURCE-COMPLIANCE.md`、`THIRD_PARTY_NOTICES.md`、`sources.lock.json` |
 | 机器可读交接元数据 | `HANDOFF/handoff-manifest.json` |

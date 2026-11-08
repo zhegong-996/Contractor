@@ -1,6 +1,6 @@
 # 系统功能与架构图册 · 索引
 
-> 2026-11-08 · 第二十六轮 P-8 之后（`34e9155`）
+> 2026-11-08 · 第二十七轮 P-9 之后（`3b0188d`）｜`npm test` 521/521 · `loop:smoke` 16/16
 
 ## 这个图册解决什么
 
@@ -15,7 +15,7 @@
 | 3 技术四层 | 入口 → 接入 → 业务核心 → 本机与宿主，端口与唯一真源在哪 | 技术 / 分层 |
 | 4 共享记忆分层 | 注入顶层 / 知识表示层 / 候选知识 / 事实源，以及只读守门的位置 | 技术 / 知识与治理 |
 
-HTML 内另附：八个域的功能地图、成熟度三档、六条红线、本机端口与运行状态表。
+HTML 内另附：九个域的功能地图（含 P-9 双向协作回路）、成熟度三档、六条红线、本机端口与运行状态表。
 
 ## 一页总览（文字版）
 
@@ -38,17 +38,19 @@ flowchart TB
 
 四个人工决策点：定职能责任、跨空间授权、锁定验收清单、最终核可。**报告、模型判定、CI 通过、合并审批都不替代最后一步**；SUI-129 至今未核可。
 
+**两条相反方向的移动（P-9）**：下行是「人发起 / 授权 / 补充说明 / 回答 / 核可」，上行是「执行端回执 / 提问 / 请示 / 结果」。`controller.receipt()`、`controller.reply()`、`collaboration-intake.ingest()` 与 `step:answer` 已接进回路留痕，`src/collaboration-loop.ts` 判出未应答上行与答完不回流，只读 `loop-guard` 汇总。**流转自动化 ≠ 决策自动化**：验收与核可仍不下放。
+
 ## 口径来源与优先级
 
 - 产品流程与角色：`docs/SYSTEM-ARCHITECTURE.md` 第 1 节、`PROJECT-SUMMARY.md` §3 / §4。
 - 技术四层与真实接入状态：`PROJECT-SUMMARY.md` §2、`docs/SYSTEM-ARCHITECTURE.md` 第 2 节。
 - 红线与端口：`HANDOFF/07-RULES-AND-BOUNDARIES.md`、`HANDOFF/05-VALIDATION-AND-COMMANDS.md`。
-- 记忆分层与只读守门：`docs/REFERENCE-anthropic-agent-memory.md`、`docs/ADAPTATION-v0.6.md` 最新边界节（P-7 / P-8）。
+- 记忆分层与只读守门：`docs/REFERENCE-anthropic-agent-memory.md`、`docs/ADAPTATION-v0.6.md` 最新边界节（P-7 / P-8）；双向回路见 `docs/REFERENCE-capability-comparison.md` 第 7 节（P-9）。
 - **冲突时优先级**：`docs/ADAPTATION-v0.6.md` 最新边界声明 → `docs/VALIDATION.md` → `docs/PRD-v0.6.md` §10C → `HANDOFF/06` → 本图册。图册是**导读**，不是权威口径。
 
 ## 维护约定
 
-1. 架构、端口、白名单数量、成熟度口径变化时，同步更新 `docs/architecture-atlas.html` 与本文件；不要把「预备配置」画成「已启用」，也不要把「未接通」画成可点入口。
+1. 架构、端口、白名单数量（当前 19 项只读动作）、成熟度口径与双向回路变化时，同步更新 `docs/architecture-atlas.html` 与本文件；不要把「预备配置」画成「已启用」，也不要把「未接通」画成可点入口。
 2. 每次改动后跑 `npm run atlas:check`：校验四张 SVG 的可访问性标签、CSS 变量定义覆盖、无外部资源依赖、无敏感内容。
 3. 图册内的彩色卡片在深色主题下由 CSS 覆盖底色与文字色；新增卡片若使用新的硬编码颜色，须同步补 `@media (prefers-color-scheme: dark)` 规则。
 4. 本图册**不是**任务发起入口，也不新增常驻服务；`.runtime/` 下的运行证据不入库。

@@ -41,7 +41,7 @@ check('不含 .runtime 运行证据入库路径作为资源引用',
   !/(?:src|href)\s*=\s*["'][^"']*\.runtime\//.test(html));
 
 const keywords = ['飞书 IM', '唯一发起入口', '人签验收', 'Agent 完成 ≠ 业务验收',
-  'append-only', '只读守门', 'SUI-129', '4190', '18 项只读白名单', 'modelCalls=0'];
+  'append-only', '只读守门', 'SUI-129', '4190', '19 项只读白名单', 'modelCalls=0'];
 const missingKeywords = keywords.filter(word => !html.includes(word));
 check('关键口径齐备（唯一入口 / 人签 / 事实源 / 停机端口 / 确定性链路）',
   missingKeywords.length === 0, { missing: missingKeywords });

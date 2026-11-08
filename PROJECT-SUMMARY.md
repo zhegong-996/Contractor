@@ -1,7 +1,7 @@
 # SuitMe 协作台 · 项目总结
 
 > 日期：2026-11-08（北京时间）｜仓库：`/Users/gong.zhe/Developer/ai-native-collab`｜远端：`github.com/zhegong-996/suitme-collab`（`main`）
-> 代码基线以 `git rev-parse HEAD` 为准；本文成稿时 `HEAD = origin/main = 834b268`（第二十二轮 P-1）、工作区干净；本文提交后 `HEAD` 会前进，仍应与 `origin/main` 一致。
+> 代码基线以 `git rev-parse HEAD` 为准；本文成稿时 `HEAD = origin/main = 3b0188d`（第二十七轮 P-9）、工作区干净；本文提交后 `HEAD` 会前进，仍应与 `origin/main` 一致。
 > 本文是**总览**，不是设计定稿、也不是实现清单的替代品。权威口径见文末第 8 节。
 
 ---
@@ -10,9 +10,9 @@
 
 **产品定位**：小规模、高信任、以知识与软件产出为主的团队，需求从飞书 IM 发起，按用途授权专业资料、连续交接，成果交付到本机 Git 或专业知识空间，**由人验收**。系统要回答的不只是「这单跑完没有」，还有「谁对什么负责、凭什么算做对了、AI 依据什么做的」。
 
-**当前阶段**：A 收敛整合 → B1 记忆主干 → B2 读取链 → C-0 ~ C-6 分步方案 → 生产项 P-1 长程循环单步化，**全部完成并收口**，严格分步不并行。共 22 轮迭代，代码与文档随 `main` 同步推送。
+**当前阶段**：A 收敛整合 → B1 记忆主干 → B2 读取链 → C-0 ~ C-6 分步方案 → 生产项 P-1 / P-5 / P-6 / P-7 / P-8 / P-9，**全部完成并收口**，严格分步不并行。共 27 轮迭代，代码与文档随 `main` 同步推送。最新一轮 P-9 落地双向协作回路，把 Autoloop / Runner 协议接进真实执行链。
 
-**最后一轮验证**：单测 413/413、`tsc`、两个构建、425px 响应式（393/393 无溢出）、真实浏览器走查 11/11、`console:smoke`、`router:smoke` 31/31、`agents:smoke` 43/43、`shapes:smoke` 36/36、`evolution:smoke` 45/45、`steps:smoke` 40/40、`host:pg` 21/21、记忆重放与 checkpoint、上游审计 clean、`git diff --check`。2026-11-08 交接时再次单独复跑 `npm test` **413/413、0 fail**。
+**最后一轮验证**：`npm test` **521/521**、`loop:smoke` **16/16**、`guard:smoke` **22/22**、`memory:hierarchy` 16/16、`steps:smoke` 54/54、`tsc`、两个构建、425px 响应式（393/393 无溢出）、真实浏览器走查 11/11、`console:smoke failed: []`、`router:smoke` 31/31、`agents:smoke` 43/43、`shapes:smoke` 36/36、`evolution:smoke` 45/45、`host:pg` 21/21、`atlas:check` 11/11、记忆重放与 checkpoint、`audit:upstream clean:true`、`git diff --check`。
 
 **最需要注意的三条边界**（不要因为「系统全绿」而误读）：
 1. 默认底座仍是 `paperclip`、默认执行模式仍是 `loop`；`local-pg` 与 `step` 都真跑过但**未成为默认**，主链路随时可逐字回退。
@@ -285,13 +285,15 @@ Redis（用 PG `FOR UPDATE SKIP LOCKED` 等价，切换点为 `claimStep / compl
 
 | 类别 | 命令 | 结果 |
 |---|---|---|
-| 单元 / 契约 | `npm test` | 413/413，0 fail（交接时复跑确认） |
+| 单元 / 契约 | `npm test` | **521/521，0 fail**（含 16 例双向回路契约 + 6 例常态契约） |
 | 类型与构建 | `npm run typecheck`、`build:workspaces`、`build:chinese-shell` | 全部 pass |
 | 前端 | `npm run test:responsive`、`npm run test:walkthrough` | 425px 393/393 无溢出；真实浏览器 11/11 |
 | 独立控制台 | `npm run console:smoke` | 6 视图、主题、425px、写动作 403、`errorCards:0` |
 | 组织与路由 | `router:smoke` / `agents:smoke` / `shapes:smoke` | 31/31、43/43、36/36（隔离内存 Trace，不写真实日志） |
 | 自演进 | `evolution:smoke` | 45/45（隔离临时台账，真实台账与 B1 主干行数不变） |
-| 长程执行 | `steps:smoke` | 40/40（隔离队列 + 本机 PG 专属库 + 真实子进程，第二棒由「另一台机器」领走） |
+| 长程执行 | `steps:smoke` | 54/54（隔离队列 + 本机 PG 专属库 + 真实子进程，含 HITL 成对留痕与送达证据） |
+| 双向协作回路 | `npm run loop:smoke` | 16/16（真实 HTTP `loop-guard` 200 / advisory + 隔离子进程「提问→真人回答→回流建议落盘」+ 半回路闭合 + 只读红线） |
+| 查漏与基线 | `guard:smoke` / `memory:hierarchy` / `atlas:check` | 22/22 · 16/16 · 11/11（冻结基线人审后更新，白名单 18→19） |
 | PG 宿主 | `npm run host:pg` | 21/21（事务 / 并发领取 / 步进链 / 崩溃恢复 / token 轮换） |
 | 共享记忆 | `memory:replay` / `memory:smoke` / `memory:journey` / `memory:checkpoint` | 重放一致、`checksumEqual:true`、真实一单端到端撤权 |
 | 上游与提交 | `npm run audit:upstream`、`git diff --check` | clean / pass |
@@ -317,13 +319,13 @@ Redis（用 PG `FOR UPDATE SKIP LOCKED` 等价，切换点为 `claimStep / compl
 | 需求 | 文档 |
 |---|---|
 | 接手另一个 Agent | `HANDOFF.md`（根目录速览）、`HANDOFF/` 详细包（`README.md` / `00` / `06` / `07` / `08`） |
-| 系统架构现状 | `docs/SYSTEM-ARCHITECTURE.md`、`HANDOFF/02-ARCHITECTURE.md` |
+| 系统架构现状 | **`docs/SYSTEM-ARCHITECTURE.md`（2026-11-08 重写为最新版：功能 / 系统架构 / 技术架构，取代停在第二十二轮 P-1 的旧版）**、`HANDOFF/02-ARCHITECTURE.md` |
 | 一眼看懂架构与功能图 | `docs/architecture-atlas.html`（四张 SVG 图册，可离线打开）、`docs/ARCHITECTURE-ATLAS.md`（索引） |
 | 与上游 Agent 平台的能力边界 | `docs/REFERENCE-capability-comparison.md`（六环节对照、真实差距、定位结论） |
 | 产品架构定稿（不等于全部实现） | `docs/ARCHITECTURE-v0.6.md` |
 | 产品需求与可验收条款 | `docs/PRD-v0.6.md`（§5 FR、§6 主流程、§10C C-P1~C-P8） |
 | 方案与缺口 | `docs/ARCHITECTURE-OPTIONS-v0.7.md`、`docs/ROUTING-AND-HOST-v0.7.md`、`docs/MEMORY-ARCHITECTURE-v0.7.md` |
-| 最新边界与轮次 | `docs/ADAPTATION-v0.6.md`（`0.00000000000000000000000` 节为最新） |
+| 最新边界与轮次 | `docs/ADAPTATION-v0.6.md`（`0.0000000000000000000000000000` 节为最新，第二十七轮 P-9） |
 | 验证 | `docs/VALIDATION.md` |
 | 复用来源与协议 | `docs/SOURCES.md`、`docs/UPSTREAM-ADAPTERS.md`、`docs/OPEN-SOURCE-COMPLIANCE.md`、`THIRD_PARTY_NOTICES.md` |
 | 机器可读交接元数据 | `HANDOFF/handoff-manifest.json`、`sources.lock.json` |

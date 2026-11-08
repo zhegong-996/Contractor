@@ -1,259 +1,257 @@
-# SuitMe 协作台：架构、功能与接入状态
-
-核验日期：2026-11-05（北京时间），第十轮补充产品与业务架构于 2026-11-07。依据本机运行服务、数据库只读查询及固定版本源码。当前是本机试点，包含开发和联调记录；不是已经部署到全体员工的生产系统。
-
-> **文档分工**：本文件描述「现在是什么」；`ARCHITECTURE-v0.6.md` 是产品架构定稿（不等于全部已实现）；`ARCHITECTURE-OPTIONS-v0.7.md` 是三种收敛方案、主流架构分析与未实现能力清单；`ROUTING-AND-HOST-v0.7.md` 是统一路由契约、共享 Trace、三层判断与去 Paperclip 化路线；`MEMORY-ARCHITECTURE-v0.7.md` 是方案 B 的共享记忆事件主干与四类投影。判断「哪些还没做、该用哪个开源项目补」以三份 v0.7 文档为准。
-
-## 产品与业务架构（业务视角，第十轮补）
-
-> 下一节 `当前架构` 是技术分层；本节回答「给谁用、按什么流程跑、哪些功能真的能用」。依据 `PRODUCT.md`、`docs/PRD-v0.6.md` 与本机实测，不把预备配置说成已启用。
-
-**一句话定位**：小规模、高信任、以知识与软件产出为主的团队，需求从 IM 发起，按用途授权专业资料、连续交接，成果交付到本机 Git 或专业知识空间，**由人验收**。现有底座像一个很靠谱的工单系统，v0.6 要补的是「一个组织」：除了「这单跑完没有」，还要回答**谁对什么负责、凭什么算做对了、AI 依据什么做的**。
-
-### 渠道与界面形态（产品形态本身，不是临时界面）
-
-| 位置 | 职责 | 现状 |
-|---|---|---|
-| 飞书 IM | 发起、追问、通知回写、最终核可 | **当前唯一接通的会话渠道**；纯文本 + 工作台链接，无交互卡片 |
-| 中文工作台 | 授权、留痕、审阅、签字 | Paperclip 插件式单页 `/SUI/knowledge-workspaces`，5 个主 tab，不新建独立 app |
-| 非 IM 接入端 | Agent / 脚本接入 | CLI、MCP、A2A SDK、本地工作台 API |
-
-约束：一个语义对象两种表达（会话侧文本与工作台侧结构化记录字段不丢）；会话入口不承担工作台职责，工作台也不承担发起职责。第十轮前端重构只拆源码模块，**不改路由、不增 tab、不改上游 UI**。
-
-### 角色与职责（三级 owner 口径不能混）
-
-| 角色 | 管什么 | 不可下放 |
-|---|---|---|
-| 组织级 owner | 职能注册表、转移授权策略（组织级唯一） | 职能 ID 稳定性、责任链 |
-| Workspace owner（数据归属方） | 验证等级策略、汇报拓扑、跨空间授权审批 | 系统安全底线、高风险动作签字 |
-| 职能 owner | 起草 Acceptance Plan、联签、兜底责任 | 验收标准不得由承接人自定 |
-| 发起人 | 设目标与边界、原会话验收、叫停、回滚 | 最终核可不能交给模型或报告 |
-| 承接人 | 执行责任；能力依据须来自参与过的 Task / 产出过的制品 | 不得凭自述认领 |
-| 独立评审者 | 逐项判定，须支持截图 / 录屏等视觉输入 | 不得是产出模型 |
-| 资料负责人 | 单条资料的采用与撤回 | 私有资料不得自动进入共享 Wiki |
-
-跨空间授权的审批方是**目标 Workspace owner**，不是申请方主管。
-
-### 端到端业务闭环
-
-```mermaid
-flowchart LR
-  A[发起需求 · IM 中文指令] --> B[主职能定组 · 领域定人 · 派单]
-  B --> C[跨空间授权审批 · Context Pack 裁剪]
-  C --> D[开工前锁定验收清单]
-  D --> E[Agent 执行 · 检查点 · Trace]
-  E --> F[本机 Git 交付 · CI · 确切提交预览]
-  F --> G[独立逐项评审 · 证据与退回原因]
-  G --> H[原发起人在原会话确认验收]
-  H --> I[制品升为可复用 · 证据回流知识底座]
-  I -.下次复用.-> C
-```
-
-青色的四个人工决策点在文字版里对应：`B` 定职能与责任、`C` 授权审批、`D` 锁定验收标准、`H` 最终核可。**Agent 完成 ≠ 业务验收**，合并审批、CI 通过、模型判定、验收报告都不替代 `H`。每条链上的可回放证据由 `trace-view` 提供，成本归集到 Task。
-
-### 功能地图（5 个主 tab，二级视图长在 tab 内）
-
-| 主 tab | 二级视图 / 主要动作 | 业务目的 |
-|---|---|---|
-| 我的工作 | 需要你决定、Agent 进展、最近沉淀 | 人只面对一个入口，不逐系统找待办 |
-| 协作 | 任务详情（进展 / 上下文 / 协作与交接 / 知识沉淀 / 验收与责任）、访问申请 | 派单、限时授权、工作稿、逐项验收、过程流水 |
-| 知识 | 内容与图谱、检索与记忆、关系与状态、知识字典 | 结构化事实 + 正文 + 来源版本；L2 组织图草稿人审后生效 |
-| Agent | 服务目录、成员与归属、职责版本 | 每人一个供同事使用的服务 Agent，职责随工作版本化 |
-| 设置 | 模型与代理、服务与架构、空间与权限、组织规则、国内服务 | 预备配置与真实状态分开显示；未接通服务只有说明没有入口 |
-
-用户在会话里看到的只有 7 条中文指令（发起协作 / 查看进度 / 补充说明 / 确认验收 / 代码交付版确认验收 / 验收不通过 / 转交），源自 `src/user-language.ts` 的 `USER_HELP`，工作台帮助与报告直接引用它避免文案漂移。
-
-### 功能成熟度三档（对外表述口径）
-
-| 档位 | 范围 | 证据 |
-|---|---|---|
-| 已跑通、可回归 | 中文指令、派单与交接、限时授权、Context Pack、知识候选→采用/撤回、开工前锁定清单 + 逐项报告 + Trace、本机 Git 交付全链（clone/push/CI/合并审批/固定提交预览）、组织映射 3 人导入、国内服务实时探测 | 283 项单测、11/11 真实浏览器走查、`delivery:demo` 真跑 |
-| 预备配置，**不等于启用** | 模型三档策略（不存 Key）、L2 组织图草稿（待人工审阅）、飞书部门 scope 授权命令（需本人在飞书确认） | 设置页明确标注「保存但未启用」。Cognee 原生管线已于 2026-11-07 打开，属「链路已实现、待外部端点配置」，不再是预备配置 |
-| 未接通 / 未发生 | 企业微信 / 腾讯文档 / 钉钉 / 国内代码托管 / 公有云 CI / Slack、GitHub、Linear、Notion、Vercel、Zapier；全员 SSO 与真实员工入驻；生产发布；真人在真实业务单「确认验收」（SUI-129 仍未核可）；4190 视觉端点与 4192 报告服务当前停机 | 「国内服务」页逐项标注状态来源与接通步骤 |
-
-### 业务红线（不得因重构或新功能冲掉）
-
-1. Paperclip + PostgreSQL 是唯一任务 / 成员 / ACL / 文档修订 / 审计真源，SQLite 只做映射、幂等与接入投影。
-2. 默认隔离、按用途放宽：临时授权绑定「本任务 + 指定执行身份 + 期限」，可撤销；权限挂数据上而不挂身份上。
-3. 资料授权、知识采用与撤回、最终验收由人决定，模型不得自批。
-4. 制品状态（草稿 / 已验收 / 可复用）与验证等级（L1–L4）是两个独立维度，不合并成一个字段。
-5. 运行时状态、凭据、真实姓名与 `open_id` 只落 `.runtime/`，不进仓库；测试通过不等于真实业务 journey 通过。
-
-## 当前架构
-
-```mermaid
-flowchart TD
-  Events[飞书 / GitHub / 当前任务事件] --> Control[协作控制层 · SuitMe · 4180]
-  Humans[人的界面 · 讨论 / 决定 / 修改 / 验收] <--> Control
-  Services[个人与公共服务 Agent · 负责人 / 当前职责 / 版本] <--> Control
-  Context[团队上下文 · 目标 / 规则 / 获准资料 / 历史决定] --> Control
-  Control --> Policy[Super-agent 原版策略 · 范围判断]
-  Policy --> PC[Paperclip · 唯一任务 / 原生运行 / 锁 / ACL / 文档修订 · 3100]
-  PC --> PG[(真实 PostgreSQL 18.1)]
-  Control --> SQLite[(SQLite · 事件去重 / 回执 / 接入投影)]
-  Control --> Harness[DeepSeek Harness 原版 · 作用域 / 身份 / 提示词 / 工具管线]
-  Harness --> Tools
-  PC --> Worker[Autoloop 原版 worker · 执行适配层]
-  Worker --> Exec[现有 Codex CLI / 已验证执行端]
-  Exec --> Tools[任务绑定工具 · 检索 / 记录 / 图谱 / 申请 / 证据]
-  Tools --> Context
-  Exec --> Evidence[可审阅工作稿 / GitHub PR / CI / 同 SHA 预览]
-  Evidence --> Control
-  Humans -->|明确采用| Source[知识内容 · 正文 / 类型字段 / 来源修订]
-  Source --> Gate[当前身份 / 用途 / 确切版本检查]
-  Gate --> Cognee[Cognee 原版 SDK / 图谱渲染 / GraphSchema 字典]
-  Cognee --> Ladybug[(Ladybug · 按来源版本隔离)]
-  Source --> Context
-  Model[Flash/Lite · 通用 · 编码模型配置] -.预备策略，未启用新服务.-> Exec
-  Cognee --> Memory[已确认知识 / BM25 持久记忆 / 人审概念]
-  Cognee -->|op=read 只读投影| L2[L2 组织图 · 确定性抽取 / 草稿边 / 人审后才生效]
-  Cognee -.已打开·外部模型 API·待端点配置.-> Semantic[Cognee 原生 LLM 实体抽取 / embedding / cognify]
-  Cognee --> Recall[BM25 检索 + Apple NL 设备端词向量语义加权 · 本机]
-  Recall --> Vision[Apple Vision 本机端点 · 截图 OCR / 分类 → 独立视觉评审]
-```
-
-## 真实接入状态
-
-| 服务或能力 | 本机已核实 | 实际边界 |
-|---|---|---|
-| Paperclip | 0.3.1，health ok，3100 | 唯一业务任务与运行核心；local_trusted 本机管理员模式 |
-| PostgreSQL | 18.1，数据库 paperclip，54329，实际 SQL 读取及持久化 | 任务、项目、Agent、授权、文档、修订与审计；不是内存假数据或 PGlite |
-| SuitMe bridge / SQLite | 4180 health ok，真实本地数据库 | 飞书事件、去重、发件箱、接入记录与任务投影；不取代主业务库 |
-| 飞书 | 专用测试机器人与事件监听已连通 | 白名单测试单聊；文档/历史讨论已按明确任务许可实测，旧任务授权到期或撤销后不继续使用 |
-| GitHub | 测试仓库 PR、CI 与带 SHA 的本机预览已实测 | 不表示业务仓库已合并或生产部署 |
-| 协作与开发执行 | 真实 Codex CLI + 原版 Autoloop worker；SUI-74、SUI-81、SUI-85 已运行 | 协作按证据调用工具、提问等待并接续；开发 PR #3 已交付且 CI 通过。旧项目访问失败不通过扩大授权解决 |
-| 服务 Agent | 原生成员归属、Harness 构建、A2A 子任务、澄清、回传与取消；独立 3110 实例具有三套 operator 账号和三个资料身份 | 业务与成员为模拟角色；主实例仍为本机管理员模式，不能替代真实员工生产验证 |
-| 其他 Agent | 通用 CLI / MCP / 人工接单接入合同 | 注册名称不等于云端自动执行已验证；WorkBuddy、豆包等逐端核实 |
-| 模型设置 | 轻量、通用、编码三档与动态执行身份绑定已保存到私有原生文档 | 2026-11-07 起 Cognee 原生管线允许外部 OpenAI-compatible 模型 API（凭据只走进程环境变量、不入库，材料会外发）；模型三档仍是预备配置。另有两套 macOS 设备端能力：Apple NaturalLanguage 词向量（recall 语义加权）与 Apple Vision（截图 OCR / 分类，独立视觉评审），均只监听 `127.0.0.1`、不外发业务材料、不下载模型 |
-| Cognee + Ladybug | 固定 1.6.6；持久 chunk、BM25 检索、原文概念与关系候选、人审图版本、原版图谱 | 已确认知识持续索引，当前权限和版本前后复查；**Cognee 原生** LLM / embedding / cognify 与向量语义检索仍未启用；另有不写入 Cognee 的 Apple NL 设备端词向量用于 recall 加权 |
-| 知识字典 | Cognee 原生 GraphSchema / reducer / JSON Schema 转换 | 概念、定义、文本/数字/布尔/日期/枚举/关系；按空间配置，尚未驱动自动抽取 |
-| Wiki 插件 | 原版插件已安装，本地 Markdown 目录 | 自动摄取关闭，未把共享 Wiki 空间字段当作可靠私有 ACL |
-| 存储与部署 | PG、SQLite、版本图及配置均为真实本机持久化 | 没有接对象存储、向量服务、Redis、SSO 或云数据库 |
-| 备份 | PostgreSQL 本机备份正常 | 异机恢复未验证；SQLite、图文件、配置与 Wiki 文件还需要联合备份恢复验证 |
-
-## 上下文、知识与记忆
-
-上下文不是审批记录的集合。每次执行组合目标、当前负责人、来源及修订、已获准原文、已确认知识、工作稿、决策、GitHub 版本证据与缺口。范围由任务用途、参与者、原生权限和临时委托决定；公司组织划分由配置迭代，四个早期专业空间只是种子。
-
-- **资料层**：飞书保留实时引用，内部内容使用 Paperclip 文档与原生修订。非结构化正文与有类型的事实字段共同版本化，可编辑、搜索、筛选、审阅和撤回。
-- **知识引擎层**：直接集成 Cognee 的 DataPoint、Ladybug、来源追踪、图谱渲染与 GraphSchema。图引擎、字典模型和序列化不重写；SuitMe 只负责现有身份、确切资料版本和原生权限的衔接。
-- **当前图层**：已确认内部知识按当前修订持续建立文档、字段、片段和关系索引；Agent 按原文和字典准备概念关系，人审后进入图谱。按来源修订物理隔离；旧修订、过期权限或已验收任务不能用来读取当前上下文。生成图不会确认候选，也不会复活旧授权。
-- **当前记忆与后续扩展**：Cognee 原版 BM25 已用于获准来源和已采用概念的持久检索；另有 Apple NaturalLanguage 设备端 300 维中英文词向量（`scripts/apple-embedding.swift`、`src/semantic-recall.ts`）对 recall 结果做语义加权——设备端计算、不下载模型、不写 Cognee、不外发材料，与 Cognee 原生管线无关。跨来源自动消歧、**Cognee 原生** embedding / LLM cognify 管线已于 2026-11-07 按用户决策打开，允许外部模型 API；设备端语义加权仍是独立、不外发的链路，两者并存。
-
-生命周期为来源 → 获准用于本任务 → 工作稿 → 人审候选 → 确认/采用 → 可复用知识。一次任务中出现过不代表可以成为长期记忆；模型不能自行批准授权、采用知识或最终验收。临时访问也不包含将别人的资料永久发布为知识的权限；专业负责人在其有权负责的空间审阅采用。修改内容后进入新的候选修订，确认不能跨版本沿用。
-
-图谱投影与字典目前分别版本化；保存字典不自动迁移旧事实。外部飞书原文当前不进入图处理接口，SUI-54 的私有工作稿未被采用或导入。权限变更后当前接口拒绝读取，并在交付前复查；这不等同于已经实现所有外部副本的物理删除与远程缓存清理。
-
-方案比较、精确复用文件、许可证和启用边界见 [知识引擎集成](KNOWLEDGE-ENGINE.md)。不再计划自行创建一套 knowledge_objects / schemas / relations 作为新的知识引擎。
-
-## 人和 Agent 的协作
-
-人从飞书或后台提出目标；协作助手在既有任务中归纳上下文、准备资料申请、列出缺口、制作工作稿和交接材料。低风险整理按委托推进；授权、知识采用、最终验收由人决定。执行端换手时沿用任务、已确认的输入、检查点和 GitHub 证据，Paperclip 管签出与运行，避免另开一套调度。
-
-个人 Agent 的服务身份与 Codex 等执行引擎分开。职责随当前工作版本化；变更后旧任务暂停沿用旧结果，负责人核对范围后继续。服务登记不会扩大资料权限。详见 [个人 Agent 服务网](AGENT-SERVICE-NETWORK.md) 和 [实际运行合同](AUTONOMOUS-COLLABORATION.md)。
-
-个人模型的三档配置记录提供商、模型标识、凭据环境变量名与输入输出预算，并绑定现有执行身份。保存预备策略不会修改既有运行、加载 Key 或向新的服务发送资料。成员到独立 Agent 身份的适配已实现，使用原生 active membership 与真实通讯录校验；主实例部署仍只有本机负责人；另外的隔离认证实例用于三虚拟成员演练，尚未组织真实员工全员登录。当前不能宣称每位员工都有上线运行的轻量代理。
-
-## 当前页面
-
-- 我的工作：人的待决事项、Agent 进展与最近沉淀。
-- Agent：服务目录、成员归属与飞书配对；直接找服务 Agent 提需求，职责设置按需展开。
-- 协作任务：目标、负责人、上下文、授权、工作稿、交接、版本证据与验收。
-- 知识：检索与记忆、动态知识空间；内容、图谱与字典；结构化字段与正文、来源、版本、关系候选与人审。
-- 授权申请：同一任务中的资料、接收身份、用途、期限和处理记录。
-- 设置：模型与代理的预备配置，真实服务、存储和知识引擎状态。
-- v0.6 增补（P3~P4，2026-11-06）：协作任务详情新增「验收与责任」（开工前锁定清单、逐项评审报告、独立评审就绪状态、**验收报告与自查标准**、Transfer 授权卡片、跨空间授权、统一过程流水与成本）；知识新增「关系与状态」子视图（L2 组织图边状态、Context Pack，**以及 L2 自动抽取状态与全局关系数**）；设置新增「组织规则」只读子视图（职能注册表、授权策略、政策、注意力、Watchdog、本体、**L2 抽取状态**、**飞书组织映射**与组织信号，共 10 段）。**主导航仍为 5 个 tab**，未新建独立界面，全部经 `/workspace/v06-*` 只读 action 消费；执行链路的注意力预算与 Watchdog 已在 `runtimeGuard.enforce`（默认开启）下从「只观测」切到实际生效，人工介入 / 结果 / 验收 / 授权等必达通知由 `protectHumanNotifications` 保护，不被低价值通知抑制。第四轮已做 1280 / 425 Chrome headless 布局走查（`npm run test:responsive`）与上游适配边界审计（`npm run audit:upstream`，清单见 `docs/UPSTREAM-ADAPTERS.md`）；第五轮完成真实宿主实例 5 tab + 3 个 v0.6 视图的全流程浏览器走查（`npm run test:walkthrough`，10/10 通过）与本地演示页；第六轮补上用户语言层（会话里全中文指令，旧英文命令只作内部兼容）、按开工前锁定清单的确认验收路径、飞书真实成员只读组织草案与只绑 loopback 的本机中文验收报告服务，两个新增只读视图仍挂在原有 tab 内，走查复跑 10/10 通过。
-
-常用宿主文案通过构建期 AST 中文词典覆盖；只改展示文案，保留路由、API 值和用户内容，上游源码不变。深层原生页面、原生认证页面和插件动态文案仍有未翻译部分，不宣称所有页面已经完整中文化。
-
-## 集成后再完善
-
-1. 将已适配的原生成员登录与个人代理归属部署给实际同事，验证多人共同使用；补全组织映射及联合备份恢复。
-2. 在用户选定服务后启用轻量模型网关与 Cognee 原生管线，验证真实资料的引用、关系、冲突、撤权与成本；不因无 Key 路径存在而下载运行模型。
-3. 根据真实知识规模补全文档附件、全文/语义混合检索、跨来源消歧和图编辑；优先原版模块，先验证权限隔离再打开共享。
-4. 产品闭环经用户验收后，才整理冗余适配、替换不合适的上游界面与优化复用代码，保留来源及升级路径。
-
-## 独立控制台外壳（第十七轮 C-2）
-
-`console/` 是自研的用户可见层：原生 HTML / CSS / JS、零运行时依赖，不依赖 Paperclip 插件接口与 3100 页面。由 `scripts/console-server.ts` 只绑定 `127.0.0.1` 按需提供静态资源，并把 `/api/<action>` 反代到 `config.bridgePort` 的动作分发口；白名单 13 个只读动作，写动作 403，密钥留在服务端。六个视图（概览 / 协作 / 知识 / 验收 / 服务 / 设置）读的是与旧工作台同一份真实数据，只是渲染成 LobeHub 风格的会话列表 + 卡片 + 气泡时间线，并支持深浅主题与 425px 窄屏。飞书仍是唯一发起入口，控制台没有输入框与新建任务按钮。旧插件工作台保留作为可回退实现，11/11 走查继续覆盖。
-
-## 前端模块分层（第十轮重构）
-
-`plugins/knowledge-workspaces/src/ui/` 原先由一个 527 行、35 个顶层声明的 `index.tsx` 承担全部职责（UI 原语、任务详情、设置、页面壳），并且 `v06-panels.tsx` 自带一份重复的 `useRead` 状态机。第十轮按职责拆分，**零路由变化、零 tab 变化、零上游改动**：
-
-| 层 | 文件 | 职责 |
-|---|---|---|
-| 入口 | `index.tsx` | SDK 的 `uiEntry` 固定指向它，只再导出 `WorkspacePage` / `WorkspaceSidebar` |
-| 基础设施 | `foundation.tsx` | `UI` 契约、中文文案字典、`useDraft` / `retained` 草稿状态、`Button` / `Badge` / `Details` / `Icon` / `RecordBody`、URL 协议白名单、`ActionError` |
-| 异步契约 | `async.ts` | `useRead`（只读状态机，v0.6 面板与业务视图共用）、`useActionFeedback`（写操作就地反馈） |
-| 视图 | `forms.tsx`、`domestic-services.tsx`、`settings.tsx`、`task-detail.tsx`、`spaces.tsx` | 表单、国内服务清单、设置、任务详情、知识空间各自独立 |
-| 页面壳 | `workspace-page.tsx` | 宿主 action 通道、轮询、5 tab 路由与视图装配 |
-
-依赖单向：`foundation` / `async` 无内部依赖 → 视图层 → `workspace-page` → `index`；`tests/frontend-structure.test.ts` 守卫这套边界。写操作不再静默吞错：两个高频表单用 `useActionFeedback` 就地提示，其余统一经 `UI.report` 上报页面错误条；只有后台轮询与 `invoke` 的 rethrow 保留有注释说明的静默 catch。外链统一经 `safeHttpUrl` / `safeLoopbackUrl` 校验，「未接通不放入口」的链接出口全前端仍只有一处。
-
-## 统一路由 Trace 与宿主端口（第十二轮补）
-
-派活判断此前分散在 `controller.ts`（入口 / 建单 / 交接）、`coordination.ts`（Super Agent 策略准入）、`assistant.ts`（整理 Agent 调度）、`service-network.ts`（A2A 服务委派）、`v06.ts`（职能责任转移）。第十二轮把它们收敛为 `src/routing-decision.ts` 的 `RoutingDecision`（调用方 / 目标角色 / 依据 / 资料范围 / 是否需人签字 + stage / outcome / causedBy），五个点经 `src/routing-trace.ts` 的单例写**同一份** append-only 日志 `.runtime/routing/events.jsonl`，每行是严谨的 `MemoryEvent`（kind `routing-decided`），并投影进 SQLite `audit` 表。
-
-这条链同时是 B 阶段共享记忆的地基：`toMemoryEvent()` / `replayRouting()` 已给出「同一日志两次重放一致、去重、按时间有序、坏行报错」的验收口径。`src/three-tier-assessment.ts` 从当前真实 Router 配置 + 在岗编制取口径（C-5 的 `shapeOptions()`）：P3 / P4 按当前形态判定，`recommended` 只表示「当前分层配置可正式启用三层」，`shape.ready` 单独说明本形态是否闭环；默认扁平配置下结论仍是**不引入三层**，p8 是防跳级闸门。只读 `routing-status` 与 `npm run routing:status` 可随时复核。
-
-宿主侧新增 `src/platform-port.ts`：`HostPlatformPort` 收拢任务 / 文档 / 身份 / 健康检查 / UI 承载，`PaperclipPlatform` 为默认薄包装，`LocalHostPlatform` 是不依赖 Paperclip 的最小可运行实现（`npm run host:smoke` 真跑）。`config.host.provider` 默认仍是 `paperclip`，**尚未切换底座**；完整替换需先补齐 ACL、cost-ledger、Plugin UI、heartbeat 真实执行与 PG 事务五项，见 `ROUTING-AND-HOST-v0.7.md` 第 5 节。
-
-## 单一 Router（第十八轮 C-3）
-
-五个派活点（共 9 处调用）不再各自构造 `RoutingDecision` 并直写 Trace，统一改为 `getRouter().route({...})`。`src/router.ts::planRoute()` 是纯函数：读 `config.router` 决定决策链——`flat` 1 跳（默认，幂等键与改造前一致）、`layered` 按业务域最多 2 跳、未配主管的业务域退回 1 跳、`legacy` 逐字回退。Router 再把全部 hop 写进同一个 `getRoutingTrace()` 单例，每条决策的 `basis.evidence` 带 `router:<mode>@<revision>:<hop>/<total>` 快照；自派自验自环被拦并留 `rejected` 痕，人签只在最后一跳。`server.ts` 启动时 `configureRouter(config.router)` 装配，`routing-status` 与控制台「协作」视图可读当前组织形态。真跑 `npm run router:smoke` 31/31；详见 `ROUTING-AND-HOST-v0.7.md` 6.3 节。
-
-## 共享记忆主干（方案 B · 第十三／十四轮）
-
-`src/memory-log.ts` 提供 append-only 事件主干 `.runtime/memory/events.jsonl`；`src/memory-projections.ts` 用纯函数重放 L1 证据图 / L2 组织图 / BM25 向量 / Context Pack 四类投影。真实写入点在 `workspaces`（来源确认 / 撤回、授权撤销）、`v06`（L2 抽取、边状态、Context Pack）、`team-memory`（索引）、`controller`（验收）双写事件，advisory 失败不影响业务；`v06.contextPack` 在构建前按 `sourceRevocations` 剔除撤权来源的证据边，核对失败 fail-closed。
-
-三条验收红线：重放可复现（基准时间取事件流、checksum 稳定）、来源撤权后派生记忆不可召回（`causedBy` lineage 传播 + 投影/召回双层过滤）、确定性链路 `modelCalls=0`（`assertDeterministic` 非零即拒绝）。上一轮的 `routing-decided` 事件经 `readBridgedEvents()` 并入同一重放输入。只读 `memory-replay` 与 `npm run memory:replay` / `npm run memory:smoke` 可复核。详见 `MEMORY-ARCHITECTURE-v0.7.md`。
-
-**B2（第十四轮）已完成读取链切换**：`src/memory-recall.ts` 把 `recallMemory()` 的投影命中作为第三路信号接入 `TeamMemory.search` 融合排序——权限 / 版本重评之后才按 `sourceId@revision` 白名单裁剪，读日志失败 advisory 降级；`grant-revoked` 改为按 principal 精确排除（未指定主体 fail-closed），`source-revoked` 仍全局阻断。`src/memory-checkpoint.ts` 提供 checkpoint + 增量应用，会回溯变化的事件一律回退全量并与全量 checksum 对照。`npm run memory:journey` 用真实 workspace action 跑完整知识事件链与端到端撤权，`npm run memory:checkpoint` 在真实日志上验证增量。
-
-但**原 Cognee / Ladybug / SQLite / Paperclip 存储仍是主读取源**，投影是叠加的第三路证据、不是替换；事件写入失败不影响业务。B 阶段（B1 + B2）已验收，C 仍排队待用户拍板产品形态。
-
-## 实现指针
-
-`src/agent-services.ts` 管服务与职责版本；`src/coordination.ts` 调用 Super-agent 原版策略；`src/assistant-runner.ts`、`src/runner.ts` 使用 Autoloop 原版 worker；`src/assistant-tools.ts` 暴露任务绑定工具；`src/workspaces.ts` 管任务授权、交接和人审；`src/context.ts` 管执行上下文；`src/knowledge.ts` 管原生内容与确认；`src/graph.ts` 和 `scripts/cognee-graph.py` 衔接 Cognee；`src/ontology.ts` 保存字典模型；`src/model-settings.ts` 保存预备模型策略；`plugins/knowledge-workspaces/src/ui` 是中文工作台。
-
-## 多人协作与持续记忆适配更新
-
-本轮直接复用 Paperclip 的真实成员与角色，官方 A2A 1.3.0 的处理器与传输，Cognee 的持久图和原版 BM25。服务任务、上下文、成果和已确认知识已经接通；不是新增独立审批台或第二个调度器。当前原生 authenticated 登录与实际团队入驻仍待配置，不通过填写虚拟成员证明全员可用。完整合同、接口、前端结构和验证边界见 [多人服务与团队记忆](TEAM-NETWORK-MEMORY.md)。
-
-知识层现支持已确认资料持续索引、权限过滤的中文检索、概念关系候选与采用、当前字典/来源变动失效。前文“后续记忆层”中 BM25 与人审关系已经落地；**L2 组织图已连 Cognee L1 只读投影做确定性自动抽取**（`src/org-extraction.ts`，零模型调用、带逐字原文证据、草稿待人审），**Cognee 原生**自动 LLM 实体抽取、embedding 与向量语义检索继续关闭；本机 Apple NL 设备端语义加权不在此列。验收侧已接入真实本机视觉语义评审：Apple Vision 设备端 OCR + 图像分类经 `http://127.0.0.1:4190/v1/chat/completions` 提供，`LocalModelVisionAdapter` 只允许本机 http 直连、拒绝代理与外发；新验收流程通过 `config.acceptance.mode=independent` 开启，本机实例已开启并在 SUI-129 上跑通 2/2 逐项判定，报告可导出为 `lobehub/acceptance` 格式的 bundle。仓库默认仍可 `legacy` 一行回退。
-
-
-## 三成员隔离实例
-
-新增模拟实例使用原版 Paperclip authenticated 模式、独立 PostgreSQL 与独立状态目录，工作台 3110、桥接 4181。它不修改主实例的成员、飞书白名单或真实项目资料。三个业务角色均非管理员；正向申请、授权、委托、知识采用与验收通过前端操作，原生 API 权限矩阵另行验证。运行方式及复用边界见 [Agent 构建](AGENT-BUILDING.md)。
-
-## 本机只读总览（第七轮）
-
-`scripts/acceptance-report.ts serve` 在 `127.0.0.1:4192` 额外提供 `/overview`：`src/acceptance-report.ts` 的 `renderOverviewHtml` 只渲染纯数据，脚本侧用 `node:http` 直连探测 3100 / 4180 / 4190 / 4192 的实时状态，读取 `.runtime/config.json` 的验收配置与 `.runtime/org-mapping-draft.json` 的**成员计数与布尔值**（成员明细不进页面），中文指令清单直接引用 `USER_HELP` 避免文档漂移。该页不写任何状态、不调用业务写接口，也不依赖 bridge 的身份令牌；`4190` 视觉端点停机时只显示离线，不会伪装成结构式评审通过。
-
-## 国内环境适配与本机代码交付（第八轮）
-
-`config.delivery.provider` 默认 `local`：`src/github.ts` 导出 `DeliveryAdapter`（`prepare / publish / inspect / preview`），`src/local-git.ts` 以本机裸仓库 + 本机合并请求记录 + 本机 CI（提交存在、允许路径、与 main 无冲突）+ 确切提交预览实现同一契约，`src/server.ts` 按配置注入 `Controller`，`github` 适配器保留供已有部署回退，业务验收红线未动。`scripts/delivery-server.ts` 只绑 `127.0.0.1:4194` 提供中文交付台，并在 `127.0.0.1:9418` 起 `git daemon` 供 clone / pull / push；合并审批与通知记录落 `.runtime/git/deliveries/`，不改写业务任务状态。
-
-前端适配分两层：`src/shell-domestic.ts` 在构建期精确收敛上游侧栏的技能库 / 连接服务入口，运行时通过同源 `suitme-domestic.js` 过滤**数据驱动且未连接**的海外集成卡片；`scripts/build-chinese-shell.ts` 先收敛再翻译，`install-upstream.ts` 与 `up.ts` 保证中文壳默认生效。插件设置的「国内服务」由只读 `service-status` 统一提供数据（见下节），**只有实测接通才渲染链接**，未接通项只做文字说明，不留空壳入口。
-
-## 服务状态真实性与前端体验修复（第九轮）
-
-`src/service-status.ts` 是国内服务清单的唯一数据来源。`collectServiceStatus()` 用 `node:http` 并发直连 loopback 探测 3100 / 4190 / 4192 / 4194，绕过可能失效的环境代理；`buildServiceStatus()` 是纯函数，负责把结果组装成逐项 `state / detail / url / setup / source`。只有 `state==='connected'` **且** `safeLoopbackUrl()` 校验通过的条目才带 `url`；未接通项只有原因与可照做的步骤，没有 `url` 字段，因此前端不可能渲染出空壳链接。交付台还额外校验 `scope=loopback-only`、`provider=local-git` 与端口，防止端口被别的服务占用时误判。Paperclip 的 `/health` 是 SPA HTML 回退而非 JSON，探测按「200 + `<html`」判定在线，其他任意 200 不算接通。
-
-前端「国内服务」页改为完全数据驱动：按本机 / 国内 / 海外分组，显示状态来源（区分实时探测、进程内判定与飞书监听器事件推断），每 15 秒在页面可见时自动刷新，提供手动刷新、加载态与独立的错误态；探测失败不再被静默显示成「未接通」。设置页的两个读请求改为分别降级，任一失败不会让另一块永久停在「正在读取」，模型配置保存失败有就地提示，成员视图禁用仅操作员可用的保存按钮。`system-status` 里写死的 `vectorSearch: true`、`automaticExtraction: false` 与只看 `visualReviewer.mode` 的评审者文案，改为从 `config` 派生并明确区分「已配置」与「端点在线」；`service-status` 同步补进服务端只读白名单与成员只读白名单。
-
-`scripts/build-chinese-shell.ts` 在每次构建前从 `public/sw.js` 恢复 `dist/sw.js` 的原始占位符，修复上游 `closeBundle` 就地 stamp 后重复构建必失败的幂等问题；`tests/v06-services.test.ts` 的 `at` 改为相对当前时间，去掉固定日期导致的「过 8 小时就必然失败」的时间炸弹。
-
-宿主侧栏的「技能 / 连接服务」链接带公司前缀（实测 `/SUI/skills`、`/SUI/apps`），构建期 4 条规则覆盖不到这种运行时拼接的路径；运行时脚本改用 `ROUTE = /^\/(?:[A-Za-z0-9_-]+\/)?(skills|apps)(\/|$)/`，同时隐藏链接与其 `li` 容器，并在真实浏览器走查中断言这两个入口已隐藏、插件页与面包屑不受影响。自动刷新失败静默保留上次结果并在状态行标注，只有手动刷新或首次加载失败才提示，避免瞬时网络抖动弹出误导性的红色错误框。
-
-> **第十九轮 C-4 补记**：新增 `src/agent-registry.ts` 作为组织形态的真相源（Agent 实例 / 可扩展职责 / 生效范围 / 版本 / 快照），`config.agentRegistry` 默认空编制。`planRoute` 显式装配后校验主管在岗；`service-network` 的 A2A 交接校验目标职责与范围；`v06` 增加 `agent-registry-view` / `acceptance-crew` 只读动作；控制台「协作」视图显示中文编制卡。与 `agent-services.ts` 的运行时服务目录分工不变：注册表说「谁在什么范围担什么职责」，服务目录说「用什么工具 / 模型干活」。默认底座仍 `paperclip`，飞书仍是唯一发起入口。真跑 `npm run agents:smoke` 43/43。
+# SuitMe 协作台 · 功能、系统架构与技术架构
+
+> **版本**：2026-11-08（北京时间）· 第二十七轮 P-9 之后 · 共 27 轮迭代
+> **代码基线**：以 `git rev-parse HEAD` 为准；成稿时 `HEAD = origin/main = 3b0188d`（第二十七轮 P-9），本文提交后会前进，本地与远端始终保持一致。
+> **本版取代旧版**：此前本文件按轮次追加补记，最新只到第二十二轮 P-1，功能地图、端口、验证数字与当前代码均已脱节。本版**原地重写为一份自足的最新说明**，不再保留逐轮流水；历史过程见 `docs/ADAPTATION-v0.6.md`（最新边界节）、`docs/VALIDATION.md` 与 `HANDOFF/03-WORK-LOG.md`。
+> **定位**：本机试点系统，包含开发与联调记录，**不是已部署到全体员工的生产系统**。
+> **权威口径优先级**：`docs/ADAPTATION-v0.6.md` 最新边界声明 → `docs/VALIDATION.md` → `docs/PRD-v0.6.md` §10C → `HANDOFF/06` → 本文。本文描述「现在是什么」，设计定稿（不等于全部实现）仍以 `docs/ARCHITECTURE-v0.6.md` 为准。
 
 ---
 
-> **第二十轮 C-5 补记**：三层评估的口径来源改为当前真实配置——`shapeOptions(getRouter(), getAgentRegistry())`，服务端 `routing-status` 与 CLI 共用；扁平形态按「人机入口直达执行者」判定，不要求主管，也不因历史 supervisor 角色记录而失败；分层形态的主管派活必须同时命中 `config.router.domains[].supervisorAgentKey` 与 `onDuty()` 中带 supervisor 职责的 Agent。`recommended` 与 `shape.ready` 分离，避免把「扁平跑通了」误报成「该升级三层」。B1 / B2 的 append-only 主干仍是三种形态共享的同一份现场，C-5 未新建第二份记忆、未改变读取链与撤权规则。
+## 0 一页速读
 
-> **第二十一轮 C-6 补记**：新增 `src/evolution-ledger.ts` 作为**治理事实**的 append-only 台账（自查 / 候选改进 / 工程闸门 / 人审 / 灰度回滚 / 效果快照），与 B1 的**知识事实**主干 `.runtime/memory/events.jsonl` 并列而非合并——合并会改变既有重放 checksum 与 B2 checkpoint 证据，等于回溯改写历史。`src/evolution.ts` 的 `assertDeliverySelfCheck()` 接在 `Controller.publish()` 之前，`engineeringGate()` 直接复用 `memoryReplayReport()` 做确定性回放验证，`aggregateEffects()` / `compareEffects()` 只从显式观测算四项指标。`v06` 的七个 `evolution-*` 动作统一转发，人审 / 灰度只认组织级真人身份；控制台只开放 `v06-evolution-view` 只读动作。默认底座仍 `paperclip`，飞书仍是唯一发起入口。真跑 `npm run evolution:smoke` 45/45。
+**一句话定位**：把人的目标、授权和验收标准翻译成任务与证据，把执行交给外部 Agent，再把结果与请示带回给人，**由人做最终核可**。平台不是透明管道，是持有任务 / ACL / 验收标准 / 知识采用权 / 核可权的控制平面。
 
-> **第二十二轮 P-1 补记**：C-1 的 PG 步进队列此前只有冒烟调用、没有执行器接上；本轮新增 `src/step-execution.ts` 的 `StepQueue` / `executeOneStep()` / `driveSteppedLoop()` 与 `PgStepQueue` 适配器，把 `claimStep / completeStep / recoverStaleSteps` 变成真实的「一次调用跑一步」。`src/loop-pump.ts` 把两个宿主入口的常驻 `while` 换成配置驱动的双泵：`loop` 逐字等价、`step` 每 tick 由队列领取并把会话快照写回 checkpoint。`src/step-runner.ts` 是 `step:once` 的一次进程一步入口，只连回环专属库、工具白名单只有 `sha256`、无外部模型端点时明确拒绝模型步。`config.execution.mode` 默认 `loop`，`step` 必须配 `host.provider=local-pg`。执行态事实不在 B1 记忆主干里，也不在治理台账里：队列是第三类状态，按 `runId / runToken` 与两者互引。默认底座仍 `paperclip`，飞书仍是唯一发起入口。真跑 `npm run steps:smoke` 40/40（含真实 PG 跨进程续跑）。
+| 项 | 当前值 |
+|---|---|
+| 迭代 / 单测 | 27 轮 · `npm test` **521/521** |
+| 任务发起入口 | **仅飞书 IM**（唯一），7 条中文指令 → 任务单 |
+| 默认底座 / 执行模式 | `paperclip` / `loop`（`local-pg` 与 `step` 真跑过但未启用为默认，可逐字回退） |
+| 上游 | 7 个固定 submodule + 1 个 npm 直接依赖；另有 `protocolReferences`（Runner）与 `conceptReferences`（OpenMausBot / Anthropic）**只借思想，不是第 8 个上游** |
+| 确定性链路 | `modelCalls=0`（模型调用只发生在被启动的本机 CLI 子进程里，进 `usage` 与回执） |
+| 最新一轮 | P-9 双向协作回路：`src/collaboration-loop.ts` + 三个真实执行链节点 + 只读 `loop-guard`，`npm run loop:smoke` 16/16 |
+
+**三条最容易误读的边界**：
+1. **全绿 ≠ 生产可用**：真人业务单「确认验收 SUI-129」至今未发生；报告、模型判定、CI、合并审批都不替代它。
+2. **流转自动化 ≠ 决策自动化**：两条方向自动接通、自动唤醒、自动带回结果；验收 / 放行 / 授权 / 核可的决定权不下放给执行端。
+3. **只读体检 ≠ 写入链改造**：`memory-guard` / `loop-guard` 只报缺口、不拦截业务、不改任务状态；真实业务单未在单步链跑过时如实报 `bidirectional:false`，不编造事件跑绿。
+
+---
+
+## 1 产品与用户视角
+
+### 1.1 谁在哪个界面做什么
+
+| 界面 | 职责 | 边界 |
+|---|---|---|
+| 飞书 IM | **唯一发起入口**；追问、补充说明、通知回写、最终核可 | 纯文本 + 工作台链接，无交互卡片；不新增网页发起入口 |
+| 中文工作台（Paperclip 插件 `/SUI/knowledge-workspaces`） | 授权、留痕、审阅、签字、五个主 tab | 处理与观察面，不承担发起 |
+| 独立控制台 `console/` | 六视图只读状态（任务 / 组织 / 网络 / 记忆 / 治理 / 执行） | **19 项只读白名单**，写动作一律 403，密钥不出服务端，P-5 起改拉分页摘要 |
+| MCP / CLI / A2A SDK | 给 Agent 与脚本的接入面 | 16 个出站工具，验收确认 / 任务发起 / 越权 / 撤权 / 删除一律不暴露 |
+
+### 1.2 角色与不可下放的职责
+
+组织级 owner（职能注册表，组织级唯一）· Workspace owner（数据归属与跨空间授权审批）· 职能 owner（起草验收清单、联签、兜底）· 发起人（目标边界、原会话验收、叫停回滚）· 承接人（执行责任，能力依据来自真实 Task / 制品）· 独立评审者（逐项判定，须支持视觉输入，不得是产出模型）· 资料负责人（单条资料采用与撤回）。
+
+**跨空间授权的审批方是目标 Workspace owner，不是申请方主管**。验收标准不得由承接人自定，最终核可不得交给模型或报告。
+
+### 1.3 端到端主闭环与四个人工决策点
+
+```mermaid
+flowchart LR
+  A["飞书 IM · 中文指令"] --> B["① 定职能与责任 · 派单"]
+  B --> C["② 跨空间授权 · Context Pack 裁剪"]
+  C --> D["③ 开工前锁定验收清单"]
+  D --> E["Agent 执行 · 检查点 · Trace · 连续交接"]
+  E --> F["本机 Git 交付 · CI · 确切提交预览"]
+  F --> G["独立逐项评审 · 证据与退回原因"]
+  G --> H["④ 原发起人在原会话确认验收"]
+  H --> I["制品升为可复用 · 证据回流"]
+  I -.下次复用.-> C
+```
+
+四个人工决策点即 `①②③④`。**Agent 完成 ≠ 业务验收**。链上证据由 `trace-view` 回放，交付前强制逐条自查（C-6），成本按 Task 归集。
+
+---
+
+## 2 最新功能地图（截至 P-9）
+
+### 2.1 八个功能域
+
+| 域 | 主要能力 | 状态 |
+|---|---|---|
+| 发起与派单 | 7 条中文指令、单一 Router、两种组织形态、组织级 Agent 编制 | 已实现 + 真跑 |
+| 授权与资料 | 默认隔离、按用途限时授权、按主体精确撤权、Context Pack 裁剪 | 已实现 + 真跑 |
+| 验收与责任 | 开工前锁定清单、逐项报告、独立评审、交付前强制自查、三级 owner | 已实现；独立视觉评审链因 4190 停机未接通 |
+| 执行与交接 | A2A SDK 真接单、在岗交接、单步执行器跨进程续跑、PG 队列 | 已实现，但 `step` 默认未启用 |
+| 共享记忆 | append-only 事实源、四类投影、增量 checkpoint、撤权 lineage、知识候选→人签→撤回 | 已实现 + 真跑 |
+| 治理与自演进 | 治理台账（独立于 B1）、候选改进工程闸门、人审、灰度回滚、四项效果对比 | 已实现 + 真跑 |
+| 观察与评估 | 独立只读控制台、服务端分页摘要、冻结基线 / golden diff / 纯评分器 / 双臂旗标 / 出站工具面断言 | P-5、P-8 落地 |
+| 双向协作回路 | 上行 / 下行判据、就近配对、回流建议、只读 `loop-guard` | **P-9 最新** |
+
+### 2.2 生产项交付索引
+
+| 轮次 | 交付 | 一句话 |
+|---|---|---|
+| A → B1 → B2 | 统一契约、共享记忆主干、读取链切换 | 事实源与投影分离 |
+| C-0 ~ C-6 | PG 宿主、独立控制台、单一 Router、Agent 编制、按配置评估、自演进闭环 | 分步收口，严格不并行 |
+| P-1 | 长程循环单步化（`step-execution` / `loop-pump` / `step-runner`） | 默认 `loop` 可逐字回退 |
+| P-5 | 控制台只读快照服务端分页裁剪 | 真实 HTTP 509 KB / 4.02 s → 5.7 KB / 0.076 s |
+| P-6 | 移植 Runner 两块协议（HITL 成对留痕、队列送达证据）与四项借思想 | MIT 固定提交，TS 重写，7 个上游不变 |
+| P-7 | 参考 Anthropic agent memory 落成五条知识沉淀规则守门 | 网页文章仅借思想，登记 `conceptReferences` |
+| P-8 | 查漏补缺：守门只读接真实数据；取长补短：行为基线六项 | 修掉三个真实缺陷，人审冻结基线 |
+| **P-9** | **双向协作回路与上游协议真实耦合** | **纠正参考方向，把回流接进三个执行链节点** |
+
+### 2.3 功能成熟度三档
+
+- **已跑通且有回归证据**：发起 / 派单 / 上下文与知识 / 验收 / 交付 / 治理主干、B1 / B2 记忆、11 步真实浏览器走查、全套隔离真跑（当前 521/521）。
+- **真跑过但未成为默认 / 未接生产**：`local-pg` 与 `step` 模式、单步 HITL 台账、Cognee 原生 cognify、远端工具沙箱。
+- **只有契约或预备配置**：外部模型端点、多机切换 / Redis、金额成本账本、SSO / 真实员工入驻、公网服务发现、生产发布、L1–L5 自主度。
+
+---
+
+## 3 系统架构：双向协作回路
+
+### 3.1 两条相反方向的移动（P-9 核心）
+
+```mermaid
+flowchart TB
+  H["人 · 发起人 / 三级 owner / 评审者"] -->|"下行：发起 · 授权 · 补充说明 · 回答 · 核可"| P["平台控制平面<br/>任务 / ACL / 验收标准 / 核可权"]
+  P -->|"下行：派单 · 授权 · 派活"| A["执行端 · 本机 CLI 子进程"]
+  A -->|"上行：回执 · ask / notice / later · 结果"| P
+  P -->|"上行：提问 · 请示 · 阻塞 · 待复核"| H
+  H -.->|"P-9 回流建议：原会话接续（待真人确认）"| A
+```
+
+- **下行（人 → 执行端）**：`/collab` 发起、`enable-collaboration-im`、补充说明、回答、批准接续、复核、核可、驳回。
+- **上行（执行端 → 人）**：进度、提问（`human_question` / `ask_user_questions`）、请示、阻塞、回执、结果。
+- **完整回合** = 上行 → 人侧应答 → 执行端带着应答继续。只有下行是推送，只有上行是失联，**答完却没有回流是半条回路**。
+
+### 3.2 四个真实耦合点（不是孤岛模块）
+
+| 方向 | 复用的上游部分 | 接进的执行链函数 |
+|---|---|---|
+| 上行 | Autoloop 回执 `ask / notice / later / outcome`（经 `resultFrom()` 解析） | `src/controller.ts` `receipt()` → `fromAutoloopReceipt()` → `loop.upstream` 审计留痕 |
+| 下行 | 同一协议的 `continuationPolicy:'wake_assignee'` + 补充说明 | `controller.reply()` → `mapFollowupToAnswer()` → 追加 comment、`phase='ready'`、wakeup/retry 自动启动下一轮 |
+| 下行 | Super Agent 飞书 IM 事件归一化 | `src/collaboration-intake.ts` `ingest()` → `loop.downstream` 留痕；`delegate()` 唤醒不变 |
+| 闭合 | Runner `human_response` 回流语义 | `scripts/step-answer.ts` → `bridgeAnswerToResume()` → 独立 append-only `resume-proposals.jsonl` |
+
+`src/collaboration-loop.ts` 是这一层的一等契约（纯函数、零 IO / 零模型）：下行 8 类 / 上行 6 类；`loopReport()` 判出完整回合、未应答上行、**答完不回流**、回执无人复核、单向推送段；`attachImplicitReplies()` 让真人直接回一句「继续」也按时间就近配对；`assertLoopAdvisory()` 焊死只读。只读 action `loop-guard` 汇总真实留痕，三处白名单同步。
+
+### 3.3 回路红线
+
+回执 ≠ 验收，回答 ≠ 放行，续跑建议恒为 `autoExecute:false / requiresHumanApproval:true / notAcceptance:true`；「确认验收 任务编号」是核可而非回答，`mapFollowupToAnswer()` 明确拒收；核可只由原发起人在原会话完成。**流转自动化不等于决策自动化**——这是产品定位，不是缺陷。
+
+---
+
+## 4 技术架构
+
+### 4.1 四层分层
+
+```mermaid
+flowchart TB
+  subgraph L1["入口层"]
+    IM["飞书 IM · 唯一发起"] & WB["中文工作台 3100"] & CS["独立控制台 · 临时端口"] & MCP["MCP / CLI / A2A"]
+  end
+  subgraph L2["接入层"]
+    ACT["插件 worker · 不可变 actor"] & BR["Bridge 4180 · 只读双白名单"] & RT["routing-trace · 决策独立留痕"]
+  end
+  subgraph L3["业务核心"]
+    CTRL["Controller · 回执 / 回答 / 交付"] & ROUTE["单一 Router · 组织形态配置"] & REG["Agent 编制 · 组织级唯一"] & STEP["单步执行器 · StepQueue"] & LOOP["双向回路 · 只读守门"]
+  end
+  subgraph L4["本机与宿主"]
+    PC["Paperclip 3100 · 任务 / ACL / 文档修订真源"] & PG["PostgreSQL · 事务 / 队列"] & GIT["本机 Git 交付链"] & SQL["SQLite .runtime · 去重 / 回执 / 审计 / 投影"]
+  end
+  L1 --> L2 --> L3 --> L4
+```
+
+**两条不可动摇的工程约束**：① 身份链不可伪造——插件 worker 从宿主取不可变 actor，UI 参数不能指定操作人；② 任务不双写——Paperclip + PostgreSQL 是唯一任务 / ACL / 文档修订真源，本地 SQLite 只做去重、回执、审计与投影。
+
+### 4.2 端口与服务
+
+| 端口 | 服务 | 状态 |
+|---|---|---|
+| 3100 | Paperclip 宿主 + 中文工作台 + 中文壳 | 运行中（默认底座） |
+| 4180 | Bridge 服务端（workspace action / 只读体检） | 运行中 |
+| 临时端口 | 独立控制台 `console-server`（`console:smoke` 时拉起） | 按需，非常驻 |
+| 4190 / 4192 / 4194 / 9418 | 视觉评审 / 预览 / Git 协议服务 | **保持停机**，不擅自重启 |
+
+### 4.3 三类状态，互不混写
+
+| 类别 | 落点 | 规则 |
+|---|---|---|
+| 知识事实（B1） | `.runtime/memory/events.jsonl` + 路由留痕 | append-only，幂等 id / lineage / 撤权 / 增量与全量 checksum 对照 |
+| 治理事实（C-6） | `src/evolution-ledger.ts` 独立台账 | 与 B1 并列而非合并，合并会改写既有重放证据 |
+| 执行态（P-1） | PostgreSQL 步进队列 | 按 `runId / runToken` 与前两者互引，会话快照写回 checkpoint |
+
+**确定性链路**：`modelCalls=0`，`assertDeterministic()` 非零即拒绝；设备端词向量与 L2 抽取不调模型。平台不自己推理、不自己写代码——实际执行交给被 `spawn` 的本机 CLI，其模型调用走 `usage` 与回执。
+
+### 4.4 共享记忆分层与只读守门
+
+```mermaid
+flowchart TB
+  IDX["注入顶层 · 200 行 / 25 KB 只留索引与指针"] --> WIKI["知识表示层 · 链接页 + 不膨胀护栏"]
+  WIKI --> NOTE["候选知识 · 采用 / 撤回，须挂靠事实源"]
+  NOTE --> SRC["append-only 事实源 · 事件日志"]
+  SRC -.重放.-> PROJ["四类投影 · L1 证据图 / L2 组织图 / BM25 / Context Pack"]
+  GUARD["只读守门 · memory-guard / loop-guard"] -.只读体检.-> PROJ
+```
+
+P-7 五条规则：知识必须能回到原始事件、知识地图链接完整且不超过原始语料、顶层只留索引、离线整理只提建议、外部参考本身按候选沉淀（走同一条「候选 → 人签 → 撤回」链）。P-8 把守门以**只读 advisory** 接到真实 B1 事件与本地知识索引；真实 22 条知识记录缺事实源挂靠时如实报 `gapRecords:22`，**绝不编造事件 id 跑绿**。
+
+### 4.5 上游复用的三个层次（用户关心的「耦合」）
+
+| 层次 | 内容 | 是否引入代码 |
+|---|---|---|
+| **代码级**（运行时加载未修改上游源码） | `src/upstream.ts` 动态加载 Super Agent 的 `feishu-trigger.ts` / `feishu-channel.ts`、Autoloop 的 `worker/contract.ts`（`readMessage` / `resultFrom`）与 `worker/agents.ts`、DeepSeek Harness 的 `serialization.ts`；`acceptance-interop.ts` 复用 acceptance 报告 schema | **是**，`controller.receipt()` 的 `resultFrom()` 就是上游函数 |
+| **协议级**（TS 重写语义） | Runner 的 `ask_human → human_question → human_response` 成对留痕、队列累计确认 / 至少一次通知 / 投递就绪；P-9 补上 `human_response` 的回流语义 | 否，按 `protocolReferences.runner`（MIT `a42d1331`）登记 |
+| **概念级**（只借思想） | OpenMausBot 的行为基线 / 双臂旗标 / 出站工具面；Anthropic memory 分层规则 | 否，按 `conceptReferences` 登记，不是 submodule / 第 8 个上游 |
+
+**不直接复制代码的原因**：Runner 是 Rust + GPUI 桌面栈，OpenMausBot 是 TypeScript 大仓且 `enterprise/` 为独立专有许可，Anthropic 是网页研究文章没有开源代码许可证。R7 六步登记（固定提交、许可证原文、NOTICES、lockfile integrity、SOURCES、审计脚本）已对代码与依赖执行；**7 个上游、gitlink 数量与 npm 依赖均未增加**。
+
+### 4.6 评估与守门（P-8）
+
+冻结快照 `freezeTraceSnapshot()` / `diffGolden()` / `scoreSnapshot()` 以字节序排序保证跨机器可复现；`armFlags()` 给出样本不足 / 两臂无区分 / 臂内波动过大三类旗标；`assertOutboundTools()` 硬断言 16 个出站工具不含验收确认、任务发起、越权、撤权、删除、绕过授权；`assertDecisionTraceIsolation()` 守住决策留痕不与业务写入共用 id。**基线变更必须人审并写 `humanReview`**，真跑脚本不得自动改写。
+
+---
+
+## 5 真实接入状态与如实边界
+
+**已接通且有证据**：飞书 IM 发起与补充说明唤醒、回执与 `ask_user_questions`、本机 CLI 子进程执行、PG 事务与步进队列、独立控制台六视图、MCP 16 工具、A2A 接单、本机 Git 交付链、共享记忆与撤权、只读体检。
+
+**真跑过但未成为默认**：`config.execution.mode=step` + `host.provider=local-pg`（`steps:smoke` 54/54，真实子进程跨进程续跑）；单步 HITL 台账（`loop:smoke` 16/16，隔离临时目录）。**真实业务单从未在 step 模式跑过**，`loop-guard` 因此如实报 `bidirectional:false` 与四个耦合点计数 0。
+
+**明确未做 / 待拍板**（`HANDOFF/08`，13 条中 8 条待拍板）：外部模型端点与凭据、SUI-129 真人验收、飞书部门 scope 授权、国内 / 海外外部服务接通、已取消服务长期状态、「pi」指代、OpenMausBot (b) 五项、Anthropic 写入链改造四项。另有：回答后自动排后续步骤、飞书回答直写 HITL 台账、`step` 切真实业务单——这三项会把「回答」变成「放行」，不擅自推进。
+
+**刻意不做（红线，不是缺陷）**：网页 / 桌面发起入口、云端自动派单、无人值守最终验收、五级自动审批、自动确认知识、TTL 物理删除、金额成本账本、把一次性大输入包与每会话注入层混用、引入第 8 个上游、重启已取消的服务。
+
+---
+
+## 6 验证与命令
+
+```bash
+npm test                    # 521/521（基线）
+npx tsc --noEmit            # 类型检查
+npm run build:workspaces    # 插件与工作台构建
+npm run build:chinese-shell # 中文壳与国内适配
+npm run test:responsive     # 425px 响应式
+npm run test:walkthrough    # 真实浏览器 11/11
+npm run console:smoke       # 独立控制台六视图，failed: []
+npm run loop:smoke          # P-9 双向回路 16/16
+npm run guard:smoke        # P-8 冻结基线 + 真实 HTTP 22/22
+npm run memory:hierarchy    # P-7 记忆分层 16/16
+npm run steps:smoke         # P-1 单步执行 54/54
+npm run audit:upstream      # clean:true，7 个上游不变
+npm run atlas:check         # 图册自检 11/11
+git diff --check
+```
+
+本机服务验证需在干净环境执行：`NODE_OPTIONS=`（清空文件代理）+ `NO_PROXY=127.0.0.1,localhost`。全套真跑报告落在 `.runtime/*.json`，**均不入库**；`git status` 应干净，`HEAD = origin/main`。
+
+---
+
+## 7 文档索引与权威口径
+
+| 想看什么 | 文件 |
+|---|---|
+| **本版：功能 / 系统架构 / 技术架构（最新）** | `docs/SYSTEM-ARCHITECTURE.md`（本文件） |
+| 项目总览（产品功能架构、业务流程、依赖协议） | `PROJECT-SUMMARY.md` |
+| 可视化导读（四张图，可离线打开） | `docs/architecture-atlas.html` · 索引 `docs/ARCHITECTURE-ATLAS.md` |
+| 最新实现边界 / 逐轮验证记录 | `docs/ADAPTATION-v0.6.md` 最新边界节 · `docs/VALIDATION.md` |
+| 接手总纲 / 分步清单 / 命令与排障 | `HANDOFF.md` · `HANDOFF/00-START-HERE.md` · `HANDOFF/05-VALIDATION-AND-COMMANDS.md` |
+| 与上游 Agent 平台的六环节能力对比 | `docs/REFERENCE-capability-comparison.md` |
+| 外部参考评估 | `docs/REFERENCE-openmausbot.md` · `docs/REFERENCE-anthropic-agent-memory.md` |
+| 来源、许可与合规 | `sources.lock.json` · `docs/SOURCES.md` · `THIRD_PARTY_NOTICES.md` · `docs/OPEN-SOURCE-COMPLIANCE.md` |
+| 产品架构定稿（不等于全部实现） | `docs/ARCHITECTURE-v0.6.md` · `docs/PRD-v0.6.md` |
+
+**冲突时以 `docs/ADAPTATION-v0.6.md` 最新边界声明为准**；本文件是「现在是什么」的说明，不替代设计定稿，也不替代逐轮验证记录。

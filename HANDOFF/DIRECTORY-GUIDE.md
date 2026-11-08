@@ -90,7 +90,7 @@ ai-native-collab/                       仓库根（main 分支）
 │   ├── design/workbench.md            工作台设计稿
 │   └── REFERENCE-openmausbot.md       OpenMausBot 完整参考评估（只调研，未引入代码）
 │   └── REFERENCE-anthropic-agent-memory.md  Anthropic agent memory 逐层对照与 8 条差距清单
-│   └── architecture-atlas.html / ARCHITECTURE-ATLAS.md  可离线打开的四视角架构图册与索引
+│   └── architecture-atlas.html / ARCHITECTURE-ATLAS.md  可离线打开的四视角架构图册与索引（P-9 口径）
 │   └── REFERENCE-capability-comparison.md  与上游 Agent 平台的六环节能力对比与定位结论
 ├── locales/                           构建期中文壳词典（shell.zh-CN.json）
 ├── integrations/deepseek/             DeepSeek Harness 的 LLM 客户端替换层（2 个 .ts）

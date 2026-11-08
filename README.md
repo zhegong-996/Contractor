@@ -2,18 +2,20 @@
 
 个人与公共 Agent 的产品模型见[Agent 服务网](docs/AGENT-SERVICE-NETWORK.md)，事件、判断、工具执行与恢复见[自主协作运行](docs/AUTONOMOUS-COLLABORATION.md)。
 
-当前系统的数据库、服务、模型和知识管理状态见[架构与接入核验](docs/SYSTEM-ARCHITECTURE.md)。后台主入口包含知识库和设置；轻量模型配置按用户选择保留为预备策略，暂不启用新服务。
+最新的功能、系统架构与技术架构说明见[架构总览](docs/SYSTEM-ARCHITECTURE.md)（2026-11-08 重写为第二十七轮 P-9 版本，取代旧版）。后台主入口包含知识库和设置；轻量模型配置按用户选择保留为预备策略，暂不启用新服务。
 
 ## 架构与方案导航（先看这里）
 
 - **交接与项目总结**（2026-11-08）：[HANDOFF.md](HANDOFF.md) 是给下一位 Agent 的接手总纲；[PROJECT-SUMMARY.md](PROJECT-SUMMARY.md) 是系统架构 / 产品功能架构 / 业务流程设计 / 依赖与协议引用的总览。详细交接说明仍以 `HANDOFF/` 为唯一权威目录。
-- **当前实现**：[架构与接入核验](docs/SYSTEM-ARCHITECTURE.md)——技术四层、产品与业务架构、前端模块分层。
+- **当前实现（最新权威说明）**：[功能、系统架构与技术架构](docs/SYSTEM-ARCHITECTURE.md)——产品定位与四个界面、最新功能地图、双向协作回路、技术四层与端口、唯一真源、记忆分层、只读守门、上游复用的三个层次、真实接入边界与验证命令。本版取代此前按轮次补记、只到第二十二轮 P-1 的旧版。
 - **产品架构定稿**：[ARCHITECTURE-v0.6.md](docs/ARCHITECTURE-v0.6.md)——六层模型、M3 三层路由、M11 责任转移、K 知识底座与默认图谱本体；**这是设计定稿，不等于全部已实现**。
 - **收敛方案与缺口清单**：[ARCHITECTURE-OPTIONS-v0.7.md](docs/ARCHITECTURE-OPTIONS-v0.7.md)——三种可选方案、主流 Agent 记忆 / ontology / router 架构分析、未实现功能逐条对应的开源复用动作、许可证边界。**判断「哪些还没做、该用哪个项目补」以这份为准**。
 - **统一路由契约与宿主解耦**：[ROUTING-AND-HOST-v0.7.md](docs/ROUTING-AND-HOST-v0.7.md)——`RoutingDecision` 五维契约、5 个派活点接同一份 Trace、LobeHub 三层可执行判断、去 Paperclip 化的 `HostPlatformPort` 与开源候选矩阵。
 - **共享记忆架构（方案 B）**：[MEMORY-ARCHITECTURE-v0.7.md](docs/MEMORY-ARCHITECTURE-v0.7.md)——append-only 事件主干、四类投影重放、来源撤权沿 lineage 阻断、`modelCalls=0` 确定性链路、8 处双写接线与真跑证据。
 - **复用与合规**：[上游适配清单](docs/UPSTREAM-ADAPTERS.md)、[来源记录](docs/SOURCES.md)、[开源合规](docs/OPEN-SOURCE-COMPLIANCE.md)。
 - **验证与最新边界**：[验证记录](docs/VALIDATION.md)、[轮次与边界声明](docs/ADAPTATION-v0.6.md)。
+- **可视化导读**：[系统架构图册](docs/architecture-atlas.html)（四张 SVG，可离线打开）与[索引](docs/ARCHITECTURE-ATLAS.md)。
+- **能力对照与定位**：[与上游 Agent 平台的六环节对比](docs/REFERENCE-capability-comparison.md)——含 P-9 双向回路复盘、执行链耦合点与「流转自动化 ≠ 决策自动化」口径。
 
 当前仍以 Paperclip 为宿主底座，但宿主能力已收拢为 `HostPlatformPort`（`config.host.provider` 默认 `paperclip`，`local` 是可运行的最小非 Paperclip 实现）；完整切换路线与待补齐缺口见 [ROUTING-AND-HOST-v0.7.md](docs/ROUTING-AND-HOST-v0.7.md)。飞书发起开发任务，人在自己使用的 Agent 中接单，或由后台调用已配置的 CLI；成果默认进入本机 Git 代码交付台，按确切提交与本机 CI 结果验收（可显式回退到 GitHub 适配器）。知识空间按项目、主题或组织需要配置，在同一任务中申请资料、授权、交接、撤权并采用专业结论。
 

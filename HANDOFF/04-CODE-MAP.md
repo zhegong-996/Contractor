@@ -148,7 +148,7 @@ B2 的只读 / 真跑入口：`scripts/memory-replay.ts`、`scripts/memory-smoke
 
 ## 13. 文档与合规（`docs/`、根目录）
 
-- **权威现状**：`docs/SYSTEM-ARCHITECTURE.md`、`docs/VALIDATION.md`、`docs/ADAPTATION-v0.6.md`（最新边界 `0.00000000000000` 节）。
+- **权威现状**：`docs/SYSTEM-ARCHITECTURE.md`、`docs/VALIDATION.md`、`docs/ADAPTATION-v0.6.md`（最新边界 `0.0000000000000000000000000000` 节，第二十七轮 P-9）。
 - **产品定稿**：`docs/ARCHITECTURE-v0.6.md`（设计，不等于实现）、`docs/PRD-v0.6.md`、`PRODUCT.md`、`DESIGN.md`。
 - **v0.7 方案**：`docs/ARCHITECTURE-OPTIONS-v0.7.md`、`docs/ROUTING-AND-HOST-v0.7.md`、`docs/MEMORY-ARCHITECTURE-v0.7.md`。
 - **上游与合规**：`docs/UPSTREAM-ADAPTERS.md`、`docs/SOURCES.md`、`docs/OPEN-SOURCE-COMPLIANCE.md`、`THIRD_PARTY_NOTICES.md`、`licenses/`、`sources.lock.json`、`.gitmodules`。
