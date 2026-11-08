@@ -66,7 +66,7 @@ footer{color:var(--color-text-tertiary);font-size:12px;margin-top:28px;border-to
 <body>
 <main>
 <h1>SuitMe 协作台 · 系统功能与架构图册</h1>
-<p class="lead">四张图分别回答：业务怎么跑、人在哪个界面做什么、技术上分几层、知识与记忆怎么沉淀。口径取自 <code>PROJECT-SUMMARY.md</code>、<code>docs/SYSTEM-ARCHITECTURE.md</code>，并按第二十七轮 P-9 的实现校正（新增双向协作回路，见第 5 节功能地图与下方说明）。本文件为只读静态文档，不启动服务、不新增任务发起入口。</p>
+<p class="lead">四张图分别回答：业务怎么跑、人在哪个界面做什么、技术上分几层、知识与记忆怎么沉淀。口径取自 <code>PROJECT-SUMMARY.md</code>、<code>docs/SYSTEM-ARCHITECTURE.md</code>，并按第二十八轮 P-10 的实现校正（新增双向协作回路与飞书回答路由，见第 5 节功能地图与下方说明）。本文件为只读静态文档，不启动服务、不新增任务发起入口。</p>
 <nav>
 <a href="#flow">1 产品主闭环</a>
 <a href="#surface">2 用户与界面</a>
@@ -235,7 +235,7 @@ footer{color:var(--color-text-tertiary);font-size:12px;margin-top:28px;border-to
 <section id="memory">
 <h2>4 · 共享记忆分层：知识必须能查回事实源</h2>
 <p class="tag">技术视角 / 知识与治理</p>
-<p>越往下越接近事实，越往上越小、越接近每轮上下文。这是 P-7 参考 Anthropic 分层、P-8 补上只读接线后的现状；P-9 另把双向协作回路的留痕接进三个真实执行链节点，只读 <code>loop-guard</code> 与 <code>memory-guard</code> 并列。</p>
+<p>越往下越接近事实，越往上越小、越接近每轮上下文。这是 P-7 参考 Anthropic 分层、P-8 补上只读接线后的现状；P-9 把双向协作回路的留痕接进三个真实执行链节点，P-10 修掉回路判据的五个真实缺陷并把飞书显式「回答」路由进成对台账；只读 <code>loop-guard</code> 与 <code>memory-guard</code> 并列。</p>
 <svg viewBox="0 0 680 510" width="100%" role="img" xmlns="http://www.w3.org/2000/svg">
 <title>SuitMe 共享记忆四层与只读守门</title>
 <desc>从每轮注入的小索引，到知识地图、候选知识，最底层是 append-only 事实源；P-7 与 P-8 的守门只做只读体检，不拦截业务、不自动采用知识。</desc>
@@ -286,7 +286,7 @@ footer{color:var(--color-text-tertiary);font-size:12px;margin-top:28px;border-to
 <tr><td>交付</td><td>本机 Git 交付台、自动合并与确切提交预览，GitHub 适配器可回退</td><td><code>controller.ts</code>、<code>local-git.ts</code></td></tr>
 <tr><td>治理与自演进</td><td>交付前强制自查、独立治理台账、工程回放闸门、人审 / 灰度 / 回滚、四项效果指标</td><td><code>evolution*.ts</code></td></tr>
 <tr><td>观察与控制台</td><td>六视图、组织形态、Agent 编制、沉淀与自演进、长程执行只读卡片、服务端分页摘要</td><td><code>console/</code>、<code>workspace-summary.ts</code></td></tr>
-<tr><td>双向协作回路（P-9）</td><td>上行 / 下行判据、就近配对、回流建议、三个执行链节点留痕、只读 <code>loop-guard</code>；回执 ≠ 验收、回答 ≠ 放行</td><td><code>collaboration-loop.ts</code>、<code>controller.ts</code>、<code>collaboration-intake.ts</code></td></tr>
+<tr><td>双向协作回路（P-9 / P-10）</td><td>上行 / 下行判据、就近配对、回流建议、三个执行链节点留痕、只读 <code>loop-guard</code>（去重 + 时间归一 + 坏行上报）、飞书显式「回答」路由进成对台账；回执 ≠ 验收、回答 ≠ 放行</td><td><code>collaboration-loop.ts</code>、<code>hitl-bridge.ts</code>、<code>controller.ts</code>、<code>collaboration-intake.ts</code></td></tr>
 <tr><td>适配与国内化</td><td>中文壳、侧栏收敛、未连接服务隐藏、国内服务实时探测、飞书组织映射只读草案</td><td><code>shell-*.ts</code>、<code>service-status.ts</code></td></tr>
 </tbody>
 </table>
@@ -296,7 +296,7 @@ footer{color:var(--color-text-tertiary);font-size:12px;margin-top:28px;border-to
 <h2>6 · 成熟度三档与不可冲掉的红线</h2>
 <h3>成熟度（决定「能不能对外说已支持」）</h3>
 <ul>
-<li><strong>已跑通且有回归证据</strong>：发起 / 派单 / 上下文与知识 / 验收 / 交付 / 治理主干 + B1 / B2 记忆 + 11 步真实浏览器走查 + 全套隔离真跑；当前 <code>npm test</code> 521/521、<code>loop:smoke</code> 16/16、<code>guard:smoke</code> 22/22。</li>
+<li><strong>已跑通且有回归证据</strong>：发起 / 派单 / 上下文与知识 / 验收 / 交付 / 治理主干 + B1 / B2 记忆 + 11 步真实浏览器走查 + 全套隔离真跑；当前 <code>npm test</code> 532/532、<code>loop:smoke</code> 16/16、<code>guard:smoke</code> 22/22。</li>
 <li><strong>预备配置，不等于启用</strong>：模型三档策略（不存 Key）、L2 组织图草稿（人审后生效）、飞书部门 scope 授权命令、组织映射草案、<code>step</code> 模式与 <code>local-pg</code> 底座。</li>
 <li><strong>未接通 / 未发生</strong>：企业微信 / 腾讯文档 / 钉钉 / 国内代码托管 / 公有云 CI / 海外 SaaS、全员 SSO 与真实员工入驻、生产发布、真人在真实业务单确认验收（SUI-129 未核可）、外部模型调用、远端沙箱与金额成本账本。</li>
 </ul>
@@ -326,7 +326,7 @@ footer{color:var(--color-text-tertiary);font-size:12px;margin-top:28px;border-to
 </table>
 </section>
 
-<footer>口径来源：<code>PROJECT-SUMMARY.md</code>、<code>docs/SYSTEM-ARCHITECTURE.md</code>、<code>HANDOFF/07-RULES-AND-BOUNDARIES.md</code>、<code>docs/ADAPTATION-v0.6.md</code> 最新边界节。版本：2026-11-08，第二十七轮 P-9 之后（<code>3b0188d</code>）；<code>npm test</code> 521/521。本图册是只读静态文档，不含脚本、不加载外部资源、不写入任何运行数据；权威口径冲突时以上述文档为准。</footer>
+<footer>口径来源：<code>PROJECT-SUMMARY.md</code>、<code>docs/SYSTEM-ARCHITECTURE.md</code>、<code>HANDOFF/07-RULES-AND-BOUNDARIES.md</code>、<code>docs/ADAPTATION-v0.6.md</code> 最新边界节。版本：2026-11-08，第二十七轮 P-9 之后（<code>3b0188d</code>）；<code>npm test</code> 532/532。本图册是只读静态文档，不含脚本、不加载外部资源、不写入任何运行数据；权威口径冲突时以上述文档为准。</footer>
 </main>
 </body>
 </html>

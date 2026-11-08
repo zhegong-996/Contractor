@@ -27,6 +27,7 @@ test('P-9 三个执行链节点确实调用归一化函数（不是孤岛模块�
   const controller = source('src/controller.ts');
   const intake = source('src/collaboration-intake.ts');
   const answer = source('scripts/step-answer.ts');
+  const bridge = source('src/hitl-bridge.ts');
   assert.match(controller, /fromAutoloopReceipt\(/);
   assert.match(controller, /loop\.upstream/);
   assert.match(controller, /loop\.downstream/);
@@ -35,8 +36,29 @@ test('P-9 三个执行链节点确实调用归一化函数（不是孤岛模块�
   assert.match(intake, /mapFollowupToAnswer\(/);
   assert.match(intake, /loop\.downstream/);
   assert.match(intake, /delegate\(/); // 补充说明仍真实唤醒下一轮
-  assert.match(answer, /bridgeAnswerToResume\(/);
-  assert.match(answer, /assertResumeProposal\(/);
+  // P-10（第二十八轮）：CLI 与飞书 IM 共用 hitl-bridge 的同一份判据。
+  assert.match(intake, /routeAnswerToHitl\(/);
+  assert.match(intake, /persistHitlAnswer\(/);
+  assert.match(answer, /routeAnswerToHitl\(/);
+  assert.match(bridge, /answerHuman\(/);
+  assert.match(bridge, /bridgeAnswerToResume\(/);
+  assert.match(bridge, /assertResumeProposal\(/);
+});
+
+test('P-10 飞书回答路由红线：恒 advisory，绝不自动放行或冒充验收', () => {
+  const bridge = source('src/hitl-bridge.ts');
+  const intake = source('src/collaboration-intake.ts');
+  // 判据模块不排步骤、不改任务状态、不碰业务存储。
+  assert.doesNotMatch(bridge, /enqueueSteps\(|completeStep\(|store\.save\(|failStep\(/);
+  // 只有显式带问题编号的回答才路由，隐式回答宁可不猜。
+  assert.match(bridge, /隐式回答不路由/);
+  // 路由发生在 IM 绑定校验之后（observe only，失败不影响 IM 语义）。
+  const routingAt = intake.indexOf('routeAnswerToHitl(');
+  const bindingAt = intake.indexOf('Unauthorized: task IM binding');
+  assert.ok(routingAt > bindingAt, '回答路由必须在 IM 绑定校验之后');
+  assert.match(intake, /observation only/);
+  // 回答人身份必须来自触发消息的真人，而不是执行进程。
+  assert.match(intake, /actor: trigger\.actor\.id/);
 });
 
 test('P-9 回流建议恒为 advisory，绝不自动放行或冒充验收', () => {

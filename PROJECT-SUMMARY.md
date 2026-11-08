@@ -1,7 +1,7 @@
 # SuitMe 协作台 · 项目总结
 
 > 日期：2026-11-08（北京时间）｜仓库：`/Users/gong.zhe/Developer/ai-native-collab`｜远端：`github.com/zhegong-996/suitme-collab`（`main`）
-> 代码基线以 `git rev-parse HEAD` 为准；本文成稿时 `HEAD = origin/main = 3b0188d`（第二十七轮 P-9）、工作区干净；本文提交后 `HEAD` 会前进，仍应与 `origin/main` 一致。
+> 代码基线以 `git rev-parse HEAD` 为准；本文成稿时 `HEAD = origin/main = 6a98ec6`（第二十七轮 P-9 后的文档轮）、工作区干净；本文提交后 `HEAD` 会前进，仍应与 `origin/main` 一致。
 > 本文是**总览**，不是设计定稿、也不是实现清单的替代品。权威口径见文末第 8 节。
 
 ---
@@ -10,9 +10,9 @@
 
 **产品定位**：小规模、高信任、以知识与软件产出为主的团队，需求从飞书 IM 发起，按用途授权专业资料、连续交接，成果交付到本机 Git 或专业知识空间，**由人验收**。系统要回答的不只是「这单跑完没有」，还有「谁对什么负责、凭什么算做对了、AI 依据什么做的」。
 
-**当前阶段**：A 收敛整合 → B1 记忆主干 → B2 读取链 → C-0 ~ C-6 分步方案 → 生产项 P-1 / P-5 / P-6 / P-7 / P-8 / P-9，**全部完成并收口**，严格分步不并行。共 27 轮迭代，代码与文档随 `main` 同步推送。最新一轮 P-9 落地双向协作回路，把 Autoloop / Runner 协议接进真实执行链。
+**当前阶段**：A 收敛整合 → B1 记忆主干 → B2 读取链 → C-0 ~ C-6 分步方案 → 生产项 P-1 / P-5 / P-6 / P-7 / P-8 / P-9 / P-10，**全部完成并收口**，严格分步不并行。共 28 轮迭代，代码与文档随 `main` 同步推送。最新一轮 P-10 修掉五个真实缺陷，并把飞书显式「回答 <问题编号> <选项>」接进 HITL 成对台账（恒 advisory）。
 
-**最后一轮验证**：`npm test` **521/521**、`loop:smoke` **16/16**、`guard:smoke` **22/22**、`memory:hierarchy` 16/16、`steps:smoke` 54/54、`tsc`、两个构建、425px 响应式（393/393 无溢出）、真实浏览器走查 11/11、`console:smoke failed: []`、`router:smoke` 31/31、`agents:smoke` 43/43、`shapes:smoke` 36/36、`evolution:smoke` 45/45、`host:pg` 21/21、`atlas:check` 11/11、记忆重放与 checkpoint、`audit:upstream clean:true`、`git diff --check`。
+**最后一轮验证**：`npm test` **532/532**、`loop:smoke` **17/17**、`guard:smoke` **22/22（golden 无差异）**、`memory:hierarchy` 16/16、`steps:smoke` 54/54、`tsc`、两个构建、425px 响应式（393/393 无溢出）、真实浏览器走查 11/11、`console:smoke failed: []`、`router:smoke` 31/31、`agents:smoke` 43/43、`shapes:smoke` 36/36、`evolution:smoke` 45/45、`host:pg` 21/21、`atlas:check` 11/11、记忆重放与 checkpoint、`audit:upstream clean:true`、`git diff --check`。
 
 **最需要注意的三条边界**（不要因为「系统全绿」而误读）：
 1. 默认底座仍是 `paperclip`、默认执行模式仍是 `loop`；`local-pg` 与 `step` 都真跑过但**未成为默认**，主链路随时可逐字回退。
@@ -285,7 +285,7 @@ Redis（用 PG `FOR UPDATE SKIP LOCKED` 等价，切换点为 `claimStep / compl
 
 | 类别 | 命令 | 结果 |
 |---|---|---|
-| 单元 / 契约 | `npm test` | **521/521，0 fail**（含 16 例双向回路契约 + 6 例常态契约） |
+| 单元 / 契约 | `npm test` | **532/532，0 fail**（含 16 例双向回路契约 + 11 例 P-10 新增：修复回归 / hitl-bridge 契约 / 飞书路由端到端） |
 | 类型与构建 | `npm run typecheck`、`build:workspaces`、`build:chinese-shell` | 全部 pass |
 | 前端 | `npm run test:responsive`、`npm run test:walkthrough` | 425px 393/393 无溢出；真实浏览器 11/11 |
 | 独立控制台 | `npm run console:smoke` | 6 视图、主题、425px、写动作 403、`errorCards:0` |
@@ -306,7 +306,7 @@ Redis（用 PG `FOR UPDATE SKIP LOCKED` 等价，切换点为 `claimStep / compl
 
 **已实现但默认未启用**：`config.host.provider=local-pg`、`config.execution.mode=step`（默认 `paperclip` + `loop`，可逐字回退）、Cognee 原生管线（缺端点与凭据）、组织映射草案（未导入职能注册表）。
 
-**剩余生产项**：切换默认底座并把真实业务单切到 step 模式验证；autoloop worker 内部子调用逐次拆分（当前 tick 级单步）；真实外部模型端点 / 远端工具沙箱 / 多机切换 / Redis；金额成本账本接入效果看板。~~控制台 `view` 快照的服务端分页裁剪~~ 已于**第二十三轮 P-5 完成**：新增只读 `view-summary`（分页 + 字段白名单），控制台改拉摘要，真实服务端 509,283 bytes / 4.02 秒 → 5,678 bytes / 0.076 秒，原 `view` 逐字保留给插件工作台。**第二十四轮 P-6 已完成**：Runner（`yicheng47/runner`，固定 MIT 提交 `a42d1331`）的两块协议语义用 TypeScript 重写落地 —— `src/step-hitl.ts` 的 `ask_human/human_question/human_response` 成对留痕、`src/step-delivery.ts` 的累计确认 / 至少一次通知 / 投递就绪与送达证据；四项借思想（六态派生、运行时能力声明、配置库与追加写日志分层、编制快照不回溯）落在 `src/mission-state.ts`。R7 六步登记完成，**未引入 submodule / gitlink / Rust 源码，7 个上游不变**；`npm test` 445/445、`steps:smoke` 54/54。红线：人工回答不等于验收，执行进程不得自行放行人工确认步。**第二十五轮 P-7 已完成**：完整阅读 Anthropic《The components of agent memory》（2026-11-06，网页研究文章、无开源代码许可证，只借思想、登记 `conceptReferences`、不是第 8 个上游），逐层对照后把五条规则做成 `src/memory-hierarchy.ts` 纯函数守门 —— 知识必须挂靠原始事件、知识地图链接完整且不比原始语料大、注入顶层 200 行 / 25 KB 只留索引与指针、离线整理只产出待真人复核的建议、外部参考本身按候选沉淀；`tests/memory-hierarchy.test.ts` 20 例与 `npm run memory:hierarchy` 16/16 真跑，`npm test` 465/465。守门尚未接入真实 `Knowledge` / `Context Pack` / wiki 落盘，待拍板见 `HANDOFF/08` 第 13 条。**第二十六轮 P-8 已完成查漏补缺与取长补短**：查出守门此前只跑在合成数据上、生产链路零调用，于是新增只读 action `memory-guard` 与 `src/knowledge-guard.ts`，把五条守门接到真实 B1 事件与本地知识索引（真实 HTTP 200 / 7 ms、22 条真实知识记录如实报缺挂靠，未编造事件 id 跑绿）；同时按 OpenMausBot 评估落地 `src/behavior-baseline.ts` 的冻结基线 / golden diff / 纯评分器 / 双臂统计旗标 / 出站 MCP 不暴露硬断言 / 决策留痕隔离，以及 `fixtures/behavior-golden.json`。`npm test` 499/499、`guard:smoke` 22/22。只读体检不等于写入链改造，第 12 条 (b) 五项与第 13 条四项仍待拍板。**第二十七轮 P-9 已完成双向协作回路**：核实主链路本就双向、断的是 P-6 单步 HITL 半回路，复盘四轮参考产出偏在治理/评估侧；新增 `src/collaboration-loop.ts`（回路判据 / 就近配对 / 回流建议 / Autoloop 与 Runner 归一化）、只读 `loop-guard`、三个真实执行链节点留痕与 `npm run loop:smoke` 16/16 真跑，`npm test` 521/521。上游 `src/upstream.ts` 运行时加载的未修改源码（`resultFrom()` 等）被直接接进回路，7 个上游不变。**流转自动化 ≠ 决策自动化**：验收 / 放行 / 授权 / 核可仍不下放。
+**剩余生产项**：切换默认底座并把真实业务单切到 step 模式验证；autoloop worker 内部子调用逐次拆分（当前 tick 级单步）；真实外部模型端点 / 远端工具沙箱 / 多机切换 / Redis；金额成本账本接入效果看板。~~控制台 `view` 快照的服务端分页裁剪~~ 已于**第二十三轮 P-5 完成**：新增只读 `view-summary`（分页 + 字段白名单），控制台改拉摘要，真实服务端 509,283 bytes / 4.02 秒 → 5,678 bytes / 0.076 秒，原 `view` 逐字保留给插件工作台。**第二十四轮 P-6 已完成**：Runner（`yicheng47/runner`，固定 MIT 提交 `a42d1331`）的两块协议语义用 TypeScript 重写落地 —— `src/step-hitl.ts` 的 `ask_human/human_question/human_response` 成对留痕、`src/step-delivery.ts` 的累计确认 / 至少一次通知 / 投递就绪与送达证据；四项借思想（六态派生、运行时能力声明、配置库与追加写日志分层、编制快照不回溯）落在 `src/mission-state.ts`。R7 六步登记完成，**未引入 submodule / gitlink / Rust 源码，7 个上游不变**；`npm test` 445/445、`steps:smoke` 54/54。红线：人工回答不等于验收，执行进程不得自行放行人工确认步。**第二十五轮 P-7 已完成**：完整阅读 Anthropic《The components of agent memory》（2026-11-06，网页研究文章、无开源代码许可证，只借思想、登记 `conceptReferences`、不是第 8 个上游），逐层对照后把五条规则做成 `src/memory-hierarchy.ts` 纯函数守门 —— 知识必须挂靠原始事件、知识地图链接完整且不比原始语料大、注入顶层 200 行 / 25 KB 只留索引与指针、离线整理只产出待真人复核的建议、外部参考本身按候选沉淀；`tests/memory-hierarchy.test.ts` 20 例与 `npm run memory:hierarchy` 16/16 真跑，`npm test` 465/465。守门尚未接入真实 `Knowledge` / `Context Pack` / wiki 落盘，待拍板见 `HANDOFF/08` 第 13 条。**第二十六轮 P-8 已完成查漏补缺与取长补短**：查出守门此前只跑在合成数据上、生产链路零调用，于是新增只读 action `memory-guard` 与 `src/knowledge-guard.ts`，把五条守门接到真实 B1 事件与本地知识索引（真实 HTTP 200 / 7 ms、22 条真实知识记录如实报缺挂靠，未编造事件 id 跑绿）；同时按 OpenMausBot 评估落地 `src/behavior-baseline.ts` 的冻结基线 / golden diff / 纯评分器 / 双臂统计旗标 / 出站 MCP 不暴露硬断言 / 决策留痕隔离，以及 `fixtures/behavior-golden.json`。`npm test` 499/499、`guard:smoke` 22/22。只读体检不等于写入链改造，第 12 条 (b) 五项与第 13 条四项仍待拍板。**第二十七轮 P-9 已完成双向协作回路**：核实主链路本就双向、断的是 P-6 单步 HITL 半回路，复盘四轮参考产出偏在治理/评估侧；新增 `src/collaboration-loop.ts`（回路判据 / 就近配对 / 回流建议 / Autoloop 与 Runner 归一化）、只读 `loop-guard`、三个真实执行链节点留痕与 `npm run loop:smoke` 16/16 真跑，`npm test` 521/521。上游 `src/upstream.ts` 运行时加载的未修改源码（`resultFrom()` 等）被直接接进回路，7 个上游不变。**流转自动化 ≠ 决策自动化**：验收 / 放行 / 授权 / 核可仍不下放。**第二十八轮 P-10 已完成漏洞修复与飞书回答接进台账**：修掉五个真实缺陷（`fromHitlLedger` 时间类型不匹配致 NaN 排序、`loop-guard` 下行撞号双计、正则 `\b` 对中文失效致裸「确认验收」漏网、HITL 台账坏行静默丢弃、知识记录 title 取到空对象字面量）；新增 `src/hitl-bridge.ts` 让飞书显式「回答 <问题编号> <选项>」与 CLI `step:answer` 共用同一判据路由进成对台账并产出 advisory 回流建议（隐式回答宁可不路由，不排步骤、不改状态、不等于验收）。`npm test` 532/532、`loop:smoke` 17/17、golden 无差异（19 项白名单不变）。
 
 **需用户拍板**：外部模型端点与凭据、SUI-129 真人验收、飞书部门 scope 授权、国内 / 海外外部服务是否接通、已取消服务长期状态、「pi」的指代；以及「何时切换默认 `config.host.provider`」。
 

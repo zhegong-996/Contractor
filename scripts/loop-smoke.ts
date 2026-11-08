@@ -76,6 +76,7 @@ const controller = readFileSync(path.join(root, 'src/controller.ts'), 'utf8');
 const intake = readFileSync(path.join(root, 'src/collaboration-intake.ts'), 'utf8');
 const serverSource = readFileSync(path.join(root, 'src/server.ts'), 'utf8');
 const answerSource = readFileSync(path.join(root, 'scripts/step-answer.ts'), 'utf8');
+const bridgeSource = readFileSync(path.join(root, 'src/hitl-bridge.ts'), 'utf8');
 check('B1 回执入口复用 Autoloop 回执协议并登记上行事件',
   /resultFrom\(/.test(controller) && /fromAutoloopReceipt\(/.test(controller)
     && /loop\.upstream/.test(controller) && /continuationPolicy:\s*'wake_assignee'/.test(controller),
@@ -84,13 +85,20 @@ check('B2 人的补充说明与飞书入站都登记下行应答，且真正唤�
   /loop\.downstream/.test(controller) && /loop\.downstream/.test(intake)
     && /phase = 'ready'/.test(controller) && /delegate\(/.test(intake)
     && /mapFollowupToAnswer/.test(controller) && /mapFollowupToAnswer/.test(intake));
-check('B3 回答入口复用 Runner 成对留痕并桥接回流建议',
-  /answerHuman\(/.test(answerSource) && /bridgeAnswerToResume\(/.test(answerSource)
-    && /assertResumeProposal\(/.test(answerSource) && /autoExecute/.test(answerSource));
+check('B3 回答入口复用 Runner 成对留痕并桥接回流建议（CLI 与飞书共用同一判据）',
+  /answerHuman\(/.test(bridgeSource) && /bridgeAnswerToResume\(/.test(bridgeSource)
+    && /assertResumeProposal\(/.test(bridgeSource)
+    && /requiresHumanApproval/.test(answerSource)
+    && /routeAnswerToHitl\(/.test(answerSource) && /routeAnswerToHitl\(/.test(intake),
+  { bridge: true, cli: /routeAnswerToHitl\(/.test(answerSource), feishu: /routeAnswerToHitl\(/.test(intake) });
 check('B4 只读体检接进服务端并同步三处白名单',
   /action==='loop-guard'/.test(serverSource)
     && /loop-guard/.test(readFileSync(path.join(root, 'src/members.ts'), 'utf8'))
     && /loop-guard/.test(readFileSync(path.join(root, 'scripts/console-server.ts'), 'utf8')));
+check('B5 loop-guard 去重双留痕、回路时间统一归一（第二十八轮修复不再双计 / NaN）',
+  /dedupeLoopEvents\(/.test(serverSource) && /ledgerHealth/.test(serverSource)
+    && /toLoopAt\(/.test(readFileSync(path.join(root, 'src/collaboration-loop.ts'), 'utf8')),
+  { dedupe: /dedupeLoopEvents\(/.test(serverSource), ledgerHealth: /ledgerHealth/.test(serverSource) });
 
 // ---------------------------------------------------------------- C 真实子进程：提问 → 回答 → 回流建议
 const tmp = mkdtempSync(path.join(tmpdir(), 'collab-loop-'));

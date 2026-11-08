@@ -89,6 +89,8 @@ export type AnswerHumanInput = {
   /** 真人身份；空值一律拒绝，避免执行进程冒充人。 */
   actor: string;
   note?: string;
+  /** 回答来自哪条通道（如 feishu-im / cli）；只作留痕，不影响语义。 */
+  via?: string;
   at?: string;
   idFactory?: () => string;
 };
@@ -109,6 +111,7 @@ export function answerHuman(input: AnswerHumanInput): HitlEvent {
       question_id: input.question.id,
       choice: input.choice,
       note: String(input.note ?? ''),
+      via: String(input.via ?? 'cli'),
       actor,
       // 显式标注：这条回答不是验收，避免将来被误读成「人已核可」。
       acceptance: false,
@@ -214,10 +217,20 @@ export class FileHitlSink implements HitlSink {
     appendFileSync(this.file, JSON.stringify(event) + '\n', { mode: 0o600 });
   }
   read(): HitlEvent[] {
-    if (!existsSync(this.file)) return [];
-    return readFileSync(this.file, 'utf8').split('\n').filter(Boolean).flatMap(line => {
-      try { return [JSON.parse(line) as HitlEvent]; } catch { return []; }
+    return this.readWithHealth().events;
+  }
+  /**
+   * 坏行如实上报（第二十八轮修复）：JSON 解析失败的行不再被静默丢弃——
+   * 静默丢行会让「台账看起来健康」掩盖真实的数据损坏。保留原 read() 行为，
+   * 但体检与回答入口必须走这里，把 badLines 报出去。
+   */
+  readWithHealth(): { events: HitlEvent[]; badLines: number } {
+    if (!existsSync(this.file)) return { events: [], badLines: 0 };
+    let badLines = 0;
+    const events = readFileSync(this.file, 'utf8').split('\n').filter(Boolean).flatMap(line => {
+      try { return [JSON.parse(line) as HitlEvent]; } catch { badLines += 1; return []; }
     });
+    return { events, badLines };
   }
 }
 

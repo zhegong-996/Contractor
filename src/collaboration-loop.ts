@@ -132,7 +132,7 @@ export function loopReport(input: {
   resumeProposals?: readonly { id: string; inReplyTo: string }[];
 }): LoopReport {
   const events = [...input.events].sort((a, b) =>
-    a.at - b.at || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    toLoopAt(a.at) - toLoopAt(b.at) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   const owners = new Set(input.humanOwners ?? []);
   const proposals = input.resumeProposals ?? [];
   const proposalsByReply = new Map<string, string[]>();
@@ -219,7 +219,7 @@ export function loopReport(input: {
       if (!reviewed) receiptWithoutReview.push(event.id);
     }
     // 人答了之后，执行端必须继续动作，或者已有明确（advisory、待真人确认）的回流建议。
-    const followed = valid.some(e => e.direction === 'upstream' && e.at >= human[0]!.at
+    const followed = valid.some(e => e.direction === 'upstream' && toLoopAt(e.at) >= toLoopAt(human[0]!.at)
       && e.id !== event.id)
       || proposalsByReply.has(human[0]!.id)
       || human.some(r => r.kind === 'accept' || r.kind === 'reject');
@@ -365,7 +365,9 @@ export function mapFollowupToAnswer(text: string, actor = ''): InboundAnswer {
   if (!raw) return { ...empty, reason: '空消息' };
   if (!actor) return { ...empty, reason: '未登记真人身份：执行进程不得冒充人回答' };
   // 「确认验收 任务编号」是核可，不是回答，必须走 confirmAcceptance，不能混进回路。
-  if (/^确认验收\b|确认验收\s+\S/.test(raw)) {
+  // 注意不能用 \b：JS 的词边界只认 ASCII 词字符，跟在中文字符后面永远不成立，
+  // 裸的「确认验收」会漏网。这里显式覆盖「整句就是核可」与「以核可短语开头」两种。
+  if (/^确认验收(?:\s|$)|确认验收\s+\S/.test(raw)) {
     return { ...empty, reason: '这是最终核可，不是对提问的回答；须走原会话确认验收' };
   }
   const explicit = /^(?:回答|回复)\s+(\S+)\s+([\s\S]+)$/.exec(raw);
@@ -439,9 +441,21 @@ export function fromAutoloopReceipt(input: {
 
 /** 上游协议耦合点②：Runner 成对 HITL 台账 → 回路事件。 */
 export type HitlEventLike = {
-  id: string; type: string; at: number; from?: string; to?: string;
+  id: string; type: string; at: string | number; from?: string; to?: string;
   payload?: Record<string, unknown>;
 };
+
+/**
+ * 时间归一化：真实台账里 `at` 是 ISO 字符串，而回路事件的 `at` 是 epoch 毫秒。
+ * 两种类型混在同一份事件流里时，`a.at - b.at` 会得到 NaN、排序与因果比较全部失效
+ * （这是第二十八轮修掉的真实缺陷）。这里统一折叠成 number；无法解析的时间按 0
+ * 处理，保证确定性而不是抛 NaN。
+ */
+export function toLoopAt(at: string | number): number {
+  if (typeof at === 'number' && Number.isFinite(at)) return at;
+  const parsed = Date.parse(String(at));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
 
 export function fromHitlLedger(input: {
   events: readonly HitlEventLike[];
@@ -463,7 +477,7 @@ export function fromHitlLedger(input: {
       const taskId = questionTasks.get(event.id) ?? '';
       if (!taskId) continue; // 没有任务归属的事件不进回路，避免伪造因果边
       out.push({ id: event.id, direction: 'upstream', kind: 'question', taskId,
-        at: event.at, actor: String(event.payload?.asker ?? event.from ?? 'step-runner'),
+        at: toLoopAt(event.at), actor: String(event.payload?.asker ?? event.from ?? 'step-runner'),
         expectsHumanAction: 'answer', inReplyTo: null,
         payload: { stepNo: event.payload?.step_no ?? null, source: 'protocolReferences/runner' } });
       continue;
@@ -473,12 +487,33 @@ export function fromHitlLedger(input: {
       const taskId = String(event.payload?.run_id ?? questionTasks.get(questionId) ?? input.defaultTaskId ?? '');
       if (!questionId || !taskId) continue;
       out.push({ id: event.id, direction: 'downstream', kind: 'answer', taskId,
-        at: event.at, actor: String(event.payload?.actor ?? event.from ?? 'human'),
+        at: toLoopAt(event.at), actor: String(event.payload?.actor ?? event.from ?? 'human'),
         inReplyTo: questionId,
         payload: { choice: event.payload?.choice ?? null, source: 'protocolReferences/runner' } });
     }
   }
   return out;
+}
+
+/**
+ * 回路事件按 id 去重：同一条 IM 消息可能同时被 `controller.reply()` 与
+ * `collaboration-intake.ingest()` 留痕（或审计行重复），不去重会让 loop-guard
+ * 双计下行、破坏「一条应答只关一个回合」的判据。保留时间最早的一条，
+ * 其余计入 duplicates——如实报数，不静默吞掉。
+ */
+export function dedupeLoopEvents(events: readonly LoopEvent[]): {
+  events: LoopEvent[]; duplicates: number; duplicateIds: string[];
+} {
+  const seen = new Set<string>();
+  const kept: LoopEvent[] = [];
+  const duplicateIds = new Set<string>();
+  for (const event of [...events].sort((a, b) =>
+    toLoopAt(a.at) - toLoopAt(b.at) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))) {
+    if (seen.has(event.id)) { duplicateIds.add(event.id); continue; }
+    seen.add(event.id);
+    kept.push(event);
+  }
+  return { events: kept, duplicates: events.length - kept.length, duplicateIds: [...duplicateIds].sort() };
 }
 
 /**
@@ -488,7 +523,7 @@ export function fromHitlLedger(input: {
  */
 export function attachImplicitReplies(events: readonly LoopEvent[]): LoopEvent[] {
   const ordered = [...events].sort((a, b) =>
-    a.at - b.at || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    toLoopAt(a.at) - toLoopAt(b.at) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   const openQuestions = new Map<string, LoopEvent>();
   const result: LoopEvent[] = [];
   const replyKinds: readonly string[] = ['answer', 'supplement', 'resume-approved', 'review', 'accept', 'reject'];

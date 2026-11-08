@@ -815,3 +815,17 @@ Cognee `cognify` 的真实外部模型调用未发生（缺端点与凭据）；
 | 冻结基线人审 | `guard:smoke` golden diff 抓到 `checks.readOnlyAllowlist.actions` **18→19**，人审确认为新增只读 action `loop-guard` 的预期配置变化，手工更新基线并追加 `humanReview`（时间 / 轮次 / 变化 / 理由 / 审核人）；真跑脚本仍不得自动改写 |
 | 既有回归不回退 | `guard:smoke` 22/22、`steps:smoke` 54/54、`memory:hierarchy` 16/16、`router:smoke` 31/31、`agents:smoke` 43/43、`shapes:smoke` 36/36、`evolution:smoke` 45/45、`host:pg` 21/21、两套浏览器走查 11/11 与 `failed: []`、两个构建、425px、`tsc`、`audit:upstream clean:true`、`git diff --check` |
 | 如实边界 | **流转自动化 ≠ 决策自动化**：两条方向自动接通，验收 / 放行 / 授权 / 核可仍不下放；真实业务单未跑过、`step` 默认 `loop`、无外部模型调用、7 个上游不变、SUI-129 仍未核可；自动排后续步骤与飞书直写 HITL 台账仍待拍板 |
+
+## 第二十八轮 · P-10 漏洞修复与飞书回答接进 HITL 台账（2026-11-08）
+
+| 项 | 结果 |
+|---|---|
+| 触发 | 用户要求「看看有没有什么其他的漏洞，完整修复和优化一下，包括功能上还有什么缺陷之类的也进行修复和优化，参考其他几个开源项目」 |
+| 修掉的真实缺陷（5 个，不是改测试蒙过去） | ① `fromHitlLedger` 的 `at` 类型不匹配：真实台账是 ISO 字符串、审计行是 epoch 毫秒，混排时 `a.at - b.at` 得 NaN、排序与因果比较全部失效（`loop-smoke` E 段的 `2 + e.at` 字符串拼接坐实）→ `toLoopAt()` 统一归一，`loopReport` / `attachImplicitReplies` / `dedupeLoopEvents` 内部比较全部走它；② `loop-guard` 下行事件 id 撞号双计（同一 IM 消息被 `reply()` 与 `ingest()` 双留痕）→ `dedupeLoopEvents()` 按字节序保最早一条、`ledgerHealth.dedupedLoopEvents` 如实报数；③ `mapFollowupToAnswer` 的 `\b` 对中文失效，裸「确认验收」漏进回答通道 → 改为 `/^确认验收(?:\s\|$/`；④ `FileHitlSink.read()` 坏行静默丢弃 → `readWithHealth()` 报 `badLines`，`step:answer` 与 `loop-guard` 都接；⑤ `memory-guard` 知识记录 title 取到 `'{}'`（context 是真值空对象）→ 空对象回退 identifier，22 条真实记录指纹随之修正 |
+| 功能缺陷修复（差距清单 #3 核心） | 新增 `src/hitl-bridge.ts`：飞书显式「回答 <问题编号> <选项>」路由进 Runner 成对 HITL 台账 + 产出 advisory 回流建议（参考 OpenMausBot question 卡片人侧回写）；`collaboration-intake.ingest()` 接线（IM 绑定校验之后、observe only、路由成功不重复写 `loop.downstream` 观察、失败退回原观察路径并如实可查）；`scripts/step-answer.ts` 重构为共用同一判据（CLI 与 IM 口径逐字节一致）；回答带 `via:'feishu-im'/'cli'` 通道标注 |
+| 红线不放宽 | 只有显式带问题编号才路由（隐式回答宁可不猜）；路由成功不排后续步骤、不改任务状态、不等于验收；提问者自答 / 越界选项 / 重复回答 / 核可短语全部拒绝；`p9-contracts` / `loop-smoke` B 段把「路由必须在 IM 绑定校验之后」「hitl-bridge 不得出现 enqueueSteps / completeStep / store.save」焊成常态契约 |
+| `npm test` | **532 / 532**（521 + 11 例新增：回路修复回归 3 + hitl-bridge 契约 6 + 飞书路由端到端 1 + 常态契约扩充 1） |
+| `npm run loop:smoke` | **17/17 `ok:true`**（新增 B5：去重与时间归一真接进服务端）；A 段真实 HTTP 200 / advisory、`ledgerHealth:{hitlBadLines:0,dedupedLoopEvents:0}` 如实上报 |
+| 冻结基线 | **golden 无差异**：本轮未新增只读 action（19 项白名单不变），`guard:smoke` 22/22、签名 `d6347436…` 与 P-9 人审后基线逐字节一致，无需人审 |
+| 既有回归不回退 | `steps:smoke` 54/54、`memory:hierarchy` 16/16、`console:smoke failed: []`、走查 11/11、425px `problems: []`、两个构建、`tsc`、`audit:upstream clean:true`、`atlas:check` 全过、`git diff --check` |
+| 如实边界 | 真实业务单仍未在该链跑过（`loop-guard` 如实报 `bidirectional:false`、耦合点计数 0）；自动排后续步骤、`step` 切真实业务单仍待拍板（HANDOFF/08 第 13 条）；默认仍 `loop` + `paperclip`；无外部模型调用、7 个上游与 npm 依赖不变；SUI-129 仍未核可 |

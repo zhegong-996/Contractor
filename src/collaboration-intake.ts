@@ -2,6 +2,9 @@ import {TeamMembers} from './members.ts';
 import { feishuTrigger } from './upstream.ts';
 import { mapFollowupToAnswer } from './collaboration-loop.ts';
 import { createHash } from 'node:crypto';
+import type { HitlSink } from './step-hitl.ts';
+import { resolveHitlSink } from './step-hitl.ts';
+import { persistHitlAnswer, routeAnswerToHitl } from './hitl-bridge.ts';
 import type { AgentServices } from './agent-services.ts';
 import type { Workspaces } from './workspaces.ts';
 import type { WorkspaceAssistant } from './assistant.ts';
@@ -9,7 +12,9 @@ import type { WorkspaceAssistant } from './assistant.ts';
 // Uses Super-agent's actual event normalization and the existing event/outbox store.
 // IM can resume a pre-bound task; it cannot choose sources, identities or permissions.
 export class CollaborationIntake {
-  constructor(readonly w: Workspaces, readonly assistant: WorkspaceAssistant, readonly services?: AgentServices) {}
+  constructor(readonly w: Workspaces, readonly assistant: WorkspaceAssistant, readonly services?: AgentServices,
+    /** HITL 台账解析；默认走 resolveHitlSink，测试可注入内存台账。 */
+    private readonly hitlSink: () => HitlSink = resolveHitlSink) {}
   async enable(taskId: string, actor: { admin: boolean }) {
     this.w.manager(actor); const f = this.w.config.feishu;
     if (f.allowedSenders.length !== 1 || f.allowedChats.length !== 1) throw new Error('先为本任务配置唯一的飞书发起人和会话');
@@ -68,15 +73,33 @@ export class CollaborationIntake {
     await this.assistant.delegate(task.id, detail !== '暂停', state.delegation?.mode ?? 'advance', state.delegation?.instruction ?? '', { admin: true }, trigger.id);
     // 上游协议耦合：飞书「补充说明」本来就会经 delegate 唤醒下一轮，这里补上
     // 「人 → 执行端」的下行应答留痕，使 IM 写回与执行端上行提问能对成回路。
-    // 只作观察留痕，不写 HITL 台账、不改任务状态、不把回答当验收。
+    // 第二十八轮 P-10：显式格式「回答 <问题编号> <选项>」不再只留观察，而是
+    // 路由进 Runner 成对 HITL 台账并产出 advisory 回流建议（参考 OpenMausBot
+    // question 卡片的人侧回写）。路由成功时台账是这条回答的规范留痕，不再重复
+    // 写 loop.downstream 观察，避免 loop-guard 双计；路由失败保持原有观察路径。
+    // 回答仍不排后续步骤、不改任务状态、不等于验收（红线见 HANDOFF/07）。
     try {
       const inbound = mapFollowupToAnswer(trigger.text, trigger.actor.id);
-      if (inbound.accepted && detail !== '暂停') this.w.store.audit('loop.downstream', task.id, {
-        eventId: trigger.id, actor: trigger.actor.id,
-        kind: inbound.questionId ? 'answer' : 'supplement',
-        questionId: inbound.questionId, choice: inbound.choice, acceptance: false,
-        ...(inbound.questionId ? { inReplyTo: inbound.questionId } : {}),
-      });
+      if (inbound.accepted && detail !== '暂停') {
+        let routedOk = false;
+        if (inbound.questionId) {
+          const sink = this.hitlSink();
+          const routed = routeAnswerToHitl({ inbound, actor: trigger.actor.id,
+            events: sink.read(), at: Date.now(), via: 'feishu-im' });
+          if (routed.ok) {
+            persistHitlAnswer(routed, sink);
+            routedOk = true;
+            this.w.store.notify('hitl-answer:' + trigger.id, task.id,
+              `已记录对问题 ${inbound.questionId} 的回答并生成回流建议。回流建议不自动排后续步骤，接续仍由原发起人在原会话确认。`);
+          }
+        }
+        if (!routedOk) this.w.store.audit('loop.downstream', task.id, {
+          eventId: trigger.id, actor: trigger.actor.id,
+          kind: inbound.questionId ? 'answer' : 'supplement',
+          questionId: inbound.questionId, choice: inbound.choice, acceptance: false,
+          ...(inbound.questionId ? { inReplyTo: inbound.questionId } : {}),
+        });
+      }
     } catch { /* observation only */ }
     if (!followup) this.w.store.notify('collab-intake:' + trigger.id, task.id, `${task.identifier} 已${detail === '暂停' ? '暂停自动处理' : '接续'}；沿用当前任务、来源和授权范围。\n${this.w.config.paperclipUrl}/SUI/knowledge-workspaces`);
     this.w.store.db.prepare('UPDATE events SET state=? WHERE id=?').run('done', trigger.id);

@@ -32,7 +32,7 @@ import { TeamMembers } from './members.ts';
 import { guardKnowledge, collectTranscript, assertGuardIsAdvisory } from './knowledge-guard.ts';
 // P-9：双向协作回路的一等契约；三个执行链节点把真实事件留痕后，由只读体检汇总。
 import {
-  loopReport, attachImplicitReplies, fromHitlLedger, loopSignature,
+  loopReport, attachImplicitReplies, fromHitlLedger, loopSignature, dedupeLoopEvents,
   type LoopEvent, type HitlEventLike,
 } from './collaboration-loop.ts';
 import { AgentServices } from './agent-services.ts';
@@ -203,8 +203,11 @@ const server = createServer(async (req, res) => {
           // 不读宿主文档正文、不写任何状态、不因缺口拦截业务；真实记录缺
           // evidenceEventIds 时如实报缺口，绝不编造事件 id 把体检跑绿。
           const {events}=readBridgedEvents();
+          // 第二十八轮修复：真实 knowledge 任务的 context 是 '{}'（真值），旧写法
+          // `t.context||t.identifier` 会让 22 条记录的 title 全变成 '{}'；空对象
+          // 必须回退到 identifier，其余字段保持「如实报缺口、不编造」的原口径。
           const records=store.list().filter(t=>t.kind==='knowledge').map(t=>({
-            key:t.identifier, title:t.context||t.identifier, state:'candidate' as const,
+            key:t.identifier, title:t.context&&t.context!=='{}'?t.context:t.identifier, state:'candidate' as const,
           }));
           const report=guardKnowledge({records,transcript:collectTranscript(events)});
           assertGuardIsAdvisory(report);
@@ -231,21 +234,33 @@ const server = createServer(async (req, res) => {
                 ...(value.inReplyTo?{inReplyTo:String(value.inReplyTo)}:{})});
             }
           }
-          const readLedger=(file:string):Record<string,unknown>[]=>existsSync(file)
-            ?readFileSync(file,'utf8').split('\n').filter(Boolean).flatMap(line=>{try{return [JSON.parse(line) as Record<string,unknown>];}catch{return [];}})
-            :[];
+          // 第二十八轮修复：台账坏行不再被静默丢弃，badLines 如实报出。
+          const readLedger=(file:string):{rows:Record<string,unknown>[];badLines:number}=>{
+            if(!existsSync(file))return{rows:[],badLines:0};
+            let badLines=0;
+            const out=readFileSync(file,'utf8').split('\n').filter(Boolean).flatMap(line=>{
+              try{return[JSON.parse(line) as Record<string,unknown>];}catch{badLines+=1;return[];}
+            });
+            return{rows:out,badLines};
+          };
           const hitlFile=runtime('step-hitl','events.jsonl');
-          const hitl=readLedger(hitlFile) as unknown as HitlEventLike[];
+          const hitlRead=readLedger(hitlFile);
+          const hitl=hitlRead.rows as unknown as HitlEventLike[];
           collected.push(...fromHitlLedger({events:hitl}));
           const proposalFile=runtime('step-hitl','resume-proposals.jsonl');
-          const proposals=readLedger(proposalFile)
+          const proposals=readLedger(proposalFile).rows
             .filter(p=>p&&typeof p.id==='string'&&typeof p.responseId==='string')
             .map(p=>({id:String(p.id),inReplyTo:String(p.responseId)}));
-          const events=attachImplicitReplies(collected);
+          // 第二十八轮修复：同一条 IM 消息可能被 reply() 与 ingest() 双留痕（或审计行
+          // 重复），按 id 去重后不再双计下行；去掉的条数与撞号如实报出，不静默吞掉。
+          const deduped=dedupeLoopEvents(collected);
+          const events=attachImplicitReplies(deduped.events);
           const report=loopReport({events,humanOwners:config.feishu.allowedSenders,resumeProposals:proposals});
           return {...report,signature:loopSignature(report),advisory:true,blocking:false,modelCalls:0,
             couplingPoints:{receiptRows:upstreamRows,replyRows:downstreamRows,
               hitlEvents:hitl.length,resumeProposals:proposals.length},
+            ledgerHealth:{hitlBadLines:hitlRead.badLines,dedupedLoopEvents:deduped.duplicates,
+              ...(deduped.duplicateIds.length?{duplicateIds:deduped.duplicateIds.slice(0,20)}:{})},
             source:'local-audit + step-hitl ledger',documentBodiesNotRead:true,
             note:'只读回路体检：上行（回执/提问/请示）与下行（发起/回答/接续/核可）必须成对；回执≠验收、回答≠放行，续跑建议仍待真人在原会话确认'};
         }

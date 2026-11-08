@@ -6,7 +6,7 @@
 cd /Users/gong.zhe/Developer/ai-native-collab
 export NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost NODE_USE_ENV_PROXY=0
 
-npm test                    # 521/521（基线）
+npm test                    # 532/532（基线）
 npx tsc --noEmit            # 退出 0
 npm run build:workspaces    # 插件 UI 打包 + 类型检查
 npm run build:chinese-shell # hiddenEntries 4 条、missed []、warning null
@@ -138,7 +138,7 @@ npm run delivery:demo       # 本机 Git 链路；4194/9418 停机时 gitProtoco
 
 | 项 | 结果 |
 |---|---|
-| `npm test` | **521 / 521**（499 + 16 例回路契约 + 6 例常态契约） |
+| `npm test` | **532 / 532**（521 + 11 例 P-10：回路修复回归 / hitl-bridge 契约 / 飞书路由端到端） |
 | `npm run loop:smoke` | **16/16 `ok:true`**；A 真实 HTTP 200 / advisory、B 四个执行链耦合点、C 真实子进程回答 + 建议落盘、D 半回路 → 完整回合（staleAnswers 1→0、closedCycles 0→1）、E 飞书补充说明就近配对、F 只读红线 |
 | `loop-guard` | HTTP 200、`advisory:true`、`blocking:false`、`modelCalls:0`；**如实报 `bidirectional:false` 与耦合点计数 0** |
 | 冻结基线 | golden diff 抓到白名单 18→19，人审后手工更新并写 `humanReview` |

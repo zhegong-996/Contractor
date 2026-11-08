@@ -1,6 +1,6 @@
 # FILE-INVENTORY · 逐文件说明（100% 覆盖）
 
-> 生成自 `git ls-files` + `HANDOFF/`，第二十二轮 P-1 收尾后共 **297** 个条目，2026-11-08 交接总结新增根目录 2 个文件后共 **299** 个条目，第二十三轮 P-5 新增 2 个文件后共 **301** 个条目，第二十四轮 P-6 新增 7 个文件后共 **308** 个条目，OpenMausBot 参考评估新增 1 份文档后共 **309** 个条目，第二十五轮 P-7 新增 4 个文件后共 **313** 个条目，第二十六轮 P-8 新增 7 个文件后共 **320** 个条目，架构图册新增 3 个文件后共 **323** 个条目，上游能力对比报告新增 1 份文档后共 **324** 个条目，第二十七轮 P-9 新增 4 个文件后共 **328** 个条目（第十四轮 269 + C-1 新增 4 + C-2 新增 7 + C-3 新增 3 + C-4 新增 3 + C-5 新增 2 + C-6 新增 4 + P-1 新增 5 + 交接总结新增 2 + P-5 新增 2 + P-6 新增 7 + 评估文档 1 + P-7 新增 4 + P-8 新增 7 + 架构图册 3 + 能力对比报告 1 + P-9 新增 4）。
+> 生成自 `git ls-files` + `HANDOFF/`，第二十二轮 P-1 收尾后共 **297** 个条目，2026-11-08 交接总结新增根目录 2 个文件后共 **299** 个条目，第二十三轮 P-5 新增 2 个文件后共 **301** 个条目，第二十四轮 P-6 新增 7 个文件后共 **308** 个条目，OpenMausBot 参考评估新增 1 份文档后共 **309** 个条目，第二十五轮 P-7 新增 4 个文件后共 **313** 个条目，第二十六轮 P-8 新增 7 个文件后共 **320** 个条目，架构图册新增 3 个文件后共 **323** 个条目，上游能力对比报告新增 1 份文档后共 **324** 个条目，第二十七轮 P-9 新增 4 个文件后共 **328** 个条目，第二十八轮 P-10 新增 2 个文件（`src/hitl-bridge.ts`、`tests/hitl-bridge.test.ts`）后共 **330** 个条目（第十四轮 269 + C-1 新增 4 + C-2 新增 7 + C-3 新增 3 + C-4 新增 3 + C-5 新增 2 + C-6 新增 4 + P-1 新增 5 + 交接总结新增 2 + P-5 新增 2 + P-6 新增 7 + 评估文档 1 + P-7 新增 4 + P-8 新增 7 + 架构图册 3 + 能力对比报告 1 + P-9 新增 4 + P-10 新增 2）。
 > 列：`路径 | 行数 | 说明`。`upstream/<name>` 是 gitlink（submodule），行数记 `-`；既有条目的行数为生成时快照，文档改版后以文件实际内容为准。
 > 说明来源：精写字典 213 条、从源码注释/导出/测试名自动提取 69 条、按类型兜底 0 条。
 > 需要更详细的「哪些文件一起完成什么」见 `04-CODE-MAP.md`；目录结构见 `DIRECTORY-GUIDE.md`。
@@ -14,7 +14,7 @@
 | `HANDOFF/02-ARCHITECTURE.md` | 89 | 技术架构：四层数据流、7 个上游真实引用强度、前端分层、中文壳、路由契约、共享记忆主干（B1+B2）、平台端口、代码交付。 |
 | `HANDOFF/03-WORK-LOG.md` | 73 | 全部 27 轮工作记录（含第十五轮补遗、第十六轮 C-1、第十七轮 C-2、第十八轮 C-3、第十九轮 C-4、第二十轮 C-5、第二十一轮 C-6）、7 条排障模式、用户明确做过的决策。 |
 | `HANDOFF/04-CODE-MAP.md` | 172 | 按 14 个功能域讲「哪些文件一起完成什么」、关键导出与依赖方向速查。 |
-| `HANDOFF/05-VALIDATION-AND-COMMANDS.md` | 207 | 全套回归命令、第二十二至二十七轮实测结果（含 `npm test` 521/521、`guard:smoke` 22/22、`memory:hierarchy` 16/16、`steps:smoke` 54/54、各隔离冒烟）、真实 HTTP 冒烟模板、服务端口表、排障速查、提交前检查。 |
+| `HANDOFF/05-VALIDATION-AND-COMMANDS.md` | 207 | 全套回归命令、第二十二至二十八轮实测结果（含 `npm test` 532/532、`guard:smoke` 22/22、`memory:hierarchy` 16/16、`steps:smoke` 54/54、各隔离冒烟）、真实 HTTP 冒烟模板、服务端口表、排障速查、提交前检查。 |
 | `HANDOFF/06-CURRENT-STATE-AND-NEXT.md` | 167 | 当前状态快照（第二十七轮 P-9）、B2 四项真跑证据、C-0~C-6 分步清单、按配置的三层判断、去 Paperclip 化路线、P-1 / P-5 / P-6 / P-7 / P-8 / P-9 六轮交付与证据、剩余生产项与待拍板事项。 |
 | `HANDOFF/07-RULES-AND-BOUNDARIES.md` | 52 | 红线与边界：业务验收身份、隐私与 .runtime、服务约束、许可证、前端入口、工程约束。 |
 | `HANDOFF/08-OPEN-DECISIONS.md` | 112 | 13 个条目（8 项待拍板 + 产品形态 ②、B2 范围、组织形态可配置与自演进、Paperclip 去留四条历史记录 + 第 11 条 Runner 已拍板完成）：第 12 条 OpenMausBot (b) 五项、第 13 条 Anthropic agent memory 写入链改造四项仍待拍板；两条的确定性部分已于 P-8 落地；第二十七轮 P-9 已接通双向回流建议与三个执行链节点留痕（自动排后续步骤仍待拍板）。 |
@@ -43,7 +43,7 @@
 | `src/cli.ts` | 23 | 命令行入口，装配配置与命令分发。 |
 | `src/client.ts` | 11 | 前端或 CLI 调 Bridge 的 api() 请求封装。 |
 | `src/cognee-native.ts` | 110 | Cognee 原生管线接入层：从进程环境解析 LLM/embedding 配置、生成状态、spawn Python 子进程；凭据不落盘。 |
-| `src/collaboration-intake.ts` | 72 | 协作任务入口：复用 Super Agent 事件归一化与既有 event/outbox 存储。 |
+| `src/collaboration-intake.ts` | 108 | 协作任务入口：复用 Super Agent 事件归一化与既有 event/outbox 存储。 |
 | `src/commands.ts` | 10 | 子进程命令执行封装（command()），带 cwd 与 stdin 支持。 |
 | `src/config.ts` | 137 | 全项目 zod 配置 schema、loadConfig / secrets / runtime / root；新增配置项必须在此加默认值。 |
 | `src/context-grant.ts` | 92 | 跨空间 Context Grant（FR-10/26）：申请、批准、拒绝、撤销、读写分离审批、可用性校验。 |
@@ -403,7 +403,13 @@
 
 | 路径 | 行数 | 说明 |
 |---|---|---|
-| `src/collaboration-loop.ts` | 530 | 双向协作回路一等契约：下行 8 类 / 上行 6 类、`loopReport()` 回路判据（完整回合 / 未应答上行 / 答完不回流 / 回执无人复核 / 单向段）、`attachImplicitReplies()` 就近配对、`bridgeAnswerToResume()` 回流建议、`fromAutoloopReceipt()` 与 `fromHitlLedger()` 上游归一化、红线断言。纯函数、零 IO / 零模型。 |
-| `tests/collaboration-loop.test.ts` | 244 | 16 例契约：双向完整回合、单向判定、半回路、回流建议闭合、回执≠验收、自动接续拒绝、上游协议映射、确定性签名。 |
+| `src/collaboration-loop.ts` | 565 | 双向协作回路一等契约：下行 8 类 / 上行 6 类、`loopReport()` 回路判据（完整回合 / 未应答上行 / 答完不回流 / 回执无人复核 / 单向段）、`attachImplicitReplies()` 就近配对、`bridgeAnswerToResume()` 回流建议、`fromAutoloopReceipt()` 与 `fromHitlLedger()` 上游归一化、红线断言。纯函数、零 IO / 零模型。 |
+| `tests/collaboration-loop.test.ts` | 304 | 16 例契约：双向完整回合、单向判定、半回路、回流建议闭合、回执≠验收、自动接续拒绝、上游协议映射、确定性签名。 |
 | `tests/p9-contracts.test.ts` | 80 | 6 例常态契约：三处白名单、三个执行链节点真实引用、回流建议红线、半回路判据、任务归属继承、核可不是回答。 |
 | `scripts/loop-smoke.ts` | 194 | `npm run loop:smoke` 16/16 真跑：真实 HTTP 体检 + 隔离子进程「提问→真人回答→建议落盘」+ 半回路闭合证据 + 只读红线核对。 |
+## 第二十八轮 P-10 新增文件（2）
+
+| 路径 | 行数 | 说明 |
+|---|---|---|
+| `src/hitl-bridge.ts` | 122 | 飞书回答与 CLI 共用的路由核心：`routeAnswerToHitl()` 纯函数判据（显式问题编号才路由、提问者自答 / 越界选项 / 重复回答 / 核可短语全拒）、`persistHitlAnswer()` 落台账与建议、`resumeProposalFile()` 路径解析。恒 advisory，不排步骤、不改任务状态。 |
+| `tests/hitl-bridge.test.ts` | 139 | P-10 契约 6 例：显式回答路由成功、隐式不路由、四类拒绝、坏行如实报数、Memory / File 台账注入与 persist 行为。 |

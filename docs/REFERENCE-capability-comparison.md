@@ -49,7 +49,7 @@
 |---|---|---|---|
 | 1 | **平台自身不能自主推理、自己多轮调工具写代码**。我们是确定性工程层，模型调用发生在被 spawn 的 CLI 里 | A | `HANDOFF/07:49` `modelCalls=0`；`src/step-runner.ts` 的 `model-call` 步无端点直接抛错「本机不编造模型调用」；对比 Harness `packages/core/agent-loop/README.md:10-12,73-75`、Super Agent `docs/005-panel.md:37-38`、Prime Agent `README.md:108` |
 | 2 | **没有通用运行时 / 工具沙箱 / PTY / 多 CLI driver 注册表**。`step:once` 白名单只有 `sha256`，执行端默认只启用 codex | A | `src/step-runner.ts:18-54`；`PROJECT-SUMMARY.md:259` 远端工具沙箱与多机 Remote Tool Calling「明确未引入」；对比 Harness `packages/core/tools/README.md:10-12`、Autoloop `worker/agents.ts:39-48` |
-| 3 | **新 HITL / 单步链路的请示闭环不完整**：无 IM 写回、回答不续跑、默认未启用 | A | `scripts/step-answer.ts:43`、`HANDOFF/07:34`、`docs/ADAPTATION-v0.6.md:66`、`HANDOFF/06:120`「真实业务单未在 step 模式跑过」 |
+| 3 | **新 HITL / 单步链路的请示闭环**：无 IM 写回、回答不续跑、默认未启用 | A（已部分修复） | ~~`scripts/step-answer.ts:43`~~ 第二十八轮 P-10 已把飞书显式「回答 <问题编号> <选项>」接进成对台账并产出 advisory 回流建议（`src/hitl-bridge.ts`，CLI 与 IM 共用判据）；仍未做：回答后自动排后续步骤（待拍板）、`step` 模式切真实业务单（待拍板）、默认未启用 |
 | 4 | **独立视觉评审链当前是断的**（4190 停机，且按用户要求不得重启） | A | `docs/VALIDATION.md:149`、`README.md:177`、`HANDOFF/07:20` |
 | 5 | **没有产品级在线形态**：无 SSO、无真实员工入驻、无多租户、无公网服务发现、无生产发布 | A | `PRODUCT.md:7`、`docs/TEAM-NETWORK-MEMORY.md:40,62-64`、`HANDOFF/06:83`；对比 Paperclip `README.md:92,220,260`、LobeHub 产品形态 |
 | 6 | **模型驱动的记忆与自整理**：Cognee 原生 cognify / embedding / LLM 实体抽取链路已实现但真实调用从未发生；模型判断 salience / 自动 Dreaming / 自动提升记忆 | A + B | `HANDOFF/08:17`「真实调用从未发生」；`docs/REFERENCE-anthropic-agent-memory.md` 第 7 节明确不照搬 |
@@ -114,7 +114,9 @@
 
 `src/collaboration-loop.ts` 是这一层的**一等契约**（纯函数、零 IO / 零模型）：显式定义下行 8 类 / 上行 6 类动作，`loopReport()` 判出「完整回合 / 未应答上行 / 答完不回流 / 回执无人复核 / 单向推送段」，`attachImplicitReplies()` 让真人直接回一句「继续」也能按时间就近配对，`assertLoopAdvisory()` 焊死回执 ≠ 验收、回答 ≠ 放行、不得自动执行。只读 action `loop-guard` 汇总三处真实留痕。
 
-**如实边界**：真实业务单尚未在这条链上跑过，所以 `loop-guard` 当前如实报 `bidirectional:false`、四个耦合点计数为 0，**没有编造事件把体检跑绿**；`npm run loop:smoke` 的 C/D/E 段用真实执行链函数在隔离临时目录跑通「提问 → 真人回答 → 回流建议 → 半回路闭合」。仍未做的仍是产品决策：自动排后续步骤、把 `step` 模式从 `steps:smoke` 推进到真实业务单、飞书回答直接写入 HITL 台账——这些会把「回答」变成「放行」，需真人拍板，不擅自推进。
+**如实边界**：真实业务单尚未在这条链上跑过，所以 `loop-guard` 当前如实报 `bidirectional:false`、四个耦合点计数为 0，**没有编造事件把体检跑绿**；`npm run loop:smoke` 的 C/D/E 段用真实执行链函数在隔离临时目录跑通「提问 → 真人回答 → 回流建议 → 半回路闭合」。仍未做的仍是产品决策：自动排后续步骤、把 `step` 模式从 `steps:smoke` 推进到真实业务单——这些会把「回答」变成「放行」，需真人拍板，不擅自推进。
+
+**第二十八轮 P-10 补充（漏洞修复 + 飞书回答接进台账）**：修掉五个真实缺陷——`fromHitlLedger` 的 `at` 类型不匹配（ISO 字符串与 epoch 毫秒混排产生 NaN 排序，`toLoopAt()` 统一归一）、`loop-guard` 下行事件撞号双计（`dedupeLoopEvents()` 去重并如实报数）、`mapFollowupToAnswer` 的 `\b` 对中文失效（裸「确认验收」漏网，已改中文感知正则）、`FileHitlSink` 坏行静默丢弃（`readWithHealth()` 报 `badLines`）、`memory-guard` 知识记录 title 取到 `'{}'`。功能缺陷修复：新增 `src/hitl-bridge.ts`，飞书显式「回答 <问题编号> <选项>」经 IM 绑定校验后路由进 Runner 成对台账并产出 advisory 回流建议（参考 OpenMausBot question 卡片人侧回写），CLI 与飞书共用同一判据；隐式回答宁可不路由，路由成功不排步骤、不改状态、不等于验收。验证 `npm test` 532/532、`loop:smoke` 17/17、golden 无差异（19 项白名单不变）。
 
 ## 8 口径来源
 

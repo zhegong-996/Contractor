@@ -14,12 +14,12 @@
 
 | 项 | 当前值 |
 |---|---|
-| 迭代 / 单测 | 27 轮 · `npm test` **521/521** |
+| 迭代 / 单测 | 28 轮 · `npm test` **532/532** |
 | 任务发起入口 | **仅飞书 IM**（唯一），7 条中文指令 → 任务单 |
 | 默认底座 / 执行模式 | `paperclip` / `loop`（`local-pg` 与 `step` 真跑过但未启用为默认，可逐字回退） |
 | 上游 | 7 个固定 submodule + 1 个 npm 直接依赖；另有 `protocolReferences`（Runner）与 `conceptReferences`（OpenMausBot / Anthropic）**只借思想，不是第 8 个上游** |
 | 确定性链路 | `modelCalls=0`（模型调用只发生在被启动的本机 CLI 子进程里，进 `usage` 与回执） |
-| 最新一轮 | P-9 双向协作回路：`src/collaboration-loop.ts` + 三个真实执行链节点 + 只读 `loop-guard`，`npm run loop:smoke` 16/16 |
+| 最新一轮 | P-10 漏洞修复与飞书回答接进 HITL 台账：`src/hitl-bridge.ts` + 五个真实缺陷修复，`npm run loop:smoke` 17/17 |
 
 **三条最容易误读的边界**：
 1. **全绿 ≠ 生产可用**：真人业务单「确认验收 SUI-129」至今未发生；报告、模型判定、CI、合并审批都不替代它。
@@ -90,11 +90,12 @@ flowchart LR
 | P-6 | 移植 Runner 两块协议（HITL 成对留痕、队列送达证据）与四项借思想 | MIT 固定提交，TS 重写，7 个上游不变 |
 | P-7 | 参考 Anthropic agent memory 落成五条知识沉淀规则守门 | 网页文章仅借思想，登记 `conceptReferences` |
 | P-8 | 查漏补缺：守门只读接真实数据；取长补短：行为基线六项 | 修掉三个真实缺陷，人审冻结基线 |
-| **P-9** | **双向协作回路与上游协议真实耦合** | **纠正参考方向，把回流接进三个执行链节点** |
+| P-9 | 双向协作回路与上游协议真实耦合 | 纠正参考方向，把回流接进三个执行链节点 |
+| **P-10** | **漏洞修复与飞书回答接进 HITL 台账** | **修掉五个真实缺陷；显式「回答」路由进成对台账，恒 advisory** |
 
 ### 2.3 功能成熟度三档
 
-- **已跑通且有回归证据**：发起 / 派单 / 上下文与知识 / 验收 / 交付 / 治理主干、B1 / B2 记忆、11 步真实浏览器走查、全套隔离真跑（当前 521/521）。
+- **已跑通且有回归证据**：发起 / 派单 / 上下文与知识 / 验收 / 交付 / 治理主干、B1 / B2 记忆、11 步真实浏览器走查、全套隔离真跑（当前 532/532）。
 - **真跑过但未成为默认 / 未接生产**：`local-pg` 与 `step` 模式、单步 HITL 台账、Cognee 原生 cognify、远端工具沙箱。
 - **只有契约或预备配置**：外部模型端点、多机切换 / Redis、金额成本账本、SSO / 真实员工入驻、公网服务发现、生产发布、L1–L5 自主度。
 
@@ -124,9 +125,9 @@ flowchart TB
 | 上行 | Autoloop 回执 `ask / notice / later / outcome`（经 `resultFrom()` 解析） | `src/controller.ts` `receipt()` → `fromAutoloopReceipt()` → `loop.upstream` 审计留痕 |
 | 下行 | 同一协议的 `continuationPolicy:'wake_assignee'` + 补充说明 | `controller.reply()` → `mapFollowupToAnswer()` → 追加 comment、`phase='ready'`、wakeup/retry 自动启动下一轮 |
 | 下行 | Super Agent 飞书 IM 事件归一化 | `src/collaboration-intake.ts` `ingest()` → `loop.downstream` 留痕；`delegate()` 唤醒不变 |
-| 闭合 | Runner `human_response` 回流语义 | `scripts/step-answer.ts` → `bridgeAnswerToResume()` → 独立 append-only `resume-proposals.jsonl` |
+| 闭合 | Runner `human_response` 回流语义 | `src/hitl-bridge.ts`（CLI `step:answer` 与飞书显式「回答 <问题编号> <选项>」共用判据）→ 成对台账 + `bridgeAnswerToResume()` → 独立 append-only `resume-proposals.jsonl` |
 
-`src/collaboration-loop.ts` 是这一层的一等契约（纯函数、零 IO / 零模型）：下行 8 类 / 上行 6 类；`loopReport()` 判出完整回合、未应答上行、**答完不回流**、回执无人复核、单向推送段；`attachImplicitReplies()` 让真人直接回一句「继续」也按时间就近配对；`assertLoopAdvisory()` 焊死只读。只读 action `loop-guard` 汇总真实留痕，三处白名单同步。
+`src/collaboration-loop.ts` 是这一层的一等契约（纯函数、零 IO / 零模型）：下行 8 类 / 上行 6 类；`loopReport()` 判出完整回合、未应答上行、**答完不回流**、回执无人复核、单向推送段；`attachImplicitReplies()` 让真人直接回一句「继续」也按时间就近配对；`dedupeLoopEvents()` 防同消息双留痕双计、`toLoopAt()` 统一 ISO / epoch 时间；`assertLoopAdvisory()` 焊死只读。只读 action `loop-guard` 汇总真实留痕（含 `ledgerHealth` 坏行与撞号计数），三处白名单同步。**P-10（第二十八轮）**：飞书显式「回答 <问题编号> <选项>」经 IM 绑定校验后直接路由进 HITL 成对台账——恒 advisory，隐式回答宁可不路由，回答仍不排后续步骤、不等于验收。
 
 ### 3.3 回路红线
 
@@ -220,14 +221,14 @@ P-7 五条规则：知识必须能回到原始事件、知识地图链接完整�
 ## 6 验证与命令
 
 ```bash
-npm test                    # 521/521（基线）
+npm test                    # 532/532（基线）
 npx tsc --noEmit            # 类型检查
 npm run build:workspaces    # 插件与工作台构建
 npm run build:chinese-shell # 中文壳与国内适配
 npm run test:responsive     # 425px 响应式
 npm run test:walkthrough    # 真实浏览器 11/11
 npm run console:smoke       # 独立控制台六视图，failed: []
-npm run loop:smoke          # P-9 双向回路 16/16
+npm run loop:smoke          # P-9/P-10 双向回路 17/17
 npm run guard:smoke        # P-8 冻结基线 + 真实 HTTP 22/22
 npm run memory:hierarchy    # P-7 记忆分层 16/16
 npm run steps:smoke         # P-1 单步执行 54/54

@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import {
   loopReport, loopSignature, attachImplicitReplies, assertLoopAdvisory,
   fromAutoloopReceipt, fromHitlLedger, bridgeAnswerToResume, assertResumeProposal,
-  mapFollowupToAnswer, type LoopEvent,
+  mapFollowupToAnswer, dedupeLoopEvents, toLoopAt, type LoopEvent,
 } from '../src/collaboration-loop.ts';
 
 type Patch = Partial<LoopEvent>;
@@ -241,4 +241,64 @@ test('P-9 端到端：上游回执 + Runner 台账 + 回流建议能拼成一条
   assert.equal(withProposal.bidirectional, true);
   assert.ok(withProposal.closedCycles > without.closedCycles,
     '回流建议必须让半回路真的闭合，而不只是多一个字段');
+});
+
+// --- 第二十八轮修复回归 -------------------------------------------------------
+
+test('P-10 fromHitlLedger 归一化 ISO 字符串时间：与数字时间混排不再产生 NaN 排序', () => {
+  // 真实台账的 at 是 ISO 字符串（askHuman 默认 new Date().toISOString()），
+  // 而审计行归一出来的是 epoch 毫秒。修复前 a.at - b.at 会得到 NaN，
+  // 排序与因果比较全部失效——这是 loop-guard 在真实数据上的潜伏缺陷。
+  const iso = (ms: number) => new Date(ms).toISOString();
+  const hitl = fromHitlLedger({ events: [
+    { id: 'q1', type: 'human_question', at: iso(10_000), payload: { run_id: 'RUN1', asker: 'worker' } },
+    { id: 'a1', type: 'human_response', at: iso(20_000), payload: { question_id: 'q1', choice: '继续', actor: '原发起人' } },
+  ] });
+  assert.equal(typeof hitl[0]!.at, 'number');
+  assert.equal(hitl[0]!.at, 10_000);
+  assert.equal(hitl[1]!.at, 20_000);
+  // 与数字时间的上游回执混排后，回路判据仍然正确（回答晚于提问）。
+  const upstream = fromAutoloopReceipt({ receiptId: 'R1', taskId: 'RUN1', agent: 'worker', at: 5_000,
+    result: { outcome: 'done' } });
+  const report = loopReport({ events: [...upstream, ...hitl],
+    resumeProposals: [{ id: 'resume:1', inReplyTo: 'a1' }] });
+  assert.equal(report.bidirectional, true);
+  assert.deepEqual(report.staleAnswers, []);
+  // 无法解析的时间按 0 处理（确定性），不产生 NaN。
+  assert.equal(toLoopAt('not-a-date'), 0);
+  assert.equal(toLoopAt(123), 123);
+  assert.equal(toLoopAt(iso(456)), 456);
+});
+
+test('P-10 mapFollowupToAnswer：裸「确认验收」也必须被拒收（\\b 对中文失效的修复）', () => {
+  // JS 的 \b 只认 ASCII 词字符，「确认验收」后面跟的全是非词字符时永远不成立，
+  // 旧正则 /^确认验收\b|.../ 会让整句就是核可的消息漏进回答通道。
+  assert.equal(mapFollowupToAnswer('确认验收', 'ou_owner').accepted, false);
+  assert.match(mapFollowupToAnswer('确认验收', 'ou_owner').reason ?? '', /最终核可/);
+  assert.equal(mapFollowupToAnswer('确认验收 SUI-129', 'ou_owner').accepted, false);
+  assert.equal(mapFollowupToAnswer('请确认验收 SUI-1', 'ou_owner').accepted, false);
+  // 正常回答不受影响。
+  assert.equal(mapFollowupToAnswer('回答 q1 继续', 'ou_owner').accepted, true);
+  assert.equal(mapFollowupToAnswer('回复 hq-abc 暂停', 'ou_owner').questionId, 'hq-abc');
+  assert.equal(mapFollowupToAnswer('继续', 'ou_owner').accepted, true);
+});
+
+test('P-10 dedupeLoopEvents：同 id 双留痕只计一次，撞号如实报出', () => {
+  // 同一条 IM 消息可能同时被 controller.reply() 与 intake.ingest() 留痕。
+  const events: LoopEvent[] = [
+    ev({ id: 'down:om-1', direction: 'downstream', kind: 'supplement', at: 5 }),
+    ev({ id: 'down:om-1', direction: 'downstream', kind: 'supplement', at: 9 }),
+    ev({ id: 'q1', direction: 'upstream', kind: 'question', at: 2,
+      actor: 'worker', expectsHumanAction: 'answer' }),
+  ];
+  const deduped = dedupeLoopEvents(events);
+  assert.equal(deduped.events.length, 2);
+  assert.equal(deduped.duplicates, 1);
+  assert.deepEqual(deduped.duplicateIds, ['down:om-1']);
+  // 保留时间最早的一条（at=5），不是任意一条。
+  assert.equal(deduped.events.find(e => e.id === 'down:om-1')!.at, 5);
+  // 去重后回路计数不再双计。
+  const report = loopReport({ events: deduped.events });
+  assert.equal(report.downstream, 1);
+  assert.deepEqual(dedupeLoopEvents(fullCycle()).duplicates, 0);
 });

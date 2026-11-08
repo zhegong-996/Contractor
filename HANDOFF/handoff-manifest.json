@@ -128,7 +128,7 @@
     "收尾修复：reviewSource 改用评审后 revision，消除真实链路悬空 lineage；历史 append-only 日志中的旧行不物理删除"
   ],
   "validation": {
-    "unitTests": "521/521",
+    "unitTests": "532/532",
     "typecheck": "pass",
     "buildWorkspaces": "pass",
     "buildChineseShell": "pass (hiddenEntries 4, missed 0, warning null；前台重跑，后台沙箱批量删除保护为已知坑)",
@@ -267,11 +267,11 @@
     "autoExtractedDescriptions": 69,
     "fallback": 0,
     "uncovered": 0,
-    "note": "第十四轮 269 + C-1 新增 4 + C-2 新增 7 + C-3 新增 3 + C-4 新增 3 + C-5 新增 2 + C-6 新增 4 + P-1 新增 5（src/step-execution.ts、src/loop-pump.ts、src/step-runner.ts、scripts/steps-smoke.ts、tests/step-execution.test.ts）+ 2026-11-08 交接总结新增 2（HANDOFF.md、PROJECT-SUMMARY.md）+ P-5 新增 2（src/workspace-summary.ts、tests/workspace-summary.test.ts）+ P-6 新增 7（src/step-hitl.ts、src/step-delivery.ts、src/mission-state.ts、scripts/step-answer.ts、tests/step-hitl.test.ts、tests/step-delivery.test.ts、licenses/runner-MIT.txt）+ 评估文档 1（docs/REFERENCE-openmausbot.md）+ P-7 新增 4（src/memory-hierarchy.ts、tests/memory-hierarchy.test.ts、scripts/memory-hierarchy-smoke.ts、docs/REFERENCE-anthropic-agent-memory.md）+ P-8 新增 7（src/knowledge-guard.ts、src/behavior-baseline.ts、tests/knowledge-guard.test.ts、tests/behavior-baseline.test.ts、tests/p8-contracts.test.ts、scripts/guard-smoke.ts、fixtures/behavior-golden.json）+ 架构图册 3（docs/architecture-atlas.html、docs/ARCHITECTURE-ATLAS.md、scripts/atlas-check.mjs）+ 能力对比报告 1（docs/REFERENCE-capability-comparison.md）+ P-9 新增 4（src/collaboration-loop.ts、tests/collaboration-loop.test.ts、tests/p9-contracts.test.ts、scripts/loop-smoke.ts）；既有文件修改不计新增"
+    "note": "第十四轮 269 + C-1 新增 4 + C-2 新增 7 + C-3 新增 3 + C-4 新增 3 + C-5 新增 2 + C-6 新增 4 + P-1 新增 5（src/step-execution.ts、src/loop-pump.ts、src/step-runner.ts、scripts/steps-smoke.ts、tests/step-execution.test.ts）+ 2026-11-08 交接总结新增 2（HANDOFF.md、PROJECT-SUMMARY.md）+ P-5 新增 2（src/workspace-summary.ts、tests/workspace-summary.test.ts）+ P-6 新增 7（src/step-hitl.ts、src/step-delivery.ts、src/mission-state.ts、scripts/step-answer.ts、tests/step-hitl.test.ts、tests/step-delivery.test.ts、licenses/runner-MIT.txt）+ 评估文档 1（docs/REFERENCE-openmausbot.md）+ P-7 新增 4（src/memory-hierarchy.ts、tests/memory-hierarchy.test.ts、scripts/memory-hierarchy-smoke.ts、docs/REFERENCE-anthropic-agent-memory.md）+ P-8 新增 7（src/knowledge-guard.ts、src/behavior-baseline.ts、tests/knowledge-guard.test.ts、tests/behavior-baseline.test.ts、tests/p8-contracts.test.ts、scripts/guard-smoke.ts、fixtures/behavior-golden.json）+ 架构图册 3（docs/architecture-atlas.html、docs/ARCHITECTURE-ATLAS.md、scripts/atlas-check.mjs）+ 能力对比报告 1（docs/REFERENCE-capability-comparison.md）+ P-9 新增 4（src/collaboration-loop.ts、tests/collaboration-loop.test.ts、tests/p9-contracts.test.ts、scripts/loop-smoke.ts）+ P-10 新增 2（src/hitl-bridge.ts、tests/hitl-bridge.test.ts）；既有文件修改不计新增"
   },
   "nextSteps": [
     "先读根目录 HANDOFF.md（接手总纲）与 PROJECT-SUMMARY.md（项目总结），再读 HANDOFF/00-START-HERE.md、06-CURRENT-STATE-AND-NEXT.md、docs/PRD-v0.6.md §10C、07-RULES-AND-BOUNDARIES.md",
-    "跑 HANDOFF/05-VALIDATION-AND-COMMANDS.md 的全套回归确认 521/521、走查 11/11、host:pg 21/21、console:smoke ok:true、router:smoke 31/31、agents:smoke 43/43、shapes:smoke 36/36、evolution:smoke 45/45、steps:smoke 54/54",
+    "跑 HANDOFF/05-VALIDATION-AND-COMMANDS.md 的全套回归确认 532/532、走查 11/11、host:pg 21/21、console:smoke ok:true、router:smoke 31/31、agents:smoke 43/43、shapes:smoke 36/36、evolution:smoke 45/45、steps:smoke 54/54",
     "C-3 已完成：五个派活点共 9 处收敛到单一 Router；默认 flat（1 跳），layered 按业务域最多 2 跳，legacy 可回退；历史路由决策不回溯改写",
     "C-4 已完成：组织级 Agent 编制（可扩展职责 / 生效范围 / 版本 / 快照）、Router 在岗校验、A2A 在岗交接、验收协作编组；默认空编制不硬造管理层，agents:smoke 真跑 43/43",
     "C-5 已完成：按当前配置重跑 assessThreeTier（P3/P4 按形态判定、接上 C-4 真实 Agent 绑定）、shape.ready 与 recommended 分离、扁平/分层各跑真实一单 36/36；默认扁平配置仍 recommended=false",
@@ -310,7 +310,7 @@
     "不要把 P-1 的「单步执行器已就绪、steps:smoke 真跑 40/40」解读成真实业务单已在 step 模式跑过或已发生外部模型调用；默认仍是 loop，step 只在显式配置且 host.provider=local-pg 时启用"
   ],
   "finalValidationAtHandoff": {
-    "unitTests": "521/521",
+    "unitTests": "532/532",
     "walkthrough": "11/11, failures 0",
     "consoleSmoke": "ok:true, 6/6 视图, 写动作 403, 零海外文案",
     "routerSmoke": "ok:true, 31/31 checks（三种组织形态，隔离内存 Trace）",
