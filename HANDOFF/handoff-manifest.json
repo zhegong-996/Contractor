@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "purpose": "SuitMe 协作台项目交接包：让下一位 Agent 无需对话历史即可安全继续",
-  "generatedAt": "2026-11-08T22:45:00+08:00",
+  "generatedAt": "2026-11-08T23:05:00+08:00",
   "authoritativeLocation": "/Users/gong.zhe/Developer/ai-native-collab/HANDOFF/",
   "rootEntryFiles": [
     {
@@ -30,8 +30,8 @@
     "A": "completed",
     "B1": "completed-and-validated",
     "B2": "completed-and-validated",
-    "C": "C-0 ~ C-6 分步清单全部完成并收口；生产项 P-1~P-13 与第三十一轮 ③c/③d 均已完成；第三十二轮默认底座已切 local-pg + step（用户拍板），真实业务单 step 验证留给用户",
-    "currentBoundary": "docs/ADAPTATION-v0.6.md 0.000000000000000000000000000000000 节（第三十二轮：默认底座 local-pg + step）；C 产品约束见 docs/PRD-v0.6.md §10C；验证见 HANDOFF/05 第 10 节与 docs/VALIDATION.md 第三十二轮",
+    "C": "C-0 ~ C-6 分步清单全部完成并收口；生产项 P-1~P-13 与第三十一轮 ③c/③d 均已完成；第三十二轮默认底座已切 local-pg + step（用户拍板）；第三十三轮 DeepSeek v4 flash 接入 Cognee 原生管线（用户给 key，cognify/search 端到端真跑通过）",
+    "currentBoundary": "docs/ADAPTATION-v0.6.md 0.0000000000000000000000000000000000 节（第三十三轮：DeepSeek v4 flash 接入）；C 产品约束见 docs/PRD-v0.6.md §10C；验证见 HANDOFF/05 第 11 节与 docs/VALIDATION.md 第三十三轮",
     "userDecision": "② 改成独立前端应用（废弃 PRD §10A 的 S5/S6，保留 S1–S4，飞书 IM 仍是唯一发起入口）；补遗：组织形态必须可配置（按业务域/组织单元生效、允许一个 Agent 兼任多职责、禁止同一 Task 自派自验自环），Agent 靠沉淀自我改进但核心决策仍由人做，判断是工程能力 + AI 能力组合，验收本身也是一个可与产品/技术/运营协作的 Agent",
     "cProductConstraints": [
       "C-P1 组织形态可配置：层不是产品骨架；Agent 实例与职责绑定/生效范围/版本分离；组织级唯一、项目只引用不覆写、变更留快照不回溯",
@@ -128,7 +128,7 @@
     "收尾修复：reviewSource 改用评审后 revision，消除真实链路悬空 lineage；历史 append-only 日志中的旧行不物理删除"
   ],
   "validation": {
-    "unitTests": "557/557",
+    "unitTests": "558/558",
     "typecheck": "pass",
     "buildWorkspaces": "pass",
     "buildChineseShell": "pass (hiddenEntries 4, missed 0, warning null；前台重跑，后台沙箱批量删除保护为已知坑)",
@@ -144,7 +144,7 @@
       "memory:checkpoint": "ok",
       "routing:status": "ok (allWired:true, router.mode=flat, routerCoverage total=65/routed=7, shape.mode=flat, P3/P4 按扁平口径, p8=false, recommended=false；真实 HTTP 200 与 CLI 一致)",
       "host:smoke": "ok",
-      "cognee:native status": "configured:false（缺 4 个环境变量，未外发业务材料）",
+      "cognee:native status": "configured:true（LLM openai/deepseek-v4-flash 外部；embedding 本机 fastembed jina zh 768 维；key 只进进程环境）",
       "host:pg": "ok:true, 24/24（PostgreSQL 17.10 专属库 suitme_collab_c1；含对外动作 interrupted / 委托树血缘 / generation）",
       "console": "按需启动 http://127.0.0.1:4200/（只绑回环，非常驻服务）",
       "console:smoke": "ok:true，55/55（登录制 / RBAC 边界 / 知识分区与读分区 / 证据锚点 / wiki / 注入索引 / 六视图 / 主题 / 425px / 零海外文案）",
@@ -153,7 +153,7 @@
       "evolution:smoke": "ok:true, 45/45；隔离临时治理台账，不写真实 .runtime/evolution/events.jsonl 与 .runtime/memory/events.jsonl"
     },
     "gitDiffCheck": "pass",
-    "reference": "HANDOFF/05-VALIDATION-AND-COMMANDS.md 第 10 节与 docs/VALIDATION.md 第三十二轮",
+    "reference": "HANDOFF/05-VALIDATION-AND-COMMANDS.md 第 11 节与 docs/VALIDATION.md 第三十三轮",
     "hostPgSmoke": "ok:true, 24/24（PostgreSQL 17.10 专属库 suitme_collab_c1，现亦为默认底座）",
     "consoleSmoke": "ok:true, 55/55；检查项含登录 / RBAC / 知识分区正负例 / 读分区三例 / 证据锚点 / wiki / 注入索引纪律 / 六视图 / 主题 / 425px / 零海外文案",
     "routerSmoke": "ok:true, checks 31, failed []；隔离内存 Trace，未写真实 .runtime/routing/events.jsonl",
@@ -271,10 +271,10 @@
     "note": "第十四轮 269 + C-1 新增 4 + C-2 新增 7 + C-3 新增 3 + C-4 新增 3 + C-5 新增 2 + C-6 新增 4 + P-1 新增 5（src/step-execution.ts、src/loop-pump.ts、src/step-runner.ts、scripts/steps-smoke.ts、tests/step-execution.test.ts）+ 2026-11-08 交接总结新增 2（HANDOFF.md、PROJECT-SUMMARY.md）+ P-5 新增 2（src/workspace-summary.ts、tests/workspace-summary.test.ts）+ P-6 新增 7（src/step-hitl.ts、src/step-delivery.ts、src/mission-state.ts、scripts/step-answer.ts、tests/step-hitl.test.ts、tests/step-delivery.test.ts、licenses/runner-MIT.txt）+ 评估文档 1（docs/REFERENCE-openmausbot.md）+ P-7 新增 4（src/memory-hierarchy.ts、tests/memory-hierarchy.test.ts、scripts/memory-hierarchy-smoke.ts、docs/REFERENCE-anthropic-agent-memory.md）+ P-8 新增 7（src/knowledge-guard.ts、src/behavior-baseline.ts、tests/knowledge-guard.test.ts、tests/behavior-baseline.test.ts、tests/p8-contracts.test.ts、scripts/guard-smoke.ts、fixtures/behavior-golden.json）+ 架构图册 3（docs/architecture-atlas.html、docs/ARCHITECTURE-ATLAS.md、scripts/atlas-check.mjs）+ 能力对比报告 1（docs/REFERENCE-capability-comparison.md）+ P-9 新增 4（src/collaboration-loop.ts、tests/collaboration-loop.test.ts、tests/p9-contracts.test.ts、scripts/loop-smoke.ts）+ P-10 新增 2（src/hitl-bridge.ts、tests/hitl-bridge.test.ts）；既有文件修改不计新增+ P-11/P-12/P-13 新增 15（auto-resume / delegated-accept / services / rbac / console-auth / knowledge-authz / auto-resume.test / console/vendor 5 / licenses 3）+ 第三十一轮 ③c/③d 新增 7（knowledge-representation / dreaming / skill-pack / escalation / team-pack / knowledge-writechain.test / openmaus-12b.test）"
   },
   "nextSteps": [
-    "默认底座已切 local-pg + step（第三十二轮用户拍板）：真实业务单在 step 模式跑通仍需用户在飞书发起一单验证；回退只需显式配 paperclip / loop",
-    "Cognee 原生 cognify（cogneeNative）：当前无消费者、调用代码未写；本地 Ladybug+BM25 链路无需 key 已验证；接通需外部 LLM+Embedding key 或本机装 ollama",
+    "Cognee 原生管线已接通（第三十三轮）：cognify 自动接入产品知识入库链路（哪一步、什么范围材料自动外发）与 DeepSeek key 持久化方式待用户拍板（HANDOFF/08 第 2 项）；key 只在进程环境，机器重启后 bridge 需带 COGNEE_LLM_* 重启",
+    "默认底座 local-pg + step（第三十二轮）：真实业务单在 step 模式跑通仍需用户在飞书发起一单验证；回退只需显式配 paperclip / loop",
     "autoloop worker 内部子调用逐次拆分（当前按 tick 级单步）",
-    "真实外部模型端点 / 远端工具沙箱 / 多机切换、金额成本账本接入效果看板",
+    "真实远端工具沙箱 / 多机切换、金额成本账本接入效果看板（Cognee 原生管线的 DeepSeek 调用费用也应纳入账本）",
     "飞书部门 scope 授权需本人扫码确认；「pi」的指代（当前按 earendil-works/pi 理解）"
   ],
   "openDecisions": [
@@ -304,7 +304,7 @@
     "不要把升级闸当成代批通道（恒「不代为批准」）、不要让团队包导入提权、不要让 Skill 默认开启或绕过内容哈希校验"
   ],
   "finalValidationAtHandoff": {
-    "unitTests": "557/557",
+    "unitTests": "558/558",
     "walkthrough": "11/11, failures 0",
     "consoleSmoke": "ok:true, 55/55（登录制 / RBAC / 知识分区与读分区 / 证据锚点 / wiki / 注入索引 / 六视图 / 主题 / 425px / 零海外文案）",
     "routerSmoke": "ok:true, 31/31 checks（三种组织形态，隔离内存 Trace）",
@@ -316,7 +316,7 @@
     "stepsSmoke": "ok:true, 61/61（A1：默认 step 且 loop 可显式回退）",
     "memoryHierarchySmoke": "ok:true, 16/16 checks",
     "atlasCheck": "ok:true, 11/11 checks",
-    "note": "第三十二轮切默认底座后重跑全套：npm test 557/557、steps:smoke 61/61、host:pg 24/24、console:smoke 55/55、guard:smoke 22/22、loop:smoke 18/18、其余隔离冒烟 / 两构建 / 走查 / 425px / atlas / audit:upstream / git diff --check 全绿；step:once 新默认端到端两跑（权限重评拒绝 + 带主体领步诚实失败）；Cognee 本地图谱链路隔离真跑（conceptRecall:true, modelCalls:0）"
+    "note": "第三十三轮 DeepSeek v4 flash 接入后重跑全套：npm test 558/558、tsc、四构建、steps:smoke 61/61、host:pg 24/24、console:smoke 55/55、guard:smoke 22/22（golden 无漂移）、loop:smoke 18/18、其余隔离冒烟 / 走查 / 425px / atlas / audit:upstream / git diff --check 全绿；DeepSeek 真实调用端到端通过（key 直连 + cognify 中文材料抽取 ok:true + search 语义召回准确）；bridge 带 env 重启后 system-status 显示 configured:true / embeddingLocal:true"
   },
   "authoritativeOnly": true,
   "portableCopyNote": "WorkBuddy 工作区 handoff/ 与 SuitMe-HANDOFF.zip 已停用、不再维护；详细交接唯一权威位置为仓库内 HANDOFF/，根目录 HANDOFF.md / PROJECT-SUMMARY.md 为同仓库内同步维护的总览入口。",

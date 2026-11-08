@@ -1,6 +1,6 @@
 # 06 · 当前状态与下一步（接手者最该看的一份）
 
-## 1. 状态快照（第三十二轮：默认底座已切 local-pg + step）
+## 1. 状态快照（第三十三轮：DeepSeek v4 flash 接入 Cognee 原生管线，端到端真跑通过）
 
 | 阶段 | 状态 | 交付 |
 |---|---|---|
@@ -19,6 +19,7 @@
 | **③c 记忆写入链四项（第 13 条 (a)）** | ✅ **第三十一轮完成**：证据锚点 + 悬空拒绝、wiki 投影（非第二事实源）、注入索引与 Context Pack 分工、Dreaming 接 C-6 闸门；配套读分区与控制台审核升级 | 见第 14 节 |
 | **③d OpenMausBot 五项（第 12 条 (b)）** | ✅ **第三十一轮完成**：Skill 能力包、对外动作不重跑（崩溃回收 + 显式失败双闸）、委托树血缘 + generation、升级只通知不代批 + 限速、团队包黑名单 / 密钥扫描 / 导入不提权 | 见第 14 节 |
 | **切默认底座 local-pg + step** | ✅ **第三十二轮完成**：用户拍板「切（推荐）」；`config.ts` 默认 `host.provider=local-pg`、`execution.mode=step`，显式配 paperclip / loop 即回退；`step:once` 端到端真跑验证三红线（状态外置 / 步间重评 / 诚实失败） | 见第 15 节 |
+| **DeepSeek v4 flash 接入 Cognee 原生管线** | ✅ **第三十三轮完成**：用户提供 key，LLM 走外部 DeepSeek v4 flash、embedding 默认本机 fastembed（`jinaai/jina-embeddings-v2-base-zh` 768 维）；cognify / search 端到端真跑通过、语义召回准确；bridge 带环境变量重启后状态如实显示已配置 | 见第 16 节 |
 
 系统能跑、全套回归全绿（**557/557 单测**、**`console:smoke` 55/55**、**`memory:hierarchy` 16/16**、**`guard:smoke` 22/22**（golden 基线已人审重冻结）、**`steps:smoke` 61/61**、**`host:pg` 24/24**、**`router:smoke` 31/31、`agents:smoke` 43/43、`shapes:smoke` 36/36、`evolution:smoke` 45/45、`loop:smoke` 18/18**、上游 clean（含 casbin / Vue / Element Plus 登记））。`HEAD = origin/main = 远端 main`。C-1 起每次代码改动都重跑全套；本机 PG 17.10 专属库 `suitme_collab_c1` 已可真跑。服务现状：3100 / 4180 / 4190 / 4192 / 4194（+git 9418）+ console 4200 全部运行中，由 `scripts/services.ts` 统一纳管。
 
@@ -223,3 +224,23 @@
 - **验证**：`npm test` **557/557**、`steps:smoke` **61/61**、`host:pg` **24/24**、`console:smoke` **55/55**、`guard:smoke` 22/22（golden 无漂移）、`loop:smoke` 18/18、router 31 / agents 43 / shapes 36 / evolution 45 / memory:hierarchy 16、走查 11/11、425px、两构建、`atlas:check` 11/11、`audit:upstream clean`、`git diff --check`。服务（bridge 4180 / console 4200 / vision 4190 / report 4192 / delivery 4194 + git 9418）全部重启加载新默认。
 - **Cognee 结论（本轮调查）**：当前用法**完全本地、无需任何 API key**——`scripts/cognee-graph.py` 文件头明确「no LLM, embedding or extraction calls」，只借 Cognee 的 Ladybug（Kùzu）图存储 + 原生 BM25 排序；隔离真跑通过（`persistenceAcrossProcesses: true, conceptRecall: true, modelCalls: 0`），venv（`.runtime/cognee-venv`）已装好。**`cogneeNative` 配置段（LLM 实体抽取 + 向量 cognify）没有任何消费者**——调用代码未写，接通需要外部 LLM + Embedding API key 或本机装 ollama，属独立工程，留待拍板。
 - **剩余（真实业务单验证）**：默认已切，但「真实业务单在 step 模式跑通」仍需用户在飞书发起一单真实任务观察全链（发起 → worker 单步泵 → 快照 checkpoint → 回执 / HITL → 验收）；回退开关随时可用（`config.json` 改回 `loop`）。
+
+## 16. 第三十三轮：DeepSeek v4 flash 接入 Cognee 原生管线（用户给 key，embedding 本地）
+
+**用户拍板**：用户说「可以用 deepseekv4 flash 模型，你把服务调起来，我给你 key，调好之后给我，看看系统还在哪里有问题？我想本地直接用起来」，随后提供 DeepSeek API key。
+
+**本轮交付与证据**：
+
+1. **配置层**（`src/config.ts`）：`knowledge.cogneeNative.embedding` 增 `provider: 'custom' | 'fastembed'`，**默认 `fastembed`**（用户无 embedding 凭据，拍板本地）；新增 `fastembedModel`（默认 `jinaai/jina-embeddings-v2-base-zh`，中英双语）与 `fastembedDimensions`（768）。显式配 `provider: 'custom'` 即恢复外部 OpenAI-compatible embedding 端点旧口径。
+2. **接入层**（`src/cognee-native.ts`）：fastembed 模式不要求端点/凭据（missing 只查 LLM 两个变量）；`cogneeNativeEnv` 在 fastembed 模式只传 `EMBEDDING_PROVIDER=fastembed` + 模型 + 维度，**不传** `EMBEDDING_ENDPOINT` / `EMBEDDING_API_KEY`；status 隐私文案如实分流（LLM 外发 / embedding 本机不出本机）。
+3. **关键坑位排除**：pinned Cognee fork 的 keyless 本地 embedding 判定是 `not llm_available`——**配上 LLM key 后不会自动走本地**，若不显式配 fastembed，会拿 LLM key 调 embedding 端点，而 DeepSeek 不提供 embedding API，cognify 必挂。本轮以显式 `EMBEDDING_PROVIDER=fastembed` 规避（fork 的 `get_embedding_engine` 原生分发到 `FastembedEmbeddingEngine`）。
+4. **模型名核实**：`deepseek-chat` / `deepseek-reasoner` 旧名 2026-07-24 已停用；使用 `deepseek-v4-flash`，经 litellm `openai/` 前缀 + `api_base=https://api.deepseek.com` 路由（本地验证通过，litellm 1.105.0）。
+5. **端到端真跑**（key 只进进程环境）：key 直连验证 → `cognify` 中文业务材料（星舟小程序改版：成员/时间线/风险/验收标准）返回 `ok:true, extractor:llm, embedding:native` → `search "支付模块有什么风险？谁负责前端？"` 准确召回「微信支付商户号尚未过审，可能阻塞支付模块联调」与「前端工程师陈默」。bridge 4180 带环境变量重启后 `system-status`：`modelApi:true`、`configured:true`、`llmModel:openai/deepseek-v4-flash`、`embeddingLocal:true`。
+6. **本机就绪审计（用户问「系统还在哪里有问题」）**，如实列出：
+   - **cognify 仍只有 CLI 入口**：产品知识入库链路（`knowledge-graph` action → `graph.run` → `cognee-graph.py`）仍是零模型 L1 投影（`modelCalls:0` 审计），**不会自动外发任何材料**；要用原生管线需手动 `node --import tsx scripts/cognee-native.ts cognify --text ...`。把 cognify 挂到入库钩子（哪一步、什么范围的材料自动外发）是产品/隐私选择，**待拍板**（`HANDOFF/08` 第 2 项）。
+   - **key 持久化**：key 只在进程环境（设计红线：不落盘）。机器重启后 bridge 需带 `COGNEE_LLM_*` 三个环境变量重启（命令见 `HANDOFF/05` 第 11 节）；CLI 每次调用同样带 env。
+   - **search 结果格式**：`cognee.search` 返回 Python dict 字符串（`str(item)`），无 UI 消费，目前只能 CLI 用。
+   - **真实费用**：v4-flash 定价 $0.14/M 输入 · $0.28/M 输出；每次 cognify（抽取）与 search（汇总）都产生真实调用。
+   - npm 参数坑：`npm run cognee:native cognify --text ...` 会被 npm 吞掉 `--text`，须直接 `node --import tsx scripts/cognee-native.ts ...`。
+
+**不变的边界**：产品知识图谱链路零模型调用红线不变（`cognee-graph.py` L1 投影 `modelCalls:0`）；设备端语义加权是独立链路不被替代；key 不写任何文件；7 个上游不变；飞书仍是唯一任务发起入口。

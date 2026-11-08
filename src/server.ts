@@ -430,7 +430,9 @@ const server = createServer(async (req, res) => {
             storage: { primary: 'PostgreSQL（本机持久化）', events: 'SQLite', configuration: '本机配置文件', wiki: '本机 Markdown 目录',
               databaseBackup: health.databaseBackup?.status ?? 'unknown', offsiteRestoreVerified: false },
             records: Object.fromEntries(['tasks', 'events', 'outbox', 'audit'].map(table => [table, store.db.prepare('SELECT COUNT(*) n FROM ' + table).get()!.n])),
-            integrations: { modelApi: cogneeNative.configured, embedding: 'Apple NL 设备端词向量（本机）+ Cognee 原生 embedding（外部模型服务）',
+            integrations: { modelApi: cogneeNative.configured, embedding: cogneeNative.embeddingLocal
+                ? 'Apple NL 设备端词向量（本机）+ Cognee 原生 fastembed 本机 embedding（不出本机）'
+                : 'Apple NL 设备端词向量（本机）+ Cognee 原生 embedding（外部模型服务）',
               vectorSearch: config.knowledge.semanticRecall.enabled,
               vectorSearchNote: '设备端词向量 + 本机 BM25；降级与否取决于运行时，此值来自配置而非实时探测',
               visionReviewer: config.acceptance?.mode === 'independent'

@@ -121,7 +121,10 @@ export const configSchema = z.object({
      * Cognee 原生 LLM 实体抽取 / embedding / cognify（用户 2026-11-07 明确打开）。
      * 允许外部 OpenAI-compatible 模型 API：这里只存**环境变量名**，凭据与
      * 端点值只在进程环境里，绝不写进 .runtime/config.json 或仓库。
-     * 业务材料会发往所配置的外部模型服务；未配置时明确报错，不静默降级成设备端能力。
+     * 用户 2026-11-08 拍板：LLM 走外部 DeepSeek v4 flash，embedding 走本机
+     * fastembed（pinned Cognee venv 自带，无需端点与凭据）——provider 默认
+     * 'fastembed'；显式配 'custom' 时恢复「外部 OpenAI-compatible embedding 端点」
+     * 的旧口径（endpoint/key 缺失仍会列进 missing）。
      */
     cogneeNative: z.object({
       enabled: z.boolean().default(true),
@@ -133,20 +136,26 @@ export const configSchema = z.object({
       }).default(() => ({ baseUrlEnv: 'COGNEE_LLM_BASE_URL', apiKeyEnv: 'COGNEE_LLM_API_KEY',
         modelEnv: 'COGNEE_LLM_MODEL', defaultModel: 'openai/gpt-4o-mini' })),
       embedding: z.object({
+        /** 'fastembed' = 本机 CPU 模型（无端点无凭据）；'custom' = 外部 OpenAI-compatible 端点。 */
+        provider: z.enum(['custom', 'fastembed']).default('fastembed'),
         baseUrlEnv: z.string().min(1).default('COGNEE_EMBEDDING_BASE_URL'),
         apiKeyEnv: z.string().min(1).default('COGNEE_EMBEDDING_API_KEY'),
         modelEnv: z.string().min(1).default('COGNEE_EMBEDDING_MODEL'),
         defaultModel: z.string().min(1).default('openai/text-embedding-3-small'),
         dimensions: z.number().int().min(1).default(1536),
-      }).default(() => ({ baseUrlEnv: 'COGNEE_EMBEDDING_BASE_URL', apiKeyEnv: 'COGNEE_EMBEDDING_API_KEY',
-        modelEnv: 'COGNEE_EMBEDDING_MODEL', defaultModel: 'openai/text-embedding-3-small', dimensions: 1536 })),
+        /** provider='fastembed' 时的本机模型与维度（jina v2 base zh：中英双语，768 维）。 */
+        fastembedModel: z.string().min(1).default('jinaai/jina-embeddings-v2-base-zh'),
+        fastembedDimensions: z.number().int().min(1).default(768),
+      }).default(() => ({ provider: 'fastembed' as const, baseUrlEnv: 'COGNEE_EMBEDDING_BASE_URL', apiKeyEnv: 'COGNEE_EMBEDDING_API_KEY',
+        modelEnv: 'COGNEE_EMBEDDING_MODEL', defaultModel: 'openai/text-embedding-3-small', dimensions: 1536,
+        fastembedModel: 'jinaai/jina-embeddings-v2-base-zh', fastembedDimensions: 768 })),
     }).default(() => ({ enabled: true,
       llm: { baseUrlEnv: 'COGNEE_LLM_BASE_URL', apiKeyEnv: 'COGNEE_LLM_API_KEY', modelEnv: 'COGNEE_LLM_MODEL', defaultModel: 'openai/gpt-4o-mini' },
-      embedding: { baseUrlEnv: 'COGNEE_EMBEDDING_BASE_URL', apiKeyEnv: 'COGNEE_EMBEDDING_API_KEY', modelEnv: 'COGNEE_EMBEDDING_MODEL', defaultModel: 'openai/text-embedding-3-small', dimensions: 1536 } })),
+      embedding: { provider: 'fastembed' as const, baseUrlEnv: 'COGNEE_EMBEDDING_BASE_URL', apiKeyEnv: 'COGNEE_EMBEDDING_API_KEY', modelEnv: 'COGNEE_EMBEDDING_MODEL', defaultModel: 'openai/text-embedding-3-small', dimensions: 1536, fastembedModel: 'jinaai/jina-embeddings-v2-base-zh', fastembedDimensions: 768 } })),
   }).default(() => ({ semanticRecall: { enabled: true, weight: 0.45 },
     cogneeNative: { enabled: true,
       llm: { baseUrlEnv: 'COGNEE_LLM_BASE_URL', apiKeyEnv: 'COGNEE_LLM_API_KEY', modelEnv: 'COGNEE_LLM_MODEL', defaultModel: 'openai/gpt-4o-mini' },
-      embedding: { baseUrlEnv: 'COGNEE_EMBEDDING_BASE_URL', apiKeyEnv: 'COGNEE_EMBEDDING_API_KEY', modelEnv: 'COGNEE_EMBEDDING_MODEL', defaultModel: 'openai/text-embedding-3-small', dimensions: 1536 } } })),
+      embedding: { provider: 'fastembed' as const, baseUrlEnv: 'COGNEE_EMBEDDING_BASE_URL', apiKeyEnv: 'COGNEE_EMBEDDING_API_KEY', modelEnv: 'COGNEE_EMBEDDING_MODEL', defaultModel: 'openai/text-embedding-3-small', dimensions: 1536, fastembedModel: 'jinaai/jina-embeddings-v2-base-zh', fastembedDimensions: 768 } } })),
   // L2 organisation-graph extraction. The default adapter is deterministic:
   // no model service is started and Cognee L1 stays read-only and isolated.
   orgExtraction: z.object({

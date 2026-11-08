@@ -866,3 +866,17 @@ Cognee `cognify` 的真实外部模型调用未发生（缺端点与凭据）；
 | 其余回归 | `loop:smoke` 18/18、router 31/31、agents 43/43、shapes 36/36、evolution 45/45、memory:hierarchy 16/16、走查 11/11、425px 无溢出、两构建、`atlas:check` 11/11、`audit:upstream clean:true`、`git diff --check` |
 | 服务 | bridge 4180 / console 4200 / vision 4190 / report 4192 / delivery 4194（+git 9418）全部重启加载新默认 |
 | 如实边界 | 真实业务单在 step 模式跑通仍待用户在飞书发起一单验证；回退开关随时可用（`config.json` 的 `execution.mode` 改回 `loop`）；`cogneeNative` 原生 cognify 调用代码未写、无消费者，接通需外部 LLM+Embedding key 或本机 ollama |
+
+## 第三十三轮 · DeepSeek v4 flash 接入 Cognee 原生管线（2026-11-08）
+
+**改动**：`src/config.ts`（`cogneeNative.embedding.provider: 'custom'|'fastembed'` 默认 fastembed + `fastembedModel`/`fastembedDimensions`）、`src/cognee-native.ts`（fastembed 分流：不要求端点凭据、子进程环境不传 `EMBEDDING_ENDPOINT`/`EMBEDDING_API_KEY`）、`src/server.ts`（`integrations.embedding` 文案分流）、`tests/cognee-native.test.ts`（契约更新 + fastembed 用例 + custom 回退负例）。
+
+**静态与回归**：`npm test` **558/558**、tsc、`build` / `build:chinese-shell` / `build:workspaces`、`steps:smoke` 61/61、`host:pg` 24/24、`console:smoke` 55/55、`guard:smoke` 22/22（golden 无漂移）、`loop:smoke` 18/18、`router:smoke` 31/31、`agents:smoke` 43/43、`shapes:smoke` 36/36、`evolution:smoke` 45/45、`memory:hierarchy` 16/16、走查 11/11、425px、`atlas:check` 11/11、`audit:upstream clean`、`git diff --check`。
+
+**外部模型真跑**（key 只进进程环境，不落盘）：
+1. DeepSeek key 直连：`deepseek-v4-flash` @ `https://api.deepseek.com` 正常应答（`deepseek-chat` 旧名已弃用）。
+2. `cognify`：中文业务材料（项目/成员/时间线/风险/验收标准）→ `ok:true, extractor:llm, embedding:native`；DeepSeek 实体抽取 + 本机 fastembed（jina zh，768 维）+ lancedb。
+3. `search`：「支付模块有什么风险？谁负责前端？」准确召回「微信支付商户号尚未过审」与「前端工程师陈默」。
+4. bridge 4180 带 env 重启后 `system-status`：`modelApi:true`、`cogneeNative.configured:true`、`llmModel:openai/deepseek-v4-flash`、`embeddingLocal:true`、`dimensions:768`。
+
+**已知边界**：cognify 仍只有 CLI 入口（产品知识入库不自动外发）；机器重启后 bridge 需带 `COGNEE_LLM_*` 重启；`cognee.search` 返回 Python dict 字符串；DeepSeek 调用有真实费用（$0.14/M 输入 · $0.28/M 输出）。

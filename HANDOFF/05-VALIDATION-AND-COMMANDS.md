@@ -188,7 +188,34 @@ npm run delivery:demo       # 本机 Git 链路；4194/9418 停机时 gitProtoco
 | 回退开关 | `.runtime/config.json` 把 `execution.mode` 改回 `loop` 即回退；paperclip / local / loop 均保持完整支持 |
 | 真实业务单验证 | **留给用户**：在飞书发起一单真实任务，观察 step 模式全链（worker 单步泵 → checkpoint 快照 → 回执 / HITL → 验收） |
 
-## 11. 真实 HTTP 冒烟模板（admin token 从 `.runtime/secrets.json` 读，不入库）
+## 11. 第三十三轮实测结果（2026-11-08，DeepSeek v4 flash 接入 Cognee 原生管线）
+
+| 项 | 结果 |
+|---|---|
+| `npm test` | **558/558**（+1 fastembed 用例：只配 LLM 即就绪、子进程环境不带 embedding 端点/凭据、模型可用 `COGNEE_EMBEDDING_MODEL` 覆盖、custom 回退口径不变） |
+| DeepSeek key 直连 | `deepseek-v4-flash` 经 `https://api.deepseek.com` 真实返回（旧名 `deepseek-chat` 2026-07-24 已弃用不可用） |
+| `cognify` 端到端 | 中文业务材料真跑：`ok:true, extractor:llm, embedding:native`——DeepSeek 实体抽取 + 本机 fastembed（`jinaai/jina-embeddings-v2-base-zh`，768 维，已预下载）+ lancedb 嵌入式向量库 |
+| `search` 端到端 | 语义检索准确召回两处事实（「微信支付商户号尚未过审」风险 / 前端负责人陈默） |
+| `system-status` | bridge 4180 带环境变量重启后：`modelApi:true`、`cogneeNative.configured:true`、`llmModel:openai/deepseek-v4-flash`、`embeddingLocal:true`、`dimensions:768` |
+| 其余回归 | tsc、四构建、`steps:smoke` 61/61、`host:pg` 24/24、`console:smoke` 55/55、`guard:smoke` 22/22（golden 无漂移）、`loop:smoke` 18/18、router 31/31、agents 43/43、shapes 36/36、evolution 45/45、memory:hierarchy 16/16、走查 11/11、425px、`atlas:check` 11/11、`audit:upstream clean`、`git diff --check` |
+| 凭据边界 | key 只进进程环境（CLI 调用与 bridge 进程 env），**不写** `.runtime/config.json` / `secrets.json` / 仓库 / 任何文档 |
+| 已知边界 | cognify 仍只有 CLI 入口（产品知识入库链路不自动外发）；机器重启后 bridge 需带同样 env 重启；`cognee.search` 返回 Python dict 字符串；DeepSeek 调用有真实费用（v4-flash $0.14/M 输入 · $0.28/M 输出） |
+
+**本地使用 DeepSeek 的操作口径**（key 用真实值替换，勿写入任何文件）：
+
+```sh
+cd /Users/gong.zhe/Developer/ai-native-collab
+export COGNEE_LLM_BASE_URL=https://api.deepseek.com
+export COGNEE_LLM_API_KEY=<你的 DeepSeek key>
+export COGNEE_LLM_MODEL=openai/deepseek-v4-flash
+# 注意：npm 会吞 --text 等参数，直接调脚本：
+node --import tsx scripts/cognee-native.ts cognify --text "要抽取的正文" --dataset 数据集名
+node --import tsx scripts/cognee-native.ts search --query "问题" --dataset 数据集名
+# 让管理后台状态显示已配置：带同样 env 重启 bridge
+COGNEE_LLM_BASE_URL=... COGNEE_LLM_API_KEY=... COGNEE_LLM_MODEL=... npm run restart:bridge
+```
+
+## 12. 真实 HTTP 冒烟模板（admin token 从 `.runtime/secrets.json` 读，不入库）
 
 ```sh
 node --import tsx --input-type=module -e "
@@ -208,7 +235,7 @@ req.on('error', e => console.log('ERR', e.message)); req.end(payload);
 
 把 path 换成 `routing-status` / `service-status` / `delivery-status` / `system-status` 可查其它只读状态。改过 `src/server.ts` / `src/v06.ts` / `src/workspaces.ts` 等服务端代码后先 `npm run restart:bridge`。
 
-## 12. 服务端口表
+## 13. 服务端口表
 
 | 端口 | 用途 | 交接状态 | 启动方式 |
 |---|---|---|---|
@@ -221,7 +248,7 @@ req.on('error', e => console.log('ERR', e.message)); req.end(payload);
 | 5432 | 本机 PG 17 专属库 suitme_collab_c1 | 运行中（用户既有实例） | 不新建服务；只连回环，勿动其它库 |
 | 4200（按需） | 自研独立控制台（P-12 起登录制 + casbin RBAC + Vue 前端） | 运行中 | `npm run console`，只绑 127.0.0.1；owner 口令在 `.runtime/console/owner-password.txt`；冒烟用随机端口，跑完即关 |
 
-## 13. 排障速查
+## 14. 排障速查
 
 | 现象 | 根因 | 处理 |
 |---|---|---|
@@ -237,7 +264,7 @@ req.on('error', e => console.log('ERR', e.message)); req.end(payload);
 | `v06-l2-extract` 报「边指向不存在的节点」 | `memory-index` 先自动抽过一次，任务级镜像未带入全局已有节点 | `buildTaskGraphMirror()` 补齐，见 `tests/l2-extraction.test.ts` |
 | 真实日志出现 `danglingCausedBy` | `reviewSource` 用评审前 revision，确认事件被幂等去重 | 已改用 `reviewedRevision`；历史行不物理删除，重放如实记录 |
 
-## 14. 提交前检查（每轮都做）
+## 15. 提交前检查（每轮都做）
 
 ```sh
 git status --short
