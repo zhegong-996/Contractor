@@ -1,6 +1,6 @@
 # 06 · 当前状态与下一步（接手者最该看的一份）
 
-## 1. 状态快照（第三十一轮 ③c/③d）
+## 1. 状态快照（第三十二轮：默认底座已切 local-pg + step）
 
 | 阶段 | 状态 | 交付 |
 |---|---|---|
@@ -18,6 +18,7 @@
 | **P-12 RBAC + 用户级配置 + 前端重写；P-13 知识分区 CRUD** | ✅ **第三十轮完成**：casbin RBAC（两进程共用）、用户级配置（本人读写 / 管理员总览）、Vue 3 + Element Plus 前端重写（本地 vendor）、知识 create/update/delete + 分区权限 | 见第 13 节 |
 | **③c 记忆写入链四项（第 13 条 (a)）** | ✅ **第三十一轮完成**：证据锚点 + 悬空拒绝、wiki 投影（非第二事实源）、注入索引与 Context Pack 分工、Dreaming 接 C-6 闸门；配套读分区与控制台审核升级 | 见第 14 节 |
 | **③d OpenMausBot 五项（第 12 条 (b)）** | ✅ **第三十一轮完成**：Skill 能力包、对外动作不重跑（崩溃回收 + 显式失败双闸）、委托树血缘 + generation、升级只通知不代批 + 限速、团队包黑名单 / 密钥扫描 / 导入不提权 | 见第 14 节 |
+| **切默认底座 local-pg + step** | ✅ **第三十二轮完成**：用户拍板「切（推荐）」；`config.ts` 默认 `host.provider=local-pg`、`execution.mode=step`，显式配 paperclip / loop 即回退；`step:once` 端到端真跑验证三红线（状态外置 / 步间重评 / 诚实失败） | 见第 15 节 |
 
 系统能跑、全套回归全绿（**557/557 单测**、**`console:smoke` 55/55**、**`memory:hierarchy` 16/16**、**`guard:smoke` 22/22**（golden 基线已人审重冻结）、**`steps:smoke` 61/61**、**`host:pg` 24/24**、**`router:smoke` 31/31、`agents:smoke` 43/43、`shapes:smoke` 36/36、`evolution:smoke` 45/45、`loop:smoke` 18/18**、上游 clean（含 casbin / Vue / Element Plus 登记））。`HEAD = origin/main = 远端 main`。C-1 起每次代码改动都重跑全套；本机 PG 17.10 专属库 `suitme_collab_c1` 已可真跑。服务现状：3100 / 4180 / 4190 / 4192 / 4194（+git 9418）+ console 4200 全部运行中，由 `scripts/services.ts` 统一纳管。
 
@@ -206,3 +207,19 @@
   - **⑪ 团队包**：`src/team-pack.ts`——权限 / 凭据 / 模型三类 17 键黑名单 + zod 键白名单 + 6 类密钥二次扫描（sk- / Bearer / ghp_ / 私钥块 / DSN 等）；`importTeamPack` 只产候选引用不提权、unknownAgents 如实标出。
 - **验证**：`npm test` **557/557**（+11 ③c + 6 ③d）、`steps:smoke` **61/61**（B21/B21b/B22/B23/B24）、`host:pg` **24/24**（PG 真跑对外动作 / 血缘 / generation）、`console:smoke` **55/55**（+6 读分区 / 锚点 / wiki / 注入索引）、`guard:smoke` 22/22（golden 基线人审重冻结，humanReview 第 3 条）、`loop:smoke` 18/18、其余隔离冒烟与构建 / 走查 / 425px / `audit:upstream` 全绿。修三处陈旧断言（steps D3 / agents C-4 的 `card(` 前缀、loop B3 的 `requiresHumanApproval` 位置），均为 P-11/P-12/P-13 轮未跑对应冒烟的累积漂移。
 - **红线（全部不变）**：③c 红线 (c) 全守（不模型判 salience、不自动提升 / 确认、不 TTL 物理删除、不让模型改写 wiki）；升级恒 advisory 不代批；团队包导入不提权；Skill 默认关且绑内容哈希；7 个上游不变；默认底座仍 `paperclip`、执行形态默认 `loop`；飞书仍是唯一发起入口。
+
+## 15. 第三十二轮：切默认底座 local-pg + step；Cognee 本地链路验证（用户拍板「切（推荐）」）
+
+- **用户拍板**：用户问「Cognee 端点、切默认底座是干啥？不能直接开始吗」，确认后拍板默认底座「切（推荐）」；Cognee 方向为「embedding 我没有，LLM 试试看或有没有本地的」。
+- **代码改动**：
+  - `src/config.ts`：`host.provider` 默认 `paperclip` → **`local-pg`**；`execution.mode` 默认 `loop` → **`step`**（`executionConfigSchema` zod default 与 `defaultExecutionConfig()` 同步）；superRefine 依赖校验不变（step 必须 local-pg）。回退路径：显式配 `provider='paperclip'` 或 `mode='loop'` 即恢复原形态，paperclip / local / loop 全部保持完整支持。
+  - `.runtime/config.json`：`execution.mode` 切 `step`（`host.provider` 原本已是 local-pg）。
+  - 口径换代：`step-runner` 回退提示（「当前显式配置为常驻循环（回退形态）」）、`EXECUTION_MODE_LABELS`（step 标「当前默认」、loop 标「回退形态」）、`executionView().missing`（「默认底座已切 local-pg（paperclip 显式配置可回退）」）、`mission-state` 能力标签、`pg-host` 注释。
+  - 测试契约 5 处：routing-decision（默认 provider 断言）、step-execution（默认 mode + 只读视图 steppedReady=true + 新增 loop 显式回退负例 steppedReady=false）、step-delivery（steppedReady）、steps-smoke A1（默认 step 且 loop 可显式回退）。
+- **step:once 端到端真跑（新默认的行为证据）**：
+  - 无 `COLLAB_STEP_PRINCIPAL`：领取 host:pg 冒烟残留步后**「步间权限重评」按最小权限拒绝**（未声明主体），步标 failed——红线「步与步之间按当前身份重评权限」真实生效。
+  - 带 `COLLAB_STEP_PRINCIPAL=smoke-admin`：权限重评通过、领取并执行 `c1-race-c` 步 1，`tool` 类步无登记执行器→**如实报「没有登记 tool 的执行器」失败，不编造执行**（modelCalls=0）。
+  - 两跑均连真实 PG 专属库 `suitme_collab_c1`（`queue: 'local-pg'`）。
+- **验证**：`npm test` **557/557**、`steps:smoke` **61/61**、`host:pg` **24/24**、`console:smoke` **55/55**、`guard:smoke` 22/22（golden 无漂移）、`loop:smoke` 18/18、router 31 / agents 43 / shapes 36 / evolution 45 / memory:hierarchy 16、走查 11/11、425px、两构建、`atlas:check` 11/11、`audit:upstream clean`、`git diff --check`。服务（bridge 4180 / console 4200 / vision 4190 / report 4192 / delivery 4194 + git 9418）全部重启加载新默认。
+- **Cognee 结论（本轮调查）**：当前用法**完全本地、无需任何 API key**——`scripts/cognee-graph.py` 文件头明确「no LLM, embedding or extraction calls」，只借 Cognee 的 Ladybug（Kùzu）图存储 + 原生 BM25 排序；隔离真跑通过（`persistenceAcrossProcesses: true, conceptRecall: true, modelCalls: 0`），venv（`.runtime/cognee-venv`）已装好。**`cogneeNative` 配置段（LLM 实体抽取 + 向量 cognify）没有任何消费者**——调用代码未写，接通需要外部 LLM + Embedding API key 或本机装 ollama，属独立工程，留待拍板。
+- **剩余（真实业务单验证）**：默认已切，但「真实业务单在 step 模式跑通」仍需用户在飞书发起一单真实任务观察全链（发起 → worker 单步泵 → 快照 checkpoint → 回执 / HITL → 验收）；回退开关随时可用（`config.json` 改回 `loop`）。

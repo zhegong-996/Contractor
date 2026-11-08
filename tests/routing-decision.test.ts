@@ -147,10 +147,10 @@ test('C-3：五个派活点全部收敛到单一 Router，不再各自直接写 
   assert.match(status, /getRouter\(\)\.status\(\)/);
 });
 
-test('平台端口：默认仍是 Paperclip，非 Paperclip 宿主真跑增删改查并如实列出缺口', async () => {
+test('平台端口：平台端口：默认已切 local-pg，非默认宿主真跑增删改查并如实列出缺口', async () => {
   const config = read('src/config.ts');
   assert.match(config, /host: z\.object\(/);
-  assert.match(config, /provider: z\.enum\(\['paperclip', 'local', 'local-pg'\]\)\.default\('paperclip'\)/);
+  assert.match(config, /provider: z\.enum\(\['paperclip', 'local', 'local-pg'\]\)\.default\('local-pg'\)/);
   assert.match(config, /pgDsnEnv: z\.string\(\)\.min\(1\)\.default\('COLLAB_PG_DSN'\)/, 'PG 凭据只能来自环境变量');
   assert.match(read('src/platform-port.ts'), /provider === 'local-pg'/, 'PG 后端必须接进 resolvePlatform 工厂');
   const host = new LocalHostPlatform(mkdtempSync(path.join(os.tmpdir(), 'suitme-host-')));

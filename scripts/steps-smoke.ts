@@ -43,9 +43,9 @@ async function main() {
   // 第二十九轮 P-11：用户拍板「step 用在真实业务上」，运行时默认已切 step +
   // local-pg；loop 仍是随时可回退的合法形态。断言口径从「默认是 loop」改为
   // 「当前配置合法且可回退」，不再把某个形态写死。
-  check('A1 当前执行形态合法且 loop 仍可回退',
+  check('A1 当前执行形态合法（第三十二轮起默认 step）且 loop 仍可显式回退',
     ['loop', 'step'].includes(loopConfig.execution.mode)
-      && defaultExecutionConfig().mode === 'loop'
+      && defaultExecutionConfig().mode === 'step'
       && configSchema.parse({ ...real, host: { ...(real.host ?? {}), provider: loopConfig.host.provider },
         execution: { schemaVersion: 1, mode: 'loop', maxStepsPerRun: 60, staleSeconds: 60 } })
           .execution.mode === 'loop',

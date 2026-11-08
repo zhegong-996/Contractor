@@ -117,7 +117,7 @@ function stepRow(row: any): ClaimedStep {
 
 /**
  * PostgreSQL 版宿主：与 LocalHostPlatform 同一端口契约，但所有状态都在数据库里。
- * 默认底座仍是 paperclip；这里只是可显式切换、可真跑验证的一条路径。
+ * 第三十二轮起为默认底座（用户拍板切换）；paperclip 显式配置可随时回退。
  */
 export class PgHostPlatform implements HostPlatformPort {
   readonly pool: Pool;

@@ -92,7 +92,7 @@ export async function runSingleStep(argv: string[] = process.argv.slice(2)): Pro
   const config = loadConfig();
   if (config.execution.mode !== 'step') {
     return { ok: true, claimed: false, mode: 'loop',
-      note: '当前仍是默认常驻循环；把 config.execution.mode 设为 step 且 host.provider 设为 local-pg 后，本入口才领步' };
+      note: '当前显式配置为常驻循环（回退形态）；把 config.execution.mode 设为 step 且 host.provider 设为 local-pg 后，本入口才领步' };
   }
   const runId = argv[0] || process.env.COLLAB_STEP_RUN_ID || null;
   const principal = process.env.COLLAB_STEP_PRINCIPAL || '';

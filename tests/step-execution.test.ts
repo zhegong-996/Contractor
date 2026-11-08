@@ -19,9 +19,9 @@ const stepConfig = () => configSchema.parse({ ...loadConfig(),
   host: { ...loadConfig().host, provider: 'local-pg' as const },
   execution: { schemaVersion: 1 as const, mode: 'step' as const, maxStepsPerRun: 60, staleSeconds: 60 } });
 
-test('执行形态默认仍是常驻循环，step 没有状态外置队列就被配置层拒绝', () => {
-  assert.equal(defaultExecutionConfig().mode, 'loop');
-  assert.equal(loadConfig().execution.mode, 'loop');
+test('执行形态默认已切 step，loop 显式配置仍可回退；step 没有状态外置队列就被配置层拒绝', () => {
+  assert.equal(defaultExecutionConfig().mode, 'step');
+  assert.equal(loadConfig().execution.mode, 'step');
   assert.throws(() => configSchema.parse({ ...loadConfig(),
     host: { ...loadConfig().host, provider: 'paperclip' },
     execution: { schemaVersion: 1, mode: 'step' } }), /local-pg/);
@@ -30,12 +30,14 @@ test('执行形态默认仍是常驻循环，step 没有状态外置队列就被
 
 test('只读视图如实说明是否启用，缺项不隐藏，modelCalls=0', () => {
   const view = executionView(loadConfig());
-  assert.equal(view.steppedReady, false);
-  assert.equal(view.mode, 'loop');
+  assert.equal(view.steppedReady, true);
+  assert.equal(view.mode, 'step');
   assert.equal(view.modelCalls, 0);
-  assert.ok(view.missing.some(m => /默认底座仍是 paperclip/.test(m)));
+  assert.ok(!view.missing.some(m => /默认底座仍是 paperclip/.test(m)));
   assert.ok(view.missing.some(m => /模型端点/.test(m)));
   assert.equal(executionView(stepConfig()).steppedReady, true);
+  assert.equal(executionView(configSchema.parse({ ...loadConfig(),
+    execution: { schemaVersion: 1, mode: 'loop' } })).steppedReady, false);
   assert.equal(STEP_RED_LINES.length, 5);
 });
 

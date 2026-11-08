@@ -40,7 +40,7 @@ npm run router:smoke        # C-3 三种形态 31/31（隔离内存 Trace，不�
 npm run shapes:smoke        # C-5 扁平 / 分层各跑真实一单 36/36（隔离内存 Trace，不写真实日志）
 npm run evolution:smoke     # C-6 完整闭环 + 全部反例 45/45（隔离治理台账，不写真实日志）
 npm run steps:smoke         # P-1 完整链 + 全部反例 61/61（唯一 runId，不 reset 他人数据）
-npm run step:once           # P-1 一次进程只跑一步；默认 loop 下不连库、如实返回未启用
+npm run step:once           # P-1 一次进程只跑一步；第三十二轮起默认 step：真连 PG 领步，未声明 COLLAB_STEP_PRINCIPAL 时按最小权限拒绝
 npm run console:smoke       # 临时端口 + Chrome 真跑 55/55，输出 .runtime/console-smoke.json
 npm run loop:smoke          # P-9 双向回路：真实 HTTP + 隔离子进程提问/回答/回流建议，18/18
 npm run services status     # 4190/4192/4194(+git 9418) 辅助服务统一纳管状态（P-11）
@@ -58,7 +58,7 @@ npm run delivery:demo       # 本机 Git 链路；4194/9418 停机时 gitProtoco
 | `npm test` | **413 / 413**（第二十一轮 400 + P-1 新增 13 例单步执行契约） |
 | `steps:smoke` | **40/40 `ok:true`**：A 配置/只读视图 6、B 隔离内存队列 21、C 本机 PG 专属库 + 真实子进程跨进程单步 8、D 接线守门 6；第一棒 `counter=1`，第二棒由「另一台机器」的独立进程领走 `counter=2`，旧 `runToken` 作废、模型步如实拒绝、B1 主干行数前后不变；报告 `.runtime/steps-smoke.json` 不入库 |
 | `v06-execution-view`（真实 HTTP / 控制台代理） | **200**：`mode=loop`、`steppedReady=false`、`queue=未接入状态外置队列`、`missing=6`、`redLines=5`；控制台写动作 403；协作视图新增中文「长程执行」卡片，四张 1280 截图 `errorCards:0` |
-| `step:once`（默认 loop） | 如实返回 `{claimed:false, mode:"loop"}`，不连数据库、不产生任何步骤 |
+| `step:once`（当时默认 loop） | 如实返回 `{claimed:false, mode:"loop"}`，不连数据库、不产生任何步骤（第三十二轮起默认 step，见第 10 节） |
 | `npx tsc --noEmit` | 通过 |
 | `build:workspaces` / `build:chinese-shell` | 通过 / `hiddenEntries` 4、`missed: []`、`warning: null`（前台重跑） |
 | `test:responsive` | 425px `393/393`、溢出 0、按钮 44px、`problems: []` |
@@ -173,7 +173,22 @@ npm run delivery:demo       # 本机 Git 链路；4194/9418 停机时 gitProtoco
 | 既有回归不回退 | `router:smoke` 31/31、`agents:smoke` 43/43、`shapes:smoke` 36/36、`evolution:smoke` 45/45、`memory:hierarchy` 16/16、`loop:smoke` 18/18、走查 11/11、425px、`atlas:check` 11/11、两个构建、`tsc`、`audit:upstream clean:true`、`git diff --check` |
 | 如实边界 | 红线 (c) 全守（不模型判 salience、不自动提升 / 确认、不 TTL 物理删除、不让模型改写 wiki）；升级恒 advisory 不代批；团队包导入只产候选引用不提权；Skill `defaultEnabled` 恒 false 且开启绑内容哈希；全部只借思想零代码引入、7 个上游不变；默认底座仍 `paperclip`、执行形态默认 `loop`；飞书仍是唯一发起入口 |
 
-## 10. 真实 HTTP 冒烟模板（admin token 从 `.runtime/secrets.json` 读，不入库）
+## 10. 第三十二轮实测结果（2026-11-08，切默认底座 local-pg + step）
+
+| 项 | 结果 |
+|---|---|
+| `npm test` | **557/557**（契约换代 5 处断言：默认 provider / 默认 mode / 只读视图 steppedReady / loop 显式回退负例 / steps-smoke A1） |
+| `steps:smoke` | **61/61**（A1 改为「默认 step 且 loop 可显式回退」） |
+| `host:pg` | **24/24** |
+| `console:smoke` | **55/55** |
+| `guard:smoke` | 22/22（golden 无漂移） |
+| `step:once` 端到端 | 新默认真连 PG（`queue: 'local-pg'`）：无主体 → 步间权限重评按最小权限拒绝；带 `COLLAB_STEP_PRINCIPAL` → 领步执行，`tool` 类无登记执行器如实报失败不编造（modelCalls=0） |
+| 其余回归 | `loop:smoke` 18/18、router 31/31、agents 43/43、shapes 36/36、evolution 45/45、memory:hierarchy 16/16、走查 11/11、425px、两构建、`atlas:check` 11/11、`audit:upstream clean`、`git diff --check` |
+| 服务 | bridge 4180 / console 4200 / vision 4190 / report 4192 / delivery 4194（+git 9418）全部重启加载新默认 |
+| 回退开关 | `.runtime/config.json` 把 `execution.mode` 改回 `loop` 即回退；paperclip / local / loop 均保持完整支持 |
+| 真实业务单验证 | **留给用户**：在飞书发起一单真实任务，观察 step 模式全链（worker 单步泵 → checkpoint 快照 → 回执 / HITL → 验收） |
+
+## 11. 真实 HTTP 冒烟模板（admin token 从 `.runtime/secrets.json` 读，不入库）
 
 ```sh
 node --import tsx --input-type=module -e "
@@ -193,7 +208,7 @@ req.on('error', e => console.log('ERR', e.message)); req.end(payload);
 
 把 path 换成 `routing-status` / `service-status` / `delivery-status` / `system-status` 可查其它只读状态。改过 `src/server.ts` / `src/v06.ts` / `src/workspaces.ts` 等服务端代码后先 `npm run restart:bridge`。
 
-## 11. 服务端口表
+## 12. 服务端口表
 
 | 端口 | 用途 | 交接状态 | 启动方式 |
 |---|---|---|---|
@@ -206,7 +221,7 @@ req.on('error', e => console.log('ERR', e.message)); req.end(payload);
 | 5432 | 本机 PG 17 专属库 suitme_collab_c1 | 运行中（用户既有实例） | 不新建服务；只连回环，勿动其它库 |
 | 4200（按需） | 自研独立控制台（P-12 起登录制 + casbin RBAC + Vue 前端） | 运行中 | `npm run console`，只绑 127.0.0.1；owner 口令在 `.runtime/console/owner-password.txt`；冒烟用随机端口，跑完即关 |
 
-## 12. 排障速查
+## 13. 排障速查
 
 | 现象 | 根因 | 处理 |
 |---|---|---|
@@ -222,7 +237,7 @@ req.on('error', e => console.log('ERR', e.message)); req.end(payload);
 | `v06-l2-extract` 报「边指向不存在的节点」 | `memory-index` 先自动抽过一次，任务级镜像未带入全局已有节点 | `buildTaskGraphMirror()` 补齐，见 `tests/l2-extraction.test.ts` |
 | 真实日志出现 `danglingCausedBy` | `reviewSource` 用评审前 revision，确认事件被幂等去重 | 已改用 `reviewedRevision`；历史行不物理删除，重放如实记录 |
 
-## 13. 提交前检查（每轮都做）
+## 14. 提交前检查（每轮都做）
 
 ```sh
 git status --short

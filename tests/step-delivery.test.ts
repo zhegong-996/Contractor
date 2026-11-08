@@ -150,7 +150,7 @@ test('P-6 编制快照变更不回溯改写历史决策', () => {
 
 test('P-6 只读执行视图新增状态词、能力声明与两条协议说明，原有口径不变', () => {
   const view = executionView(loadConfig());
-  assert.equal(view.steppedReady, false);
+  assert.equal(view.steppedReady, true);
   assert.equal(view.modelCalls, 0);
   assert.equal(view.mission.states.length, 6);
   assert.equal(view.mission.settleQuietSeconds, 30);

@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "purpose": "SuitMe 协作台项目交接包：让下一位 Agent 无需对话历史即可安全继续",
-  "generatedAt": "2026-11-08T21:30:00+08:00",
+  "generatedAt": "2026-11-08T22:45:00+08:00",
   "authoritativeLocation": "/Users/gong.zhe/Developer/ai-native-collab/HANDOFF/",
   "rootEntryFiles": [
     {
@@ -18,7 +18,7 @@
     "path": "/Users/gong.zhe/Developer/ai-native-collab",
     "remote": "https://github.com/zhegong-996/suitme-collab.git",
     "branch": "main",
-    "codeBaseCommit": "以 git rev-parse HEAD 为准（第三十一轮 ③c/③d 代码与文档一并提交推送；HEAD = origin/main = 远端 main）",
+    "codeBaseCommit": "以 git rev-parse HEAD 为准（第三十二轮切默认底座后提交推送；HEAD = origin/main = 远端 main）",
     "originMainAtGeneration": "same-as-HEAD",
     "remoteMainAtGeneration": "same-as-HEAD",
     "note": "不再写死 hash：交接包生成时的 b58631c / f6611e0 / 4aa6fb0 / 8d3c455 / c27d7c0 / 3a563d3 均为历史。代码与文档在同一提交里一并推送。",
@@ -30,8 +30,8 @@
     "A": "completed",
     "B1": "completed-and-validated",
     "B2": "completed-and-validated",
-    "C": "C-0 ~ C-6 分步清单已全部完成并收口；生产项 P-1/P-5/P-6/P-7/P-8/P-9/P-10/P-11/P-12/P-13 与第三十一轮 ③c（记忆写入链四项）/③d（OpenMausBot 五项）均已完成",
-    "currentBoundary": "docs/ADAPTATION-v0.6.md 0.00000000000000000000000000000000 节（第三十一轮 ③c/③d）；C 产品约束见 docs/PRD-v0.6.md §10C（C-P1~C-P8）；验证见 HANDOFF/05 第 9 节与 docs/VALIDATION.md",
+    "C": "C-0 ~ C-6 分步清单全部完成并收口；生产项 P-1~P-13 与第三十一轮 ③c/③d 均已完成；第三十二轮默认底座已切 local-pg + step（用户拍板），真实业务单 step 验证留给用户",
+    "currentBoundary": "docs/ADAPTATION-v0.6.md 0.000000000000000000000000000000000 节（第三十二轮：默认底座 local-pg + step）；C 产品约束见 docs/PRD-v0.6.md §10C；验证见 HANDOFF/05 第 10 节与 docs/VALIDATION.md 第三十二轮",
     "userDecision": "② 改成独立前端应用（废弃 PRD §10A 的 S5/S6，保留 S1–S4，飞书 IM 仍是唯一发起入口）；补遗：组织形态必须可配置（按业务域/组织单元生效、允许一个 Agent 兼任多职责、禁止同一 Task 自派自验自环），Agent 靠沉淀自我改进但核心决策仍由人做，判断是工程能力 + AI 能力组合，验收本身也是一个可与产品/技术/运营协作的 Agent",
     "cProductConstraints": [
       "C-P1 组织形态可配置：层不是产品骨架；Agent 实例与职责绑定/生效范围/版本分离；组织级唯一、项目只引用不覆写、变更留快照不回溯",
@@ -153,12 +153,13 @@
       "evolution:smoke": "ok:true, 45/45；隔离临时治理台账，不写真实 .runtime/evolution/events.jsonl 与 .runtime/memory/events.jsonl"
     },
     "gitDiffCheck": "pass",
-    "reference": "HANDOFF/05-VALIDATION-AND-COMMANDS.md 第 9 节与 docs/VALIDATION.md",
-    "hostPgSmoke": "ok:true, checks 24, failed []；含 markOutwardAction 幂等去重、interrupted 携带动作清单、lineageOf 递归 CTE、generation 每领 +1",
+    "reference": "HANDOFF/05-VALIDATION-AND-COMMANDS.md 第 10 节与 docs/VALIDATION.md 第三十二轮",
+    "hostPgSmoke": "ok:true, 24/24（PostgreSQL 17.10 专属库 suitme_collab_c1，现亦为默认底座）",
     "consoleSmoke": "ok:true, 55/55；检查项含登录 / RBAC / 知识分区正负例 / 读分区三例 / 证据锚点 / wiki / 注入索引纪律 / 六视图 / 主题 / 425px / 零海外文案",
     "routerSmoke": "ok:true, checks 31, failed []；隔离内存 Trace，未写真实 .runtime/routing/events.jsonl",
     "agentsSmoke": "ok:true, 43/43 checks（隔离内存 Trace，不写真实 .runtime/routing/events.jsonl）",
-    "shapesSmoke": "ok:true, checks 36, failed []；两种形态各跑一单五阶段，每步带 Router / 在岗快照，真实日志行数前后不变"
+    "shapesSmoke": "ok:true, checks 36, failed []；两种形态各跑一单五阶段，每步带 Router / 在岗快照，真实日志行数前后不变",
+    "stepsSmoke": "ok:true, 61/61；A1 口径更新为「默认 step 且 loop 可显式回退」"
   },
   "services": {
     "3100": {
@@ -221,7 +222,7 @@
     },
     {
       "path": "HANDOFF/03-WORK-LOG.md",
-      "purpose": "31 轮工作记录、提交号、排障模式、用户决策"
+      "purpose": "32 轮工作记录、提交号、排障模式、用户决策"
     },
     {
       "path": "HANDOFF/04-CODE-MAP.md",
@@ -229,11 +230,11 @@
     },
     {
       "path": "HANDOFF/05-VALIDATION-AND-COMMANDS.md",
-      "purpose": "全套回归命令、第二至三十一轮实测结果（含第三十一轮 557/557、steps:smoke 61/61、host:pg 24/24、console:smoke 55/55、golden 重冻结）、真实 HTTP 冒烟、排障、提交前检查"
+      "purpose": "全套回归命令、第二至三十二轮实测结果（含第三十二轮切默认底座）、真实 HTTP 冒烟、排障、提交前检查"
     },
     {
       "path": "HANDOFF/06-CURRENT-STATE-AND-NEXT.md",
-      "purpose": "当前状态快照（第三十一轮）、B2 真跑证据、C-0~C-6 分步清单、P-1~P-13 与 ③c/③d 交付与证据、剩余生产项与待拍板事项"
+      "purpose": "当前状态快照（第三十二轮：默认底座 local-pg + step）、B2 真跑证据、C-0~C-6 分步清单、P-1~P-13 与 ③c/③d/切默认底座交付与证据、剩余生产项与待拍板事项"
     },
     {
       "path": "HANDOFF/07-RULES-AND-BOUNDARIES.md",
@@ -257,7 +258,7 @@
     },
     {
       "path": "HANDOFF/handoff-manifest.json",
-      "purpose": "本文件：机器可读交接元数据（第三十一轮 ③c/③d 后更新）"
+      "purpose": "本文件：机器可读交接元数据（第三十二轮切默认底座后更新）"
     }
   ],
   "fileInventory": {
@@ -270,11 +271,11 @@
     "note": "第十四轮 269 + C-1 新增 4 + C-2 新增 7 + C-3 新增 3 + C-4 新增 3 + C-5 新增 2 + C-6 新增 4 + P-1 新增 5（src/step-execution.ts、src/loop-pump.ts、src/step-runner.ts、scripts/steps-smoke.ts、tests/step-execution.test.ts）+ 2026-11-08 交接总结新增 2（HANDOFF.md、PROJECT-SUMMARY.md）+ P-5 新增 2（src/workspace-summary.ts、tests/workspace-summary.test.ts）+ P-6 新增 7（src/step-hitl.ts、src/step-delivery.ts、src/mission-state.ts、scripts/step-answer.ts、tests/step-hitl.test.ts、tests/step-delivery.test.ts、licenses/runner-MIT.txt）+ 评估文档 1（docs/REFERENCE-openmausbot.md）+ P-7 新增 4（src/memory-hierarchy.ts、tests/memory-hierarchy.test.ts、scripts/memory-hierarchy-smoke.ts、docs/REFERENCE-anthropic-agent-memory.md）+ P-8 新增 7（src/knowledge-guard.ts、src/behavior-baseline.ts、tests/knowledge-guard.test.ts、tests/behavior-baseline.test.ts、tests/p8-contracts.test.ts、scripts/guard-smoke.ts、fixtures/behavior-golden.json）+ 架构图册 3（docs/architecture-atlas.html、docs/ARCHITECTURE-ATLAS.md、scripts/atlas-check.mjs）+ 能力对比报告 1（docs/REFERENCE-capability-comparison.md）+ P-9 新增 4（src/collaboration-loop.ts、tests/collaboration-loop.test.ts、tests/p9-contracts.test.ts、scripts/loop-smoke.ts）+ P-10 新增 2（src/hitl-bridge.ts、tests/hitl-bridge.test.ts）；既有文件修改不计新增+ P-11/P-12/P-13 新增 15（auto-resume / delegated-accept / services / rbac / console-auth / knowledge-authz / auto-resume.test / console/vendor 5 / licenses 3）+ 第三十一轮 ③c/③d 新增 7（knowledge-representation / dreaming / skill-pack / escalation / team-pack / knowledge-writechain.test / openmaus-12b.test）"
   },
   "nextSteps": [
-    "先读根目录 HANDOFF.md（接手总纲）与 PROJECT-SUMMARY.md（项目总结），再读 HANDOFF/00-START-HERE.md、06-CURRENT-STATE-AND-NEXT.md、docs/PRD-v0.6.md §10C、07-RULES-AND-BOUNDARIES.md",
-    "跑 HANDOFF/05-VALIDATION-AND-COMMANDS.md 的全套回归确认 557/557、走查 11/11、steps:smoke 61/61、host:pg 24/24、console:smoke 55/55、guard:smoke 22/22、其余隔离冒烟全绿",
-    "③c 已完成：证据锚点 + 悬空拒绝、wiki 投影（非第二事实源）、注入索引与 Context Pack 分工、Dreaming 接 C-6 闸门；人审 inject 是知识提升唯一路径，红线 (c) 全守",
-    "③d 已完成：Skill 能力包、对外动作不重跑（markOutwardAction + interrupted 终态）、委托树血缘 + generation、升级只通知不代批 + 限速、团队包黑名单 / 密钥扫描 / 导入不提权；只借思想零代码引入",
-    "剩余生产项（非 C 分步清单）：切换默认 config.host.provider 并把真实业务单切到 step 模式验证、autoloop worker 内部子调用逐次拆分、真实外部模型端点 / 远端工具沙箱 / 多机切换、金额成本账本接入效果看板"
+    "默认底座已切 local-pg + step（第三十二轮用户拍板）：真实业务单在 step 模式跑通仍需用户在飞书发起一单验证；回退只需显式配 paperclip / loop",
+    "Cognee 原生 cognify（cogneeNative）：当前无消费者、调用代码未写；本地 Ladybug+BM25 链路无需 key 已验证；接通需外部 LLM+Embedding key 或本机装 ollama",
+    "autoloop worker 内部子调用逐次拆分（当前按 tick 级单步）",
+    "真实外部模型端点 / 远端工具沙箱 / 多机切换、金额成本账本接入效果看板",
+    "飞书部门 scope 授权需本人扫码确认；「pi」的指代（当前按 earendil-works/pi 理解）"
   ],
   "openDecisions": [
     "外部模型端点与凭据（Cognee cognify 真跑，COGNEE_* 四个环境变量）",
@@ -307,17 +308,17 @@
     "walkthrough": "11/11, failures 0",
     "consoleSmoke": "ok:true, 55/55（登录制 / RBAC / 知识分区与读分区 / 证据锚点 / wiki / 注入索引 / 六视图 / 主题 / 425px / 零海外文案）",
     "routerSmoke": "ok:true, 31/31 checks（三种组织形态，隔离内存 Trace）",
-    "hostPgSmoke": "ok:true, 24/24 checks（含对外动作 interrupted / 委托树血缘 / generation）",
+    "hostPgSmoke": "ok:true, 24/24（PG 现为默认底座）",
     "upstreamAudit": "clean: true, problems 0",
     "gitDiffCheck": "pass",
     "guardSmoke": "ok:true, 22/22（golden 基线第三十一轮人审重冻结：白名单 19→22 承接 P-12/P-13 漂移，humanReview 第 3 条）",
     "loopSmoke": "ok:true, 18/18（B3 断言已跟随 requiresHumanApproval 实际强制处修正）",
-    "stepsSmoke": "ok:true, 61/61 checks（含 B21/B21b 对外动作不重跑、B22 无副作用回收 ready、B23 委托树血缘、B24 generation+1）",
+    "stepsSmoke": "ok:true, 61/61（A1：默认 step 且 loop 可显式回退）",
     "memoryHierarchySmoke": "ok:true, 16/16 checks",
     "atlasCheck": "ok:true, 11/11 checks",
-    "note": "第三十一轮 ③c/③d 代码与文档同步后重跑全套回归：npm test 557/557、tsc、两构建、425px、走查 11/11、console:smoke 55/55、router:smoke 31/31、agents:smoke 43/43、shapes:smoke 36/36、evolution:smoke 45/45、steps:smoke 61/61、host:pg 24/24、loop:smoke 18/18、guard:smoke 22/22、memory:hierarchy 16/16、atlas:check 11/11、audit:upstream clean、git diff --check；端到端真跑：knowledge-wiki 27 记录 / 17 页 / 0 悬空、dreaming-run 首跑 24 条登记复跑幂等、修订自动挂锚点 → 确认+inject → 注入索引收 1 条"
+    "note": "第三十二轮切默认底座后重跑全套：npm test 557/557、steps:smoke 61/61、host:pg 24/24、console:smoke 55/55、guard:smoke 22/22、loop:smoke 18/18、其余隔离冒烟 / 两构建 / 走查 / 425px / atlas / audit:upstream / git diff --check 全绿；step:once 新默认端到端两跑（权限重评拒绝 + 带主体领步诚实失败）；Cognee 本地图谱链路隔离真跑（conceptRecall:true, modelCalls:0）"
   },
   "authoritativeOnly": true,
   "portableCopyNote": "WorkBuddy 工作区 handoff/ 与 SuitMe-HANDOFF.zip 已停用、不再维护；详细交接唯一权威位置为仓库内 HANDOFF/，根目录 HANDOFF.md / PROJECT-SUMMARY.md 为同仓库内同步维护的总览入口。",
-  "codeBaseCommit": "以 git rev-parse HEAD 为准（第三十一轮 ③c/③d 代码与文档一并提交推送；HEAD = origin/main = 远端 main）"
+  "codeBaseCommit": "以 git rev-parse HEAD 为准（第三十二轮切默认底座后提交推送；HEAD = origin/main = 远端 main）"
 }

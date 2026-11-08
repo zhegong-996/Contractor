@@ -91,7 +91,7 @@ export type RuntimeCapability = {
 export const RUNTIME_CAPABILITIES: Record<string, RuntimeCapability> = {
   'step-once': { name: 'step-once', label: '本机单步执行进程', queuesInputMidTurn: false,
     requiresPty: false, note: '一次进程只领一步，忙时不接收新的投递' },
-  'loop': { name: 'loop', label: '默认常驻循环执行端', queuesInputMidTurn: false,
+  'loop': { name: 'loop', label: '常驻循环执行端（回退形态）', queuesInputMidTurn: false,
     requiresPty: false, note: '保持既有行为，不引入回合中排队输入' },
   'claude-code': { name: 'claude-code', label: '可在回合中排队输入的执行端', queuesInputMidTurn: true,
     requiresPty: true, note: '仅作为能力声明参考，本项目未接通该执行端' },

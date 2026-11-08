@@ -852,3 +852,17 @@ Cognee `cognify` 的真实外部模型调用未发生（缺端点与凭据）；
 | 陈旧断言修复 | `steps:smoke` D3 / `agents:smoke` C-4 的 `card(` 前缀在 P-12 Vue 重写后失配（改查 `<template #header>`）；`loop:smoke` B3 的 `requiresHumanApproval` 在 P-11 后移到 `collaboration-loop.ts`（断言跟随真正强制处）——P-11/P-12/P-13 轮未跑对应冒烟的累积漂移，非行为退化 |
 | 既有回归不回退 | `router:smoke` 31/31、`agents:smoke` 43/43、`shapes:smoke` 36/36、`evolution:smoke` 45/45、`memory:hierarchy` 16/16、`loop:smoke` 18/18、走查 11/11、425px、`atlas:check` 11/11、两构建、`tsc`、`audit:upstream clean:true`、`git diff --check` |
 | 如实边界 | 红线 (c) 全守（不模型判 salience、不自动提升 / 确认、不 TTL 物理删除、不让模型改写 wiki）；升级恒 advisory 不代批；团队包导入不提权；Skill 默认关且绑内容哈希；只借思想零代码引入、7 个上游不变；默认底座仍 `paperclip`、执行形态默认 `loop`；飞书仍是唯一发起入口 |
+
+
+## 第三十二轮 · 切默认底座 local-pg + step（2026-11-08）
+
+| 项 | 结果 |
+|---|---|
+| `npm test` | **557 / 557**（契约换代 5 处断言：routing-decision 默认 provider、step-execution 默认 mode + 只读视图 + loop 显式回退负例、step-delivery steppedReady、steps-smoke A1） |
+| `steps:smoke` | **61/61 `ok:true`**：A1 口径改为「当前执行形态合法（第三十二轮起默认 step）且 loop 仍可显式回退」 |
+| `host:pg` / `console:smoke` / `guard:smoke` | 24/24 · 55/55 · 22/22（golden 无漂移，无需重冻结） |
+| `step:once` 端到端 | 新默认真连 PG 专属库（`queue: 'local-pg'`）：未声明 `COLLAB_STEP_PRINCIPAL` → 「步间权限重评」按最小权限拒绝、步标 failed；带主体 → 领步执行，`tool` 类步无登记执行器如实报「没有登记 tool 的执行器」失败不编造（modelCalls=0）。三红线（状态外置 / 步间重评 / 诚实失败）真实生效 |
+| Cognee 本地链路 | `scripts/smoke-memory-graph.ts --run` 隔离真跑通过：`engine: 'pinned Cognee + Ladybug + native BM25'`、`persistenceAcrossProcesses: true`、`conceptRecall: true`、`modelCalls: 0`——当前用法完全本地无需 API key |
+| 其余回归 | `loop:smoke` 18/18、router 31/31、agents 43/43、shapes 36/36、evolution 45/45、memory:hierarchy 16/16、走查 11/11、425px 无溢出、两构建、`atlas:check` 11/11、`audit:upstream clean:true`、`git diff --check` |
+| 服务 | bridge 4180 / console 4200 / vision 4190 / report 4192 / delivery 4194（+git 9418）全部重启加载新默认 |
+| 如实边界 | 真实业务单在 step 模式跑通仍待用户在飞书发起一单验证；回退开关随时可用（`config.json` 的 `execution.mode` 改回 `loop`）；`cogneeNative` 原生 cognify 调用代码未写、无消费者，接通需外部 LLM+Embedding key 或本机 ollama |

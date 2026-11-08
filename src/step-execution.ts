@@ -420,8 +420,8 @@ export async function driveSteppedLoop(input: {
 // --- 只读状态：如实说明单步模式是否真的可用 --------------------------------
 
 export const EXECUTION_MODE_LABELS: Record<string, string> = {
-  loop: '常驻循环（当前默认，可随时回退）',
-  step: '单步执行（队列每激活一棒，进程只跑一步）',
+  loop: '常驻循环（显式配置的回退形态）',
+  step: '单步执行（当前默认；队列每激活一棒，进程只跑一步）',
 };
 
 export function executionView(config: Config) {
@@ -442,7 +442,7 @@ export function executionView(config: Config) {
       'Agent worker 内部一次 tick 的多次模型 / 工具子调用尚未逐次拆分（当前按 tick 级单步）',
       '真实外部模型端点与凭据未接通：model-call 步会如实拒绝，不编造模型调用',
       '远端工具沙箱 / 多机 Remote Tool Calling 未部署；Redis 横向扩展未引入',
-      '默认底座仍是 paperclip，飞书仍是唯一发起入口',
+      '默认底座已切 local-pg（paperclip 显式配置可回退），飞书仍是唯一发起入口',
     ],
     // P-6：从 Runner 借用的状态词、能力声明与两条协议，均为只读说明。
     mission: {

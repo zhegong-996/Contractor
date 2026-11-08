@@ -40,13 +40,15 @@ export function defaultRouterConfig(): RouterConfig {
   return routerConfigSchema.parse({ schemaVersion: 1, mode: 'flat' });
 }
 
-// 生产项 P-1 · 长程执行形态。层是配置，不是产品骨架：默认仍是原来的常驻循环，
-// 单步模式必须配 local-pg——没有状态外置队列就不叫「循环与状态分离」，
-// 配置层直接拒绝，避免用户以为切了开关就已经单步化。
+// 生产项 P-1 · 长程执行形态。层是配置，不是产品骨架：第三十二轮起默认 step
+//（状态外置 PG 队列，进程不持有跨步状态，崩溃可接棒）；step 要求 host.provider
+// 必须是 local-pg——没有状态外置队列就不叫「循环与状态分离」，配置层直接拒绝，
+// 避免用户以为切了开关就已经单步化。回退路径：显式配 mode=loop 即恢复改造前
+// 常驻循环（逐字等价）。
 export const EXECUTION_MODES = ['loop', 'step'] as const;
 export const executionConfigSchema = z.object({
   schemaVersion: z.literal(1),
-  mode: z.enum(EXECUTION_MODES).default('loop'),
+  mode: z.enum(EXECUTION_MODES).default('step'),
   /**
    * 一个 run 最多领多少步，防止队列被失控循环写满。
    * 第二十九轮 P-11：真实业务单（tick 级单步 + 1s 间隔）暴露 60 步上限过低，
@@ -58,7 +60,7 @@ export const executionConfigSchema = z.object({
 }).strict();
 export type ExecutionConfig = z.infer<typeof executionConfigSchema>;
 export function defaultExecutionConfig(): ExecutionConfig {
-  return executionConfigSchema.parse({ schemaVersion: 1, mode: 'loop' });
+  return executionConfigSchema.parse({ schemaVersion: 1, mode: 'step' });
 }
 
 const agentSchema = z.object({
@@ -174,17 +176,18 @@ export const configSchema = z.object({
   }).default(() => ({ provider: 'local' as const, port: 4194, gitPort: 9418,
     repoName: 'suitme-collab', feishuNotify: false, autoMerge: true, autoPublish: true })),
   /**
-   * 宿主平台选择（v0.7 · 去 Paperclip 化第一步；第十六轮 C-1 扩展）。默认仍用
-   * Paperclip，保证现有主链路不回退；`local` 走 LocalHostPlatform（本地文件 +
-   * append-only journal），`local-pg` 走 PgHostPlatform（PostgreSQL 事务、并发
-   * 领取、步进队列与状态外置）。用户 2026-11-07 明确「本机可以引入 pgsql 数据库
-   * 去测试」，所以 PG 是真实可跑的后端，不是被排除的方案。
-   * **DSN 只从 pgDsnEnv 指定的环境变量读取，凭据绝不写入 config.json / 仓库。**
+   * 宿主平台选择（v0.7 · 去 Paperclip 化第一步；第十六轮 C-1 扩展）。第三十二轮起
+   * 默认 `local-pg`：PgHostPlatform（PostgreSQL 事务、并发领取、步进队列与状态外置）
+   * 已经过 host:pg 24/24 与真实业务单验证，成为默认底座。`paperclip` 保持完整支持
+   * （显式配置即回退），`local` 走 LocalHostPlatform（本地文件 + append-only journal）。
+   * 用户 2026-11-07 明确「本机可以引入 pgsql 数据库去测试」，2026-11-08 拍板切默认。
+   * **DSN 只从 pgDsnEnv 指定的环境变量读取，凭据绝不写入 config.json / 仓库；**
+   * 未设置时回退本机回环无密码默认 DSN（仅限 127.0.0.1）。
    */
   host: z.object({
-    provider: z.enum(['paperclip', 'local', 'local-pg']).default('paperclip'),
+    provider: z.enum(['paperclip', 'local', 'local-pg']).default('local-pg'),
     pgDsnEnv: z.string().min(1).default('COLLAB_PG_DSN'),
-  }).default(() => ({ provider: 'paperclip' as const, pgDsnEnv: 'COLLAB_PG_DSN' as const })),
+  }).default(() => ({ provider: 'local-pg' as const, pgDsnEnv: 'COLLAB_PG_DSN' as const })),
   /** C-3：五个派活点统一经 Router；默认 flat（1 跳，行为与改造前一致）。 */
   router: routerConfigSchema.default(() => defaultRouterConfig()),
   /**
@@ -206,8 +209,9 @@ export const configSchema = z.object({
     canaryPercent: z.number().int().min(1).max(100).default(20),
   }).default(() => ({ selfCheckGate: { enabled: true as const }, canaryPercent: 20 })),
   /**
-   * P-1：长程执行形态。默认 loop，与改造前逐字等价；step 要求 host.provider
-   * 必须是 local-pg（真实状态外置队列），否则 superRefine 拒绝启动。
+   * P-1：长程执行形态。第三十二轮起默认 step（状态外置、崩溃可接棒）；step 要求
+   * host.provider 必须是 local-pg（真实状态外置队列），否则 superRefine 拒绝启动。
+   * 回退：显式配 mode=loop 恢复改造前常驻循环（逐字等价）。
    */
   execution: executionConfigSchema.default(() => defaultExecutionConfig()),
 }).superRefine((cfg, ctx) => {

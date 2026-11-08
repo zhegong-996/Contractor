@@ -1,6 +1,6 @@
 # 交接给下一位 Agent · SuitMe 协作台
 
-> 生成：2026-11-08 21:40（北京时间，第三十一轮 ③c/③d 收口后更新）｜仓库：`/Users/gong.zhe/Developer/ai-native-collab`
+> 生成：2026-11-08 22:40（北京时间，第三十二轮切默认底座后更新）｜仓库：`/Users/gong.zhe/Developer/ai-native-collab`
 > 远端：`https://github.com/zhegong-996/suitme-collab.git`（`main`）
 > 代码基线：**永远以 `git rev-parse HEAD` 为准**，不要相信文档里写死的 hash。本次更新前 `HEAD = origin/main = 20fd99a`（第二十九 / 三十轮）、工作区含第三十一轮改动；本文随本轮一并提交后 `HEAD` 会前进，仍应与 `origin/main` 一致。
 > 本文件是**根目录速览入口**；详细权威交接包在 `HANDOFF/`，项目总结在 `PROJECT-SUMMARY.md`。三者随仓库一起提交推送，clone 即得。
@@ -50,7 +50,7 @@ npm test                         # 第三十一轮复跑：557/557，0 fail
 
 ---
 
-## 2. 现在做到哪（第三十一轮 ③c/③d 收口状态）
+## 2. 现在做到哪（第三十二轮收口状态：默认底座 local-pg + step）
 
 | 阶段 | 状态 | 关键交付 |
 |---|---|---|
@@ -68,8 +68,9 @@ npm test                         # 第三十一轮复跑：557/557，0 fail
 | P-11 自动续跑 + 授权代办 + 服务纳管 | **第二十九轮完成** | 续跑闸（重新验证台账回答）、SUI-129/SUI-135 授权代办核可、四服务统一纳管 |
 | P-12/P-13 RBAC + 用户级配置 + 前端重写 + 知识分区 CRUD | **第三十轮完成** | casbin RBAC、Vue 3 + Element Plus 本地 vendor、知识 create/update/delete 分区判定 |
 | ③c 记忆写入链四项 + ③d OpenMausBot 五项 | **第三十一轮完成** | 证据锚点（悬空即拒）/ wiki 投影 / 注入索引分工 / Dreaming 接 C-6；Skill 能力包 / 对外动作不重跑 / 委托树血缘 + generation / 升级不代批 / 团队包审查。全部只借思想、7 个上游不变 |
+| 切默认底座 local-pg + step | **第三十二轮完成** | `host.provider` 默认 local-pg、`execution.mode` 默认 step（用户拍板「切（推荐）」）；显式配置即回退；`step:once` 端到端验证三红线；Cognee 确认本地链路无需 key、cognify 留待拍板 |
 
-严格顺序 **A → B → C → 生产项，不并行**；C 的每一步都单独真跑验收过。最新边界声明是 `docs/ADAPTATION-v0.6.md` 的 `0.00000000000000000000000000000000` 节；最新验证记录是 `docs/VALIDATION.md` 第三十一轮。
+严格顺序 **A → B → C → 生产项，不并行**；C 的每一步都单独真跑验收过。最新边界声明是 `docs/ADAPTATION-v0.6.md` 的 `0.000000000000000000000000000000000` 节；最新验证记录是 `docs/VALIDATION.md` 第三十二轮。
 
 **最后一轮全套回归（第三十一轮 ③c/③d）**：`npm test` **557/557**、`console:smoke` **55/55**、`steps:smoke` **61/61**、`host:pg` **24/24**、`loop:smoke` **18/18**、`guard:smoke` **22/22**（golden 基线人审重冻结）、`memory:hierarchy` 16/16、`tsc`、两个构建、425px 响应式、真实浏览器走查 11/11、`router:smoke` 31/31、`agents:smoke` 43/43、`shapes:smoke` 36/36、`evolution:smoke` 45/45、`atlas:check` 11/11、上游审计 clean、`git diff --check`。端到端真跑：`knowledge-wiki` 27 记录 / 17 页 / 0 悬空（旧记录缺证据如实报）、`dreaming-run` 首跑 24 条建议登记复跑幂等、修订自动挂锚点 → 确认 + inject → 注入索引收 1 条；**无证据的旧记录即使人审确认 + inject 也不进注入索引**（红线联动）。
 
