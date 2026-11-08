@@ -1,7 +1,7 @@
 # 09 · 目录结构完全指南（接手必读）
 
 > 目标：搞清楚**每个目录是干什么的、哪些入库、产物放哪、新文件该放哪**。
-> 根目录：`/Users/gong.zhe/Developer/ai-native-collab`｜第二十二轮 P-1 收尾后 `git ls-files` 共 **297** 个入库文件（含 `HANDOFF/` 14 个）；新增根目录总览后 **299** 个，第二十三轮 P-5 新增 2 个后 **301** 个，第二十四轮 P-6 新增 7 个（`src/step-hitl.ts` / `src/step-delivery.ts` / `src/mission-state.ts` / `scripts/step-answer.ts` / 两组契约测试 / `licenses/runner-MIT.txt`）后为 **308** 个；OpenMausBot 参考评估新增 1 份文档后为 **309** 个，第二十五轮 P-7 新增 4 个文件（`src/memory-hierarchy.ts` / `tests/memory-hierarchy.test.ts` / `scripts/memory-hierarchy-smoke.ts` / `docs/REFERENCE-anthropic-agent-memory.md`）后为 **313** 个。
+> 根目录：`/Users/gong.zhe/Developer/ai-native-collab`｜第二十二轮 P-1 收尾后 `git ls-files` 共 **297** 个入库文件（含 `HANDOFF/` 14 个）；新增根目录总览后 **299** 个，第二十三轮 P-5 新增 2 个后 **301** 个，第二十四轮 P-6 新增 7 个（`src/step-hitl.ts` / `src/step-delivery.ts` / `src/mission-state.ts` / `scripts/step-answer.ts` / 两组契约测试 / `licenses/runner-MIT.txt`）后为 **308** 个；OpenMausBot 参考评估新增 1 份文档后为 **309** 个，第二十五轮 P-7 新增 4 个文件（`src/memory-hierarchy.ts` / `tests/memory-hierarchy.test.ts` / `scripts/memory-hierarchy-smoke.ts` / `docs/REFERENCE-anthropic-agent-memory.md`）后为 **313** 个，第二十六轮 P-8 新增 7 个文件（`src/knowledge-guard.ts` / `src/behavior-baseline.ts` / `tests/knowledge-guard.test.ts` / `tests/behavior-baseline.test.ts` / `tests/p8-contracts.test.ts` / `scripts/guard-smoke.ts` / `fixtures/behavior-golden.json`）后为 **320** 个。
 
 ## 1. 完整目录树（带说明）
 
@@ -19,7 +19,7 @@ ai-native-collab/                       仓库根（main 分支）
 │   ├── 05-VALIDATION-AND-COMMANDS.md  回归命令、预期输出、排障
 │   ├── 06-CURRENT-STATE-AND-NEXT.md   B2 证据；C-0~C-6 清单与产品原则
 │   ├── 07-RULES-AND-BOUNDARIES.md     红线与边界
-│   ├── 08-OPEN-DECISIONS.md           8 项待拍板 + 5 条已解决 / 历史（第 12、13 条为新增）
+│   ├── 08-OPEN-DECISIONS.md           8 项仍待拍板（第 12 / 13 条的确定性部分已于 P-8 落地）+ 5 条已解决 / 历史
 │   ├── DIRECTORY-GUIDE.md             ★ 本文件：目录完全指南
 │   ├── SYNC-STATUS.md                 ★ 唯一位置声明、commit 与接手校验
 │   ├── FILE-INVENTORY.md               ★ 逐文件一行说明（100% 覆盖入库文件）
@@ -39,8 +39,10 @@ ai-native-collab/                       仓库根（main 分支）
 │   ├── step-delivery.ts                P-6 累计确认 / 至少一次通知 / 投递就绪 / 送达证据
 │   ├── mission-state.ts                P-6 六态派生 / 能力声明 / 分层 / 快照不回溯
 │   ├── memory-hierarchy.ts             P-7 记忆分层规则：挂靠 / wiki 护栏 / 注入索引 / 只读 Dreaming / 参考沉淀
+│   ├── knowledge-guard.ts              P-8 守门只读接真实数据（advisory 体检，不改写入链）
+│   ├── behavior-baseline.ts            P-8 冻结基线 / golden diff / 双臂旗标 / 出站工具面硬断言
 │   └── vendor/prime-query.ts           从 Prime Agent 移植的检索权重（必须保留 MIT 版权头）
-├── scripts/                           ★ CLI / 服务 / 构建 / 冒烟（56 个文件，含 .py/.swift/.mjs）
+├── scripts/                           ★ CLI / 服务 / 构建 / 冒烟（57 个文件，含 .py/.swift/.mjs）
 │   ├── memory-journey.ts / memory-checkpoint.ts  B2 真跑脚本（会写 .runtime/memory/）
 │   ├── host-pg-smoke.ts                        C-1 PG 真跑 21/21（专属库 suitme_collab_c1）
 │   ├── console-server.ts / console-smoke.mjs   C-2 独立控制台承载与浏览器冒烟
@@ -51,8 +53,12 @@ ai-native-collab/                       仓库根（main 分支）
 │   └── steps-smoke.ts                  P-1/P-6 单步与协议真跑 54/54（PG 专属库 + 真实子进程）
 │   └── step-answer.ts                  P-6 真人口：回答人工问题（不排后续步骤、不等于验收）
 │   └── memory-hierarchy-smoke.ts       P-7 分层规则隔离真跑 16/16（不写真实 B1 主干）
-├── tests/                             ★ 回归测试（69 个 .test.ts，node:test）
+│   └── guard-smoke.ts                  P-8 真实数据联合真跑 22/22（含 HTTP memory-guard）
+├── tests/                             ★ 回归测试（72 个 .test.ts，node:test）
 │   ├── memory-hierarchy.test.ts       P-7 记忆分层规则契约 20 例
+│   ├── knowledge-guard.test.ts         P-8 守门体检契约 12 例
+│   ├── behavior-baseline.test.ts       P-8 行为基线与出站断言 16 例
+│   ├── p8-contracts.test.ts            P-8 常态契约 8 例（三处白名单 / 真实工具面 / 基线不可篡改）
 │   ├── step-hitl.test.ts               P-6 HITL 成对留痕契约 10 例
 │   ├── step-delivery.test.ts           P-6 投递 / 状态词 / 四项借思想契约 11 例
 │   ├── workspace-summary.test.ts        P-5 摘要契约 9 例（分页 / 身份 / 白名单 / 确定性）
@@ -157,7 +163,7 @@ ai-native-collab/                       仓库根（main 分支）
 | `acceptance/` / `assistant-runs/` / `autoloop-*` | 验收报告、Agent 运行记录、Autoloop 回执 |
 | `*.png` / `*.log` / `*.json` | 历史截图、日志与试点证据 |
 
-**红线**：真实姓名、`open_id`、密钥、业务正文只落 `.runtime/`；提交前必须做 staged diff 敏感扫描（见 `05` 第 9 节）。
+**红线**：真实姓名、`open_id`、密钥、业务正文只落 `.runtime/`；提交前必须做 staged diff 敏感扫描（见 `05` 第 10 节）。
 
 ## 5. 构建产物在哪（都不入库）
 

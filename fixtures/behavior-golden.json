@@ -1,0 +1,270 @@
+{
+  "note": "P-8 冻结基线：真实 console:smoke 报告的稳定字段快照（排除时间/端口/耗时等易变字段，排序用字节序保证跨平台可复现）。任何新增/删除/改变都须人审后由人手工更新并记录理由；真跑脚本不得自动改写基线。",
+  "humanReview": [
+    {
+      "at": "2026-11-08",
+      "round": "第二十六轮 P-8",
+      "change": "checks.readOnlyAllowlist.actions: 17 -> 18",
+      "reason": "本轮新增只读 action memory-guard 并同步三处白名单，属预期配置变化，不是行为退化；guard:smoke 的 golden diff 如实抓到该差异后经人审更新基线。",
+      "reviewer": "本轮交付者（用户已授权查漏补缺）"
+    }
+  ],
+  "frozen": {
+    "schemaVersion": 1,
+    "kind": "console",
+    "signature": "ae3b3163a8286e3d7f1a471a114977cc",
+    "entries": [
+      {
+        "key": "checks.allViewsRendered.ok",
+        "value": "true"
+      },
+      {
+        "key": "checks.allViewsRendered.rendered",
+        "value": "6"
+      },
+      {
+        "key": "checks.allViewsRendered.total",
+        "value": "6"
+      },
+      {
+        "key": "checks.feishuNotice.ok",
+        "value": "true"
+      },
+      {
+        "key": "checks.index.ok",
+        "value": "true"
+      },
+      {
+        "key": "checks.noOverseasCopy.found",
+        "value": "[]"
+      },
+      {
+        "key": "checks.noOverseasCopy.ok",
+        "value": "true"
+      },
+      {
+        "key": "checks.noWebIntake.inputs",
+        "value": "0"
+      },
+      {
+        "key": "checks.noWebIntake.ok",
+        "value": "true"
+      },
+      {
+        "key": "checks.readOnlyAllowlist.actions",
+        "value": "18"
+      },
+      {
+        "key": "checks.readOnlyAllowlist.ok",
+        "value": "true"
+      },
+      {
+        "key": "checks.realTasks.ok",
+        "value": "true"
+      },
+      {
+        "key": "checks.realTasks.status",
+        "value": "200"
+      },
+      {
+        "key": "checks.realTasks.tasks",
+        "value": "10"
+      },
+      {
+        "key": "checks.responsive425.clientWidth",
+        "value": "425"
+      },
+      {
+        "key": "checks.responsive425.offenders",
+        "value": "0"
+      },
+      {
+        "key": "checks.responsive425.ok",
+        "value": "true"
+      },
+      {
+        "key": "checks.responsive425.scrollWidth",
+        "value": "425"
+      },
+      {
+        "key": "checks.script.ok",
+        "value": "true"
+      },
+      {
+        "key": "checks.serviceConnected.ok",
+        "value": "true"
+      },
+      {
+        "key": "checks.serviceConnected.statusText",
+        "value": "本机服务已连接"
+      },
+      {
+        "key": "checks.styles.ok",
+        "value": "true"
+      },
+      {
+        "key": "checks.summaryClipped.bytes",
+        "value": "5678"
+      },
+      {
+        "key": "checks.summaryClipped.ok",
+        "value": "true"
+      },
+      {
+        "key": "checks.summaryPageHonest.ok",
+        "value": "true"
+      },
+      {
+        "key": "checks.summaryPageHonest.taskCount",
+        "value": "10"
+      },
+      {
+        "key": "checks.summaryPageHonest.total",
+        "value": "10"
+      },
+      {
+        "key": "checks.summaryPaged.expected",
+        "value": "10"
+      },
+      {
+        "key": "checks.summaryPaged.ok",
+        "value": "true"
+      },
+      {
+        "key": "checks.summaryPaged.tasks",
+        "value": "2"
+      },
+      {
+        "key": "checks.summaryPaged.total",
+        "value": "10"
+      },
+      {
+        "key": "checks.summaryReady.bytes",
+        "value": "5678"
+      },
+      {
+        "key": "checks.summaryReady.ok",
+        "value": "true"
+      },
+      {
+        "key": "checks.summaryReady.status",
+        "value": "200"
+      },
+      {
+        "key": "checks.summaryReady.tasks",
+        "value": "10"
+      },
+      {
+        "key": "checks.themeToggle.ok",
+        "value": "true"
+      },
+      {
+        "key": "checks.themeToggle.stored",
+        "value": "dark"
+      },
+      {
+        "key": "checks.themeToggle.themeAfter",
+        "value": "dark"
+      },
+      {
+        "key": "checks.themeToggle.themeBefore",
+        "value": "light"
+      },
+      {
+        "key": "checks.view-acceptance.ok",
+        "value": "true"
+      },
+      {
+        "key": "checks.view-acceptance.textLength",
+        "value": "260"
+      },
+      {
+        "key": "checks.view-acceptance.title",
+        "value": "验收"
+      },
+      {
+        "key": "checks.view-collaboration.ok",
+        "value": "true"
+      },
+      {
+        "key": "checks.view-collaboration.textLength",
+        "value": "1500"
+      },
+      {
+        "key": "checks.view-collaboration.title",
+        "value": "协作"
+      },
+      {
+        "key": "checks.view-knowledge.ok",
+        "value": "true"
+      },
+      {
+        "key": "checks.view-knowledge.textLength",
+        "value": "268"
+      },
+      {
+        "key": "checks.view-knowledge.title",
+        "value": "知识"
+      },
+      {
+        "key": "checks.view-overview.ok",
+        "value": "true"
+      },
+      {
+        "key": "checks.view-overview.textLength",
+        "value": "997"
+      },
+      {
+        "key": "checks.view-overview.title",
+        "value": "概览"
+      },
+      {
+        "key": "checks.view-services.ok",
+        "value": "true"
+      },
+      {
+        "key": "checks.view-services.textLength",
+        "value": "547"
+      },
+      {
+        "key": "checks.view-services.title",
+        "value": "服务"
+      },
+      {
+        "key": "checks.view-settings.ok",
+        "value": "true"
+      },
+      {
+        "key": "checks.view-settings.textLength",
+        "value": "278"
+      },
+      {
+        "key": "checks.view-settings.title",
+        "value": "设置"
+      },
+      {
+        "key": "checks.writeBlocked.ok",
+        "value": "true"
+      },
+      {
+        "key": "checks.writeBlocked.status",
+        "value": "403"
+      },
+      {
+        "key": "failed",
+        "value": "[]"
+      },
+      {
+        "key": "ok",
+        "value": "true"
+      }
+    ],
+    "count": 61,
+    "modelCalls": 0,
+    "excludedKeys": [
+      "at",
+      "ms",
+      "port"
+    ]
+  }
+}

@@ -1,6 +1,6 @@
 # 06 · 当前状态与下一步（接手者最该看的一份）
 
-## 1. 状态快照（第二十五轮 P-7）
+## 1. 状态快照（第二十六轮 P-8）
 
 | 阶段 | 状态 | 交付 |
 |---|---|---|
@@ -12,8 +12,9 @@
 | **生产项 P-5 控制台快照服务端分页 / 裁剪** | ✅ **第二十三轮完成**：新增只读 `view-summary`，原 `view` 逐字保留 | 见第 7 节 P-5 交付与证据 |
 | **生产项 P-6 Runner 两块协议移植 + 四项借思想** | ✅ **第二十四轮完成**：HITL 成对留痕、队列累计确认 / 至少一次通知 / 投递就绪、六态派生 / 能力声明 / 分层 / 快照不回溯；MIT 固定来源、未引入第 8 个上游 | 见第 8 节 P-6 交付与证据 |
 | **生产项 P-7 Anthropic agent memory 分层参考 +「参考即记忆」规则** | ✅ **第二十五轮完成**：五组纯函数守门（挂靠 / wiki 护栏 / 注入索引 / 只读 Dreaming / 参考按候选沉淀）；网页文章仅借思想、登记在 `conceptReferences`，不是第 8 个上游 | 见第 9 节 P-7 交付与证据 |
+| **生产项 P-8 查漏补缺 + 取长补短** | ✅ **第二十六轮完成**：守门以只读 `memory-guard` 接真实数据；冻结基线 / golden diff / 双臂旗标 / 出站不暴露硬断言 / 决策留痕隔离落地 | 见第 10 节 P-8 交付与证据 |
 
-系统能跑、全套回归全绿（**465/465 单测**、**`memory:hierarchy` 16/16**、11/11 真实浏览器走查、**`console:smoke` 全绿、`router:smoke` 31/31、`agents:smoke` 43/43、`shapes:smoke` 36/36、`evolution:smoke` 45/45、`steps:smoke` 54/54**、上游 clean、`host:pg` 21/21）。`HEAD = origin/main = 远端 main`。C-1 起每次代码改动都重跑全套；本机 PG 17.10 专属库 `suitme_collab_c1` 已可真跑。
+系统能跑、全套回归全绿（**499/499 单测**、**`memory:hierarchy` 16/16**、**`guard:smoke` 22/22**、11/11 真实浏览器走查、**`console:smoke` 全绿、`router:smoke` 31/31、`agents:smoke` 43/43、`shapes:smoke` 36/36、`evolution:smoke` 45/45、`steps:smoke` 54/54**、上游 clean、`host:pg` 21/21）。`HEAD = origin/main = 远端 main`。C-1 起每次代码改动都重跑全套；本机 PG 17.10 专属库 `suitme_collab_c1` 已可真跑。
 
 ## 2. B2 已完成（四项，均带真跑证据）
 
@@ -146,3 +147,13 @@
 - **用户点题**：「参考本身也是组织记忆」——外部材料与自研结论走同一条 `candidate → confirmed → withdrawn` 候选链，恒为候选、带来源与阅读事件、带红线警告；离线整理只能提请提升，采用仍是独立真人动作。
 - **真跑**：`npm test` **465/465**；`npm run memory:hierarchy` **16/16 `ok:true`**（复现文章 1.77 倍「地图」失败、真实 B1 主干 40 行前后不变）；`tsc`、两个构建、425px、走查 11/11、`console:smoke`、各隔离冒烟、`audit:upstream clean:true`、`git diff --check`。
 - **如实边界**：纯函数守门**尚未接入**真实 `Knowledge` / `Context Pack` / wiki 落盘；未新增只读 action、未改控制台、未改既有投影 / 撤权 / 人签；默认 `loop` + `paperclip` 未变、无外部模型调用；SUI-129 仍未核可。待拍板见 `HANDOFF/08` 第 13 条。
+
+## 10. P-8 交付与证据（第二十六轮，查漏补缺与取长补短）
+
+- **查漏**：P-7 守门当时只被自身冒烟引用、生产链路零调用；出站 MCP 无「不暴露」硬断言；走查报告无冻结基线 / golden diff / 纯评分器；`compareEffects()` 缺双臂旗标；`routing-trace.ts` 决策独立留痕已有等价物，只补断言。
+- **补缺**：`src/knowledge-guard.ts` 把守门以只读 advisory 接到真实数据；新增只读 action `memory-guard` 并同步 `server.ts` / `members.ts` / `console-server.ts` 三处白名单。真实 HTTP 200 / 4,337 bytes / 7 ms；真实 22 条本地知识记录全部缺 `evidenceEventIds`，如实报 `gapRecords:22`，未编造事件 id 跑绿。**不读宿主正文、不改 `propose`、不拦截交付、不新增网页入口或前端卡片**。
+- **取长**：`src/behavior-baseline.ts` 落地冻结快照 / golden diff / 纯评分器 / 双臂三旗标 / 工具面版本化签名 / 出站不暴露硬断言 / 决策留痕隔离断言；`fixtures/behavior-golden.json` 是从真实 `console:smoke` 报告冻结的 61 条稳定字段（字节序排序），真跑脚本不得自动改写。`tests/p8-contracts.test.ts` 把三处白名单、真实 MCP 工具面、基线不可篡改固化进每次 `npm test`。
+- **冻结基线人审**：全套回归后 golden diff 抓到白名单计数 17→18，确认为本轮新增只读 action 的合法变化，人审后手工更新基线并留 `humanReview` 记录；真跑脚本不得自动改写。
+- **修掉的真实缺陷**：体检签名未覆盖记录内容（`recordFingerprint`）、注入顶层截断被静默吞掉（`injectedOmitted` + finding）、冻结基线 `localeCompare` 跨区域漂移（改字节序）；既有 B1 投影排序未动，避免影响已验证 checksum。
+- **真跑**：`npm test` **499/499**、`npm run guard:smoke` **22/22**、`memory:hierarchy` 16/16、`steps:smoke` 54/54、`tsc`、两个构建、425px、走查 11/11、`console:smoke failed: []`、各隔离冒烟、`audit:upstream clean:true`、`git diff --check`。
+- **如实边界**：只读体检不是写入链改造；第 13 条四项与第 12 条 (b) 五项仍待拍板；默认 `loop` + `paperclip` 未变、无外部模型调用、未引入第 8 个上游或 npm 依赖、人签红线未放宽；SUI-129 仍未核可。

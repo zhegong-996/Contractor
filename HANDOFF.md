@@ -50,7 +50,7 @@ npm test                         # 本次交接复跑：413/413，0 fail
 
 ---
 
-## 2. 现在做到哪（第二十五轮 P-7 收口状态）
+## 2. 现在做到哪（第二十六轮 P-8 收口状态）
 
 | 阶段 | 状态 | 关键交付 |
 |---|---|---|
@@ -62,10 +62,11 @@ npm test                         # 本次交接复跑：413/413，0 fail
 | P-5 控制台只读快照服务端分页 / 裁剪 | 第二十三轮完成 | 新增只读 `view-summary`；控制台改拉分页摘要，原 `view` 逐字保留给插件工作台 |
 | P-6 Runner 两块协议移植 + 四项借思想 | **第二十四轮完成** | HITL 成对留痕、队列累计确认 / 至少一次通知 / 投递就绪、六态派生 / 能力声明 / 分层 / 快照不回溯；MIT 固定来源、未引入第 8 个上游 |
 | P-7 Anthropic agent memory 分层参考 +「参考即记忆」规则 | **第二十五轮完成** | 五组纯函数守门（挂靠 / wiki 护栏 / 注入索引 / 只读 Dreaming / 参考按候选沉淀），网页文章仅借思想、登记 `conceptReferences`，不是第 8 个上游 |
+| P-8 查漏补缺 + 取长补短 | **第二十六轮完成** | 守门以只读 `memory-guard` 接真实数据；冻结基线 / golden diff / 双臂旗标 / 出站不暴露硬断言 / 决策留痕隔离落地 |
 
-严格顺序 **A → B → C → 生产项，不并行**；C 的每一步都单独真跑验收过。最新边界声明是 `docs/ADAPTATION-v0.6.md` 的 `0.00000000000000000000000000` 节；最新验证记录是 `docs/VALIDATION.md` 第二十五轮。
+严格顺序 **A → B → C → 生产项，不并行**；C 的每一步都单独真跑验收过。最新边界声明是 `docs/ADAPTATION-v0.6.md` 的 `0.000000000000000000000000000` 节；最新验证记录是 `docs/VALIDATION.md` 第二十六轮。
 
-**最后一轮全套回归（第二十五轮 P-7）**：`npm test` **465/465**、`npm run memory:hierarchy` **16/16**、`tsc`、两个构建、425px 响应式、真实浏览器走查 11/11、`console:smoke`、`router:smoke` 31/31、`agents:smoke` 43/43、`shapes:smoke` 36/36、`evolution:smoke` 45/45、`steps:smoke` **54/54**、`host:pg` 21/21、记忆重放/checkpoint、上游审计 clean、`git diff --check`。第二十四轮基线为 445/445，本轮新增 20 例契约；真实 B1 主干 40 行前后不变，并用确定性数据复现文章 1.77 倍「地图」失败。
+**最后一轮全套回归（第二十六轮 P-8）**：`npm test` **499/499**、`guard:smoke` **22/22**、`memory:hierarchy` **16/16**、`tsc`、两个构建、425px 响应式、真实浏览器走查 11/11、`console:smoke failed: []`、`router:smoke` 31/31、`agents:smoke` 43/43、`shapes:smoke` 36/36、`evolution:smoke` 45/45、`steps:smoke` **54/54**、`host:pg` 21/21、记忆重放/checkpoint、上游审计 clean、`git diff --check`。第二十五轮基线 465/465，本轮新增 34 例契约；真实 HTTP `memory-guard` 200 / 7 ms，22 条真实知识记录全部如实报缺事实源挂靠、未编造事件 id 跑绿。
 
 ---
 
@@ -120,7 +121,7 @@ npm test                         # 本次交接复跑：413/413，0 fail
 
 ## 6. 已实现 / 仅契约 / 未发生（口径必须持续收窄）
 
-**已实现且有回归证据**：中文指令、派单/交接、限时授权、Context Pack 裁剪、知识候选→采用/撤回、开工前锁定清单 + 逐项报告 + Trace、本机 Git 交付链（含自动合并与预览发布）、组织映射、国内服务实时探测、B1/B2 共享记忆与撤权/checkpoint、PG 事务与并发领取、独立控制台六视图、单一 Router 与两种组织形态、Agent 编制、交付前强制自查、单步执行器跨进程续跑、控制台只读快照的服务端分页 / 字段裁剪（P-5，真实 HTTP 对比）、Runner 两块协议语义移植与四项借思想（P-6：HITL 成对留痕、队列累计确认 / 至少一次通知 / 投递就绪、六态派生 / 能力声明 / 分层 / 快照不回溯；445/445 单测与 `steps:smoke` 54/54 真跑，MIT 固定来源、未引入第 8 个上游）、Anthropic agent memory 分层参考的规则守门与「参考即记忆」（P-7：知识挂靠事实源、wiki 链接与规模护栏、注入顶层只留索引、离线整理只提建议、外部参考按候选沉淀；465/465 单测与 `memory:hierarchy` 16/16 真跑，网页文章仅借思想、登记 `conceptReferences`）。
+**已实现且有回归证据**：中文指令、派单/交接、限时授权、Context Pack 裁剪、知识候选→采用/撤回、开工前锁定清单 + 逐项报告 + Trace、本机 Git 交付链（含自动合并与预览发布）、组织映射、国内服务实时探测、B1/B2 共享记忆与撤权/checkpoint、PG 事务与并发领取、独立控制台六视图、单一 Router 与两种组织形态、Agent 编制、交付前强制自查、单步执行器跨进程续跑、控制台只读快照的服务端分页 / 字段裁剪（P-5，真实 HTTP 对比）、Runner 两块协议语义移植与四项借思想（P-6：HITL 成对留痕、队列累计确认 / 至少一次通知 / 投递就绪、六态派生 / 能力声明 / 分层 / 快照不回溯；445/445 单测与 `steps:smoke` 54/54 真跑，MIT 固定来源、未引入第 8 个上游）、Anthropic agent memory 分层参考的规则守门与「参考即记忆」（P-7：知识挂靠事实源、wiki 链接与规模护栏、注入顶层只留索引、离线整理只提建议、外部参考按候选沉淀；465/465 单测与 `memory:hierarchy` 16/16 真跑，网页文章仅借思想、登记 `conceptReferences`）、查漏补缺与取长补短（P-8：守门只读接入真实数据、冻结基线与 golden diff、双臂统计旗标、出站 MCP 不暴露硬断言、决策留痕隔离；499/499 单测与 `guard:smoke` 22/22 真跑）。
 
 **仅契约 / 预备配置，不等于启用**：模型三档策略（不存 Key）、L2 组织图草稿（人审后生效）、飞书部门 scope 授权命令（需本人在飞书确认）、Cognee 原生 LLM / embedding / cognify 链路（代码已实现、允许外部端点，但缺端点与凭据，**真实调用从未发生**）、`config.execution.mode=step`（可真跑但默认未启用）、`config.host.provider=local-pg`（可真跑但默认仍是 `paperclip`）。
 
@@ -137,7 +138,7 @@ npm test                         # 本次交接复跑：413/413，0 fail
 4. 金额成本账本接入四项效果看板（当前单任务成本用「模型调用次数 / 任务」代理，不编造金额）。
 5. ✅ **第二十三轮已完成**：控制台改用服务端分页摘要 `view-summary`（真实服务端 5,678 bytes / 0.076 秒），原 `view` 逐字保留给插件工作台；详见 `HANDOFF/06` 第 7 节。
 
-**需要用户拍板**（`HANDOFF/08`，共 13 条，其中 8 条仍待拍板）：外部模型端点与凭据、SUI-129 真人验收、飞书部门 scope 授权、国内/海外外部服务是否接通、已取消服务长期状态、「pi」的指代、**OpenMausBot 参考评估的落地范围（第 12 条）**、**Anthropic agent memory 守门是否接入真实生产链（第 13 条）**。第 10 条「Paperclip 去留」方向已定为 (a) 不引入第 8 个上游、继续去宿主化，但**何时切换默认底座**仍需用户确认。第 11 条「Runner 移植范围」已于第二十四轮由用户拍板 (b) 并执行：两块协议用 TypeScript 重写、四项只借思想，固定 MIT 提交 `a42d1331`、R7 六步登记完成，**未引入 submodule / gitlink / Rust 源码，7 个上游不变**；详见 `HANDOFF/06` 第 8 节。第 12 条是同轮新增的 OpenMausBot 完整调研（固定 Apache-2.0 提交 `3f81576`，`enterprise/` 独立许可禁止复用），只评估、未引入任何代码；结论与 11 条差距清单见 `docs/REFERENCE-openmausbot.md`。第 13 条是本轮新增的 Anthropic 参考评估：阅读、逐层对照与五组纯函数守门已完成（P-7），**是否把守门接到真实 `Knowledge` / `Context Pack` / wiki 落盘仍需拍板**；网页文章无开源代码许可证，只按 `conceptReferences` 登记，不是第 8 个上游；详见 `docs/REFERENCE-anthropic-agent-memory.md` 与 `HANDOFF/06` 第 9 节。
+**需要用户拍板**（`HANDOFF/08`，共 13 条，其中 8 条仍待拍板）：外部模型端点与凭据、SUI-129 真人验收、飞书部门 scope 授权、国内/海外外部服务是否接通、已取消服务长期状态、「pi」的指代、**OpenMausBot 参考评估的落地范围（第 12 条）**、**Anthropic agent memory 守门是否接入真实生产链（第 13 条）**。第 10 条「Paperclip 去留」方向已定为 (a) 不引入第 8 个上游、继续去宿主化，但**何时切换默认底座**仍需用户确认。第 11 条「Runner 移植范围」已于第二十四轮由用户拍板 (b) 并执行：两块协议用 TypeScript 重写、四项只借思想，固定 MIT 提交 `a42d1331`、R7 六步登记完成，**未引入 submodule / gitlink / Rust 源码，7 个上游不变**；详见 `HANDOFF/06` 第 8 节。第 12 条是同轮新增的 OpenMausBot 完整调研（固定 Apache-2.0 提交 `3f81576`，`enterprise/` 独立许可禁止复用），只评估、未引入任何代码；结论与 11 条差距清单见 `docs/REFERENCE-openmausbot.md`。第 13 条是第二十五轮新增的 Anthropic 参考评估：P-7 已完成阅读、逐层对照与五组纯函数守门，**第二十六轮 P-8 补上只读 advisory 体检接线**（`memory-guard`，真实 HTTP 200 / 7 ms）；`KnowledgeService.propose` 增加 `evidenceEventIds`、wiki 落盘位置、注入索引与一次性 `Context Pack` 分工、Dreaming 建议接 C-6 闸门这**四项写入链改造仍需拍板**。网页文章无开源代码许可证，只按 `conceptReferences` 登记，不是第 8 个上游；详见 `docs/REFERENCE-anthropic-agent-memory.md` 与 `HANDOFF/06` 第 9、10 节。第 12 条 OpenMausBot 的 (a) 六项确定性能力也已于 P-8 落地，(b) 五项仍需产品拍板。
 
 ---
 
@@ -149,9 +150,9 @@ npm test                         # 本次交接复跑：413/413，0 fail
 | 接手、环境、命令、红线、下一步 | `HANDOFF/` 包（入口 `HANDOFF/README.md`） |
 | 产品需求与可验收条款 | `docs/PRD-v0.6.md`（尤其 §5 FR、§6 主流程、§10C C-P1~C-P8） |
 | 设计定稿（不等于全部实现） | `docs/ARCHITECTURE-v0.6.md` |
-| 最新实现边界 | `docs/ADAPTATION-v0.6.md` `0.00000000000000000000000000` 节（第二十五轮 P-7） |
+| 最新实现边界 | `docs/ADAPTATION-v0.6.md` `0.000000000000000000000000000` 节（第二十六轮 P-8） |
 | 现状架构与接入状态 | `docs/SYSTEM-ARCHITECTURE.md` |
-| 验证证据 | `docs/VALIDATION.md`、`HANDOFF/05-VALIDATION-AND-COMMANDS.md` |
+| 验证证据 | `docs/VALIDATION.md`、`HANDOFF/05-VALIDATION-AND-COMMANDS.md`（第 6 节为 P-8 实测） |
 | 复用来源与协议 | `docs/SOURCES.md`、`docs/UPSTREAM-ADAPTERS.md`、`docs/OPEN-SOURCE-COMPLIANCE.md`、`THIRD_PARTY_NOTICES.md`、`sources.lock.json` |
 | 机器可读交接元数据 | `HANDOFF/handoff-manifest.json` |
 | 外部候选评估（Runner / OpenMausBot / Anthropic agent memory） | `docs/ADAPTATION-v0.6.md` 最新边界节、`docs/REFERENCE-openmausbot.md`（OpenMausBot 完整对照与差距清单）、`docs/REFERENCE-anthropic-agent-memory.md`（Anthropic 逐层对照与 8 条差距清单） |

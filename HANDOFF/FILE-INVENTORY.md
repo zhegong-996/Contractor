@@ -1,6 +1,6 @@
 # FILE-INVENTORY · 逐文件说明（100% 覆盖）
 
-> 生成自 `git ls-files` + `HANDOFF/`，第二十二轮 P-1 收尾后共 **297** 个条目，2026-11-08 交接总结新增根目录 2 个文件后共 **299** 个条目，第二十三轮 P-5 新增 2 个文件后共 **301** 个条目，第二十四轮 P-6 新增 7 个文件后共 **308** 个条目，OpenMausBot 参考评估新增 1 份文档后共 **309** 个条目，第二十五轮 P-7 新增 4 个文件后共 **313** 个条目（第十四轮 269 + C-1 新增 4 + C-2 新增 7 + C-3 新增 3 + C-4 新增 3 + C-5 新增 2 + C-6 新增 4 + P-1 新增 5 + 交接总结新增 2 + P-5 新增 2 + P-6 新增 7 + 评估文档 1 + P-7 新增 4）。
+> 生成自 `git ls-files` + `HANDOFF/`，第二十二轮 P-1 收尾后共 **297** 个条目，2026-11-08 交接总结新增根目录 2 个文件后共 **299** 个条目，第二十三轮 P-5 新增 2 个文件后共 **301** 个条目，第二十四轮 P-6 新增 7 个文件后共 **308** 个条目，OpenMausBot 参考评估新增 1 份文档后共 **309** 个条目，第二十五轮 P-7 新增 4 个文件后共 **313** 个条目，第二十六轮 P-8 新增 6 个文件后共 **320** 个条目（第十四轮 269 + C-1 新增 4 + C-2 新增 7 + C-3 新增 3 + C-4 新增 3 + C-5 新增 2 + C-6 新增 4 + P-1 新增 5 + 交接总结新增 2 + P-5 新增 2 + P-6 新增 7 + 评估文档 1 + P-7 新增 4 + P-8 新增 7（src/knowledge-guard.ts、src/behavior-baseline.ts、tests/knowledge-guard.test.ts、tests/behavior-baseline.test.ts、tests/p8-contracts.test.ts、scripts/guard-smoke.ts、fixtures/behavior-golden.json）。
 > 列：`路径 | 行数 | 说明`。`upstream/<name>` 是 gitlink（submodule），行数记 `-`；既有条目的行数为生成时快照，文档改版后以文件实际内容为准。
 > 说明来源：精写字典 213 条、从源码注释/导出/测试名自动提取 69 条、按类型兜底 0 条。
 > 需要更详细的「哪些文件一起完成什么」见 `04-CODE-MAP.md`；目录结构见 `DIRECTORY-GUIDE.md`。
@@ -14,17 +14,17 @@
 | `HANDOFF/02-ARCHITECTURE.md` | 89 | 技术架构：四层数据流、7 个上游真实引用强度、前端分层、中文壳、路由契约、共享记忆主干（B1+B2）、平台端口、代码交付。 |
 | `HANDOFF/03-WORK-LOG.md` | 58 | 全部 22 轮工作记录（含第十五轮补遗、第十六轮 C-1、第十七轮 C-2、第十八轮 C-3、第十九轮 C-4、第二十轮 C-5、第二十一轮 C-6）、7 条排障模式、用户明确做过的决策。 |
 | `HANDOFF/04-CODE-MAP.md` | 172 | 按 14 个功能域讲「哪些文件一起完成什么」、关键导出与依赖方向速查。 |
-| `HANDOFF/05-VALIDATION-AND-COMMANDS.md` | 178 | 全套回归命令、第二十二 / 二十三 / 二十四 / 二十五轮实测结果（含 `npm test` 465/465、`memory:hierarchy` 16/16、`steps:smoke` 54/54、各隔离冒烟）、真实 HTTP 冒烟模板、服务端口表、排障速查、提交前检查。 |
-| `HANDOFF/06-CURRENT-STATE-AND-NEXT.md` | 148 | 当前状态快照（第二十五轮 P-7）、B2 四项真跑证据、C-0~C-6 分步清单、按配置的三层判断、去 Paperclip 化路线、P-1 / P-5 / P-6 / P-7 四轮交付与证据、剩余生产项与待拍板事项。 |
+| `HANDOFF/05-VALIDATION-AND-COMMANDS.md` | 194 | 全套回归命令、第二十二至二十六轮实测结果（含 `npm test` 499/499、`guard:smoke` 22/22、`memory:hierarchy` 16/16、`steps:smoke` 54/54、各隔离冒烟）、真实 HTTP 冒烟模板、服务端口表、排障速查、提交前检查。 |
+| `HANDOFF/06-CURRENT-STATE-AND-NEXT.md` | 158 | 当前状态快照（第二十六轮 P-8）、B2 四项真跑证据、C-0~C-6 分步清单、按配置的三层判断、去 Paperclip 化路线、P-1 / P-5 / P-6 / P-7 / P-8 五轮交付与证据、剩余生产项与待拍板事项。 |
 | `HANDOFF/07-RULES-AND-BOUNDARIES.md` | 44 | 红线与边界：业务验收身份、隐私与 .runtime、服务约束、许可证、前端入口、工程约束。 |
-| `HANDOFF/08-OPEN-DECISIONS.md` | 112 | 13 个条目（8 项待拍板 + 产品形态 ②、B2 范围、组织形态可配置与自演进、Paperclip 去留四条历史记录 + 第 11 条 Runner 已拍板完成）：外部模型凭据、真人验收、部门 scope、外部服务、已停服务、pi 指代、第 12 条 OpenMausBot 落地范围、第 13 条 Anthropic agent memory 守门是否接入真实生产链。 |
+| `HANDOFF/08-OPEN-DECISIONS.md` | 112 | 13 个条目（8 项待拍板 + 产品形态 ②、B2 范围、组织形态可配置与自演进、Paperclip 去留四条历史记录 + 第 11 条 Runner 已拍板完成）：第 12 条 OpenMausBot (b) 五项、第 13 条 Anthropic agent memory 写入链改造四项仍待拍板；两条的确定性部分已于 P-8 落地。 |
 | `HANDOFF/DIRECTORY-GUIDE.md` | 154 | ★ 目录完全指南：完整目录树、每个顶层目录作用与入库状态、7 个 submodule、.runtime 详解、构建产物位置、新文件该放哪。 |
 | `HANDOFF/FILE-INVENTORY.md` | 328 | ★ 本文件：全部入库文件逐文件一行说明（路径 / 行数 / 用途），用于快速定位。 |
 | `HANDOFF/README.md` | 62 | 交接包总索引：5 分钟接手路径、包内每个文件的说明、根目录两份总览入口、一句话现状与检查清单。 |
 | `HANDOFF/SYNC-STATUS.md` | 58 | ★ 唯一位置声明（含根目录两份总览入口）、代码基线/提交关系、接手校验命令、本目录内阅读顺序。 |
 | `HANDOFF/handoff-manifest.json` | 203 | 机器可读元数据：commit、远端、测试结果、服务状态、包内文件清单、下一步与开放决策。 |
 
-## 后端核心 src/（83）
+## 后端核心 src/（85）
 
 | 路径 | 行数 | 说明 |
 |---|---|---|
@@ -120,7 +120,10 @@
 
 | `src/memory-hierarchy.ts` | 410 | ★ P-7 记忆分层规则：知识挂靠事实源 / wiki 链接与规模护栏 / 注入索引 200 行 25KB / 只读 Dreaming 建议 / 参考按候选沉淀；纯函数、`modelCalls=0`。 |
 
-## 脚本与服务 scripts/（53）
+| `src/knowledge-guard.ts` | 199 | ★ P-8 守门只读接真实数据：逐条跑挂靠校验、如实报缺事实源、不编造事件 id；`advisory:true / blocking:false / modelCalls:0`。 |
+| `src/behavior-baseline.ts` | 263 | ★ P-8 冻结快照 / golden diff / 纯评分器 / 双臂三旗标 / 出站 MCP 工具面签名与不暴露硬断言 / 决策留痕隔离。 |
+
+## 脚本与服务 scripts/（54）
 
 | 路径 | 行数 | 说明 |
 |---|---|---|
@@ -183,7 +186,9 @@
 
 | `scripts/memory-hierarchy-smoke.ts` | 170 | ★ P-7 隔离真跑 16/16：复现 1.77 倍「地图」失败、离线整理只读、真实 B1 主干行数前后不变。 |
 
-## 回归测试 tests/（66）
+| `scripts/guard-smoke.ts` | 197 | ★ P-8 真实数据联合真跑 22/22：冻结基线、真实 16 个出站工具、100 条路由留痕、真实 HTTP `memory-guard`、日志行数前后不变。 |
+
+## 回归测试 tests/（69）
 
 | 路径 | 行数 | 说明 |
 |---|---|---|
@@ -260,6 +265,10 @@
 
 | `tests/memory-hierarchy.test.ts` | 225 | ★ P-7 记忆分层规则契约 20 例（挂靠 / 规则沉淀 / 参考沉淀 / wiki 体检 / 注入预算 / Dreaming / append-only）。 |
 
+| `tests/knowledge-guard.test.ts` | 139 | ★ P-8 守门体检契约 12 例（真实缺口 / 悬空 / 撤回 / 无签字 / advisory / 确定性签名）。 |
+| `tests/behavior-baseline.test.ts` | 155 | ★ P-8 冻结基线、golden diff、双臂旗标、出站不暴露硬断言与决策留痕隔离 16 例。 |
+| `tests/p8-contracts.test.ts` | 84 | ★ P-8 常态契约 8 例：三处白名单同步、真实 MCP 工具面、冻结基线不可自动改写、真跑脚本只读。 |
+
 ## 独立控制台 console/（3）
 
 | 路径 | 行数 | 说明 |
@@ -300,7 +309,7 @@
 
 | 路径 | 行数 | 说明 |
 |---|---|---|
-| `docs/ADAPTATION-v0.6.md` | 945 | ★ 逐轮适配记录与「最新边界声明」（当前以 0.0000000000000000 节为准，含第 6 小节补遗），判断「已发生/未发生」以此为准。 |
+| `docs/ADAPTATION-v0.6.md` | 964 | ★ 逐轮适配记录与「最新边界声明」（当前以 0.0000000000000000 节为准，含第 6 小节补遗），判断「已发生/未发生」以此为准。 |
 | `docs/AGENT-BUILDING.md` | 41 | Agent 构建与能力装配说明。 |
 | `docs/AGENT-SERVICE-NETWORK.md` | 70 | 个人 Agent 服务网的组织方式。 |
 | `docs/ARCHITECTURE-OPTIONS-v0.7.md` | 269 | ★ 架构收敛方案：主流记忆架构、auto-ontology 校正、A/B/C 三方案、缺口清单与许可证边界（含附录 A/B/C/D，D 记 B2 已落地）。 |
@@ -319,7 +328,7 @@
 | `docs/SYSTEM-ARCHITECTURE.md` | 241 | ★ 「现在是什么」：技术四层、产品与业务架构、前端分层、统一路由 Trace、共享记忆主干。 |
 | `docs/TEAM-NETWORK-MEMORY.md` | 70 | 多人服务协作与团队知识记忆。 |
 | `docs/UPSTREAM-ADAPTERS.md` | 54 | 上游适配代码清单与引用边界。 |
-| `docs/VALIDATION.md` | 786 | ★ 逐轮验证记录（含 B2、C-1 ~ C-6、P-1 全套回归与 2026-11-08 交接文档轮），判断「验证过没有」以此为准。 |
+| `docs/VALIDATION.md` | 801 | ★ 逐轮验证记录（含 B2、C-1 ~ C-6、P-1 全套回归与 2026-11-08 交接文档轮），判断「验证过没有」以此为准。 |
 | `docs/WORKSPACES.md` | 70 | 知识空间与使用说明。 |
 | `docs/agent-integration.md` | 75 | Agent 接入与 CLI 适配说明。 |
 | `docs/design/workbench.md` | 11 | 工作台视觉/交互设计稿。 |
@@ -356,7 +365,7 @@
 | `sources.lock.json` | 39 | ★ 7 个上游 submodule 的 URL / commit / license / 引入方式锁定，audit:upstream 校验。 |
 | `tsconfig.json` | 8 | 主工程 TypeScript 配置。 |
 
-## 其它目录（配置/许可/夹具/集成）（14）
+## 其它目录（配置/许可/夹具/集成）（15）
 
 | 路径 | 行数 | 说明 |
 |---|---|---|
@@ -374,6 +383,8 @@
 | `licenses/pg-MIT.txt` | 21 | pg@8.23.1 的 MIT LICENSE 原文（含 @types/pg 同版本），R7 新增依赖登记凭证。 |
 | `licenses/runner-MIT.txt` | 21 | Runner（Copyright (c) 2026 Yicheng Wang）的 MIT LICENSE 原文；P-6 两块协议语义移植的来源凭证，`sources.lock.json` 的 `protocolReferences` 固定提交，`audit:upstream` 校验。不是 submodule。 |
 | `locales/shell.zh-CN.json` | 13 | 构建期中文壳词典（展示文案替换表）。 |
+
+| `fixtures/behavior-golden.json` | 261 | ★ P-8 冻结基线：真实 `console:smoke` 报告 61 条稳定字段，字节序排序、签名 32 位；真跑逐项比对，新增 / 删除 / 改变须人审，不得自动改写。 |
 
 ## 覆盖率
 

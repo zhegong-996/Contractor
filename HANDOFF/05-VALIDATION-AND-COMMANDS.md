@@ -6,7 +6,7 @@
 cd /Users/gong.zhe/Developer/ai-native-collab
 export NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost NODE_USE_ENV_PROXY=0
 
-npm test                    # 465/465（基线）
+npm test                    # 499/499（基线）
 npx tsc --noEmit            # 退出 0
 npm run build:workspaces    # 插件 UI 打包 + 类型检查
 npm run build:chinese-shell # hiddenEntries 4 条、missed []、warning null
@@ -29,6 +29,7 @@ npm run memory:replay       # 只读重放：replayTwiceEqual / deterministic tr
 npm run memory:smoke        # 临时目录真跑三条红线，ok:true
 npm run memory:checkpoint   # 真实日志增量应用，checksum 与全量对照
 npm run memory:hierarchy    # P-7 分层规则隔离真跑 16/16（不写真实 B1 主干）
+npm run guard:smoke         # P-8 真实数据联合真跑 22/22（只读，含 HTTP memory-guard）
 npm run memory:journey      # 真实 bridge action 全链路 + 端到端撤权（会写真实日志）
 npm run routing:status      # allWired:true、threeTier.recommended:false
 npm run host:smoke          # 非 Paperclip 宿主 ok:true
@@ -115,7 +116,23 @@ npm run delivery:demo       # 本机 Git 链路；4194/9418 停机时 gitProtoco
 | 既有回归不回退 | `tsc`、两个构建、425px 响应式、走查 11/11、`console:smoke`、`router:smoke` 31/31、`agents:smoke` 43/43、`shapes:smoke` 36/36、`evolution:smoke` 45/45、`steps:smoke` 54/54、`host:pg` 21/21、`git diff --check` |
 | 如实边界 | 纯函数守门尚未接入真实 `Knowledge` / `Context Pack` / wiki 落盘；未新增只读 action、未改控制台；默认仍 `loop` + `paperclip`，无外部模型调用；SUI-129 仍未核可 |
 
-## 6. 真实 HTTP 冒烟模板（admin token 从 `.runtime/secrets.json` 读，不入库）
+## 6. 第二十六轮 P-8 实测结果（2026-11-08，查漏补缺与取长补短）
+
+| 项 | 结果 |
+|---|---|
+| `npm test` | **499 / 499**（465 + 12 例守门 + 16 例行为基线 + 8 例常态契约） |
+| `npm run guard:smoke` | **22/22 `ok:true`**；只读，真实 B1（40 行）/ 路由（100 行）日志前后不变 |
+| A 段冻结基线 | `fixtures/behavior-golden.json` 61 条稳定字段与当前真实 `console:smoke` 报告逐项一致（unchanged 61、added/removed/changed 全 0）；时间 / 端口 / 耗时变化不改签名；种类不同不比较不编造分数；退化能判 `regressed` |
+| B 段出站 MCP | 从真实 `src/mcp.ts` 静态解析 16 个工具，全部通过「不暴露」硬断言；注入 `confirm_acceptance` / `admin_dump_private` 被精确名与前缀拦下；工具面签名顺序无关、增删即变 |
+| C / D 段 | 100 条真实路由决策留痕无坏行、时间单调、不与业务任务 id 重合；双臂旗标样本不足不补零、有区分才 comparable、波动过大标 high-variance |
+| E 段守门接真实数据 | 140 条真实事件 + 22 条本地知识索引；如实报 `gapRecords:22 / missingEvidence:22`，`unwired` 四项；`advisory:true / blocking:false / modelCalls:0`；三处白名单同步静态核对 |
+| F 段真实 HTTP | `POST /workspace/memory-guard` → **200 / 4,337 bytes / 7 ms**，`source:local-store`、`documentBodiesNotRead:true` |
+| 冻结基线人审 | 全套浏览器回归后 `guard:smoke` 的 golden diff 如实抓到 `checks.readOnlyAllowlist.actions` **17→18**；经人审确认为本轮新增只读 action `memory-guard` 的预期配置变化（非行为退化），**由人手工更新基线并在 `humanReview` 记录时间 / 轮次 / 变化 / 理由 / 审核人**，真跑脚本仍不得自动改写 |
+| 修掉的真实缺陷 | `recordFingerprint` 覆盖记录内容；`injectedOmitted` 报出顶层截断；冻结基线改字节序排序（跨平台可复现） |
+| 既有回归不回退 | `memory:hierarchy` 16/16、`steps:smoke` 54/54、`router:smoke` 31/31、`agents:smoke` 43/43、`shapes:smoke` 36/36、`evolution:smoke` 45/45、`host:pg` 21/21、走查 11/11、`console:smoke failed: []`、两个构建、425px、`tsc`、`audit:upstream clean:true`、`git diff --check` |
+| 如实边界 | 只读体检不等于写入链改造；第 13 条四项与第 12 条 (b) 五项仍待拍板；默认仍 `loop` + `paperclip`，无外部模型调用；SUI-129 仍未核可 |
+
+## 7. 真实 HTTP 冒烟模板（admin token 从 `.runtime/secrets.json` 读，不入库）
 
 ```sh
 node --import tsx --input-type=module -e "
@@ -135,7 +152,7 @@ req.on('error', e => console.log('ERR', e.message)); req.end(payload);
 
 把 path 换成 `routing-status` / `service-status` / `delivery-status` / `system-status` 可查其它只读状态。改过 `src/server.ts` / `src/v06.ts` / `src/workspaces.ts` 等服务端代码后先 `npm run restart:bridge`。
 
-## 7. 服务端口表
+## 8. 服务端口表
 
 | 端口 | 用途 | 交接状态 | 启动方式 |
 |---|---|---|---|
@@ -148,7 +165,7 @@ req.on('error', e => console.log('ERR', e.message)); req.end(payload);
 | 5432 | 本机 PG 17 专属库 suitme_collab_c1 | 运行中（用户既有实例） | 不新建服务；只连回环，勿动其它库 |
 | 4200（按需） | 自研独立控制台 | 不常驻 | `npm run console` 才启动，只绑 127.0.0.1；冒烟用随机端口，跑完即关 |
 
-## 8. 排障速查
+## 9. 排障速查
 
 | 现象 | 根因 | 处理 |
 |---|---|---|
@@ -164,7 +181,7 @@ req.on('error', e => console.log('ERR', e.message)); req.end(payload);
 | `v06-l2-extract` 报「边指向不存在的节点」 | `memory-index` 先自动抽过一次，任务级镜像未带入全局已有节点 | `buildTaskGraphMirror()` 补齐，见 `tests/l2-extraction.test.ts` |
 | 真实日志出现 `danglingCausedBy` | `reviewSource` 用评审前 revision，确认事件被幂等去重 | 已改用 `reviewedRevision`；历史行不物理删除，重放如实记录 |
 
-## 9. 提交前检查（每轮都做）
+## 10. 提交前检查（每轮都做）
 
 ```sh
 git status --short

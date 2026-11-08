@@ -28,6 +28,8 @@ import { createIndependentReviewer } from './visual-review.ts';
 import { ServiceNetwork } from './service-network.ts';
 import { TeamMemory } from './team-memory.ts';
 import { TeamMembers } from './members.ts';
+// P-8：把 P-7 的记忆分层守门以只读 advisory 接进真实数据（不改写入链）。
+import { guardKnowledge, collectTranscript, assertGuardIsAdvisory } from './knowledge-guard.ts';
 import { AgentServices } from './agent-services.ts';
 import { OntologyService } from './ontology.ts';
 import { V06Services } from './v06.ts';
@@ -175,7 +177,7 @@ const server = createServer(async (req, res) => {
       // Reads recheck their own scope and revisions. They need not wait behind
       // indexing or native process reconciliation; mutations keep the single lane.
       const v06Reads=['roles-view','role-route','role-hints','role-snapshot','transfer-view','transfer-policy','dispatch-guard','grant-widen','grant-check','edges-view','edge-impact','label-check','policy-view','verification-level','topology-advice','inflight-policy','signals','review-readiness','ontology-meta','ontology-view','ontology-query','attention-policy','attention-filter','watchdog-policy','watchdog-inspect','plan-view','round-view','acceptance-export','acceptance-report-view','org-overview','org-mapping-view','context-pack','l2-status','l2-edges-view','l2-graph-view','agent-registry-view','acceptance-crew','evolution-view','execution-view'];
-      const readOnly=['view','view-summary','team-members','agent-services','agent-build','development-view','delivery-status','service-status','routing-status','memory-replay','network-view','memory-status','memory-search','memory-annotations','context-pack','context-record','context-search','ontology-view','model-settings','system-status','trace-view'].includes(action)||action==='knowledge-graph'&&payload.project!==true||action.startsWith('v06-')&&v06Reads.includes(action.slice(4));
+      const readOnly=['view','view-summary','team-members','agent-services','agent-build','development-view','delivery-status','service-status','routing-status','memory-replay','memory-guard','network-view','memory-status','memory-search','memory-annotations','context-pack','context-record','context-search','ontology-view','model-settings','system-status','trace-view'].includes(action)||action==='knowledge-graph'&&payload.project!==true||action.startsWith('v06-')&&v06Reads.includes(action.slice(4));
       const runWorkspace=readOnly?<T>(job:()=>Promise<T>)=>withFeishuReads(job):serialize;
       res.end(JSON.stringify(await runWorkspace(async () => {
         workspaceActor = await teamMembers.gate(action, payload, workspaceActor);
@@ -190,6 +192,19 @@ const server = createServer(async (req, res) => {
         if(action==='memory-replay'){
           const {events,errors,routingEvents}=readBridgedEvents();
           return {...memoryReplayReport(events,errors),bridgedRoutingEvents:routingEvents};
+        }
+        if(action==='memory-guard'){
+          // 只读 advisory：P-7 五条守门跑在真实 B1 事件与本地知识任务索引上。
+          // 不读宿主文档正文、不写任何状态、不因缺口拦截业务；真实记录缺
+          // evidenceEventIds 时如实报缺口，绝不编造事件 id 把体检跑绿。
+          const {events}=readBridgedEvents();
+          const records=store.list().filter(t=>t.kind==='knowledge').map(t=>({
+            key:t.identifier, title:t.context||t.identifier, state:'candidate' as const,
+          }));
+          const report=guardKnowledge({records,transcript:collectTranscript(events)});
+          assertGuardIsAdvisory(report);
+          return {...report,source:'local-store',documentBodiesNotRead:true,
+            note:'只读体检：不读宿主知识正文、不改任务状态/授权/验收；缺事实源挂靠是第 13 条待拍板的写入链改造，不是本动作的故障'};
         }
         if(action==='routing-status'){
           const {events,errors}=readRoutingEvents();const projection=replayRouting(events);

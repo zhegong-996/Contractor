@@ -122,6 +122,7 @@
 | C-4 组织级 Agent 编制 / 验收协作 / A2A 在岗交接 | 无新增依赖（自研 `src/agent-registry.ts`） | — | 只复用既有 `RoutingDecision` / A2A Link 的字段语义与 LobeHub 三层汇报的产品思想；**未引入第 8 个上游、未改上游提交、未复制任何上游代码**；`npm run agents:smoke` 真跑 43/43 |
 | 权限标签粒度 | Outline (BSL 1.1) / Onyx / OpenFGA | ❌ / 未核实 | 仅设计参考，不引入代码 |
 | P-6 HITL 成对留痕 / 累计确认 / 投递就绪 / 六态派生 / 能力声明 | `yicheng47/runner` MIT（固定 `a42d1331`） | ✅（协议语义移植，TS 重写） | **不是 submodule、未复制 Rust 源码**；MIT 原文在 `licenses/runner-MIT.txt`，固定提交在 `sources.lock.json` 的 `protocolReferences`，`npm run audit:upstream` 机器化校验；已避开 2026-08-22 ~ 09-22 的 GPL-3.0-only 发布窗口；`npm run steps:smoke` 真跑 54/54 |
+| P-8 守门只读接真实数据 / 冻结基线 / 双臂旗标 / 出站不暴露硬断言 | 无新增依赖（自研 `src/knowledge-guard.ts` / `src/behavior-baseline.ts`） | — | 只落地 OpenMausBot 与 Anthropic 评估中已登记的**思想**，代码全部自研；未引入第 8 个上游、未复制正文 / 代码、未调用外部模型；`guard:smoke` 真跑 22/22 |
 | P-7 记忆分层规则守门 / 参考按候选沉淀 | Anthropic《The components of agent memory》（2026-11-06，网页研究文章，© 2026 Anthropic PBC） | ❌ 复制正文 / 代码不行 / ✅ 只借思想可以 | **无开源代码许可证**，按 `sources.lock.json` 的 `conceptReferences` 登记、不伪造 LICENSE；`THIRD_PARTY_NOTICES.md` 声明、`docs/REFERENCE-anthropic-agent-memory.md` 逐层对照、`scripts/audit-upstream.ts` 校验不得混入 `sources` 或成为第 8 个上游；全自研 TS 纯函数、零外部模型调用；`npm run memory:hierarchy` 真跑 16/16 |
 
 ---

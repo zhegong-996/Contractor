@@ -784,3 +784,19 @@ Cognee `cognify` 的真实外部模型调用未发生（缺端点与凭据）；
 | 来源登记 | `sources.lock.json` 新增 `conceptReferences`（不是 `sources` / `protocolReferences`）；`THIRD_PARTY_NOTICES.md` / `docs/SOURCES.md` / `docs/OPEN-SOURCE-COMPLIANCE.md` 同步；`scripts/audit-upstream.ts` 校验不得混入 `sources`、七个 pinned submodule 不变；`clean:true`、`problems: []`。**无 LICENSE 原文可留存，未伪造许可证文件；未复制正文 / 代码；不是第 8 个上游** |
 | 既有回归不回退 | `tsc`、两个构建、425px 响应式、走查 11/11、`console:smoke`、`router:smoke` 31/31、`agents:smoke` 43/43、`shapes:smoke` 36/36、`evolution:smoke` 45/45、`steps:smoke` 54/54、`host:pg` 21/21、`host:smoke`、记忆重放 / checkpoint、`audit:upstream`、`git diff --check` |
 | 如实边界 | 纯函数守门尚未接入真实 `Knowledge` / `Context Pack` / wiki 落盘；未新增只读 action、未改控制台、未改既有投影 / 撤权 / 人签；默认仍 `loop` + `paperclip`，无外部模型调用；SUI-129 仍未核可；4190 / 4192 / 4194 / 9418 保持停机 |
+
+## 第二十六轮：P-8 查漏补缺与取长补短（2026-11-08）
+
+| 项 | 结果 |
+|---|---|
+| 查漏结论 | P-7 守门只被自身冒烟脚本引用（生产链路零调用）；出站 MCP 无「不暴露」硬断言；走查报告无冻结基线 / golden diff / 纯评分器；`compareEffects()` 缺双臂统计旗标；`routing-trace.ts` 决策独立留痕已有等价物，只补机器化断言 |
+| 补缺：`src/knowledge-guard.ts` + 只读 action `memory-guard` | 三处白名单同步（server / members / console-server）；真实 B1 + 路由事件 140 条、本地知识任务索引 22 条；`advisory:true / blocking:false / modelCalls:0`；不读宿主正文、不改写入链、不拦截交付 |
+| 真实 HTTP | `POST /workspace/memory-guard` → **200 / 4,337 bytes / 7 ms**，`source:local-store`、`documentBodiesNotRead:true`、`gapRecords:22`、`signature` 稳定 |
+| 诚实口径 | 22 条真实知识记录全部缺 `evidenceEventIds`，体检如实报 `missingEvidence:22`，**未编造事件 id 跑绿**；`unwired` 逐条列出四项尚未接入生产链 |
+| 取长：`src/behavior-baseline.ts` | 冻结快照 / golden diff / 纯评分器 / 双臂三旗标 / 工具面版本化签名 / 出站不暴露硬断言 / 决策留痕隔离断言；基线 `fixtures/behavior-golden.json` 61 条稳定字段，排序用字节序 |
+| `npm test` | **499 / 499**（第二十五轮 465 + 12 例守门 + 16 例行为基线 + 8 例常态契约） |
+| `npm run guard:smoke` | **22/22 `ok:true`**：A 冻结基线 61 项 unchanged、B 真实 16 个出站工具全通过、C 100 条真实路由留痕独立有序、D 双臂旗标、E 守门跑真实数据、F 真实 HTTP 与日志行数不变（memory 40→40、routing 100→100） |
+| 冻结基线人审 | 全套浏览器回归后 `guard:smoke` 的 golden diff 如实抓到 `checks.readOnlyAllowlist.actions` **17→18**；经人审确认为本轮新增只读 action `memory-guard` 的预期配置变化（非行为退化），**由人手工更新基线并在 `humanReview` 记录时间 / 轮次 / 变化 / 理由 / 审核人**，真跑脚本仍不得自动改写 |
+| 修掉的真实缺陷 | 体检签名未覆盖记录内容 → `recordFingerprint`；注入顶层截断被静默吞掉 → `injectedOmitted` + finding；冻结基线 `localeCompare` 跨区域漂移 → 字节序 |
+| 既有回归不回退 | `memory:hierarchy` 16/16、`steps:smoke` 54/54、`router:smoke` 31/31、`agents:smoke` 43/43、`shapes:smoke` 36/36、`evolution:smoke` 45/45、`host:pg` 21/21、两套真实浏览器走查 11/11 与 `failed: []`、两个构建、425px、`tsc`、`audit:upstream clean:true`、`git diff --check` |
+| 如实边界 | 只读体检不等于写入链改造；第 13 条四项仍待拍板，第 12 条 (b) 五项仍待拍板；默认仍 `loop` + `paperclip`，无外部模型调用、未引入第 8 个上游或 npm 依赖；SUI-129 仍未核可 |
