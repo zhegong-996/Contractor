@@ -1,6 +1,6 @@
 # 06 · 当前状态与下一步（接手者最该看的一份）
 
-## 1. 状态快照（第二十三轮 P-5）
+## 1. 状态快照（第二十四轮 P-6）
 
 | 阶段 | 状态 | 交付 |
 |---|---|---|
@@ -10,8 +10,9 @@
 | **C 三层 Router + 底座切换** | ✅ **C-0 ~ C-6 分步清单全部完成并收口** | 见第 3 节分步清单 |
 | **生产项 P-1 长程循环单步化** | ✅ **第二十二轮完成**：单步执行器接上 C-1 的 PG 队列，默认 loop 可回退 | 见第 6 节 P-1 交付与证据 |
 | **生产项 P-5 控制台快照服务端分页 / 裁剪** | ✅ **第二十三轮完成**：新增只读 `view-summary`，原 `view` 逐字保留 | 见第 7 节 P-5 交付与证据 |
+| **生产项 P-6 Runner 两块协议移植 + 四项借思想** | ✅ **第二十四轮完成**：HITL 成对留痕、队列累计确认 / 至少一次通知 / 投递就绪、六态派生 / 能力声明 / 分层 / 快照不回溯；MIT 固定来源、未引入第 8 个上游 | 见第 8 节 P-6 交付与证据 |
 
-系统能跑、全套回归全绿（**424/424 单测**、11/11 真实浏览器走查、**`console:smoke` 全绿（含 4 项摘要检查）、`router:smoke` 31/31、`agents:smoke` 43/43、`shapes:smoke` 36/36、`evolution:smoke` 45/45、`steps:smoke` 40/40**、上游 clean、`host:pg` 21/21）。`HEAD = origin/main = 远端 main`。C-1 起每次代码改动都重跑全套；本机 PG 17.10 专属库 `suitme_collab_c1` 已可真跑。
+系统能跑、全套回归全绿（**445/445 单测**、11/11 真实浏览器走查、**`console:smoke` 全绿、`router:smoke` 31/31、`agents:smoke` 43/43、`shapes:smoke` 36/36、`evolution:smoke` 45/45、`steps:smoke` 54/54**、上游 clean、`host:pg` 21/21）。`HEAD = origin/main = 远端 main`。C-1 起每次代码改动都重跑全套；本机 PG 17.10 专属库 `suitme_collab_c1` 已可真跑。
 
 ## 2. B2 已完成（四项，均带真跑证据）
 
@@ -79,7 +80,7 @@
 - 企业微信 / 腾讯文档 / 钉钉 / 国内代码托管 / 公有云 CI / 海外 SaaS 未接通，按约定**没有入口**；将来要加入口必须先配置并实测接通。
 - 生产发布、业务仓库发布、真实外部 PR/CI、全员 SSO 均未发生。
 - **C-6 已完成（第二十一轮）**：自查标准回流到交付前强制比对、候选改进的工程闸门 + 人审 + 版本 / 灰度 / 回滚、四项错误效果对比均已落地并真跑 45/45。**第二十二轮 P-1 已完成长程循环单步化**（`runner.ts` / `assistant-runner.ts` 无常驻 `while`；`steps:smoke` 40/40，含真实 PG 跨进程接力），详见第 6 节。**第二十三轮 P-5 已完成控制台只读快照的服务端分页 / 裁剪**（见第 7 节），原 `view` 逐字保留。**剩余生产项如下，仍需用户确认或外部凭据**：切换默认 `config.host.provider`、把真实业务单切到 step 模式验证、autoloop worker 内部子调用逐次拆分、真实外部模型端点与远端工具沙箱 / 多机切换、金额成本账本接入效果看板。
-- **外部候选（第二十三轮，只评估、未引入任何代码）**：用户给出 `github.com/yicheng47/runner` 的终端 Agent 协作层架构图，问 Agent 相关部分能否直接引用 / 移植 / 复用参考。核实当前 `main` 为 **MIT**（但 2026-08-22 ~ 09-22 发布版本为 GPL-3.0-only 且仍按该许可提供）、**Rust** 桌面栈，与本项目不同栈且整仓引用会引入第 8 个上游。三档结论（只借思想 / 移植 `ask_human` 成对 HITL 留痕与 durable queue 的 ack 两块纯协议 / 整仓直接引用）与红线见 `HANDOFF/08` 第 11 条、`docs/ADAPTATION-v0.6.md` 最新边界节，**待用户拍板，接手者不要擅自开始移植**。
+- **Runner 外部候选（第二十三轮评估 → 第二十四轮已拍板并完成）**：用户给出 `github.com/yicheng47/runner` 的终端 Agent 协作层架构图，第二十四轮拍板 (b) 移植两块协议 + 四项只借思想。固定 MIT 提交 `a42d133139bbe630e4ca3475426c7653fddd86db`、R7 六步登记完成；**协议语义用 TypeScript 重写，未复制 Rust 源码、未引入 submodule / gitlink，7 个上游不变**。交付与红线见第 8 节、`HANDOFF/08` 第 11 条与 `docs/ADAPTATION-v0.6.md` 最新边界节。
 
 ### C-4 交付与证据（第十九轮）
 
@@ -125,3 +126,13 @@
 - **回归**：`npm test` **424/424**、`tsc`、两个构建、425px 响应式、工作台走查 **11/11**、`console:smoke` 全绿（含 4 项新检查，且旧 `/api/view` 仍 200 / 10 条真实任务，旧链路未回退）、`router:smoke` 31/31、`agents:smoke` 43/43、`shapes:smoke` 36/36、`evolution:smoke` 45/45、`steps:smoke` 40/40、`host:pg` 21/21、记忆重放 / checkpoint、`audit:upstream clean:true`、`git diff --check`。
 - **环境处置**：本轮开始时 3100 / 4180 进程带失效文件代理，`fs` 读取报 `connect failed: Connection refused`，宿主静态页 500、`view` 一度 409 并随后崩溃；按 `HANDOFF/00` 第 3 / 5 节既定流程用干净环境重启 4180 / 3100 并重挂插件后恢复，走查 11/11。未改上游源码、未重启 4190 / 4192 / 4194 / 9418。
 - **如实边界**：摘要只用于展示索引，不承载工作稿正文 / 授权明细 / 验收判断；`view` 逐字保留，插件工作台未改动；宿主标题为 advisory，缺失时标 `titleSource=local/partial` 并用本机任务索引首行兜底；控制台只读白名单 16 → 17 项、仍无写入口；默认底座仍 `paperclip`、飞书仍是唯一发起入口；真人业务验收 SUI-129 仍未发生。其余剩余生产项未动，仍需用户确认或外部凭据。
+
+## 8. P-6 交付与证据（第二十四轮，Runner 两块协议移植与四项借思想）
+
+- **来源与协议**：Runner `main` 固定 **MIT** 提交 `a42d133139bbe630e4ca3475426c7653fddd86db`（Copyright (c) 2026 Yicheng Wang）；R7 六步已走完（`licenses/runner-MIT.txt` 原文、`THIRD_PARTY_NOTICES.md`、`sources.lock.json` 的 `protocolReferences`、`docs/SOURCES.md` / `docs/OPEN-SOURCE-COMPLIANCE.md`、`scripts/audit-upstream.ts` 机器化校验、两个模块文件头保留 MIT 版权头）。**协议语义用 TypeScript 重写，未复制 Rust 源码、未引入 submodule / gitlink，7 个上游不变**；避开 2026-08-22 ~ 09-22 的 GPL-3.0-only 发布窗口。
+- **① HITL 成对留痕**：`src/step-hitl.ts`（`askHuman` / `answerHuman` / `foldHitl` / `assertHitlRedLines` / `hitlSummary` / `FileHitlSink` / `MemoryHitlSink` / `HitlRefusal`）；`src/step-runner.ts` 的 `human-gate` 从「只拒绝、无证据」变成「生成带编号的 `human_question`、`HitlRefusal` 抛出、步骤仍 failed、执行进程依旧不得自行放行」；真人回答走新增 `npm run step:answer -- <问题编号> <选项> [备注]`（`scripts/step-answer.ts`，必须声明 `COLLAB_HUMAN_ACTOR`，只追加答案、不排后续步骤、不改任务状态）。台账独立、不并入 B1 主干。
+- **② 队列送达证据**：`src/step-delivery.ts`（`cumulativeAck` 只前进 / `foldDelivery` 订阅边界与 backlog / `notificationText` 幂等不带消息体 / `atLeastOncePending` / `deliveryReadiness` 按能力声明且重投递只认空闲 / `TrackedStepQueue` 组合既有队列留下送达与确认证据）。`PgStepQueue` 与 `PgHostPlatform` 的表结构、40 项既有真跑语义一字未改。
+- **四项借思想**：`src/mission-state.ts` 的 `deriveMissionState()` 六态由任务事实派生（安静 30 秒才 settled，settled 与 running 可并存）、`RUNTIME_CAPABILITIES` / `resolveRuntime()` 用能力声明收敛差异且 `assertNoStoredArgv()` 焊住启动参数不入库、`assertCoordinationLayering()` 守「配置库只放配置、实时协作全在追加写日志」、`assertSnapshotNoRewrite()` 守编制快照不回溯。`executionView()` 新增这些只读说明，不改 `steppedReady` / `missing` 口径。
+- **执行链接线**：`src/step-execution.ts` 新增 `OneStepInput.hitl`（不注入则完全无副作用）与 `OneStepResult.hitlQuestionId`；`package.json` 新增 `step:answer`。两组新契约测试 21 例，`scripts/steps-smoke.ts` 新增 E / F / G 三段共 14 项真跑检查。
+- **真跑**：`npm test` **445/445**；`npm run steps:smoke` **54/54 `ok:true`**（E 段真实子进程提问 + 真人回答 + 重复 / 匿名被拒、台账未写 B1 主干；F 段真实 PG 队列送达证据与累计确认；G 段四项借思想守门）；`tsc`、两个构建、425px、走查 11/11、`console:smoke`、router 31/31、agents 43/43、shapes 36/36、evolution 45/45、`host:pg` 21/21、`audit:upstream clean:true`、`git diff --check`。
+- **如实边界**：`human_response` 只把答案送回提问者，**绝不替代**原发起人在原会话用中文「确认验收 任务编号」；Runner 由系统归档即标完成的语义没有引入；未接通飞书写回通道，真人回答目前只有本机 CLI 入口、不是网页入口；默认 `loop` + `paperclip` 未变、无外部模型调用；SUI-129 仍未核可。剩余生产项（切默认底座、真实业务单跑 step、worker 子调用拆分、外部端点 / 远端沙箱、金额成本账本）仍需用户确认或外部凭据。

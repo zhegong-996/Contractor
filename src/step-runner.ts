@@ -6,11 +6,13 @@
 // 下一棒可以由另一台机器上的另一个进程领走，会话状态不留在旧进程里。
 //
 // 没有外部模型端点时，model-call 步明确拒绝，绝不编造模型调用；human-gate
-// 只能由真人在原会话放行，独立执行进程不得自行通过。
+// 只由执行进程提出一条带编号的人工问题并留痕，回答由真人在原会话用
+// `npm run step:answer` 完成，独立执行进程不得自行放行。
 import { createHash } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import { loadConfig } from './config.ts';
 import { PgStepQueue, executeOneStep, type StepHandler } from './step-execution.ts';
+import { askHuman, HitlRefusal, resolveHitlSink } from './step-hitl.ts';
 
 /** 本机允许的工具白名单；未登记的工具一律拒绝，不静默执行。 */
 export const STEP_RUNNER_TOOLS = ['sha256'] as const;
@@ -36,7 +38,18 @@ export function stepRunnerHandlers(): Record<string, StepHandler> {
       };
     },
     'model-call': () => { throw new Error('未配置外部模型端点与凭据：本机不编造模型调用'); },
-    'human-gate': () => { throw new Error('人工确认只能由原发起人在原会话完成，执行进程不得自行放行'); },
+    // P-6：执行进程仍不得自行放行，但不再「只拒绝、无证据」——先生成一条
+    // `human_question`（id 即问题编号、因果放 payload），由 executeOneStep
+    // 落到注入的成对台账；真人回答走 npm run step:answer，不在这个进程里发生。
+    'human-gate': (step, ctx) => {
+      const prompt = String(step.payload?.question ?? '').trim() || '这一步需要真人确认后才能继续';
+      const declared = Array.isArray(step.payload?.choices) ? step.payload!.choices as unknown[] : [];
+      const choices = declared.length >= 2 ? declared.map(String) : ['继续', '暂停'];
+      const question = askHuman({ runId: ctx.runId, stepNo: step.stepNo,
+        asker: ctx.principal || 'step-runner', prompt, choices,
+        triggeredBy: typeof step.payload?.triggeredBy === 'string' ? String(step.payload.triggeredBy) : null });
+      throw new HitlRefusal(question);
+    },
     'worker-tick': () => { throw new Error('worker.tick 只能由宿主入口的单步泵执行，独立进程不得伪造'); },
   };
 }
@@ -56,7 +69,7 @@ export async function runSingleStep(argv: string[] = process.argv.slice(2)): Pro
   try {
     const result = await executeOneStep({ queue, handlers: stepRunnerHandlers(),
       workerId, principal, environment, scope, ...(runId ? { runId } : {}),
-      maxAttempts: 1 });
+      maxAttempts: 1, hitl: resolveHitlSink() });
     return { ...result, mode: 'step', queue: queue.id() };
   } finally {
     await queue.close();

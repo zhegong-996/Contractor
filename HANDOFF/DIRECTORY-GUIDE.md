@@ -1,7 +1,7 @@
 # 09 · 目录结构完全指南（接手必读）
 
 > 目标：搞清楚**每个目录是干什么的、哪些入库、产物放哪、新文件该放哪**。
-> 根目录：`/Users/gong.zhe/Developer/ai-native-collab`｜第二十二轮 P-1 收尾后 `git ls-files` 共 **297** 个入库文件（含 `HANDOFF/` 14 个）；2026-11-08 新增根目录总览 `HANDOFF.md` / `PROJECT-SUMMARY.md` 后为 **299** 个；第二十三轮 P-5 新增 `src/workspace-summary.ts` 与 `tests/workspace-summary.test.ts` 后为 **301** 个。
+> 根目录：`/Users/gong.zhe/Developer/ai-native-collab`｜第二十二轮 P-1 收尾后 `git ls-files` 共 **297** 个入库文件（含 `HANDOFF/` 14 个）；新增根目录总览后 **299** 个，第二十三轮 P-5 新增 2 个后 **301** 个，第二十四轮 P-6 新增 7 个（`src/step-hitl.ts` / `src/step-delivery.ts` / `src/mission-state.ts` / `scripts/step-answer.ts` / 两组契约测试 / `licenses/runner-MIT.txt`）后为 **308** 个。
 
 ## 1. 完整目录树（带说明）
 
@@ -19,7 +19,7 @@ ai-native-collab/                       仓库根（main 分支）
 │   ├── 05-VALIDATION-AND-COMMANDS.md  回归命令、预期输出、排障
 │   ├── 06-CURRENT-STATE-AND-NEXT.md   B2 证据；C-0~C-6 清单与产品原则
 │   ├── 07-RULES-AND-BOUNDARIES.md     红线与边界
-│   ├── 08-OPEN-DECISIONS.md           7 项待拍板 + 4 条已解决（第 11 条 Runner 移植范围）
+│   ├── 08-OPEN-DECISIONS.md           6 项待拍板 + 5 条已解决（第 11 条 Runner 已拍板并完成）
 │   ├── DIRECTORY-GUIDE.md             ★ 本文件：目录完全指南
 │   ├── SYNC-STATUS.md                 ★ 唯一位置声明、commit 与接手校验
 │   ├── FILE-INVENTORY.md               ★ 逐文件一行说明（100% 覆盖入库文件）
@@ -35,8 +35,11 @@ ai-native-collab/                       仓库根（main 分支）
 │   ├── step-execution.ts              P-1 单步执行契约 / 队列适配器 / 步间重评 / 只读状态
 │   ├── loop-pump.ts                   P-1 双泵：legacy 逐字等价 / stepped 会话快照外置
 │   └── step-runner.ts                 P-1 step:once：一次进程只跑一步
+│   ├── step-hitl.ts                    P-6 HITL 成对留痕：问题编号 / 因果在载荷 / 红线校验 / append-only 台账
+│   ├── step-delivery.ts                P-6 累计确认 / 至少一次通知 / 投递就绪 / 送达证据
+│   ├── mission-state.ts                P-6 六态派生 / 能力声明 / 分层 / 快照不回溯
 │   └── vendor/prime-query.ts           从 Prime Agent 移植的检索权重（必须保留 MIT 版权头）
-├── scripts/                           ★ CLI / 服务 / 构建 / 冒烟（54 个文件，含 .py/.swift/.mjs）
+├── scripts/                           ★ CLI / 服务 / 构建 / 冒烟（55 个文件，含 .py/.swift/.mjs）
 │   ├── memory-journey.ts / memory-checkpoint.ts  B2 真跑脚本（会写 .runtime/memory/）
 │   ├── host-pg-smoke.ts                        C-1 PG 真跑 21/21（专属库 suitme_collab_c1）
 │   ├── console-server.ts / console-smoke.mjs   C-2 独立控制台承载与浏览器冒烟
@@ -44,8 +47,11 @@ ai-native-collab/                       仓库根（main 分支）
 │   ├── evolution-smoke.ts              C-6 沉淀回流与自演进闭环真跑 45/45
 │   ├── shapes-smoke.ts                 C-5 两种形态各跑真实一单 36/36
 │   └── router-smoke.ts                         C-3 三种组织形态隔离真跑 31/31
-│   └── steps-smoke.ts                  P-1 单步执行真跑 40/40（PG 专属库 + 真实子进程）
-├── tests/                             ★ 回归测试（66 个 .test.ts，node:test）
+│   └── steps-smoke.ts                  P-1/P-6 单步与协议真跑 54/54（PG 专属库 + 真实子进程）
+│   └── step-answer.ts                  P-6 真人口：回答人工问题（不排后续步骤、不等于验收）
+├── tests/                             ★ 回归测试（68 个 .test.ts，node:test）
+│   ├── step-hitl.test.ts               P-6 HITL 成对留痕契约 10 例
+│   ├── step-delivery.test.ts           P-6 投递 / 状态词 / 四项借思想契约 11 例
 │   ├── workspace-summary.test.ts        P-5 摘要契约 9 例（分页 / 身份 / 白名单 / 确定性）
 │   ├── agent-registry.test.ts          C-4 注册表契约 14 例
 │   ├── evolution.test.ts               C-6 沉淀回流与自演进契约 12 例

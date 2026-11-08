@@ -17,12 +17,12 @@
 
 | 项 | 值 |
 |---|---|
-| **运行代码基线** | 第二十三轮 P-5 完成（控制台只读快照服务端分页 / 裁剪；原 `view` 保留）；**以 `git rev-parse HEAD` 为准**（交接时的 `b58631c` / `f6611e0` / `4aa6fb0` 均为历史） |
-| 阶段 | A 完成 → B1 完成 → **B2 完成并验证** → **C 全部完成并收口（C-0 ~ C-6 + 收尾）** → **生产项 P-1 已完成** → **生产项 P-5 已完成**（严格分步，不并行） |
+| **运行代码基线** | 第二十四轮 P-6 完成（Runner 两块协议移植 + 四项借思想；MIT 固定来源、7 个上游不变）；**以 `git rev-parse HEAD` 为准**（交接时的 `b58631c` / `f6611e0` / `4aa6fb0` 均为历史） |
+| 阶段 | A 完成 → B1 完成 → **B2 完成并验证** → **C 全部完成并收口（C-0 ~ C-6 + 收尾）** → **生产项 P-1 已完成** → **P-5 已完成** → **P-6 已完成**（严格分步，不并行） |
 | 本文件所在提交 | 随 `main` 前进，clone 后 `git log -1` 即最新 |
 | 同步方式 | 代码与文档一并提交并 push 到 `origin/main`；`HEAD = origin/main = 远端 main` |
 
-第二十三轮 P-5 已重跑全套回归全绿：`npm test` **424/424**、`tsc`、两个构建、`test:responsive`、真实浏览器走查 **11/11**、`console:smoke ok:true`（新增 4 项摘要检查，旧 `/api/view` 仍 200 / 10 条真实任务）、`router:smoke` 31/31、`agents:smoke` 43/43、`shapes:smoke` 36/36、`evolution:smoke` 45/45、`steps:smoke` 40/40、`host:pg` 21/21、`host:smoke`、记忆重放 / checkpoint、`routing:status`、`audit:upstream clean`、`git diff --check`。真实服务端 HTTP：`view` 509,283 bytes / 4.02 秒 → `view-summary` 5,678 bytes / 0.076 秒。历史轮次：A / B1 / B2 → C-0 ~ C-6（PG 宿主、独立控制台、单一 Router、Agent 编制、按配置评估、自演进闭环）→ P-1 长程循环单步化（第二十二轮，413/413）→ P-5 控制台快照分页裁剪（第二十三轮）。最新结果以 `05` 第 3 节与 `docs/VALIDATION.md` 第二十三轮为准，最新边界见 `docs/ADAPTATION-v0.6.md` `0.000000000000000000000000` 节。
+第二十四轮 P-6 已重跑全套回归全绿：`npm test` **445/445**、`tsc`、两个构建、`test:responsive`、真实浏览器走查 **11/11**、`console:smoke ok:true`、`router:smoke` 31/31、`agents:smoke` 43/43、`shapes:smoke` 36/36、`evolution:smoke` 45/45、`steps:smoke` **54/54**、`host:pg` 21/21、`host:smoke`、记忆重放 / checkpoint、`routing:status`、`audit:upstream clean`、`git diff --check`。历史轮次：A / B1 / B2 → C-0 ~ C-6 → P-1 长程循环单步化（413/413）→ P-5 控制台快照分页裁剪（424/424）→ P-6 Runner 两块协议移植 + 四项借思想（445/445）。最新结果以 `05` 第 4 节与 `docs/VALIDATION.md` 第二十四轮为准，最新边界见 `docs/ADAPTATION-v0.6.md` `0.0000000000000000000000000` 节。Runner 是协议语义移植（TS 重写、MIT 固定提交、`protocolReferences` 登记），**不是第 8 个上游**。
 
 ## 3. 接手时先跑这三条
 
@@ -31,7 +31,7 @@ cd /Users/gong.zhe/Developer/ai-native-collab
 git status --short --branch                    # 应干净且与 origin/main 一致
 git rev-parse HEAD; git rev-parse origin/main; git ls-remote origin main   # 三者应一致
 npm run agents:smoke                            # C-4 编制真跑 43/43
-npm test                                       # 424/424
+npm test                                       # 445/445
 ```
 
 需要本机服务时先设干净环境（见 `00-START-HERE.md` 第 2 节）：

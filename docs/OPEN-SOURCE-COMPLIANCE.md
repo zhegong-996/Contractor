@@ -121,6 +121,7 @@
 | P-1 长程循环单步化 / 单步执行器 / 跨进程队列 | 无新增依赖（自研 `src/step-execution.ts` / `src/loop-pump.ts` / `src/step-runner.ts`） | — | 只复用 C-1 已入库的 `PgHostPlatform` 步进方法语义与 LobeHub / DeepSeek 三者分离的产品思想；**未引入第 8 个上游、未新增 npm 依赖、未改上游提交、未复制任何上游代码**；`npm run steps:smoke` 真跑 40/40 |
 | C-4 组织级 Agent 编制 / 验收协作 / A2A 在岗交接 | 无新增依赖（自研 `src/agent-registry.ts`） | — | 只复用既有 `RoutingDecision` / A2A Link 的字段语义与 LobeHub 三层汇报的产品思想；**未引入第 8 个上游、未改上游提交、未复制任何上游代码**；`npm run agents:smoke` 真跑 43/43 |
 | 权限标签粒度 | Outline (BSL 1.1) / Onyx / OpenFGA | ❌ / 未核实 | 仅设计参考，不引入代码 |
+| P-6 HITL 成对留痕 / 累计确认 / 投递就绪 / 六态派生 / 能力声明 | `yicheng47/runner` MIT（固定 `a42d1331`） | ✅（协议语义移植，TS 重写） | **不是 submodule、未复制 Rust 源码**；MIT 原文在 `licenses/runner-MIT.txt`，固定提交在 `sources.lock.json` 的 `protocolReferences`，`npm run audit:upstream` 机器化校验；已避开 2026-08-22 ~ 09-22 的 GPL-3.0-only 发布窗口；`npm run steps:smoke` 真跑 54/54 |
 
 ---
 

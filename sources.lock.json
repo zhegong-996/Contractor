@@ -35,5 +35,16 @@
       "commit": "f720feb862bdbe3acc653bdedc297e20e08be1ae",
       "license": "Apache-2.0"
     }
+  },
+  "protocolReferences": {
+    "runner": {
+      "url": "https://github.com/yicheng47/runner",
+      "commit": "a42d133139bbe630e4ca3475426c7653fddd86db",
+      "license": "MIT",
+      "licenseFile": "licenses/runner-MIT.txt",
+      "usage": "仅移植两块协议语义并用 TypeScript 重写；未引入 submodule / gitlink / Rust 源码",
+      "files": ["src/step-hitl.ts", "src/step-delivery.ts", "src/mission-state.ts", "src/step-runner.ts", "scripts/step-answer.ts"],
+      "note": "固定当前 MIT main 提交；2026-08-22 至 2026-09-22 发布版本为 GPL-3.0-only 且仍按该许可提供，已避开该窗口。不是第 8 个上游。"
+    }
   }
 }

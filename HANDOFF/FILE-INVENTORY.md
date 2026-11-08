@@ -1,6 +1,6 @@
 # FILE-INVENTORY · 逐文件说明（100% 覆盖）
 
-> 生成自 `git ls-files` + `HANDOFF/`，第二十二轮 P-1 收尾后共 **297** 个条目，2026-11-08 交接总结新增根目录 2 个文件后共 **299** 个条目，第二十三轮 P-5 新增 2 个文件后共 **301** 个条目（第十四轮 269 + C-1 新增 4 + C-2 新增 7 + C-3 新增 3 + C-4 新增 3 + C-5 新增 2 + C-6 新增 4 + P-1 新增 5 + 交接总结新增 2 + P-5 新增 2）。
+> 生成自 `git ls-files` + `HANDOFF/`，第二十二轮 P-1 收尾后共 **297** 个条目，2026-11-08 交接总结新增根目录 2 个文件后共 **299** 个条目，第二十三轮 P-5 新增 2 个文件后共 **301** 个条目，第二十四轮 P-6 新增 7 个文件后共 **308** 个条目（第十四轮 269 + C-1 新增 4 + C-2 新增 7 + C-3 新增 3 + C-4 新增 3 + C-5 新增 2 + C-6 新增 4 + P-1 新增 5 + 交接总结新增 2 + P-5 新增 2 + P-6 新增 7）。
 > 列：`路径 | 行数 | 说明`。`upstream/<name>` 是 gitlink（submodule），行数记 `-`；既有条目的行数为生成时快照，文档改版后以文件实际内容为准。
 > 说明来源：精写字典 213 条、从源码注释/导出/测试名自动提取 69 条、按类型兜底 0 条。
 > 需要更详细的「哪些文件一起完成什么」见 `04-CODE-MAP.md`；目录结构见 `DIRECTORY-GUIDE.md`。
@@ -14,17 +14,17 @@
 | `HANDOFF/02-ARCHITECTURE.md` | 89 | 技术架构：四层数据流、7 个上游真实引用强度、前端分层、中文壳、路由契约、共享记忆主干（B1+B2）、平台端口、代码交付。 |
 | `HANDOFF/03-WORK-LOG.md` | 58 | 全部 22 轮工作记录（含第十五轮补遗、第十六轮 C-1、第十七轮 C-2、第十八轮 C-3、第十九轮 C-4、第二十轮 C-5、第二十一轮 C-6）、7 条排障模式、用户明确做过的决策。 |
 | `HANDOFF/04-CODE-MAP.md` | 172 | 按 14 个功能域讲「哪些文件一起完成什么」、关键导出与依赖方向速查。 |
-| `HANDOFF/05-VALIDATION-AND-COMMANDS.md` | 126 | 全套回归命令、第二十二轮 P-1 实测结果（含 host:pg 21/21、console:smoke、router:smoke 31/31、agents:smoke 43/43、shapes:smoke 36/36、evolution:smoke 45/45、steps:smoke 40/40）、真实 HTTP 冒烟模板、服务端口表、排障速查、提交前检查。 |
-| `HANDOFF/06-CURRENT-STATE-AND-NEXT.md` | 61 | 当前状态快照、B2 四项真跑证据、C-0~C-6 分步清单（含两条新增产品原则）、按配置的三层判断、去 Paperclip 化路线。 |
+| `HANDOFF/05-VALIDATION-AND-COMMANDS.md` | 145 | 全套回归命令、第二十二轮 P-1 / 第二十三轮 P-5 / 第二十四轮 P-6 实测结果（含 `npm test` 445/445、`steps:smoke` 54/54、E 段 HITL / F 段送达证据 / G 段四项借思想、host:pg 21/21、各隔离冒烟）、真实 HTTP 冒烟模板、服务端口表、排障速查、提交前检查。 |
+| `HANDOFF/06-CURRENT-STATE-AND-NEXT.md` | 130 | 当前状态快照（第二十四轮 P-6）、B2 四项真跑证据、C-0~C-6 分步清单、按配置的三层判断、去 Paperclip 化路线、P-1 / P-5 / P-6 三轮生产项交付与证据、剩余生产项与待拍板事项。 |
 | `HANDOFF/07-RULES-AND-BOUNDARIES.md` | 44 | 红线与边界：业务验收身份、隐私与 .runtime、服务约束、许可证、前端入口、工程约束。 |
-| `HANDOFF/08-OPEN-DECISIONS.md` | 95 | 11 个条目（7 项待拍板 + 产品形态 ②、B2 范围、组织形态可配置与自演进、Paperclip 去留四条历史记录）：外部模型凭据、真人验收、部门 scope、外部服务、已停服务、pi 指代、第 11 条 Runner 的 Agent 协作层直接引用 / 移植 / 只借思想三档评估。 |
+| `HANDOFF/08-OPEN-DECISIONS.md` | 95 | 11 个条目（6 项待拍板 + 产品形态 ②、B2 范围、组织形态可配置与自演进、Paperclip 去留四条历史记录 + 第 11 条 Runner 已于第二十四轮拍板 (b) 并完成）：外部模型凭据、真人验收、部门 scope、外部服务、已停服务、pi 指代、Runner 移植范围三档结论与红线。 |
 | `HANDOFF/DIRECTORY-GUIDE.md` | 154 | ★ 目录完全指南：完整目录树、每个顶层目录作用与入库状态、7 个 submodule、.runtime 详解、构建产物位置、新文件该放哪。 |
 | `HANDOFF/FILE-INVENTORY.md` | 328 | ★ 本文件：全部入库文件逐文件一行说明（路径 / 行数 / 用途），用于快速定位。 |
 | `HANDOFF/README.md` | 62 | 交接包总索引：5 分钟接手路径、包内每个文件的说明、根目录两份总览入口、一句话现状与检查清单。 |
 | `HANDOFF/SYNC-STATUS.md` | 58 | ★ 唯一位置声明（含根目录两份总览入口）、代码基线/提交关系、接手校验命令、本目录内阅读顺序。 |
 | `HANDOFF/handoff-manifest.json` | 203 | 机器可读元数据：commit、远端、测试结果、服务状态、包内文件清单、下一步与开放决策。 |
 
-## 后端核心 src/（79）
+## 后端核心 src/（82）
 
 | 路径 | 行数 | 说明 |
 |---|---|---|
@@ -114,8 +114,11 @@
 | `src/evolution.ts` | 486 | ★ C-6 自查闸门 / 工程回放闸门 / 四项效果指标 / `EvolutionService` 统一编排；`assertDeliverySelfCheck()` 接在 `Controller.publish()` 之前。 |
 | `src/agent-registry.ts` | 324 | ★ C-4 组织级 Agent 注册表：可扩展职责槽位 / 生效范围 / 内容哈希版本 / 配置快照 / `resolveAssignment` / `handoffEnvelope` / `reviewCrew` / 单例装配；确定性工程层 `modelCalls=0`。 |
 | `src/workspace-summary.ts` | 138 | ★ P-5 控制台只读摘要：`parseViewSummaryPage()` 分页参数夹取、`visibleTasksFor()` 身份过滤、`buildWorkspaceSummary()` 确定性纯函数与字段白名单；不读工作稿正文、不发起网络请求。 |
+| `src/step-hitl.ts` | 229 | ★ P-6 HITL 成对留痕（Runner MIT 协议语义移植）：`askHuman` / `answerHuman` 生成 `human_question` / `human_response`，问题编号即提问事件自身 id、因果放载荷；`foldHitl` / `assertHitlRedLines` / `hitlSummary` 折叠投影与红线校验；`FileHitlSink` / `MemoryHitlSink` append-only 台账；`HitlRefusal` 让执行进程只提问不放行。 |
+| `src/step-delivery.ts` | 232 | ★ P-6 队列送达证据（Runner MIT 协议语义移植）：`cumulativeAck` 只前进、`foldDelivery` 订阅边界与 backlog、`notificationText` 幂等不带消息体、`atLeastOncePending`、`deliveryReadiness` 按能力声明且重投递只认空闲；`TrackedStepQueue` 组合既有队列留下送达 / 确认证据。 |
+| `src/mission-state.ts` | 161 | ★ P-6 四项借思想：`deriveMissionState` 六态由任务事实派生（安静 30 秒、settled 与 running 可并存）、`RUNTIME_CAPABILITIES` / `resolveRuntime` 能力声明且 `assertNoStoredArgv` 焊住启动参数不入库、`assertCoordinationLayering` 配置库与追加写日志分层、`assertSnapshotNoRewrite` 编制快照不回溯。 |
 
-## 脚本与服务 scripts/（51）
+## 脚本与服务 scripts/（52）
 
 | 路径 | 行数 | 说明 |
 |---|---|---|
@@ -171,11 +174,12 @@
 | `scripts/router-smoke.ts` | 130 | C-3 真跑：隔离内存 Trace 跑 legacy / flat / layered 三种形态，31 项 checks，报告 `.runtime/router-smoke.json`（不入库）。 |
 
 | `scripts/agents-smoke.ts` | 265 | C-4 真跑：隔离内存 Trace 跑 C-3 兼容 / 空编制降级 / 在岗 2 跳 / 验收编组 / A2A 六类失败 / 接线守门，43 项 checks，报告 `.runtime/agent-registry-smoke.json`（不入库）。 |
-| `scripts/steps-smoke.ts` | 300 | ★ P-1 真跑：隔离内存队列 + 本机 PG 专属库 + 真实子进程跨进程领步，40/40，不 reset 他人数据。 |
+| `scripts/steps-smoke.ts` | 414 | ★ P-1 / P-6 真跑：隔离内存队列 + 本机 PG 专属库 + 真实子进程跨进程领步，54/54（含 E 段 HITL 成对留痕、F 段送达证据、G 段四项借思想守门），不 reset 他人数据。 |
+| `scripts/step-answer.ts` | 54 | ★ P-6 真人在原会话回答人工问题的 CLI 入口（`npm run step:answer`）：校验 `COLLAB_HUMAN_ACTOR`，只追加 `human_response`、不排后续步骤、不改任务状态，明确不等于验收。 |
 | `scripts/evolution-smoke.ts` | 318 | C-6 真跑：隔离临时台账跑完整闭环与全部反例 45 项 checks，报告 `.runtime/evolution-smoke.json`（不入库），前后真实台账 / B1 主干行数不变。 |
 | `scripts/shapes-smoke.ts` | 276 | C-5 真跑：隔离内存 Trace 让扁平 / 分层各跑一单五阶段，36 项 checks，每步带 Router / 在岗快照可回放，报告 `.runtime/shapes-smoke.json`（不入库）。 |
 
-## 回归测试 tests/（63）
+## 回归测试 tests/（65）
 
 | 路径 | 行数 | 说明 |
 |---|---|---|
@@ -247,6 +251,8 @@
 | `tests/evolution.test.ts` | 239 | C-6 契约 12 例：自查五种阻断 / 工程回放闸门 / 状态机红线 / 效果不可比 / 独立台账 / 配置与接线守门。 |
 | `tests/shape-assessment.test.ts` | 175 | C-5 契约 10 例：按配置判定 / 真实在岗主管 / 防跳级反例 / 形态闭环与启用三层分离 / 接线守门。 |
 | `tests/workspace-summary.test.ts` | 139 | ★ P-5 契约 9 例：默认分页与全量计数 / 越界空页 / 参数夹取 / 身份过滤 / 字段白名单不泄露内部状态 / 宿主标题优先与截断 / partial 与 local 降级 / 两次逐字节一致 / 空页不编造。 |
+| `tests/step-hitl.test.ts` | 156 | ★ P-6 HITL 契约 10 例：问题编号与因果位置 / 回答关联与「不是验收」标注 / 输入校验 / 折叠投影 / 红线 / 确定性摘要 / append-only 台账 / 执行进程只提问不放行并成对闭环 / 不注入台账时无副作用。 |
+| `tests/step-delivery.test.ts` | 162 | ★ P-6 契约 11 例：累计确认只前进 / 订阅边界与积压 / 通知幂等 / 投递就绪按能力声明 / `TrackedStepQueue` 送达证据 / 六态派生与并存 / 能力声明不存 argv / 分层守门 / 快照不回溯 / 只读视图新增字段。 |
 
 ## 独立控制台 console/（3）
 
@@ -341,7 +347,7 @@
 | `sources.lock.json` | 39 | ★ 7 个上游 submodule 的 URL / commit / license / 引入方式锁定，audit:upstream 校验。 |
 | `tsconfig.json` | 8 | 主工程 TypeScript 配置。 |
 
-## 其它目录（配置/许可/夹具/集成）（13）
+## 其它目录（配置/许可/夹具/集成）（14）
 
 | 路径 | 行数 | 说明 |
 |---|---|---|
@@ -357,6 +363,7 @@
 | `licenses/cognee-APACHE-2.0.txt` | 201 | Cognee 的 Apache-2.0 许可证全文。 |
 | `licenses/harness-vendor-MIT.txt` | 21 | DeepSeek Harness 及 vendored 依赖的 MIT 声明。 |
 | `licenses/pg-MIT.txt` | 21 | pg@8.23.1 的 MIT LICENSE 原文（含 @types/pg 同版本），R7 新增依赖登记凭证。 |
+| `licenses/runner-MIT.txt` | 21 | Runner（Copyright (c) 2026 Yicheng Wang）的 MIT LICENSE 原文；P-6 两块协议语义移植的来源凭证，`sources.lock.json` 的 `protocolReferences` 固定提交，`audit:upstream` 校验。不是 submodule。 |
 | `locales/shell.zh-CN.json` | 13 | 构建期中文壳词典（展示文案替换表）。 |
 
 ## 覆盖率

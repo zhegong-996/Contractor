@@ -19,6 +19,9 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { Config } from './config.ts';
 import { assertLocalPgDsn, pgDsn, PgHostPlatform } from './pg-host.ts';
+// P-6：HITL 成对留痕与 Runner 借用的状态词/能力声明（协议语义移植，TS 重写）。
+import { HitlRefusal, HITL_RED_LINES, type HitlSink } from './step-hitl.ts';
+import { MISSION_STATE_LABELS, SETTLE_QUIET_SECONDS, RUNTIME_CAPABILITIES } from './mission-state.ts';
 
 // --- 队列契约（与 C-1 PgHostPlatform 的步进方法同形） ----------------------
 
@@ -209,12 +212,16 @@ export type OneStepInput = {
   workerId: string; principal: string; environment: string;
   scope?: string | null; runId?: string;
   recheck?: StepRecheck; maxAttempts?: number;
+  /** 注入后才落 HITL 台账；不传则完全无副作用，旧调用逐字等价。 */
+  hitl?: HitlSink;
 };
 export type OneStepResult = {
   claimed: boolean; ok: boolean; failed: boolean;
   stepNo?: number; kind?: string; nextStepNo?: number | null;
   modelCalls: number; environment: string; reason?: string;
   runId?: string; checkpoint?: Record<string, unknown>;
+  /** 人工确认步被拒绝时留下的成对证据起点（问题编号）。 */
+  hitlQuestionId?: string;
 };
 
 /**
@@ -251,9 +258,15 @@ export async function executeOneStep(input: OneStepInput): Promise<OneStepResult
     outcome = await handler(step, { runId: step.runId, principal: input.principal, scope,
       environment, previousCheckpoint });
   } catch (error) {
+    // P-6：执行进程在 human-gate 步只能提出问题、不能自行放行；这里把
+    // `human_question` 落到注入的 append-only 台账，作为成对证据的起点。
+    const question = error instanceof HitlRefusal ? error.question : undefined;
+    const sink = question ? input.hitl : undefined;
+    if (question && sink) sink.append(question);
     const reason = '这一步执行失败：' + String(error instanceof Error ? error.message : error).slice(0, 300);
     await queue.failStep(step.runToken, reason, input.maxAttempts ?? 3);
-    return { ...base, ok: false, failed: true, modelCalls: 0, nextStepNo: null, reason };
+    return { ...base, ok: false, failed: true, modelCalls: 0, nextStepNo: null, reason,
+      ...(question && sink ? { hitlQuestionId: question.id } : {}) };
   }
   const modelCalls = Math.max(0, Math.trunc(outcome.modelCalls ?? 0));
   const done = await queue.completeStep(step.runToken, outcome.result ?? {},
@@ -334,6 +347,21 @@ export function executionView(config: Config) {
       '远端工具沙箱 / 多机 Remote Tool Calling 未部署；Redis 横向扩展未引入',
       '默认底座仍是 paperclip，飞书仍是唯一发起入口',
     ],
+    // P-6：从 Runner 借用的状态词、能力声明与两条协议，均为只读说明。
+    mission: {
+      states: Object.entries(MISSION_STATE_LABELS).map(([id, label]) => ({ id, label })),
+      settleQuietSeconds: SETTLE_QUIET_SECONDS,
+      settledAndRunningCanCoexist: true,
+      note: '状态由任务事实派生，不是手写字段；已安静收敛与仍有步骤在跑可以同时为真',
+    },
+    runtimeCapabilities: Object.values(RUNTIME_CAPABILITIES).map(c =>
+      ({ name: c.name, label: c.label, queuesInputMidTurn: c.queuesInputMidTurn })),
+    hitl: { pairedEvidence: true, redLines: [...HITL_RED_LINES] },
+    delivery: {
+      cumulativeAck: '累计确认：只前进，忽略旧确认',
+      notification: '至少一次通知：只带未读条数、不带消息体，重复无害',
+      readiness: '投递就绪按执行端能力声明判断，重投递只在空闲时发生',
+    },
     modelCalls: 0,
     note: stepped && pg
       ? '单步模式已配置：循环、会话状态、执行环境三者分离，每一步由队列领取并留痕'

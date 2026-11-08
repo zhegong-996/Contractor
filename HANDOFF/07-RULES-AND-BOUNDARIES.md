@@ -28,7 +28,8 @@
 - Super Agent、Agent Autoloop、DeepSeek Harness、Prime Agent、Cognee、Paperclip 均为 MIT/Apache-2.0，可复用代码；`src/vendor/prime-query.ts` 必须保留 Mario Zechner 原始 MIT 版权头。
 - **LobeHub 只借设计语言**：主仓库 Community License 禁止复制 / fork / 分发衍生作品；`@lobehub/ui` 为 MIT 但 v6 强绑 React 19 + ESM，本轮**未引入**，`console/` 全部自研。未来若要用其组件，必须先走 R7 六步并重新评估运行时约束。
 - **独立控制台只开放只读动作**：17 项只读白名单（C-2 13 + C-4 / C-6 / P-1 / P-5 各 1）之外一律 403，密钥不出服务端，无网页发起入口，不新增常驻端口。P-5 新增的 `view-summary` 是 `view` 的裁剪版，同样按当前身份过滤任务，只返回索引字段，不承载工作稿正文 / 授权明细 / 验收判断。
-- 引入任何新上游前：先核对许可证原文、登记 `sources.lock.json`、跑 `audit:upstream`；新增 npm 依赖同样走 R7 六步（精确版本、LICENSE 原文至 `licenses/`、NOTICES、lockfile integrity、SOURCES、审计脚本）。`pg@8.23.1` 已按此登记（MIT）。
+- 引入任何新上游前：先核对许可证原文、登记 `sources.lock.json`、跑 `audit:upstream`；新增 npm 依赖同样走 R7 六步（精确版本、LICENSE 原文至 `licenses/`、NOTICES、lockfile integrity、SOURCES、审计脚本）。`pg@8.23.1` 已按此登记（MIT）。Runner `a42d1331` 是**协议语义移植、TypeScript 重写**，登记在 `sources.lock.json` 的 `protocolReferences` 而非 `sources`，不是 submodule、不是第 8 个上游，不得复制 Rust 源码或取 2026-08-22 ~ 09-22 的 GPL-3.0-only 发布版本。
+- **P-6 人签红线（移植 Runner 后仍生效）**：`human_response` 只把答案送回提问者，**绝不替代**原发起人在原会话用中文「确认验收 任务编号」；执行进程（`step:once`）只能提出 `human_question`、不得自行放行 `human-gate` 步；真人回答只走本机 `npm run step:answer` 且必须声明 `COLLAB_HUMAN_ACTOR`，不新增网页发起入口；HITL 台账独立于 B1 记忆主干，历史问题与回答不回溯改写。
 
 ## 5. 前端与入口红线
 

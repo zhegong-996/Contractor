@@ -14,6 +14,8 @@ const modules = readFileSync(path.join(root, '.gitmodules'), 'utf8');
 const paths = [...modules.matchAll(/^\s*path\s*=\s*(\S+)\s*$/gm)].map(m => m[1]!);
 const lock = JSON.parse(readFileSync(path.join(root, 'sources.lock.json'), 'utf8')) as {
   sources: Record<string, { url: string; commit: string; license: string }>;
+  /** 协议语义移植：固定来源但不是 submodule，不得混入 sources / gitlink。 */
+  protocolReferences?: Record<string, { commit?: string; license?: string }>;
 };
 const notices = readFileSync(path.join(root, 'THIRD_PARTY_NOTICES.md'), 'utf8');
 const flat = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -78,6 +80,20 @@ if (packageJson.dependencies?.pg !== '8.23.1') problems.push('pg 依赖未按精
 if (!npmLock.packages?.['node_modules/pg']?.integrity) problems.push('pg 缺少 package-lock integrity');
 if (!flat(notices).includes(flat('node-postgres'))) problems.push('THIRD_PARTY_NOTICES.md 未声明 node-postgres (pg)');
 notes.push('npm: pg@8.23.1 MIT · licenses/pg-MIT.txt · package-lock integrity');
+
+// R7 扩展（P-6）：Runner 的两块协议语义用 TypeScript 重写，不是 submodule，
+// 但同样必须固定 MIT 提交、留许可证原文、写进声明；且不得变成第 8 个上游。
+const runnerCommit = 'a42d133139bbe630e4ca3475426c7653fddd86db';
+const reference = lock.protocolReferences?.runner;
+if (!reference || reference.commit !== runnerCommit)
+  problems.push('Runner 协议参考未在 sources.lock.json 固定 MIT 提交');
+if (reference?.license !== 'MIT') problems.push('Runner 协议参考许可证不是已评审的 MIT');
+if (!existsSync(path.join(root, 'licenses/runner-MIT.txt')))
+  problems.push('缺少 Runner MIT 许可证原文 licenses/runner-MIT.txt');
+if (!flat(notices).includes(flat('yicheng47/runner')))
+  problems.push('THIRD_PARTY_NOTICES.md 未声明 Runner 协议参考');
+if (paths.length !== 7) problems.push('协议移植不得新增第 8 个上游 submodule / gitlink');
+notes.push(`Runner: MIT @ ${runnerCommit.slice(0, 12)} · 协议语义移植（TS 重写，未新增 submodule）`);
 for (const file of readdirSync(path.join(root, 'licenses'))) {
   const text = readFileSync(path.join(root, 'licenses', file), 'utf8');
   if (/\b(AGPL|SSPL|GPLv3|GNU General Public License version 3)\b/i.test(text))

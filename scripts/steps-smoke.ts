@@ -18,6 +18,12 @@ import {
 } from '../src/step-execution.ts';
 import { driveLegacyLoop, driveSteppedPump } from '../src/loop-pump.ts';
 import { stepRunnerHandlers, STEP_RUNNER_TOOLS } from '../src/step-runner.ts';
+import { assertHitlRedLines, FileHitlSink } from '../src/step-hitl.ts';
+import { TrackedStepQueue, deliveryReadiness, notificationText } from '../src/step-delivery.ts';
+import {
+  deriveMissionState, MISSION_STATE_LABELS, resolveRuntime, assertNoStoredArgv,
+  assertCoordinationLayering, assertSnapshotNoRewrite,
+} from '../src/mission-state.ts';
 
 type Detail = { name: string; ok: boolean; note?: unknown };
 const checks: Detail[] = [];
@@ -205,8 +211,10 @@ async function main() {
   writeFileSync(cfgFile, JSON.stringify({ ...real,
     host: { ...(real.host ?? {}), provider: 'local-pg' },
     execution: { schemaVersion: 1, mode: 'step', maxStepsPerRun: 60, staleSeconds: 60 } }, null, 2), { mode: 0o600 });
+  const hitlFile = path.join(tmp, 'hitl.jsonl');
   const baseEnv = { ...process.env, COLLAB_CONFIG: cfgFile, COLLAB_STEP_PRINCIPAL: 'worker-a',
-    COLLAB_STEP_SCOPE: 'p1-smoke', NO_PROXY: '127.0.0.1,localhost', no_proxy: '127.0.0.1,localhost',
+    COLLAB_STEP_SCOPE: 'p1-smoke', COLLAB_HITL_LEDGER: hitlFile,
+    NO_PROXY: '127.0.0.1,localhost', no_proxy: '127.0.0.1,localhost',
     NODE_USE_ENV_PROXY: '0' };
   const loader = path.join(root, 'node_modules/tsx/dist/loader.mjs');
   const entry = path.join(root, 'src/step-runner.ts');
@@ -269,6 +277,112 @@ async function main() {
     check('C8 PG 状态摘要确定性且与隔离真跑口径一致',
       summary.done === 2 && summary.total === 2 && summary.modelCalls === 0
         && summary.signature === stepExecutionSummary(await pgQueue.runState(runId)).signature);
+
+    // ---- E. HITL 成对留痕：真实子进程提问 + 真人入口回答 -----------------
+    const hitlRun = 'p1hitl-' + randomUUID().slice(0, 8);
+    await pgQueue.enqueueSteps(hitlRun, [{ kind: 'human-gate', payload: {
+      question: '这一步需要真人确认后才能继续', choices: ['继续', '暂停'], triggeredBy: 'smoke-e1' } }]);
+    const hitlOnce = once(hitlRun);
+    const hitlSink = new FileHitlSink(hitlFile);
+    const asked = hitlSink.read();
+    check('E1 执行进程只提问不放行，并留下问题编号',
+      hitlOnce.parsed?.failed === true && /原会话/.test(hitlOnce.parsed?.reason ?? '')
+        && hitlOnce.parsed?.hitlQuestionId === asked[0]?.id
+        && (await pgQueue.runState(hitlRun))[0].status === 'failed',
+      { questionId: hitlOnce.parsed?.hitlQuestionId, reason: hitlOnce.parsed?.reason });
+    check('E2 台账是 human_question，因果放载荷、信封只留标识',
+      asked.length === 1 && asked[0].type === 'human_question'
+        && asked[0].payload.triggered_by === 'smoke-e1'
+        && !('triggered_by' in asked[0]) && !('question_id' in asked[0]));
+
+    const answerBin = path.join(root, 'scripts/step-answer.ts');
+    const runAnswer = (extra: Record<string, string>) => {
+      const child = spawnSync(process.execPath, ['--import', loader, answerBin,
+        String(hitlOnce.parsed?.hitlQuestionId ?? ''), '继续', '真跑备注'],
+        { cwd: root, env: { ...baseEnv, ...extra }, encoding: 'utf8', timeout: 60_000 });
+      let parsed: any = null;
+      try { parsed = JSON.parse(String(child.stdout).trim()); } catch {}
+      return { code: child.status, parsed, stderr: String(child.stderr ?? '').slice(0, 200) };
+    };
+    const answer = runAnswer({ COLLAB_HUMAN_ACTOR: '原发起人' });
+    const answered = hitlSink.read();
+    let projection: ReturnType<typeof assertHitlRedLines> | null = null;
+    try { projection = assertHitlRedLines(answered); } catch { /* 下面按 null 判失败 */ }
+    check('E3 真人回答只追加 human_response，成对闭环且不等于验收',
+      answer.code === 0 && answer.parsed?.paired === true && projection !== null
+        && projection.pairs.length === 1 && projection.pending.length === 0
+        && projection.acceptanceAttempts.length === 0
+        && answered[1]?.payload.question_id === asked[0].id
+        && answered[1]?.payload.acceptance === false,
+      { answer: answer.parsed, events: answered.length, stderr: answer.stderr });
+    const repeat = runAnswer({ COLLAB_HUMAN_ACTOR: '原发起人' });
+    check('E4 同一问题重复回答被拒，历史不回溯改写',
+      repeat.parsed?.ok === false && /已经有回答/.test(repeat.parsed?.error ?? ''),
+      { error: repeat.parsed?.error });
+    const anonymous = runAnswer({ COLLAB_HUMAN_ACTOR: '' });
+    check('E5 未声明真人身份时回答入口拒绝，执行进程不得冒充',
+      anonymous.parsed?.ok === false && /真人身份/.test(anonymous.parsed?.error ?? ''),
+      { error: anonymous.parsed?.error });
+    check('E6 成对台账与 B1 记忆主干分离，未写进 events.jsonl',
+      !existsSync(path.join(tmp, 'events.jsonl')) && answered.length === 2);
+
+    // ---- F. 送达证据：PG 队列上的累计确认 / 至少一次通知 -----------------
+    const tracked = new TrackedStepQueue(pgQueue);
+    const deliveryRun = 'p1del-' + randomUUID().slice(0, 8);
+    await tracked.enqueueSteps(deliveryRun, [
+      { kind: 'tool-call', payload: { tool: 'sha256', input: 'delivery-a' } },
+      { kind: 'tool-call', payload: { tool: 'sha256', input: 'delivery-b' } },
+    ]);
+    const claimedDelivery = await tracked.claimStep('delivery-worker', deliveryRun);
+    await tracked.completeStep(claimedDelivery!.runToken, { ok: true });
+    const evidence = tracked.evidence(deliveryRun);
+    check('F1 领取与完成都留下送达/确认证据，通知至少一次',
+      evidence.delivered === 1 && evidence.acknowledged === 1 && evidence.pendingDelivery === 0
+        && evidence.notifications >= 1 && evidence.errors === 0 && evidence.atLeastOnce === true,
+      evidence);
+    const firstAck = tracked.acknowledgeUpTo(deliveryRun, 'd000002');
+    const staleAck = tracked.acknowledgeUpTo(deliveryRun, 'd000001');
+    check('F2 累计确认只前进，旧确认不回退且积压清零',
+      firstAck === 'd000002' && staleAck === 'd000002'
+        && tracked.evidence(deliveryRun).atLeastOnce === false,
+      { firstAck, staleAck });
+    check('F3 通知幂等、投递就绪按能力声明，重投递只认空闲',
+      notificationText(2) === notificationText(2)
+        && deliveryReadiness({ idle: false, working: true, runtime: 'claude-code' }).ready === true
+        && deliveryReadiness({ idle: false, working: true, runtime: 'step-once' }).ready === false
+        && deliveryReadiness({ idle: false, working: true, runtime: 'claude-code',
+          redelivery: true }).ready === false);
+
+    // ---- G. Runner 四项借思想的落地守门 ---------------------------------
+    const mission = deriveMissionState({ steps: [{ status: 'running' }], pendingQuestions: 0,
+      hasFailure: false, interrupted: false, ended: false, lastActivityAt: 0, now: 30_000 });
+    check('G1 六态由任务事实派生，已收敛与运行中可并存',
+      mission.settled === true && mission.running === true && mission.state === 'working'
+        && Object.keys(MISSION_STATE_LABELS).length === 6);
+    let argvRejected = false;
+    try { assertNoStoredArgv({ argv: ['--model', 'x'] }); } catch { argvRejected = true; }
+    check('G2 运行时只声明能力、不存启动参数，未知名称保守处理',
+      resolveRuntime('claude-code').queuesInputMidTurn === true
+        && resolveRuntime('unknown').queuesInputMidTurn === false && argvRejected);
+    let layeringRejected = false;
+    try {
+      assertCoordinationLayering({ configTables: [{ name: 'config', columns: ['mode'] }],
+        coordinationLog: memoryLog, singleMutableSharedState: memoryLog });
+      assertCoordinationLayering({ configTables: [{ name: 'config', columns: ['status'] }],
+        coordinationLog: memoryLog, singleMutableSharedState: memoryLog });
+    } catch { layeringRejected = true; }
+    check('G3 配置库只放配置、实时协作只在追加写日志（机器化守门）', layeringRejected);
+    let rewriteRejected = false;
+    try {
+      assertSnapshotNoRewrite([{ id: 'd1', configRevision: 'r1', evidence: 'agents:r1:0' }],
+        [{ id: 'd1', configRevision: 'r2', evidence: 'agents:r2:0' }], 'r2');
+    } catch { rewriteRejected = true; }
+    check('G4 编制快照变更不回溯改写历史决策', rewriteRejected);
+    const stepView = executionView(stepConfig);
+    check('G5 只读执行视图暴露六态、能力声明与两条协议说明',
+      stepView.mission.states.length === 6 && stepView.mission.settledAndRunningCanCoexist === true
+        && stepView.hitl.pairedEvidence === true && /只前进/.test(stepView.delivery.cumulativeAck)
+        && stepView.modelCalls === 0);
   } catch (error) {
     check('C0 PG 真跑未发生（不得把跳过算作通过）', false,
       { error: String(error instanceof Error ? error.message : error) });
@@ -284,7 +398,7 @@ async function main() {
   const failed = checks.filter(c => !c.ok).map(c => c.name);
   const report = {
     ok: failed.length === 0, checks: checks.length, failed, details: checks,
-    note: 'A/B/D 在隔离内存队列与静态守门上真跑；C 在本机 PG 专属库 suitme_collab_c1 上用唯一 runId + 真实子进程跨进程领步，未 reset 他人数据。未发生任何外部模型调用。',
+    note: 'A/B/D 在隔离内存队列与静态守门上真跑；C 在本机 PG 专属库 suitme_collab_c1 上用唯一 runId + 真实子进程跨进程领步；E 用真实子进程提出人工问题、真人入口回答并校验成对留痕；F 在同一 PG 队列上验证送达/确认证据、累计确认与至少一次通知；G 验证 Runner 四项借思想的落地守门。台账写在临时目录，未 reset 他人数据、未写 B1 主干、未发生任何外部模型调用。',
     pgRunIdEvidence: '本次 runId 为随机值，PG 内留下 append-only 留痕，未清空其它数据',
   };
   mkdirSync(runtime(), { recursive: true });

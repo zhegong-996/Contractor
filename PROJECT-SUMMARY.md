@@ -304,7 +304,7 @@ Redis（用 PG `FOR UPDATE SKIP LOCKED` 等价，切换点为 `claimStep / compl
 
 **已实现但默认未启用**：`config.host.provider=local-pg`、`config.execution.mode=step`（默认 `paperclip` + `loop`，可逐字回退）、Cognee 原生管线（缺端点与凭据）、组织映射草案（未导入职能注册表）。
 
-**剩余生产项**：切换默认底座并把真实业务单切到 step 模式验证；autoloop worker 内部子调用逐次拆分（当前 tick 级单步）；真实外部模型端点 / 远端工具沙箱 / 多机切换 / Redis；金额成本账本接入效果看板。~~控制台 `view` 快照的服务端分页裁剪~~ 已于**第二十三轮 P-5 完成**：新增只读 `view-summary`（分页 + 字段白名单），控制台改拉摘要，真实服务端 509,283 bytes / 4.02 秒 → 5,678 bytes / 0.076 秒，原 `view` 逐字保留给插件工作台。
+**剩余生产项**：切换默认底座并把真实业务单切到 step 模式验证；autoloop worker 内部子调用逐次拆分（当前 tick 级单步）；真实外部模型端点 / 远端工具沙箱 / 多机切换 / Redis；金额成本账本接入效果看板。~~控制台 `view` 快照的服务端分页裁剪~~ 已于**第二十三轮 P-5 完成**：新增只读 `view-summary`（分页 + 字段白名单），控制台改拉摘要，真实服务端 509,283 bytes / 4.02 秒 → 5,678 bytes / 0.076 秒，原 `view` 逐字保留给插件工作台。**第二十四轮 P-6 已完成**：Runner（`yicheng47/runner`，固定 MIT 提交 `a42d1331`）的两块协议语义用 TypeScript 重写落地 —— `src/step-hitl.ts` 的 `ask_human/human_question/human_response` 成对留痕、`src/step-delivery.ts` 的累计确认 / 至少一次通知 / 投递就绪与送达证据；四项借思想（六态派生、运行时能力声明、配置库与追加写日志分层、编制快照不回溯）落在 `src/mission-state.ts`。R7 六步登记完成，**未引入 submodule / gitlink / Rust 源码，7 个上游不变**；`npm test` 445/445、`steps:smoke` 54/54。红线：人工回答不等于验收，执行进程不得自行放行人工确认步。
 
 **需用户拍板**：外部模型端点与凭据、SUI-129 真人验收、飞书部门 scope 授权、国内 / 海外外部服务是否接通、已取消服务长期状态、「pi」的指代；以及「何时切换默认 `config.host.provider`」。
 

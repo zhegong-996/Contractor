@@ -1,15 +1,15 @@
 # SuitMe 协作台 · 项目交接包（HANDOFF）
 
-> 生成时间：2026-11-08（北京时间，第二十三轮 P-5 同步）｜仓库：`/Users/gong.zhe/Developer/ai-native-collab`
+> 生成时间：2026-11-08（北京时间，第二十四轮 P-6 同步）｜仓库：`/Users/gong.zhe/Developer/ai-native-collab`
 > 远端：`github.com/zhegong-996/suitme-collab`（main）｜代码基线随 `main` 前进，**以 `git rev-parse HEAD` 为准**，不要相信写死的 hash
-> 当前阶段：**A 完成 → B1 完成 → B2 完成并验证 → C 全部完成并收口（C-0 ~ C-6 + 收尾）→ 生产项 P-1 长程循环单步化已完成 → P-5 控制台快照服务端分页 / 裁剪已完成**（严格分步，不并行）
+> 当前阶段：**A 完成 → B1 完成 → B2 完成并验证 → C 全部完成并收口（C-0 ~ C-6 + 收尾）→ P-1 长程循环单步化已完成 → P-5 控制台快照服务端分页 / 裁剪已完成 → P-6 Runner 两块协议移植 + 四项借思想已完成**（严格分步，不并行）
 
 ## 这个包是干什么的
 
 给**下一位接手的 Agent**用的。目标：不依赖本对话历史，读完就能安全继续，不重复踩坑、不擅自越过红线、不把已验证的链路改坏。
 
 - **唯一位置**：仓库内 `HANDOFF/`（随 git 提交推送，clone 即得）。所有相关说明都在这里，**不依赖任何外部副本**；来源、commit 与接手校验见 `SYNC-STATUS.md`。
-- 项目原有文档（`docs/`、`README.md`）仍然有效；本包是**导航与现状归纳**，不是替代。冲突时以 `docs/ADAPTATION-v0.6.md` 最新边界声明（`0.000000000000000000000000` 节）、`docs/VALIDATION.md` 最新验证记录为准。
+- 项目原有文档（`docs/`、`README.md`）仍然有效；本包是**导航与现状归纳**，不是替代。冲突时以 `docs/ADAPTATION-v0.6.md` 最新边界声明（`0.0000000000000000000000000` 节）、`docs/VALIDATION.md` 最新验证记录为准。
 
 ## 5 分钟接手路径
 
@@ -35,7 +35,7 @@
 | `05-VALIDATION-AND-COMMANDS.md` | 全套回归命令清单、每项预期输出、真实链路冒烟脚本（含 `memory:journey` / `memory:checkpoint` / `host:pg` / `console:smoke` / `router:smoke`）、排障手册、服务端口表。 |
 | `06-CURRENT-STATE-AND-NEXT.md` | 当前状态快照：A/B1/B2 已完成证据、**C-1 的 PG 真跑交付与 C-0~C-6 + 收尾清单**、三条新增产品约束、三层判断结论、去 Paperclip 化路线。 |
 | `07-RULES-AND-BOUNDARIES.md` | 不可越过的红线：业务验收身份、隐私与 `.runtime`、许可证边界、已取消服务不得重启、上游源码不改、测试隔离。 |
-| `08-OPEN-DECISIONS.md` | 需要用户拍板才能动的事项（**7 项待拍板**，含第 11 条 Runner 移植范围评估 + 产品形态 ②、B2 范围、组织形态可配置与自演进、PG 与长程执行四条已解决历史记录），含冲突说明与可选方案。 |
+| `08-OPEN-DECISIONS.md` | 需要用户拍板才能动的事项（**6 项待拍板**；第 11 条 Runner 移植范围已于第二十四轮拍板 (b) 并完成 + 产品形态 ②、B2 范围、组织形态可配置与自演进、PG 与长程执行四条已解决历史记录），含冲突说明与可选方案。 |
 | `SYNC-STATUS.md` | ★ 唯一位置声明、代码基线/提交关系、接手校验命令、本目录内阅读顺序。 |
 | `handoff-manifest.json` | 机器可读元数据：commit、远端、测试结果、C 产品约束、服务状态、包内文件清单、下一步与开放决策。 |
 

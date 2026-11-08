@@ -218,3 +218,13 @@ Actually reused: the PostgreSQL client driver only, for `src/pg-host.ts` (`PgHos
 Preserved boundaries: **no Redis**, **no remote tool sandbox / multi-machine Remote Tool Calling**, and no tool calls sent to AWS or any external host. `assertLocalPgDsn()` accepts loopback addresses only and the DSN is read solely from the `COLLAB_PG_DSN` environment variable (no credentials in `config.json` or the repository). The default host is still `paperclip`; `local-pg` is an explicit opt-in. Production multi-instance scaling and a real remote execution environment have not happened.
 
 This notice is not a legal audit of transitive npm dependencies; each published package retains its own licence.
+
+## Runner (`yicheng47/runner`) — MIT（第二十四轮 P-6 协议语义移植）
+
+Pinned reference commit `a42d133139bbe630e4ca3475426c7653fddd86db`, from https://github.com/yicheng47/runner. `Copyright (c) 2026 Yicheng Wang (Jason Wang)`; LICENSE retained verbatim in `licenses/runner-MIT.txt`. **This is not a submodule**: no gitlink, no upstream worktree and no Rust source file is added to this repository. The fixed commit is recorded in the `protocolReferences` section of `sources.lock.json` (the `sources` map and the seven pinned submodules are unchanged).
+
+Actually reused: two protocol contracts, re-implemented in TypeScript — (1) `ask_human` → `human_question` → `human_response` correlated signals, where the canonical `question_id` is the `human_question` event's own id and causality lives in `payload` (`src/step-hitl.ts`, `src/step-runner.ts`, `scripts/step-answer.ts`); (2) durable-queue cumulative acknowledgement, at-least-once notification and capability-driven delivery readiness (`src/step-delivery.ts`). Four further ideas were borrowed without code: derived mission states, runtime capability declarations, "config store vs append-only coordination log" layering, and no retrospective rewriting of roster snapshots (`src/mission-state.ts`).
+
+Licence history: versions published from 2026-08-22 through 2026-09-22 were released under GPL-3.0-only and remain available under that licence. Only the current MIT `main` commit above is pinned; no release artefact from that window is used.
+
+Preserved boundaries: a `human_response` only returns an answer to the asker — it **never** substitutes for the original initiator's Chinese "确认验收 任务编号" in the originating conversation; the execution process can only raise a question and must never release a `human-gate` step; the HITL ledger is deliberately separate from the B1 memory trunk; no 8th upstream, no PTY/terminal emulator, no external model call and no new web intake entry are introduced.

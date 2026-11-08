@@ -756,3 +756,17 @@ Cognee `cognify` 的真实外部模型调用未发生（缺端点与凭据）；
 | 既有回归不回退 | `npx tsc --noEmit`、`build:workspaces`、`build:chinese-shell ok:true`、`test:responsive` 无溢出、`test:walkthrough` **11/11**、`console:smoke`、`router:smoke` 31/31、`agents:smoke` 43/43、`shapes:smoke` 36/36、`evolution:smoke` 45/45、`steps:smoke` 40/40、`host:pg` 21/21、`host:smoke`、`memory:replay` / `memory:checkpoint`、`routing:status`、`audit:upstream clean:true`、`git diff --check` |
 | 环境处置 | 本轮开始时 3100 / 4180 带失效文件代理，`fs` 读取报 `connect failed: Connection refused`，宿主静态页 500、`view` 一度 409 并随后崩溃；按 `HANDOFF/00` 既定流程用干净环境重启 4180 / 3100 并重挂插件后恢复，走查 11/11。未改上游源码、未重启 4190 / 4192 / 4194 / 9418 |
 | 如实边界 | 摘要只用于展示索引，不含工作稿正文 / 授权明细 / 验收判断；`view` 逐字保留；宿主标题是 advisory，缺失即降级到本机任务索引并标 `titleSource=local/partial`；控制台只读白名单 16 → 17 项，仍无写入口；飞书仍是唯一发起入口；默认底座仍 `paperclip`；真人业务验收 SUI-129 仍未发生；其余剩余生产项未动 |
+
+## 第二十四轮：P-6 Runner 两块协议移植与四项借思想（2026-11-08）
+
+| 项 | 结果 |
+|---|---|
+| `npm test` | **445 / 445**（第二十三轮 424 + 21 例新契约：`tests/step-hitl.test.ts` 10 例、`tests/step-delivery.test.ts` 11 例） |
+| `npm run steps:smoke` | **54/54 `ok:true`**（原 40 + E 段 6 项 + F 段 3 项 + G 段 5 项）；真实 PG 专属库 `suitme_collab_c1` + 真实子进程，唯一 runId、未 reset 他人数据 |
+| E 段：HITL 成对留痕 | 真实子进程在 `human-gate` 步只提问不放行（PG 步骤仍 `failed`）、返回 `hitlQuestionId`；台账追加 `human_question`（因果 `triggered_by` 在载荷、信封无因果）；真人入口 `step:answer` 追加 `human_response` 并成对闭环、`acceptance:false`；同一问题重复回答被拒、未声明真人身份被拒；台账写在临时目录、B1 主干行数前后不变 |
+| F 段：队列送达证据 | `TrackedStepQueue` 包住真实 PG 队列：`delivered=1`、`acknowledged=1`、`pendingDelivery=0`、`notifications>=1`；累计确认推进到 `d000002` 后积压清零，旧确认 `d000001` 不回退；通知幂等、投递就绪按 `queuesInputMidTurn` 能力声明，重投递只认空闲 |
+| G 段：四项借思想 | 六态由任务事实派生（安静 30 秒才 settled，且 settled 与 running 可并存）、运行时只声明能力不存启动参数、配置库与追加写日志分层守门、编制快照不回溯改写历史决策；`executionView()` 只读暴露六态 / 能力声明 / HITL / 投递说明且 `modelCalls=0` |
+| 来源登记（R7 六步） | Runner `main` 固定 MIT 提交 `a42d133139bbe630e4ca3475426c7653fddd86db`；`licenses/runner-MIT.txt` 原文、`THIRD_PARTY_NOTICES.md` 新段、`sources.lock.json` 的 `protocolReferences`、`docs/SOURCES.md` / `docs/OPEN-SOURCE-COMPLIANCE.md`、`scripts/audit-upstream.ts` 机器化校验、两个新模块保留 MIT 版权头。**未引入 submodule / gitlink / Rust 源码，7 个上游不变**；避开 2026-08-22 ~ 09-22 的 GPL-3.0-only 发布窗口 |
+| `npx tsc --noEmit` / `audit:upstream` / `git diff --check` | 通过 / `clean:true`、`problems: []`（notes 新增 `Runner: MIT @ a42d133139bb`） / 通过 |
+| 既有回归不回退 | `console:smoke` 全绿、`router:smoke` 31/31、`agents:smoke` 43/43、`shapes:smoke` 36/36、`evolution:smoke` 45/45、`host:pg` 21/21、`host:smoke`、记忆重放 / checkpoint、两个构建、425px 响应式、工作台走查 11/11 |
+| 如实边界 | `human_response` 只把答案送回提问者，绝不替代原发起人在原会话「确认验收 任务编号」；执行进程不得自行放行人工步；未接通飞书写回通道，回答目前只有本机 CLI 入口；默认仍 `loop` + `paperclip`，未发生外部模型调用；SUI-129 仍未核可；4190 / 4192 / 4194 / 9418 保持停机 |

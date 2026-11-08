@@ -87,7 +87,20 @@ npm run delivery:demo       # 本机 Git 链路；4194/9418 停机时 gitProtoco
 
 > `memory:replay` 的 `eventCount` 会随真实业务动作增长，`duplicateIds` / `danglingCausedBy` 也可能保留历史行（append-only 日志不物理删除）。**判定标准是 `replayTwiceEqual` / `deterministic` / `logErrors` 为空，以及 `memory:journey` 的 `lineageComplete`**，不是固定数字。第十四轮修复前真实日志曾有 6 条悬空 lineage，旧行仍在，新链路已为 0。
 
-## 3. 真实 HTTP 冒烟模板（admin token 从 `.runtime/secrets.json` 读，不入库）
+## 4. 第二十四轮 P-6 实测结果（2026-11-08，Runner 协议移植）
+
+| 项 | 结果 |
+|---|---|
+| `npm test` | **445 / 445**（第二十三轮 424 + `step-hitl` 10 例 + `step-delivery` 11 例） |
+| `steps:smoke` | **54/54 `ok:true`**（原 40 + E 段 6 + F 段 3 + G 段 5）；真实 PG 专属库 + 真实子进程，唯一 runId、未 reset 他人数据 |
+| E 段 HITL 成对留痕 | 真实子进程在 `human-gate` 只提问不放行（PG 步骤仍 `failed`）、返回 `hitlQuestionId`；`step:answer` 真人回答成对闭环、`acceptance:false`；重复回答与匿名身份被拒；台账在临时目录、B1 主干行数前后不变 |
+| F 段队列送达证据 | `TrackedStepQueue` 包真实 PG 队列：`delivered=1 / acknowledged=1 / pendingDelivery=0 / notifications>=1`；累计确认推进到 `d000002` 后积压清零，旧确认 `d000001` 不回退；通知幂等、投递就绪按能力声明、重投递只认空闲 |
+| G 段四项借思想 | 六态派生（安静 30 秒才 settled，且 settled 与 running 可并存）、运行时能力声明不存 argv、配置库与追加写日志分层、编制快照不回溯；`executionView()` 只读暴露且 `modelCalls=0` |
+| R7 来源登记 | Runner MIT 固定 `a42d133139bbe630e4ca3475426c7653fddd86db`；`licenses/runner-MIT.txt` / `THIRD_PARTY_NOTICES.md` / `sources.lock.json` 的 `protocolReferences` / `docs/SOURCES.md` / `docs/OPEN-SOURCE-COMPLIANCE.md` / `audit:upstream` 机器化校验；`clean:true`、`problems: []`；**7 个上游不变**，避开 GPL-3.0-only 发布窗口 |
+| 既有回归不回退 | `tsc`、两个构建、425px 响应式、走查 11/11、`console:smoke`、`router:smoke` 31/31、`agents:smoke` 43/43、`shapes:smoke` 36/36、`evolution:smoke` 45/45、`host:pg` 21/21、`host:smoke`、记忆重放 / checkpoint、`git diff --check` |
+| 如实边界 | `human_response` 只把答案送回提问者、不等于验收；执行进程不得自行放行人工步；未接通飞书写回通道，回答目前只有本机 CLI 入口；默认仍 `loop` + `paperclip`、无外部模型调用；SUI-129 仍未核可 |
+
+## 5. 真实 HTTP 冒烟模板（admin token 从 `.runtime/secrets.json` 读，不入库）
 
 ```sh
 node --import tsx --input-type=module -e "
@@ -107,7 +120,7 @@ req.on('error', e => console.log('ERR', e.message)); req.end(payload);
 
 把 path 换成 `routing-status` / `service-status` / `delivery-status` / `system-status` 可查其它只读状态。改过 `src/server.ts` / `src/v06.ts` / `src/workspaces.ts` 等服务端代码后先 `npm run restart:bridge`。
 
-## 4. 服务端口表
+## 6. 服务端口表
 
 | 端口 | 用途 | 交接状态 | 启动方式 |
 |---|---|---|---|
@@ -120,7 +133,7 @@ req.on('error', e => console.log('ERR', e.message)); req.end(payload);
 | 5432 | 本机 PG 17 专属库 suitme_collab_c1 | 运行中（用户既有实例） | 不新建服务；只连回环，勿动其它库 |
 | 4200（按需） | 自研独立控制台 | 不常驻 | `npm run console` 才启动，只绑 127.0.0.1；冒烟用随机端口，跑完即关 |
 
-## 5. 排障速查
+## 7. 排障速查
 
 | 现象 | 根因 | 处理 |
 |---|---|---|
@@ -136,7 +149,7 @@ req.on('error', e => console.log('ERR', e.message)); req.end(payload);
 | `v06-l2-extract` 报「边指向不存在的节点」 | `memory-index` 先自动抽过一次，任务级镜像未带入全局已有节点 | `buildTaskGraphMirror()` 补齐，见 `tests/l2-extraction.test.ts` |
 | 真实日志出现 `danglingCausedBy` | `reviewSource` 用评审前 revision，确认事件被幂等去重 | 已改用 `reviewedRevision`；历史行不物理删除，重放如实记录 |
 
-## 6. 提交前检查（每轮都做）
+## 8. 提交前检查（每轮都做）
 
 ```sh
 git status --short

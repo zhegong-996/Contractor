@@ -23,6 +23,7 @@
     "evolution:smoke": "node --import tsx scripts/evolution-smoke.ts",
     "steps:smoke": "node --import tsx scripts/steps-smoke.ts",
     "step:once": "node --import tsx src/step-runner.ts",
+    "step:answer": "node --import tsx scripts/step-answer.ts",
     "host:smoke": "node --import tsx scripts/host-smoke.ts",
     "host:pg": "node --import tsx scripts/host-pg-smoke.ts",
     "memory:replay": "node --import tsx scripts/memory-replay.ts",
