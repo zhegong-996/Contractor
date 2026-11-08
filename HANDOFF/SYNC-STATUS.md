@@ -1,6 +1,6 @@
 # 10 · 唯一位置声明与接手校验
 
-> 用户要求：**所有相关说明只放在 `/Users/gong.zhe/Developer/ai-native-collab/HANDOFF/`**，直接处理这个目录即可。本文件把原先分散在外部副本里的「来源 / commit / 阅读顺序」信息收拢进来，并明确其它位置已停用。
+> 用户要求：详细交接说明以 `/Users/gong.zhe/Developer/ai-native-collab/HANDOFF/` 为**唯一权威位置**，直接处理这个目录即可。**2026-11-08 追加**：在项目根目录放 `HANDOFF.md`（接手总纲）与 `PROJECT-SUMMARY.md`（项目总结）两份总览入口，便于交接给其他 Agent；它们是入口速览、与本包同步维护，不另建外部副本。本文件把原先分散在外部副本里的「来源 / commit / 阅读顺序」信息收拢进来，并明确其它位置已停用。
 
 ## 1. 唯一权威位置
 
@@ -8,7 +8,8 @@
 |---|---|
 | 唯一权威目录 | `/Users/gong.zhe/Developer/ai-native-collab/HANDOFF/` |
 | 同步方式 | 随 `main` 分支提交推送到 `https://github.com/zhegong-996/suitme-collab.git`；clone 仓库即得 |
-| 手工修改 | **只改本目录**，然后 `git add -A && git commit && git push origin main` |
+| 根目录总览入口 | `../HANDOFF.md`（接手总纲）、`../PROJECT-SUMMARY.md`（项目总结）；与本包同步维护，内容冲突以本包与 `docs/` 为准 |
+| 手工修改 | **详细交接说明只改本目录**；若口径变化，同步更新根目录两份入口，然后 `git add -A && git commit && git push origin main` |
 | 已停用（不再维护） | WorkBuddy 工作区 `handoff/` 副本、`SuitMe-HANDOFF.zip` — 内容可能落后，**不要作为依据** |
 | 项目原文档 | `docs/`、`README.md` 仍有效；本包是导航与现状归纳，冲突时以 `docs/ADAPTATION-v0.6.md` 最新边界、`docs/PRD-v0.6.md` §10C、`docs/VALIDATION.md` 最新验证为准 |
 
@@ -40,6 +41,7 @@ export NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost NODE_USE_ENV_PR
 
 ## 4. 阅读顺序（本目录内即可完成）
 
+0. 根目录 `HANDOFF.md`（接手总纲）/ `PROJECT-SUMMARY.md`（项目总结）— 一眼可见的入口速览
 1. `README.md` — 总索引与包内每个文件的说明
 2. `00-START-HERE.md` — 环境、服务、干净环境变量、8 个已知坑
 3. `06-CURRENT-STATE-AND-NEXT.md` — 现在做到哪、B2 四项与 C-1 的真跑证据、**C-0~C-6 分步清单与产品原则**、什么不能动

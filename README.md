@@ -6,6 +6,7 @@
 
 ## 架构与方案导航（先看这里）
 
+- **交接与项目总结**（2026-11-08）：[HANDOFF.md](HANDOFF.md) 是给下一位 Agent 的接手总纲；[PROJECT-SUMMARY.md](PROJECT-SUMMARY.md) 是系统架构 / 产品功能架构 / 业务流程设计 / 依赖与协议引用的总览。详细交接说明仍以 `HANDOFF/` 为唯一权威目录。
 - **当前实现**：[架构与接入核验](docs/SYSTEM-ARCHITECTURE.md)——技术四层、产品与业务架构、前端模块分层。
 - **产品架构定稿**：[ARCHITECTURE-v0.6.md](docs/ARCHITECTURE-v0.6.md)——六层模型、M3 三层路由、M11 责任转移、K 知识底座与默认图谱本体；**这是设计定稿，不等于全部已实现**。
 - **收敛方案与缺口清单**：[ARCHITECTURE-OPTIONS-v0.7.md](docs/ARCHITECTURE-OPTIONS-v0.7.md)——三种可选方案、主流 Agent 记忆 / ontology / router 架构分析、未实现功能逐条对应的开源复用动作、许可证边界。**判断「哪些还没做、该用哪个项目补」以这份为准**。

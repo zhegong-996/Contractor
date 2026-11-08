@@ -734,3 +734,12 @@ Cognee `cognify` 的真实外部模型调用未发生（缺端点与凭据）；
 | 既有回归不回退 | `router:smoke` 31/31、`agents:smoke` 43/43、`shapes:smoke` 36/36、`evolution:smoke` 45/45、`host:pg` 21/21、`host:smoke`、`memory:replay` / `memory:checkpoint`、`routing:status allWired:true`、`audit:upstream clean:true`、`test:responsive` 393/393、`test:walkthrough` 11/11、`git diff --check` |
 | 默认路径 | `config.execution.mode=loop`、`host.provider=paperclip`；`driveLegacyLoop()` 与改造前逐字等价，`step:once` 在 loop 下如实返回未启用、不连数据库 |
 | 如实边界 | 真实业务单未在 step 模式跑过；无外部模型调用；worker 内部子调用未逐次拆分；远端沙箱 / 多机切换 / Redis / 金额成本账本仍未落地；`host:pg` 的 `resetForTest()` 会清空专属测试库 |
+
+## 交接与总结文档轮（2026-11-08，无代码改动）
+
+| 项 | 结果 |
+|---|---|
+| 交付物 | 根目录 `HANDOFF.md`（给下一位 Agent 的接手总纲）与 `PROJECT-SUMMARY.md`（系统架构 / 产品功能架构 / 业务流程设计 / 依赖与引用及协议逐一说明）；同步更新 `README.md` 导航、`HANDOFF/README.md`、`SYNC-STATUS.md`、`DIRECTORY-GUIDE.md`、`FILE-INVENTORY.md`、`handoff-manifest.json`，并把 `08-OPEN-DECISIONS.md` 的「仍待拍板」口径修正为 6 项 |
+| 基线复跑 | `npm test` **413/413、0 fail**；`git diff --check` 通过；`HANDOFF/handoff-manifest.json` JSON 解析通过（`rootEntryFiles: 2`、`totalEntries: 299`） |
+| 提交与推送 | 文档与代码基线一并提交并 push 到 `origin/main`；提交后以 `git status --short --branch` 校验 `HEAD = origin/main` 且工作区干净 |
+| 严格边界 | **未改动任何 `src/` / `scripts/` / `tests/` 代码**，未改产品口径、未改上游源码或提交、未新增依赖、未重启服务；默认仍 `config.execution.mode=loop` + `host.provider=paperclip`；真人业务验收 SUI-129 仍未发生；4190 / 4192 / 4194 / 9418 保持停机；`.runtime/` 证据不入库 |

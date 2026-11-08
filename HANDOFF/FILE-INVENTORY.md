@@ -1,8 +1,8 @@
 # FILE-INVENTORY · 逐文件说明（100% 覆盖）
 
-> 生成自 `git ls-files` + `HANDOFF/`，第二十二轮 P-1 收尾后共 **297** 个条目（第十四轮 269 + C-1 新增 4 + C-2 新增 7 + C-3 新增 3 + C-4 新增 3 + C-5 新增 2 + C-6 新增 4 + P-1 新增 5 个入库文件）。
-> 列：`路径 | 行数 | 说明`。`upstream/<name>` 是 gitlink（submodule），行数记 `-`。
-> 说明来源：精写字典 211 条、从源码注释/导出/测试名自动提取 69 条、按类型兜底 0 条。
+> 生成自 `git ls-files` + `HANDOFF/`，第二十二轮 P-1 收尾后共 **297** 个条目，2026-11-08 交接总结新增根目录 2 个文件后共 **299** 个条目（第十四轮 269 + C-1 新增 4 + C-2 新增 7 + C-3 新增 3 + C-4 新增 3 + C-5 新增 2 + C-6 新增 4 + P-1 新增 5 + 交接总结新增 2 个入库文件）。
+> 列：`路径 | 行数 | 说明`。`upstream/<name>` 是 gitlink（submodule），行数记 `-`；既有条目的行数为生成时快照，文档改版后以文件实际内容为准。
+> 说明来源：精写字典 213 条、从源码注释/导出/测试名自动提取 69 条、按类型兜底 0 条。
 > 需要更详细的「哪些文件一起完成什么」见 `04-CODE-MAP.md`；目录结构见 `DIRECTORY-GUIDE.md`。
 
 ## 交接包 HANDOFF/（14）
@@ -17,11 +17,11 @@
 | `HANDOFF/05-VALIDATION-AND-COMMANDS.md` | 126 | 全套回归命令、第二十二轮 P-1 实测结果（含 host:pg 21/21、console:smoke、router:smoke 31/31、agents:smoke 43/43、shapes:smoke 36/36、evolution:smoke 45/45、steps:smoke 40/40）、真实 HTTP 冒烟模板、服务端口表、排障速查、提交前检查。 |
 | `HANDOFF/06-CURRENT-STATE-AND-NEXT.md` | 61 | 当前状态快照、B2 四项真跑证据、C-0~C-6 分步清单（含两条新增产品原则）、按配置的三层判断、去 Paperclip 化路线。 |
 | `HANDOFF/07-RULES-AND-BOUNDARIES.md` | 44 | 红线与边界：业务验收身份、隐私与 .runtime、服务约束、许可证、前端入口、工程约束。 |
-| `HANDOFF/08-OPEN-DECISIONS.md` | 58 | 9 个条目（6 项待拍板 + 产品形态 ②、B2 范围、组织形态可配置与自演进三条已解决历史记录）：外部模型凭据、真人验收、部门 scope、外部服务、已停服务、pi 指代。 |
+| `HANDOFF/08-OPEN-DECISIONS.md` | 82 | 10 个条目（6 项待拍板 + 产品形态 ②、B2 范围、组织形态可配置与自演进、Paperclip 去留四条历史记录）：外部模型凭据、真人验收、部门 scope、外部服务、已停服务、pi 指代。 |
 | `HANDOFF/DIRECTORY-GUIDE.md` | 154 | ★ 目录完全指南：完整目录树、每个顶层目录作用与入库状态、7 个 submodule、.runtime 详解、构建产物位置、新文件该放哪。 |
 | `HANDOFF/FILE-INVENTORY.md` | 328 | ★ 本文件：全部入库文件逐文件一行说明（路径 / 行数 / 用途），用于快速定位。 |
-| `HANDOFF/README.md` | 50 | 交接包总索引：5 分钟接手路径、包内每个文件的说明、一句话现状与检查清单。 |
-| `HANDOFF/SYNC-STATUS.md` | 55 | ★ 唯一位置声明、代码基线/提交关系、接手校验命令、本目录内阅读顺序。 |
+| `HANDOFF/README.md` | 62 | 交接包总索引：5 分钟接手路径、包内每个文件的说明、根目录两份总览入口、一句话现状与检查清单。 |
+| `HANDOFF/SYNC-STATUS.md` | 58 | ★ 唯一位置声明（含根目录两份总览入口）、代码基线/提交关系、接手校验命令、本目录内阅读顺序。 |
 | `HANDOFF/handoff-manifest.json` | 203 | 机器可读元数据：commit、远端、测试结果、服务状态、包内文件清单、下一步与开放决策。 |
 
 ## 后端核心 src/（79）
@@ -304,7 +304,7 @@
 | `docs/SYSTEM-ARCHITECTURE.md` | 241 | ★ 「现在是什么」：技术四层、产品与业务架构、前端分层、统一路由 Trace、共享记忆主干。 |
 | `docs/TEAM-NETWORK-MEMORY.md` | 70 | 多人服务协作与团队知识记忆。 |
 | `docs/UPSTREAM-ADAPTERS.md` | 54 | 上游适配代码清单与引用边界。 |
-| `docs/VALIDATION.md` | 608 | ★ 逐轮验证记录（含第十四轮 B2、第十六轮 C-1、第十七轮 C-2、第十八轮 C-3 全套回归），判断「验证过没有」以此为准。 |
+| `docs/VALIDATION.md` | 745 | ★ 逐轮验证记录（含 B2、C-1 ~ C-6、P-1 全套回归与 2026-11-08 交接文档轮），判断「验证过没有」以此为准。 |
 | `docs/WORKSPACES.md` | 70 | 知识空间与使用说明。 |
 | `docs/agent-integration.md` | 75 | Agent 接入与 CLI 适配说明。 |
 | `docs/design/workbench.md` | 11 | 工作台视觉/交互设计稿。 |
@@ -321,7 +321,7 @@
 | `upstream/prime-agent` | - | git submodule（gitlink）：Prime Agent，MIT，检索权重来源。 |
 | `upstream/superagent` | - | git submodule（gitlink）：DeepSeek Super Agent，MIT，用于触发解析与 policy 准入。 |
 
-## 根目录配置（11）
+## 根目录配置（13）
 
 | 路径 | 行数 | 说明 |
 |---|---|---|
@@ -329,8 +329,10 @@
 | `.gitmodules` | 21 | 7 个 git submodule 的路径与来源 URL。 |
 | `AGENTS.md` | 10 | 给 Agent 的协作规则。 |
 | `DESIGN.md` | 17 | 总体设计说明。 |
+| `HANDOFF.md` | 189 | ★ 根目录交接总纲（2026-11-08）：5 分钟接手、产品口径、现状、环境命令、代码地图、红线、三档边界、下一步、索引、提交流程、8 个坑；详细权威仍在 `HANDOFF/`。 |
 | `PRODUCT.md` | 13 | 产品定位与能力状态说明（含 Cognee 原生管线已打开的口径）。 |
-| `README.md` | 189 | 项目主入口：架构与方案导航、实现边界、本地运行、飞书、交付验收、知识与验证。 |
+| `PROJECT-SUMMARY.md` | 329 | ★ 项目总结（2026-11-08）：系统架构、产品功能架构、业务流程设计、依赖与引用（协议逐一）、验证证据、边界与索引。 |
+| `README.md` | 190 | 项目主入口：交接与总结导航、架构与方案导航、实现边界、本地运行、飞书、交付验收、知识与验证。 |
 | `THIRD_PARTY_NOTICES.md` | 212 | 第三方声明与版权信息。 |
 | `package-lock.json` | 2686 | npm 依赖锁定文件。 |
 | `package.json` | 73 | npm scripts 总表与依赖；新增脚本必须指向真实实现文件。 |
@@ -357,8 +359,9 @@
 
 ## 覆盖率
 
-- 总条目：**297**（第十四轮 269 + C-1 新增 4 + C-2 新增 7 + C-3 新增 3 + C-4 新增 3 + C-5 新增 2 + C-6 新增 4 + P-1 新增 5 个入库文件）
-- 精写说明：**211**（75.4%）
+- 总条目：**299**（第十四轮 269 + C-1 新增 4 + C-2 新增 7 + C-3 新增 3 + C-4 新增 3 + C-5 新增 2 + C-6 新增 4 + P-1 新增 5 + 交接总结新增 2 个入库文件）
+- 精写说明：**213**
 - 自动提取（源码注释/导出/真实测试名）：**69**
 - 兜底：**0**
 - 未覆盖：**0**
+- 说明：既有条目的行数是生成时快照；2026-11-08 同步更新了根目录两份总览入口与交接包索引。

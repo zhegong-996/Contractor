@@ -1,7 +1,7 @@
 # 09 · 目录结构完全指南（接手必读）
 
 > 目标：搞清楚**每个目录是干什么的、哪些入库、产物放哪、新文件该放哪**。
-> 根目录：`/Users/gong.zhe/Developer/ai-native-collab`｜第二十二轮 P-1 收尾后 `git ls-files` 共 **297** 个入库文件（含 `HANDOFF/` 14 个）。
+> 根目录：`/Users/gong.zhe/Developer/ai-native-collab`｜第二十二轮 P-1 收尾后 `git ls-files` 共 **297** 个入库文件（含 `HANDOFF/` 14 个）；2026-11-08 新增根目录总览 `HANDOFF.md` / `PROJECT-SUMMARY.md` 后为 **299** 个。
 
 ## 1. 完整目录树（带说明）
 
@@ -9,7 +9,7 @@
 ai-native-collab/                       仓库根（main 分支）
 ├── console/                           ★ C-2 自研独立控制台（3 个文件，原生 HTML/CSS/JS，零运行时依赖，不依赖宿主插件接口）
 │   ├── index.html / styles.css / app.js        六视图 / 明暗主题 / 只读白名单 / 统一中文语言层
-├── HANDOFF/                           ★ 本交接包（入库、随 commit 推送）——唯一位置
+├── HANDOFF/                           ★ 本交接包（入库、随 commit 推送）——详细交接唯一权威位置
 │   ├── README.md                      总索引 + 包内每个文件的说明
 │   ├── 00-START-HERE.md               接手第一步（环境/服务/坑）
 │   ├── 01-PROJECT-OVERVIEW.md         产品与业务架构
@@ -79,6 +79,9 @@ ai-native-collab/                       仓库根（main 分支）
 │   └── desktop-tutorial/              zhegong-996/desktop-tutorial 的本地工作树
 ├── .runtime/                          ⛔ 全部运行证据与状态，被 .gitignore 忽略，绝不入库
 ├── node_modules/                      ⛔ 依赖，被 .gitignore 忽略
+├── 根目录总览入口（2026-11-08 新增，与 HANDOFF/ 同步维护）：
+│   ├── HANDOFF.md                       接手总纲（给下一位 Agent）
+│   ├── PROJECT-SUMMARY.md              项目总结：架构 / 产品功能 / 业务流程 / 依赖与协议
 ├── HANDOFF 之外的根目录文件：
 │   ├── README.md / PRODUCT.md / DESIGN.md / AGENTS.md
 │   ├── THIRD_PARTY_NOTICES.md / sources.lock.json / .gitmodules
@@ -89,7 +92,7 @@ ai-native-collab/                       仓库根（main 分支）
 
 | 目录 | 作用 | 入库 | 备注 |
 |---|---|---|---|
-| `HANDOFF/` | 交接包（本套文档） | ✅ | **唯一权威位置**，只改这里，直接处理这个目录 |
+| `HANDOFF/` | 交接包（本套文档） | ✅ | **详细交接唯一权威位置**；根目录 `HANDOFF.md` / `PROJECT-SUMMARY.md` 是同步维护的总览入口 |
 | `src/` | 后端全部 TypeScript 业务代码 | ✅ | 新后端模块放这里，测试同步放 `tests/` |
 | `scripts/` | 可执行入口：服务、CLI、构建、冒烟、Swift/Python 辅助 | ✅ | 新 npm script 必须有对应实现文件 |
 | `tests/` | `node:test` 回归测试 | ✅ | `scripts/test.ts` 自动发现 `tests/*.test.ts` |
@@ -169,8 +172,8 @@ ai-native-collab/                       仓库根（main 分支）
 
 | 路径 | 说明 |
 |---|---|
-| `/Users/gong.zhe/Developer/ai-native-collab/HANDOFF/` | **唯一权威位置**（入库、随 push 同步到 GitHub）。所有说明只放这里，直接处理即可 |
+| `/Users/gong.zhe/Developer/ai-native-collab/HANDOFF/` | **详细交接唯一权威位置**（入库、随 push 同步到 GitHub），直接处理即可；根目录 `HANDOFF.md` / `PROJECT-SUMMARY.md` 是同仓库内的总览入口 |
 | `/Users/gong.zhe/WorkBuddy/2026-11-05-18-10-52/handoff/`、`SuitMe-HANDOFF.zip` | **已停用、不再维护**的历史副本，内容可能落后，不要作为依据 |
 | `/Users/gong.zhe/WorkBuddy/2026-11-05-18-10-52/.workbuddy/memory/` | 本助手的工作记忆日志（项目外，仅本机） |
 
-下一位 Agent 只要拿到仓库（或 `HANDOFF/` 目录），从 `README.md` → `00` → `06` 开始即可；唯一位置与同步校验见 `SYNC-STATUS.md`。
+下一位 Agent 只要拿到仓库（或 `HANDOFF/` 目录），从根目录 `HANDOFF.md` 或 `README.md` → `00` → `06` 开始即可；唯一位置与同步校验见 `SYNC-STATUS.md`。
