@@ -156,7 +156,7 @@ npm test                         # 本次交接复跑：413/413，0 fail
 | 验证证据 | `docs/VALIDATION.md`、`HANDOFF/05-VALIDATION-AND-COMMANDS.md`（第 6 节为 P-8 实测） |
 | 复用来源与协议 | `docs/SOURCES.md`、`docs/UPSTREAM-ADAPTERS.md`、`docs/OPEN-SOURCE-COMPLIANCE.md`、`THIRD_PARTY_NOTICES.md`、`sources.lock.json` |
 | 机器可读交接元数据 | `HANDOFF/handoff-manifest.json` |
-| 外部候选评估（Runner / OpenMausBot / Anthropic agent memory） | `docs/ADAPTATION-v0.6.md` 最新边界节、`docs/REFERENCE-openmausbot.md`（OpenMausBot 完整对照与差距清单）、`docs/REFERENCE-anthropic-agent-memory.md`（Anthropic 逐层对照与 8 条差距清单） |
+| 外部候选评估（Runner / OpenMausBot / Anthropic agent memory / 上游能力对比） | `docs/ADAPTATION-v0.6.md` 最新边界节、`docs/REFERENCE-openmausbot.md`（OpenMausBot 完整对照与差距清单）、`docs/REFERENCE-anthropic-agent-memory.md`（Anthropic 逐层对照与 8 条差距清单）、`docs/REFERENCE-capability-comparison.md`（与 7 个上游的六环节对比与定位结论） |
 
 **冲突时的优先级**：`docs/ADAPTATION-v0.6.md` 最新边界声明 → `docs/VALIDATION.md` 最新验证记录 → `docs/PRD-v0.6.md` §10C → `HANDOFF/06` → 其余历史轮次文档。`HANDOFF/` 是详细交接说明的唯一权威目录；根目录 `HANDOFF.md` 与 `PROJECT-SUMMARY.md` 是与之同步维护的总览入口。
 

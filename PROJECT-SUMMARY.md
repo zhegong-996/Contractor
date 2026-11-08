@@ -319,6 +319,7 @@ Redis（用 PG `FOR UPDATE SKIP LOCKED` 等价，切换点为 `claimStep / compl
 | 接手另一个 Agent | `HANDOFF.md`（根目录速览）、`HANDOFF/` 详细包（`README.md` / `00` / `06` / `07` / `08`） |
 | 系统架构现状 | `docs/SYSTEM-ARCHITECTURE.md`、`HANDOFF/02-ARCHITECTURE.md` |
 | 一眼看懂架构与功能图 | `docs/architecture-atlas.html`（四张 SVG 图册，可离线打开）、`docs/ARCHITECTURE-ATLAS.md`（索引） |
+| 与上游 Agent 平台的能力边界 | `docs/REFERENCE-capability-comparison.md`（六环节对照、真实差距、定位结论） |
 | 产品架构定稿（不等于全部实现） | `docs/ARCHITECTURE-v0.6.md` |
 | 产品需求与可验收条款 | `docs/PRD-v0.6.md`（§5 FR、§6 主流程、§10C C-P1~C-P8） |
 | 方案与缺口 | `docs/ARCHITECTURE-OPTIONS-v0.7.md`、`docs/ROUTING-AND-HOST-v0.7.md`、`docs/MEMORY-ARCHITECTURE-v0.7.md` |

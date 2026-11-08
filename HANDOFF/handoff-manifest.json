@@ -18,7 +18,7 @@
     "path": "/Users/gong.zhe/Developer/ai-native-collab",
     "remote": "https://github.com/zhegong-996/suitme-collab.git",
     "branch": "main",
-    "codeBaseCommit": "以 git rev-parse HEAD 为准（第二十六轮 P-8 与架构图册文档一并提交推送；HEAD = origin/main = 远端 main）",
+    "codeBaseCommit": "以 git rev-parse HEAD 为准（第二十六轮 P-8、架构图册与上游能力对比文档一并提交推送；HEAD = origin/main = 远端 main）",
     "originMainAtGeneration": "same-as-HEAD",
     "remoteMainAtGeneration": "same-as-HEAD",
     "note": "不再写死 hash：交接包生成时的 b58631c / f6611e0 / 4aa6fb0 / 8d3c455 / c27d7c0 / 3a563d3 均为历史。代码与文档在同一提交里一并推送。",
@@ -262,12 +262,12 @@
   ],
   "fileInventory": {
     "path": "HANDOFF/FILE-INVENTORY.md",
-    "totalEntries": 323,
+    "totalEntries": 324,
     "handWrittenDescriptions": 213,
     "autoExtractedDescriptions": 69,
     "fallback": 0,
     "uncovered": 0,
-    "note": "第十四轮 269 + C-1 新增 4 + C-2 新增 7 + C-3 新增 3 + C-4 新增 3 + C-5 新增 2 + C-6 新增 4 + P-1 新增 5（src/step-execution.ts、src/loop-pump.ts、src/step-runner.ts、scripts/steps-smoke.ts、tests/step-execution.test.ts）+ 2026-11-08 交接总结新增 2（HANDOFF.md、PROJECT-SUMMARY.md）+ P-5 新增 2（src/workspace-summary.ts、tests/workspace-summary.test.ts）+ P-6 新增 7（src/step-hitl.ts、src/step-delivery.ts、src/mission-state.ts、scripts/step-answer.ts、tests/step-hitl.test.ts、tests/step-delivery.test.ts、licenses/runner-MIT.txt）+ 评估文档 1（docs/REFERENCE-openmausbot.md）+ P-7 新增 4（src/memory-hierarchy.ts、tests/memory-hierarchy.test.ts、scripts/memory-hierarchy-smoke.ts、docs/REFERENCE-anthropic-agent-memory.md）+ P-8 新增 7（src/knowledge-guard.ts、src/behavior-baseline.ts、tests/knowledge-guard.test.ts、tests/behavior-baseline.test.ts、tests/p8-contracts.test.ts、scripts/guard-smoke.ts、fixtures/behavior-golden.json）+ 架构图册 3（docs/architecture-atlas.html、docs/ARCHITECTURE-ATLAS.md、scripts/atlas-check.mjs）；既有文件修改不计新增"
+    "note": "第十四轮 269 + C-1 新增 4 + C-2 新增 7 + C-3 新增 3 + C-4 新增 3 + C-5 新增 2 + C-6 新增 4 + P-1 新增 5（src/step-execution.ts、src/loop-pump.ts、src/step-runner.ts、scripts/steps-smoke.ts、tests/step-execution.test.ts）+ 2026-11-08 交接总结新增 2（HANDOFF.md、PROJECT-SUMMARY.md）+ P-5 新增 2（src/workspace-summary.ts、tests/workspace-summary.test.ts）+ P-6 新增 7（src/step-hitl.ts、src/step-delivery.ts、src/mission-state.ts、scripts/step-answer.ts、tests/step-hitl.test.ts、tests/step-delivery.test.ts、licenses/runner-MIT.txt）+ 评估文档 1（docs/REFERENCE-openmausbot.md）+ P-7 新增 4（src/memory-hierarchy.ts、tests/memory-hierarchy.test.ts、scripts/memory-hierarchy-smoke.ts、docs/REFERENCE-anthropic-agent-memory.md）+ P-8 新增 7（src/knowledge-guard.ts、src/behavior-baseline.ts、tests/knowledge-guard.test.ts、tests/behavior-baseline.test.ts、tests/p8-contracts.test.ts、scripts/guard-smoke.ts、fixtures/behavior-golden.json）+ 架构图册 3（docs/architecture-atlas.html、docs/ARCHITECTURE-ATLAS.md、scripts/atlas-check.mjs）+ 能力对比报告 1（docs/REFERENCE-capability-comparison.md）；既有文件修改不计新增"
   },
   "nextSteps": [
     "先读根目录 HANDOFF.md（接手总纲）与 PROJECT-SUMMARY.md（项目总结），再读 HANDOFF/00-START-HERE.md、06-CURRENT-STATE-AND-NEXT.md、docs/PRD-v0.6.md §10C、07-RULES-AND-BOUNDARIES.md",
@@ -329,5 +329,5 @@
   },
   "authoritativeOnly": true,
   "portableCopyNote": "WorkBuddy 工作区 handoff/ 与 SuitMe-HANDOFF.zip 已停用、不再维护；详细交接唯一权威位置为仓库内 HANDOFF/，根目录 HANDOFF.md / PROJECT-SUMMARY.md 为同仓库内同步维护的总览入口。",
-  "codeBaseCommit": "以 git rev-parse HEAD 为准（第二十六轮 P-8 与架构图册文档一并提交推送；HEAD = origin/main = 远端 main）"
+  "codeBaseCommit": "以 git rev-parse HEAD 为准（第二十六轮 P-8、架构图册与上游能力对比文档一并提交推送；HEAD = origin/main = 远端 main）"
 }
