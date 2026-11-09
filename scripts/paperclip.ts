@@ -22,6 +22,11 @@ const child = spawn(process.execPath, ['--import', path.join(root, 'node_modules
   env: { ...process.env, PAPERCLIP_HOME: runtime('paperclip'), PAPERCLIP_TELEMETRY_DISABLED: '1',
     PAPERCLIP_AGENT_JWT_SECRET: secrets().jwtSecret, PAPERCLIP_MIGRATION_AUTO_APPLY: 'true',
     PAPERCLIP_DEPLOYMENT_MODE: deploymentMode,
+    // authenticated 模式需要 Better Auth 的签名密钥与回跳地址；local_trusted 下这些不生效。
+    ...(deploymentMode === 'authenticated' ? {
+      BETTER_AUTH_SECRET: secrets().authSecret || secrets().jwtSecret,
+      BETTER_AUTH_URL: 'http://127.0.0.1:3100',
+    } : {}),
     HOST: '127.0.0.1', PORT: '3100', SERVE_UI: 'true' },
 });
 writeFileSync(runtime('paperclip.pid'), String(child.pid));

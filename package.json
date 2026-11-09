@@ -79,7 +79,8 @@
     "topic": "node --import tsx scripts/topic.ts",
     "patrol": "node --import tsx scripts/patrol.ts",
     "artifact": "node --import tsx scripts/artifact.ts",
-    "org:import": "node --import tsx scripts/org-import.ts"
+    "org:import": "node --import tsx scripts/org-import.ts",
+    "p0:migrate": "node --import tsx scripts/p0-migrate-main.ts"
   },
   "dependencies": {
     "@a2a-js/sdk": "1.3.0",
