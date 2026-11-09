@@ -50,10 +50,20 @@ import {
 import { buildAcceptanceWorkbench } from './acceptance-workbench.ts';
 import { createPlan, type AcceptancePlan } from './acceptance-plan.ts';
 import { assertEvidenceRegions, type AcceptanceRound } from './acceptance-round.ts';
-import { passThroughDecision, type PassThroughCandidate } from './pass-through.ts';
+import { passThroughDecision, explicitTaskReference, type PassThroughCandidate } from './pass-through.ts';
 import { assessAdmission } from './admission.ts';
 import { validateModelSettings } from './model-settings.ts';
 import { parseUserCommand } from './user-language.ts';
+import { assessmentOutcome } from './eval-mode.ts';
+import { deriveStage, isPersonStage } from './ticket-stage.ts';
+import { retryDecision, isTransientFailure, backoffMs, evalUnavailable } from './retry-backoff.ts';
+import { revalidateMandate } from './revalidate.ts';
+import { planParallel, fanOut, fanIn } from './fanout.ts';
+import { openReconcileDecision } from './reconcile-decision.ts';
+import { parseChapter, validateChapters } from './video-chapters.ts';
+import { validateEvidence, audioEvidencePair } from './evidence-media.ts';
+import { a11yVerdict } from './a11y-check.ts';
+import { priceKlmTrace, KLM_SCHEMA } from './klm-trace.ts';
 
 export const LAYERS = ['router', 'pass-through', 'agent', 'permission', 'knowledge', 'acceptance', 'personalization'] as const;
 export type Layer = typeof LAYERS[number];
@@ -996,6 +1006,141 @@ export function auditLayerContracts(options: LayerAuditOptions = {}): LayerRepor
       return ok
         ? pass([`execution.mode=${exec.mode}`, `host.provider=${host.provider}`])
         : miss([`mode=${exec.mode}`, `provider=${host.provider}`]);
+    }));
+
+  checks.push(run('eval.accept-mode-observes', 'router', '观察模式不真接推断候选', 
+    'inferred 候选评估为 accept 时，observe 只记 would-accept；auto 才真接；显式任何模式都接', () => {
+      const rules: { ruleId: string; matched: boolean; direction: 'accept' | 'ignore' | 'stop' | null; evidence?: string }[] =
+        [{ ruleId: 'r1', matched: true, direction: 'accept', evidence: '明确' }];
+      const observe = assessmentOutcome({ strength: 'inferred', acceptMode: 'observe', enabledRuleIds: ['r1'], rules }) as { decision: string; wouldAccept: boolean };
+      const auto = assessmentOutcome({ strength: 'inferred', acceptMode: 'auto', enabledRuleIds: ['r1'], rules }) as { decision: string; wouldAccept: boolean };
+      const off = assessmentOutcome({ strength: 'inferred', acceptMode: 'off', enabledRuleIds: ['r1'], rules }) as { decision: string; wouldAccept: boolean };
+      const explicit = assessmentOutcome({ strength: 'explicit', acceptMode: 'off', enabledRuleIds: ['r1'], rules }) as { decision: string; wouldAccept: boolean };
+      const ok = observe.decision === 'ignore' && observe.wouldAccept
+        && auto.decision === 'accept' && !off.wouldAccept && explicit.decision === 'accept';
+      return ok
+        ? pass([`observe=${observe.wouldAccept ? 'would-accept' : observe.decision}`, `auto=${auto.decision}`, `off=${off.decision}`])
+        : miss([`observe=${observe.decision}/${observe.wouldAccept}`, `auto=${auto.decision}`]);
+    }));
+
+  checks.push(run('runtime.ticket-stage-derives', 'router', '工单阶段从「等什么」推出', 
+    'ready→待评审、blocked→受阻、有真人消息→回到 working、dropped→空闲', () => {
+      const review = deriveStage({ report: 'ready' });
+      const blocked = deriveStage({ report: 'blocked' });
+      const released = deriveStage({ report: 'blocked', hasPersonMessageSince: true });
+      const idle = deriveStage({ report: 'dropped' });
+      const answer = deriveStage({ hasAttention: true, report: 'waiting' });
+      const ok = review === 'person/review' && blocked === 'person/blocked' && released === 'working'
+        && idle === 'idle' && answer === 'person/answer' && isPersonStage('person/review');
+      return ok
+        ? pass([`ready=${review}`, `blocked=${blocked}`, `释放=${released}`, `dropped=${idle}`])
+        : miss([`ready=${review}`, `blocked=${blocked}`, `释放=${released}`]);
+    }));
+
+  checks.push(run('runtime.retry-transient-backoff', 'router', '瞬时失败退避、硬失败不可用', 
+    '408/429/5xx/连接失败重试、封顶退避、超 3 次记 unavailable；Eval 3 次未完成记 unavailable', () => {
+      const transient = isTransientFailure({ code: 429 });
+      const hard = !isTransientFailure({ code: 403 });
+      const retry1 = retryDecision({ attempt: 1, transient: true }).retry;
+      const cap = backoffMs(10) === 60000;
+      const exhausted = retryDecision({ attempt: 4, transient: true }).unavailable;
+      const evalU = evalUnavailable(3).unavailable && !evalUnavailable(2).unavailable;
+      return transient && hard && retry1 && cap && exhausted && evalU
+        ? pass([`瞬时=${transient}`, `退避封顶=${cap}`, `耗尽=${exhausted}`, `Eval 不可用=${evalU}`])
+        : miss([`瞬时=${transient}`, `硬失败=${hard}`, `耗尽=${exhausted}`]);
+    }));
+
+  checks.push(run('agent.mandate-revalidate-before-resume', 'agent', '恢复前重校验授权', 
+    '显式跟进直接过、inferred 要 auto+规则启用、表准入要仍达标、机器人要仍在列表', () => {
+      const explicit = revalidateMandate({ basis: 'explicit-followup', matchedRuleIds: [], rulesStillEnabled: () => false, acceptMode: 'off' }).valid;
+      const inferred = revalidateMandate({ basis: 'inferred', matchedRuleIds: ['r1'], rulesStillEnabled: () => true, acceptMode: 'auto' }).valid;
+      const inferredOff = !revalidateMandate({ basis: 'inferred', matchedRuleIds: ['r1'], rulesStillEnabled: () => true, acceptMode: 'observe' }).valid;
+      const table = revalidateMandate({ basis: 'table-cell', matchedRuleIds: [], rulesStillEnabled: () => true, acceptMode: 'auto', senderStillListed: true, cellStrengthHeld: true }).valid;
+      const botGone = !revalidateMandate({ basis: 'bot', matchedRuleIds: ['r1'], rulesStillEnabled: () => true, acceptMode: 'auto', botStillListed: false }).valid;
+      return explicit && inferred && inferredOff && table && botGone
+        ? pass([`显式=${explicit}`, `推断=${inferred}`, `推断非auto拒=${inferredOff}`, `表=${table}`])
+        : miss([`显式=${explicit}`, `推断=${inferred}`, `表=${table}`]);
+    }));
+
+  checks.push(run('collaboration.parallel-fanout-fanin', 'agent', '多 Agent 并行：越权拒绝、深度一致、空产出标记', 
+    '子任务越权整份拒绝；fan-out 的 worker 同深度；fan-in 标记空产出', () => {
+      const parent = { mandate: { scope: ['/repo'] as const, grant: 'edit' as const }, budget: ROLE_SPECS.coordinator.budget };
+      const ok = planParallel({ task: 't', parent,
+        subtasks: [{ task: 'a', mandate: { scope: [], grant: 'read' as const }, budget: ROLE_SPECS.worker.budget }],
+        summary: { task: 's', mandate: { scope: [], grant: 'read' as const }, budget: ROLE_SPECS.checker.budget } });
+      const bad = planParallel({ task: 't', parent,
+        subtasks: [{ task: 'a', mandate: { scope: ['/etc'], grant: 'edit' as const }, budget: ROLE_SPECS.worker.budget }],
+        summary: { task: 's', mandate: { scope: [], grant: 'read' as const }, budget: ROLE_SPECS.checker.budget } });
+      let seq = 0; const makeId = () => `a${++seq}`;
+      const coord = delegate({ task: 't', role: 'coordinator', mandate: { scope: [], grant: 'full' as const }, budget: ROLE_SPECS.coordinator.budget }, makeId);
+      const good = ok.ok && !bad.ok && coord.ok;
+      let sameDepth = false, emptyMarked = false;
+      if (good && coord.ok) {
+        const workers = fanOut({ coordinator: coord.assignment, plan: (ok as { plan: import('./fanout.ts').ParallelPlan }).plan, makeId });
+        sameDepth = workers.length === 1 || new Set(workers.map(w => w.depth)).size === 1;
+        const packed = fanIn({ summaryTask: 's', workerResults: [{ worker: workers[0]!, output: '' }] });
+        emptyMarked = packed.emptyCount === 1 && !packed.complete;
+      }
+      return good && sameDepth && emptyMarked
+        ? pass([`越权拒=${!bad.ok}`, `同深度=${sameDepth}`, `空产出=${emptyMarked}`])
+        : miss([`越权拒=${!bad.ok}`, `同深度=${sameDepth}`, `空产出=${emptyMarked}`]);
+    }));
+
+  checks.push(run('acceptance.reconcile-feeds-decision', 'acceptance', '对账结论进决策上下文', 
+    '对账结果转 acceptance 决策点，findings 与 clean 都进 contextRefs', () => {
+      const result = reconcile({ declared: [{ id: 'E1', name: 'x', required: true }], produced: [{ id: 'E1', status: 'passed' }] });
+      const dp = openReconcileDecision({ result, subject: 'task:1', artifactRef: 'report:R1' });
+      const none = reconcile({ declared: [{ id: 'E1', name: 'x', required: true }], produced: null });
+      const dp2 = openReconcileDecision({ result: none, subject: 'task:2' });
+      const ok = dp.kind === 'acceptance' && dp.status === 'pending' && dp.contextRefs.length > 0
+        && dp2.contextRefs.some(ref => /无产物可比对/.test(ref));
+      return ok
+        ? pass([`kind=${dp.kind}`, `contextRefs=${dp.contextRefs.length}`, `无产物标注=${dp2.contextRefs.some(r => /无产物/.test(r))}`])
+        : miss([`kind=${dp.kind}`, `contextRefs=${dp.contextRefs.length}`]);
+    }));
+
+  checks.push(run('pass-through.explicit-reference', 'pass-through', '显式指代唯一接续', 
+    '多条在办任务时点名任务号唯一接续；点名不唯一或没点回 ambiguous', () => {
+      const candidates = [
+        { ...PASS_CANDIDATE, id: 'T-A', identifier: 'SUI-123' },
+        { ...PASS_CANDIDATE, id: 'T-B', identifier: 'SUI-124' },
+      ];
+      const hitRef = explicitTaskReference('SUI-124 加一条', candidates);
+      const missRef = explicitTaskReference('加一条', candidates);
+      const d = passThroughDecision({ candidates, actor: { id: 'ou_alice', chatId: 'oc_team' }, text: 'SUI-124 加一条' });
+      const noRef = passThroughDecision({ candidates, actor: { id: 'ou_alice', chatId: 'oc_team' }, text: '加一条' });
+      const ok = hitRef?.id === 'T-B' && missRef === null && d.direct && d.taskId === 'T-B' && noRef.kind === 'ambiguous';
+      return ok
+        ? pass([`命中=${hitRef?.id}`, `未点=${missRef === null}`, `直通=${d.taskId}`, `未点回=${noRef.kind}`])
+        : miss([`命中=${hitRef?.id}`, `直通=${d.kind}/${d.taskId}`, `未点回=${noRef.kind}`]);
+    }));
+
+  checks.push(run('acceptance.video-chapters-validated', 'acceptance', '录屏章节校验', 
+    'step/check/flag 三 kind、负 t 拒、step 缺 label 拒、check 缺 note 拒', () => {
+      const step = parseChapter({ kind: 'step', t: 6, label: 'Scroll' }).ok;
+      const neg = !parseChapter({ kind: 'step', t: -1, label: 'x' }).ok;
+      const noLabel = !parseChapter({ kind: 'step', t: 1 }).ok;
+      const noNote = !parseChapter({ kind: 'check', t: 1 }).ok;
+      const valid = validateChapters([{ kind: 'step', t: 1, label: 'a' }, { kind: 'check', t: 2, note: 'b' }]).ok;
+      return step && neg && noLabel && noNote && valid
+        ? pass([`step=${step}`, `负t拒=${neg}`, `缺label拒=${noLabel}`, `缺note拒=${noNote}`])
+        : miss([`step=${step}`, `负t拒=${neg}`, `缺label拒=${noLabel}`]);
+    }));
+
+  checks.push(run('acceptance.evidence-contract-honest', 'acceptance', '证据契约：描述必填、a11y 阻断、KLM 不谎报', 
+    '描述必填且不能是「JSON」；audio 要配 text；critical/serious 阻断；blocked 记 0', () => {
+      const noDesc = !validateEvidence({ path: 'a.png' }).ok;
+      const badDesc = !validateEvidence({ path: 'a.png', description: 'JSON' }).ok;
+      const audio = !audioEvidencePair({ path: 'a.mp3', description: 'TTS', type: 'audio' }).ok;
+      const a11y = a11yVerdict({ violations: [{ id: 'c', impact: 'serious', nodes: 1 }] }).blocked
+        && !a11yVerdict({ violations: [{ id: 'm', impact: 'moderate', nodes: 1 }] }).blocked;
+      const atom = JSON.stringify({ schema: KLM_SCHEMA, category: 'action', operators: { P: 1, K: 1 } });
+      const blocked = JSON.stringify({ schema: KLM_SCHEMA, category: 'blocked', operators: {} });
+      const cost = priceKlmTrace([atom, blocked]);
+      const klm = cost.priceable && cost.seconds === 1.3 && cost.atoms === 1;
+      return noDesc && badDesc && audio && a11y && klm
+        ? pass([`描述必填=${noDesc}`, `a11y 阻断=${a11y}`, `KLM=${cost.seconds}s`])
+        : miss([`描述=${noDesc}`, `a11y=${a11y}`, `KLM=${cost.seconds}s`]);
     }));
 
   /* -------------------------------------------------------------- 汇总 */

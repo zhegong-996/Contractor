@@ -34,6 +34,8 @@ export type PassThroughCandidate = {
   requesterUserId?: string | null;
   /** 审计里已有 subscription.released 事实（任务验收后释放了这条订阅）。 */
   released?: boolean;
+  /** 人类可读的任务号（如 SUI-123），用于「显式指代」跨频道接续。 */
+  identifier?: string | null;
 };
 
 export type PassThroughInput = {
@@ -98,10 +100,19 @@ export function passThroughDecision(input: PassThroughInput): PassThroughDecisio
       ? result(false, 'released', '该会话的订阅已释放（任务验收后释放绑定），按新需求走；直通不复活')
       : result(false, 'accepted', '该会话只绑定了已验收任务，直通不复活；按新需求走');
   }
-  if (open.length > 1)
-    return result(false, 'ambiguous', `当前会话绑定了 ${open.length} 条在办任务，请指明任务号`, { needsTaskReference: true });
 
-  const only = open[0]!;
+  // V4 多通道派单（A 方案：显式指代优先）——多条在办任务时，消息里点名任务号
+  // 就唯一接续到那一条；点名不唯一或没点名，仍回「请指明任务号」，不猜一个最像的。
+  let only: PassThroughCandidate;
+  if (open.length > 1) {
+    const referenced = explicitTaskReference(input.text ?? '', open);
+    if (!referenced) {
+      return result(false, 'ambiguous', `当前会话绑定了 ${open.length} 条在办任务，请指明任务号`, { needsTaskReference: true });
+    }
+    only = referenced;
+  } else {
+    only = open[0]!;
+  }
   if (input.member?.userId && only.requesterUserId && only.requesterUserId !== input.member.userId)
     return result(false, 'ownership', 'Unauthorized: 成员身份与任务发起人不符', { deny: true });
 
@@ -122,4 +133,37 @@ export function passThroughDecision(input: PassThroughInput): PassThroughDecisio
 export function isFollowup(trigger: NativeTrigger): boolean {
   const text = String(trigger.text ?? '').trim();
   return Boolean(text) && !text.startsWith('/');
+}
+
+/**
+ * V4 显式指代：从消息文本里解析「点名的任务号」，返回唯一命中的候选。
+ * 对齐 dsh-superagent「main Session 只在消息显式指向某 Ticket 时把它挂过去」。
+ *
+ * 匹配规则刻意收紧：
+ *   - 只认候选自带的人类可读 identifier（如 SUI-123）或任务 id 前缀；
+ *   - 点名不唯一（一个词同时匹配多条）→ 返回 null，交由调用方报「不唯一」；
+ *   - 没点名 → 返回 null。
+ * 返回 null 不代表「错」，只代表「没点名 / 点名不唯一」，调用方沿用原逻辑。
+ */
+export function explicitTaskReference(
+  text: string,
+  candidates: readonly PassThroughCandidate[],
+): PassThroughCandidate | null {
+  const value = String(text ?? '').trim();
+  if (!value || candidates.length === 0) return null;
+  const hits: PassThroughCandidate[] = [];
+  for (const candidate of candidates) {
+    const tokens = [candidate.identifier, candidate.id].filter((token): token is string => Boolean(token));
+    for (const token of tokens) {
+      // 整词匹配：任务号两边不能是字母数字（避免 SUI-123 匹配到 SUI-1234）。
+      const escaped = token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      if (new RegExp(`(^|[^A-Za-z0-9_-])${escaped}([^A-Za-z0-9_-]|$)`).test(value)) {
+        hits.push(candidate);
+        break;
+      }
+    }
+  }
+  // 去重（一个候选可能同时命中 identifier 和 id）。
+  const unique = hits.filter((candidate, index) => hits.indexOf(candidate) === index);
+  return unique.length === 1 ? unique[0]! : null;
 }
