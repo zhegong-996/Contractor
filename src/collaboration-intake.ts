@@ -7,6 +7,7 @@ import { resolveHitlSink } from './step-hitl.ts';
 import { persistHitlAnswer, routeAnswerToHitl } from './hitl-bridge.ts';
 import { parseUserCommand } from './user-language.ts';
 import { passThroughDecision } from './pass-through.ts';
+import { assessAdmission, inferredAcknowledgement } from './admission.ts';
 import type { AgentServices } from './agent-services.ts';
 import type { Workspaces } from './workspaces.ts';
 import type { WorkspaceAssistant } from './assistant.ts';
@@ -44,12 +45,42 @@ export class CollaborationIntake {
     const f = this.w.config.feishu; return { senders: f.allowedSenders, chats: f.allowedChats, label: 'feishu' };
   }
 
+  /**
+   * 已释放订阅的任务 id：以审计事实为准。释放发生在验收回执落库的同一步
+   * （controller 写 subscription.released），所以这里查得到就说明真的释放了；
+   * 查不到不臆测，按 phase 兜底（仍不复活）。
+   */
+  private releasedSubscriptions(): Set<string> {
+    try {
+      const rows = this.w.store.db
+        .prepare("SELECT DISTINCT issue_id FROM audit WHERE action='subscription.released' AND issue_id IS NOT NULL")
+        .all() as { issue_id: string }[];
+      return new Set(rows.map(row => row.issue_id));
+    } catch { return new Set(); }
+  }
+
   async ingestTrigger(trigger: NativeTrigger) {
     const origin = this.admissionFor(trigger);
     const pairing=/^\/member-pair\s+([a-f0-9]{32})$/.exec(trigger.text.trim());
     if(pairing){if(!trigger.meta.direct)throw new Error('请在机器人单聊中配对');return new TeamMembers(this.w).acceptPair(pairing[1]!,trigger.actor.id,String(trigger.meta.chatId));}
     const member=this.w.catalog?.().imMembers?.[trigger.actor.id];
-    const memberActor=member&&member.chatId===trigger.meta.chatId?await new TeamMembers(this.w).resolve(member.userId):undefined;
+    const paired=Boolean(member&&member.chatId===trigger.meta.chatId);
+    let memberActor: Awaited<ReturnType<TeamMembers['resolve']>>|undefined,pairingValid=false;
+    if(paired){try{memberActor=await new TeamMembers(this.w).resolve(member!.userId);pairingValid=true;}catch{memberActor=undefined;}}
+    // 第四十一轮 · 准入强度三档（纯函数见 src/admission.ts）：
+    // explicit 走原链路；inferred 只回一条说明 + 留待确认；not-admitted 拒绝且不回话。
+    const admission=assessAdmission({channel:origin.label,senderId:trigger.actor.id,chatId:String(trigger.meta.chatId),
+      paired,pairingValid,
+      allowlisted:origin.senders.includes(trigger.actor.id)&&(origin.chats.includes('*')||origin.chats.includes(String(trigger.meta.chatId))),
+      allowlistSize:origin.senders.length});
+    if(admission.handling==='reject')throw new Error('Unauthorized: '+origin.label+' origin（'+admission.reason+'）');
+    if(admission.handling==='acknowledge'){
+      // 推断准入：不建单、不续跑、不读知识、不写业务状态，只留一条可被负责人看到的待确认。
+      this.w.store.audit('admission.inferred','',{channel:origin.label,senderId:trigger.actor.id,chatId:String(trigger.meta.chatId),
+        strength:admission.strength,reason:admission.reason,evidence:admission.evidence,eventId:trigger.id,textPreview:trigger.text.slice(0,80)});
+      this.w.store.notify('admission-inferred:'+trigger.id,'',inferredAcknowledgement(origin.label));
+      return {admitted:false,strength:admission.strength,handling:admission.handling,reason:admission.reason};
+    }
     const serviceRequest = /^\/agent\s+([a-z][a-z0-9-]+)\s+([\s\S]+)$/.exec(trigger.text.trim());
     if (serviceRequest && this.services) {
       if (!memberActor) {
@@ -80,22 +111,37 @@ export class CollaborationIntake {
     // 「回答 <问题编号> <选项>」不是指令词表里的动作，仍由本 intake 路由。
     const explicit = parseUserCommand(trigger.text.replace(/@[^\s]+\s*/g, '').trim());
     if (explicit && ['task', 'status', 'accept', 'reject', 'handoff'].includes(explicit.action)) return;
-    if (!memberActor && (!origin.senders.includes(trigger.actor.id) || !(origin.chats.includes('*') || origin.chats.includes(String(trigger.meta.chatId))))) throw new Error('Unauthorized: ' + origin.label + ' origin');
+    // 准入已在上方按三档判定：走到这里的只有 explicit（成员身份或单负责人白名单）。
     if (!match) {
       // 直通：同一会话的补充说明直接接续原任务，不建新单、不过 Router。
-      // 判定收敛在 pass-through.ts 的纯函数里，边界可单测（绑定 / 已完成 / 多条 / 归属）。
+      // 判定收敛在 pass-through.ts 的纯函数里，边界可单测（绑定 / 已完成 / 多条 / 归属 / 越界）。
+      // 第四十一轮 · 订阅生命周期：释放（验收后释放绑定）与越界交回（改授权面）
+      // 都从直通里分出来，各自有名字、有审计，不再靠「执行端自己看着办」。
+      const released = this.releasedSubscriptions();
       const candidates = [];
       for (const t of this.w.store.list().filter(t => t.kind === 'collaboration')) {
         const st = await this.w.state(t);
-        candidates.push({ id: t.id, phase: t.phase, binding: st.imBinding, requesterUserId: st.context?.requesterUserId });
+        candidates.push({ id: t.id, phase: t.phase, binding: st.imBinding,
+          requesterUserId: st.context?.requesterUserId, released: released.has(t.id) });
       }
       const pass = passThroughDecision({
-        explicitAction: null, candidates,
+        explicitAction: null, candidates, text: trigger.text,
         actor: { id: trigger.actor.id, chatId: String(trigger.meta.chatId) },
         member: memberActor?.userId ? { userId: memberActor.userId } : null,
       });
       if (!pass.direct) {
         if (pass.deny) throw new Error(pass.reason);
+        if (pass.kind === 'hand-back') {
+          // 交回主链路：留痕 + 回执，然后 routed:false 让外层落回 Controller，
+          // 由派活层与账号体系决定这件事该怎么办（本层不放行、也不替它决定）。
+          this.w.store.audit('subscription.handed-back', pass.taskId ?? '', {
+            eventId: trigger.id, actor: trigger.actor.id, reason: pass.reason,
+            textPreview: trigger.text.slice(0, 120),
+          });
+          this.w.store.notify('subscription-handback:' + trigger.id, pass.taskId ?? '',
+            `这条要求超出当前任务的授权范围，已交回主链路处理：${pass.reason}。原任务的授权与验收范围没有变化。`);
+          return { routed: false, handBack: true, reason: pass.reason };
+        }
         return { routed: false, reason: pass.reason, ...(pass.needsTaskReference ? { needsTaskReference: true } : {}) };
       }
       match = [trigger.text, pass.taskId!, trigger.text.trim()];

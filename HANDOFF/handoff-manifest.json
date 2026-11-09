@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "purpose": "SuitMe 协作台项目交接包：让下一位 Agent 无需对话历史即可安全继续",
-  "generatedAt": "2026-11-09T11:55:00+08:00",
+  "generatedAt": "2026-11-09T12:20:00+08:00",
   "authoritativeLocation": "/Users/gong.zhe/Developer/ai-native-collab/HANDOFF/",
   "rootEntryFiles": [
     {
@@ -30,8 +30,8 @@
     "A": "completed",
     "B1": "completed-and-validated",
     "B2": "completed-and-validated",
-    "C": "C-0 ~ C-6 分步清单全部完成并收口；生产项 P-1~P-13 与第三十一轮 ③c/③d 均已完成；第三十二轮默认底座已切 local-pg + step（用户拍板）；第三十三轮 DeepSeek v4 flash 接入 Cognee 原生管线（用户给 key，cognify/search 端到端真跑通过）；第三十四轮修复四缺口（cognify 自动接入 / key 持久化 / 检索进 UI / CLI 参数）并修复服务页与 vision 探测两个界面断点，服务全套在线展示",
-    "currentBoundary": "docs/ADAPTATION-v0.6.md 0.00000000000000000000000000000000000 节（第三十四轮：四缺口修复 + 断点审计）；C 产品约束见 docs/PRD-v0.6.md §10C；验证见 docs/VALIDATION.md 第三十四轮",
+    "C": "C-0 ~ C-6 分步清单全部完成并收口；生产项 P-1~P-13 与第三十一轮 ③c/③d 均已完成；第三十二轮默认底座已切 local-pg + step（用户拍板）；第三十三轮 DeepSeek v4 flash 接入 Cognee 原生管线（用户给 key，cognify/search 端到端真跑通过）；第三十四轮修复四缺口（cognify 自动接入 / key 持久化 / 检索进 UI / CLI 参数）并修复服务页与 vision 探测两个界面断点，服务全套在线展示；第四十轮分层契约体检 40 条 + 直通契约化 + 三上游对标；第四十一轮按用户「先收口差距，做好了再说」把五项对标差距与体检唯一 partial 一次性收口（准入三档 / 订阅 hand-back·release / 报告内讨论与区域点选 / 配置规则视图 / 一条命令安装 / 知识读按域收窄），体检 45 条 ok 45·partial 0·gap 0",
+    "currentBoundary": "docs/ROUND-41.md（第四十一轮交付与七条边界）、docs/LAYER-CONTRACTS.md（45 条分层契约体检）、docs/BENCHMARK-3UPSTREAM.md（三上游对标与差距收口记录）；C 产品约束见 docs/PRD-v0.6.md §10C；验证见 docs/VALIDATION.md 第四十一轮",
     "userDecision": "② 改成独立前端应用（废弃 PRD §10A 的 S5/S6，保留 S1–S4，飞书 IM 仍是唯一发起入口）；补遗：组织形态必须可配置（按业务域/组织单元生效、允许一个 Agent 兼任多职责、禁止同一 Task 自派自验自环），Agent 靠沉淀自我改进但核心决策仍由人做，判断是工程能力 + AI 能力组合，验收本身也是一个可与产品/技术/运营协作的 Agent",
     "cProductConstraints": [
       "C-P1 组织形态可配置：层不是产品骨架；Agent 实例与职责绑定/生效范围/版本分离；组织级唯一、项目只引用不覆写、变更留快照不回溯",
@@ -128,7 +128,7 @@
     "收尾修复：reviewSource 改用评审后 revision，消除真实链路悬空 lineage；历史 append-only 日志中的旧行不物理删除"
   ],
   "validation": {
-    "unitTests": "629/629",
+    "unitTests": "673/673",
     "typecheck": "pass",
     "buildWorkspaces": "pass",
     "buildChineseShell": "pass (hiddenEntries 4, missed 0, warning null；前台重跑，后台沙箱批量删除保护为已知坑)",
@@ -147,20 +147,24 @@
       "cognee:native status": "configured:true（LLM openai/deepseek-v4-flash 外部；embedding 本机 fastembed jina zh 768 维；key 只进进程环境）",
       "host:pg": "ok:true, 24/24（PostgreSQL 17.10 专属库 suitme_collab_c1；含对外动作 interrupted / 委托树血缘 / generation）",
       "console": "按需启动 http://127.0.0.1:4200/（只绑回环，非常驻服务）",
-      "console:smoke": "ok:true，55/55（登录制 / RBAC 边界 / 知识分区与读分区 / 证据锚点 / wiki / 注入索引 / 六视图 / 主题 / 425px / 零海外文案）",
+      "console:smoke": "ok:true，58/58（登录制 / RBAC 边界 / 知识分区与读分区 / 证据锚点 / wiki / 注入索引 / 六视图 / 主题 / 425px / 零海外文案 / 验收讨论与区域点选）",
       "router:smoke": "ok:true, 31/31 checks；legacy 5 / flat 5 / layered 10 跳；p8 未放行",
       "shapes:smoke": "ok:true, 36/36 checks；扁平 shape.ready=true/recommended=false，分层 true/true；隔离内存 Trace，不写真实日志",
-      "evolution:smoke": "ok:true, 45/45；隔离临时治理台账，不写真实 .runtime/evolution/events.jsonl 与 .runtime/memory/events.jsonl"
+      "evolution:smoke": "ok:true, 45/45；隔离临时治理台账，不写真实 .runtime/evolution/events.jsonl 与 .runtime/memory/events.jsonl",
+      "rules:view": "ok：七节（派活 / 例行 / 事件 / Agent / 通道 / 验收 / 交付）全字段带 source 与 origin（explicit / default），默认值单列",
+      "bootstrap": "ok（--dry-run）：六步幂等计划 + Node 版本警告（本机 v22.22.2 低于 engines 声明，实测 673 例全过，--strict-node 才拦）+ 人工步骤"
     },
     "gitDiffCheck": "pass",
     "reference": "HANDOFF/05-VALIDATION-AND-COMMANDS.md 第 11 节与 docs/VALIDATION.md 第三十三轮",
     "hostPgSmoke": "ok:true, 24/24（PostgreSQL 17.10 专属库 suitme_collab_c1，现亦为默认底座）",
-    "consoleSmoke": "ok:true, failed:[]（58 项检查；7 视图 × 2 主题 × 1280/320 = 28 单元矩阵，含白屏检测与键盘逐键）",
+    "consoleSmoke": "ok:true, failed:[]（58 项检查；7 视图 × 2 主题 × 1280/320 = 28 单元矩阵，含白屏检测、键盘逐键与新增的验收区域点选 / 讨论卡片）",
     "routerSmoke": "ok:true, checks 31, failed []；隔离内存 Trace，未写真实 .runtime/routing/events.jsonl",
     "agentsSmoke": "ok:true, 43/43 checks（隔离内存 Trace，不写真实 .runtime/routing/events.jsonl）",
     "shapesSmoke": "ok:true, checks 36, failed []；两种形态各跑一单五阶段，每步带 Router / 在岗快照，真实日志行数前后不变",
     "stepsSmoke": "ok:true, 61/61；A1 口径更新为「默认 step 且 loop 可显式回退」",
-    "guardSmoke": "22/22（golden 基线第三十八轮人审重冻结，记录在 fixtures/behavior-golden.json 的 humanReview）"
+    "guardSmoke": "ok:true, 22/22（golden 基线无漂移，未重冻结）",
+    "layersAudit": "45 条（ok 45 / partial 0 / gap 0）：路由 10 / 直通 8 / Agent 7 / 权限 6 / 知识 3 / 验收 8 / 个性化 3",
+    "loopSmoke": "ok:true, 18/18"
   },
   "services": {
     "3100": {
@@ -264,18 +268,21 @@
   ],
   "fileInventory": {
     "path": "HANDOFF/FILE-INVENTORY.md",
-    "totalEntries": 366,
+    "totalEntries": 382,
     "handWrittenDescriptions": 213,
     "autoExtractedDescriptions": 69,
     "fallback": 0,
     "uncovered": 0,
-    "note": "第十四轮 269 + C-1 新增 4 + C-2 新增 7 + C-3 新增 3 + C-4 新增 3 + C-5 新增 2 + C-6 新增 4 + P-1 新增 5（src/step-execution.ts、src/loop-pump.ts、src/step-runner.ts、scripts/steps-smoke.ts、tests/step-execution.test.ts）+ 2026-11-08 交接总结新增 2（HANDOFF.md、PROJECT-SUMMARY.md）+ P-5 新增 2（src/workspace-summary.ts、tests/workspace-summary.test.ts）+ P-6 新增 7（src/step-hitl.ts、src/step-delivery.ts、src/mission-state.ts、scripts/step-answer.ts、tests/step-hitl.test.ts、tests/step-delivery.test.ts、licenses/runner-MIT.txt）+ 评估文档 1（docs/REFERENCE-openmausbot.md）+ P-7 新增 4（src/memory-hierarchy.ts、tests/memory-hierarchy.test.ts、scripts/memory-hierarchy-smoke.ts、docs/REFERENCE-anthropic-agent-memory.md）+ P-8 新增 7（src/knowledge-guard.ts、src/behavior-baseline.ts、tests/knowledge-guard.test.ts、tests/behavior-baseline.test.ts、tests/p8-contracts.test.ts、scripts/guard-smoke.ts、fixtures/behavior-golden.json）+ 架构图册 3（docs/architecture-atlas.html、docs/ARCHITECTURE-ATLAS.md、scripts/atlas-check.mjs）+ 能力对比报告 1（docs/REFERENCE-capability-comparison.md）+ P-9 新增 4（src/collaboration-loop.ts、tests/collaboration-loop.test.ts、tests/p9-contracts.test.ts、scripts/loop-smoke.ts）+ P-10 新增 2（src/hitl-bridge.ts、tests/hitl-bridge.test.ts）；既有文件修改不计新增+ P-11/P-12/P-13 新增 15（auto-resume / delegated-accept / services / rbac / console-auth / knowledge-authz / auto-resume.test / console/vendor 5 / licenses 3）+ 第三十一轮 ③c/③d 新增 7（knowledge-representation / dreaming / skill-pack / escalation / team-pack / knowledge-writechain.test / openmaus-12b.test） ｜ 第三十八轮新增 12 个文件（5 个 src 模块 + 6 个契约测试 + docs/ROUND-38.md）后为 364 条手工补记；`git ls-files` 实际 379 条（第三十四~三十七轮新增文件未逐条补表，差额 15）；完整文件面以 `git ls-files` 为准。 ｜ 第三十九轮新增 2 个文件（src/channel-health.ts + tests/channel-health.test.ts）后为 366 条手工补记。"
+    "note": "第十四轮 269 + C-1 新增 4 + C-2 新增 7 + C-3 新增 3 + C-4 新增 3 + C-5 新增 2 + C-6 新增 4 + P-1 新增 5（src/step-execution.ts、src/loop-pump.ts、src/step-runner.ts、scripts/steps-smoke.ts、tests/step-execution.test.ts）+ 2026-11-08 交接总结新增 2（HANDOFF.md、PROJECT-SUMMARY.md）+ P-5 新增 2（src/workspace-summary.ts、tests/workspace-summary.test.ts）+ P-6 新增 7（src/step-hitl.ts、src/step-delivery.ts、src/mission-state.ts、scripts/step-answer.ts、tests/step-hitl.test.ts、tests/step-delivery.test.ts、licenses/runner-MIT.txt）+ 评估文档 1（docs/REFERENCE-openmausbot.md）+ P-7 新增 4（src/memory-hierarchy.ts、tests/memory-hierarchy.test.ts、scripts/memory-hierarchy-smoke.ts、docs/REFERENCE-anthropic-agent-memory.md）+ P-8 新增 7（src/knowledge-guard.ts、src/behavior-baseline.ts、tests/knowledge-guard.test.ts、tests/behavior-baseline.test.ts、tests/p8-contracts.test.ts、scripts/guard-smoke.ts、fixtures/behavior-golden.json）+ 架构图册 3（docs/architecture-atlas.html、docs/ARCHITECTURE-ATLAS.md、scripts/atlas-check.mjs）+ 能力对比报告 1（docs/REFERENCE-capability-comparison.md）+ P-9 新增 4（src/collaboration-loop.ts、tests/collaboration-loop.test.ts、tests/p9-contracts.test.ts、scripts/loop-smoke.ts）+ P-10 新增 2（src/hitl-bridge.ts、tests/hitl-bridge.test.ts）；既有文件修改不计新增+ P-11/P-12/P-13 新增 15（auto-resume / delegated-accept / services / rbac / console-auth / knowledge-authz / auto-resume.test / console/vendor 5 / licenses 3）+ 第三十一轮 ③c/③d 新增 7（knowledge-representation / dreaming / skill-pack / escalation / team-pack / knowledge-writechain.test / openmaus-12b.test） ｜ 第三十八轮新增 12 个文件（5 个 src 模块 + 6 个契约测试 + docs/ROUND-38.md）后为 364 条手工补记；`git ls-files` 实际 379 条（第三十四~三十七轮新增文件未逐条补表，差额 15）；完整文件面以 `git ls-files` 为准。 ｜ 第三十九轮新增 2 个文件（src/channel-health.ts + tests/channel-health.test.ts）后为 366 条手工补记。 ｜ 第四十轮新增 4（src/pass-through.ts、src/layers-audit.ts、scripts/layers-audit.ts、tests/layers-audit.test.ts）后为 370 条手工补记。 ｜ 第四十一轮新增 12（admission / subscription / acceptance-discussion / rules-view / bootstrap 五个 src 模块 + 两个 scripts + 四个契约测试 + docs/ROUND-41.md）后为 382 条手工补记；`git ls-files` 实际 390 条，完整文件面以 `git ls-files` 为准。"
   },
   "nextSteps": [
-    "Cognee 原生管线已全链落地（第三十四轮）：图谱投影自动 cognify（autoCognify 可关）+ console 语义检索 + 凭据持久化；剩余可选：检索结果溯源到具体来源版本、cognify 费用账本接入",
-    "默认底座 local-pg + step（第三十二轮）：真实业务单在 step 模式跑通仍需用户在飞书发起一单验证；回退只需显式配 paperclip / loop",
+    "准入推断档只回配对指引，真人配对仍需扫码确认；如需自动配对需另开拍板",
+    "越界识别刻意收紧（只认四类改授权面说法），宁可漏判沿用原链路；如需扩大覆盖面先补反例测试",
+    "规则视图是纯只读组合，origin=default 只表示「值来自默认」不代表推荐值；如需「推荐值」需另设语义",
+    "bootstrap 的 Node 版本警告是既存事实（engines 声明 >=24.11，本机 v22.22.2 实测 673 例全过）；是否下调 engines 需用户拍板",
+    "默认底座 local-pg + step：真实业务单在 step 模式跑通仍需用户在飞书发起一单验证",
     "autoloop worker 内部子调用逐次拆分（当前按 tick 级单步）",
-    "真实远端工具沙箱 / 多机切换、金额成本账本接入效果看板（Cognee 原生管线的 DeepSeek 调用费用也应纳入账本）",
+    "真实远端工具沙箱 / 多机切换、金额成本账本接入效果看板",
     "飞书部门 scope 授权需本人扫码确认；「pi」的指代（当前按 earendil-works/pi 理解）"
   ],
   "openDecisions": [
@@ -305,19 +312,25 @@
     "不要把升级闸当成代批通道（恒「不代为批准」）、不要让团队包导入提权、不要让 Skill 默认开启或绕过内容哈希校验"
   ],
   "finalValidationAtHandoff": {
-    "unitTests": "563/563",
-    "walkthrough": "11/11, failures 0",
-    "consoleSmoke": "ok:true, 55/55（登录制 / RBAC / 知识分区与读分区 / 证据锚点 / wiki / 注入索引 / 六视图 / 主题 / 425px / 零海外文案）",
-    "routerSmoke": "ok:true, 31/31 checks（三种组织形态，隔离内存 Trace）",
-    "hostPgSmoke": "ok:true, 24/24（PG 现为默认底座）",
+    "unitTests": "673/673",
+    "typecheck": "pass",
+    "layersAudit": "45 条（ok 45 / partial 0 / gap 0）",
+    "consoleSmoke": "ok:true, 58/58（7 视图 × 2 主题 × 2 宽度 = 28 单元验收矩阵，含白屏检测与键盘逐键）",
+    "guardSmoke": "ok:true, 22/22（golden 基线无漂移）",
+    "routerSmoke": "ok:true, 31/31",
+    "agentsSmoke": "ok:true, 43/43",
+    "shapesSmoke": "ok:true, 36/36",
+    "evolutionSmoke": "ok:true, 45/45",
+    "loopSmoke": "ok:true, 18/18",
+    "stepsSmoke": "ok:true, 61/61",
+    "hostPgSmoke": "ok:true, 24/24（PostgreSQL 17.10 专属库 suitme_collab_c1，现为默认底座）",
+    "memoryHierarchySmoke": "ok:true, 16/16",
+    "atlasCheck": "ok:true, 11/11",
     "upstreamAudit": "clean: true, problems 0",
     "gitDiffCheck": "pass",
-    "guardSmoke": "ok:true, 22/22（golden 基线第三十一轮人审重冻结：白名单 19→22 承接 P-12/P-13 漂移，humanReview 第 3 条）",
-    "loopSmoke": "ok:true, 18/18（B3 断言已跟随 requiresHumanApproval 实际强制处修正）",
-    "stepsSmoke": "ok:true, 61/61（A1：默认 step 且 loop 可显式回退）",
-    "memoryHierarchySmoke": "ok:true, 16/16 checks",
-    "atlasCheck": "ok:true, 11/11 checks",
-    "note": "第三十四轮四缺口修复 + 断点审计后重跑全套：npm test 563/563、tsc、三构建、console:smoke 55/55、guard:smoke 22/22（golden 两次合法重冻结留人审记录）、steps:smoke 61/61、host:pg、loop 18、router 31 / agents 43 / shapes 36 / evolution 45 / memory:hierarchy 16、git diff --check 全绿；DeepSeek 真跑（自动 cognify 审计落账 + console 语义检索召回准确）通过；bridge 无 env 重启凭据文件自动装载；本机 6 服务 connected（vision 探测契约修复后转绿）"
+    "rulesView": "ok：七节全字段带来源与 explicit / default 口径",
+    "bootstrapDryRun": "ok：六步计划 + Node 版本警告 + 人工步骤；未执行任何改动",
+    "note": "第四十一轮（用户「先收口差距，做好了再说」）后重跑全套：五项对标差距与体检唯一 partial 全部收口，体检从 40 条（ok 39 / partial 1）升到 45 条（ok 45 / partial 0 / gap 0）；新增 34 例契约测试；本轮全部证据来自隔离真跑与契约测试，真实业务单未重跑（飞书发起属用户动作）"
   },
   "authoritativeOnly": true,
   "portableCopyNote": "WorkBuddy 工作区 handoff/ 与 SuitMe-HANDOFF.zip 已停用、不再维护；详细交接唯一权威位置为仓库内 HANDOFF/，根目录 HANDOFF.md / PROJECT-SUMMARY.md 为同仓库内同步维护的总览入口。",

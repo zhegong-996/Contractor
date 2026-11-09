@@ -13,6 +13,7 @@
 import type { AcceptancePlan } from './acceptance-plan.ts';
 import type { AcceptanceRound, JudgementStatus } from './acceptance-round.ts';
 import type { ReviewCrew } from './agent-registry.ts';
+import type { DiscussionDigest } from './acceptance-discussion.ts';
 
 export type WorkbenchItem = {
   id: string;
@@ -41,6 +42,8 @@ export type AcceptanceWorkbenchInput = {
     reportUrl: string;
     note: string;
   } | null;
+  /** 报告内讨论的汇总（只计数，不参与就绪判定）。 */
+  discussion?: DiscussionDigest;
 };
 
 export type AcceptanceWorkbench = {
@@ -77,6 +80,7 @@ export type AcceptanceWorkbench = {
     modelCalls: 0;
   };
   readiness: { ready: boolean; gaps: string[]; note: string };
+  discussion: DiscussionDigest;
   summary: {
     total: number;
     passed: number;
@@ -184,6 +188,9 @@ export function buildAcceptanceWorkbench(input: AcceptanceWorkbenchInput): Accep
       modelCalls: 0,
     },
     readiness: readinessOf(input),
+    // 讨论是旁听席：有就显示计数，没有就如实说 0 条，绝不编造「已有讨论」。
+    discussion: input.discussion ?? { total: 0, unresolved: 0, byItem: {},
+      note: '讨论只供人看：不改变逐项判定，不替代原发起人在原会话「确认验收」' },
     summary,
     selfCheckStandards: [...new Set([
       ...standardsOf(round),

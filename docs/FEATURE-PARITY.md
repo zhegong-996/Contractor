@@ -9,7 +9,7 @@
 > 并修掉 4 个运行层缺陷 + 补 cron 排班。差异清单见 5.1 与
 > [RE-AUDIT-2026-11-09.md](RE-AUDIT-2026-11-09.md)。
 
-审计时间：2026-11-09（第三十五轮）；第三十六轮落地；第三十七轮复盘；第三十八/三十九轮收口；第四十轮补分层契约体检与架构面对标。运行基线：`npm test` **639/639**。
+审计时间：2026-11-09（第三十五轮）；第三十六轮落地；第三十七轮复盘；第三十八/三十九轮收口；第四十轮补分层契约体检与架构面对标；第四十一轮收口五项差距。运行基线：`npm test` **673/673**。
 
 ## 1. Agent Autoloop（KKKKhazix/agent-autoloop · MIT · 国内开源）
 
@@ -108,7 +108,7 @@ RE-AUDIT 第 6 节列的 5 项待补**全部补上**，并把 Acceptance 从「�
 ## 6. 验证命令（全部真跑）
 
 ```sh
-npm test            # 639/639（含三个上游装载的契约测试 + 自动化四件套 + cron + 事件收件箱 + 审码 + 重试健康 + 通道体检 + 分层契约）
+npm test            # 673/673（含三个上游装载的契约测试 + 自动化四件套 + cron + 事件收件箱 + 审码 + 重试健康 + 通道体检 + 分层契约 + 准入/订阅/讨论/规则视图/安装）
 npm run steps:smoke # 61/61：step 模式 + HITL 闭环 + 送达证据
 npm run agents:smoke    # 43/43：Agent 编制与 adapter
 npm run loop:smoke  # 18/18：双向协作回路
@@ -125,7 +125,7 @@ npm run service -- status  # 常驻状态（launchd 安装见 docs/RE-AUDIT-2026
 
 | 事项 | 结果 |
 |---|---|
-| 七层契约体检 `npm run audit:layers` | **40 条：ok 39 / partial 1 / gap 0**（路由 10 / 直通 6 / Agent 6 / 权限 6 / 知识 3 / 验收 6 / 个性化 3） |
+| 七层契约体检 `npm run audit:layers` | **40 条：ok 39 / partial 1 / gap 0**（路由 10 / 直通 6 / Agent 6 / 权限 6 / 知识 3 / 验收 6 / 个性化 3）—— 第四十一轮扩到 45 条并清零 partial，见 §5.4 |
 | 直通契约化 | 新增 `src/pass-through.ts`，6 种判定各有单测；结构上不含 scope / permissions 字段 |
 | 知识创建口径 | 修复 `canCreateKnowledge` 一律按 `['*']` 判范围的缺陷，改为按条目 `domains`；与 update 判定一致 |
 | 架构面对标 | 新增 [BENCHMARK-3UPSTREAM.md](BENCHMARK-3UPSTREAM.md)：分层、状态恢复、幂等、可重放、扩展点、回退、审计 |
@@ -134,3 +134,18 @@ npm run service -- status  # 常驻状态（launchd 安装见 docs/RE-AUDIT-2026
 如实标注的差距（本轮未做）：准入强度三档（Super-agent）、报告内讨论与区域点选（Acceptance）、
 订阅 hand-back / release（Super-agent）、一条命令安装（Autoloop）。
 逐条契约与边界见 [LAYER-CONTRACTS.md](LAYER-CONTRACTS.md)。
+
+## 5.4 第四十一轮：五项差距收口（2026-11-09）
+
+对标文档里列为「落后」的四项 + 体检唯一的 partial，本轮全部收口：
+
+| 差距 | 状态 | 落点 |
+|---|---|---|
+| 准入强度三档（Super-agent） | ✅ | `src/admission.ts`：explicit / inferred / not-admitted；inferred 只回配对指引，不自动放行 |
+| 报告内讨论 + 区域点选（Acceptance） | ✅ | `src/acceptance-discussion.ts` + 控制台验收视图；讨论不参与判定 |
+| 订阅 hand-back / release（Super-agent） | ✅ | `src/subscription.ts` + pass-through 两种新判定；验收时写 `subscription.released` |
+| 规则视图（Autoloop） | ✅ | `src/rules-view.ts` + `npm run rules:view`（只读，不改运行时） |
+| 一条命令安装（Autoloop） | ✅（有边界） | `src/bootstrap.ts` + `npm run bootstrap`；建管理员与飞书授权仍需人做 |
+| 知识读按域收窄（自身体检 partial） | ✅ | `canReadKnowledge` 第 4 参 `readerDomains`；读方域未知按档位兜底 |
+
+体检基线：`npm run audit:layers` → **45 条：ok 45 / partial 0 / gap 0**。

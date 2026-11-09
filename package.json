@@ -8,6 +8,7 @@
     "node": ">=24.11.0"
   },
   "scripts": {
+    "bootstrap": "node --import tsx scripts/bootstrap.ts",
     "setup": "node --import tsx scripts/setup.ts",
     "setup:workspaces": "node --import tsx scripts/setup-workspaces.ts",
     "setup:assistant": "node --import tsx scripts/setup-assistant.ts",
@@ -51,6 +52,7 @@
     "acceptance:export": "node --import tsx scripts/export-acceptance.ts",
     "audit:upstream": "node --import tsx scripts/audit-upstream.ts",
     "audit:layers": "node --import tsx scripts/layers-audit.ts",
+    "rules:view": "node --import tsx scripts/rules-view.ts",
     "typecheck": "tsc --noEmit",
     "build": "tsc --noEmit",
     "org:preview": "node --import tsx scripts/org-mapping.ts preview",

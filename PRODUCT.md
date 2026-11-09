@@ -12,14 +12,14 @@
 
 产品主模型更新：每个人登记一个给同事使用的服务 Agent，绑定负责人和当前职责；职责随工作变化而迭代。公共 Agent 按真实需求建立。协作控制层组织这些节点之间的需求评估、澄清、上下文、交接和证据，Codex/Claude 等处于执行层。当前仅本机负责人具备真实登录，不能宣称全员上岗或跨员工 Agent 协商已完成。详见 docs/AGENT-SERVICE-NETWORK.md。
 
-## 当前版本（第四十轮 · 2026-11-09）
+## 当前版本（第四十一轮 · 2026-11-09）
 
 - **派活**：`flat` 1 跳（默认）/ `layered` 最多 2 跳；主管必须真实在岗、职责匹配、范围覆盖，否则如实降级。
 - **直通**：同一会话的补充说明直接接续原任务，不建单、不过 Router、不多给一份权；显式验收指令一律回主链路。
 - **知识**：个人区 / 协作区 / 组织区三分区；Agent 写入按业务域收窄；confirmed + HMAC + 未过期才可复用。
 - **验收**：清单开工前锁定、逐项判定、评审者≠产出方、只读工作台无放行按钮、人签只在原会话。
-- **自证**：`npm run audit:layers` 40 条分层契约（ok 39 / partial 1 / gap 0）；通道体检零外部请求。
-- **验证基线**：`npm test` 639/639、`tsc` 0 错、`console:smoke` 7 视图 + 28 单元矩阵、`guard:smoke` 22/22。
+- **自证**：`npm run audit:layers` 45 条分层契约（ok 45 / partial 0 / gap 0）；通道体检零外部请求；`npm run rules:view` 一份只读规则视图。
+- **验证基线**：`npm test` 673/673、`tsc` 0 错、`console:smoke` 7 视图 + 28 单元矩阵、`guard:smoke` 22/22。
 - **文档**：产品文档套件见 `docs/product/`；契约见 `docs/LAYER-CONTRACTS.md`；对标见 `docs/BENCHMARK-3UPSTREAM.md`；架构图见 `docs/ARCHITECTURE-DIAGRAMS.html`。
 
 **仍未发生**：多租户与云端部署、全员 SSO、外部模型默认开启（需显式配置）、企微加密模式回调、

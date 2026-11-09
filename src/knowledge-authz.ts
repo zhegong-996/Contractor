@@ -111,22 +111,50 @@ export function canCreateKnowledge(actor: KnowledgeActor, visibility: 'personal'
 }
 
 /**
- * 读分区判定（第三十一轮补 P-13 的读边界）：个人区条目仅归属者本人与管理员
- * 可见（「管理员可以看到所有的」）；协作区 / 组织区登录即可读——知识读取链
- * 本就要求 confirmed 才可复用，列表与详情不放宽该复用红线。
+ * 读分区判定（第三十一轮补 P-13 的读边界，第四十一轮补业务域收窄）：
+ *
+ *   - personal：仅归属者本人与管理员可见（「管理员可以看到所有的」）；
+ *   - org：登录即可读（组织区本来就是全员可见）；
+ *   - team：**声明了业务域**的条目按读方业务域收窄——读方域与条目域相交才可读，
+ *     管理员档可总览；读方域未知时按协作区档位兜底（operator+ / worker+），
+ *     不退回「全域放行」。没有声明业务域的历史条目保持登录可读（数据兼容，
+ *     且不臆造它属于哪个域）。
+ *
  * console 代理虽是 bridge admin 身份，但 actorUser 由可信端注入后按真实登录
  * 用户判定，冒充他人只会降权不会提权。
  */
+export type ReadKnowledgeOptions = {
+  /** 读方可读的业务域；不传 = 未知（按档位兜底，不按全域放行）。 */
+  readerDomains?: readonly string[];
+};
+
 export function canReadKnowledge(actor: KnowledgeActor, entry: KnowledgeEntryLike,
-  enforce: Enforce = rbacEnforce): KnowledgeAuthzResult {
+  enforce: Enforce = rbacEnforce, options: ReadKnowledgeOptions = {}): KnowledgeAuthzResult {
   const visibility = entryVisibility(entry);
-  if (visibility !== 'personal') return { allowed: true, reason: '协作区 / 组织区条目登录即可读' };
-  const sub = actorSub(actor);
-  const owner = entry.owner ?? '';
-  if (owner && owner === sub) return { allowed: true, reason: '个人区条目，归属者本人可读' };
-  // 管理员总览：人 admin 档、agent supervisor 档（与写判定的 org 档位对齐）。
-  const tier = actor.kind === 'human' ? sub : agentTier(actor.agent);
+  if (visibility === 'org') return { allowed: true, reason: '组织区条目登录即可读' };
+  if (visibility === 'personal') {
+    const sub = actorSub(actor);
+    const owner = entry.owner ?? '';
+    if (owner && owner === sub) return { allowed: true, reason: '个人区条目，归属者本人可读' };
+    // 管理员总览：人 admin 档、agent supervisor 档（与写判定的 org 档位对齐）。
+    const tier = actor.kind === 'human' ? sub : agentTier(actor.agent);
+    if (enforce(tier, 'knowledge-write-org'))
+      return { allowed: true, reason: '管理员总览：个人区条目对 admin 档可见' };
+    return { allowed: false, reason: `个人区条目仅归属者（${owner || '未登记'}）本人与管理员可见` };
+  }
+
+  // team 协作区：先看条目有没有声明业务域。
+  const domains = entry.domains ?? [];
+  if (domains.length === 0) return { allowed: true, reason: '协作区条目未声明业务域（历史数据），登录即可读' };
+  const tier = actor.kind === 'human' ? actorSub(actor) : agentTier(actor.agent);
+  const reader = options.readerDomains;
+  if (reader && (reader.includes('*') || domains.some(domain => reader.includes(domain))))
+    return { allowed: true, reason: '协作区条目，读方业务域与条目域相交' };
   if (enforce(tier, 'knowledge-write-org'))
-    return { allowed: true, reason: '管理员总览：个人区条目对 admin 档可见' };
-  return { allowed: false, reason: `个人区条目仅归属者（${owner || '未登记'}）本人与管理员可见` };
+    return { allowed: true, reason: '管理员总览：可读全部协作区条目' };
+  if (!reader)
+    return enforce(tier, 'knowledge-write-team')
+      ? { allowed: true, reason: '读方业务域未知，按协作区档位放行（operator+ / worker+）' }
+      : { allowed: false, reason: '读方业务域未知且档位不足以读协作区；请由管理员登记你的业务域' };
+  return { allowed: false, reason: `协作区条目属于 ${domains.join('/')}，不在你可读的业务域内` };
 }

@@ -380,6 +380,9 @@ export class Controller {
     await this.pc.document(task.id, 'decisions', '已采用结论', `本任务在 ${receipt.environment} 的 ${sha} 版本通过所列验收。\n\n仅适用于本任务及所列用例；不代表生产发布或其他功能通过。`);
     await this.pc.patch(`/issues/${task.id}`, { status: 'done' });
     current.phase = 'accepted'; this.store.save(current); this.store.audit('task.accepted', task.id, receipt);
+    // 第四十一轮：验收即释放该会话的订阅（终态）。直通据此不再接续，
+    // 而不是靠「phase 恰好是 accepted」顺带推出——释放本身要有事实可查。
+    this.store.audit('subscription.released', task.id, { reason: '任务已验收，释放同一会话的订阅', at: receipt.acceptedAt });
     recordMemory({ kind: 'acceptance-recorded', actor,
       payload: { taskId: id, mode: 'code-delivery', sha, cases: cases.map(c => c.name) },
       idempotencyKey: 'accept:' + id + ':' + sha });
@@ -442,6 +445,8 @@ export class Controller {
     const current = this.store.get(id);
     current.phase = 'accepted'; this.store.save(current);
     this.store.audit('task.confirm-accepted', id, receipt);
+    // 第四十一轮：按清单确认验收同样释放订阅（终态，与代码交付验收一致）。
+    this.store.audit('subscription.released', id, { reason: '任务已按清单确认验收，释放同一会话的订阅', at: receipt.confirmedAt });
     if (delegation) this.store.audit('acceptance.delegated', id, {
       executedBy: 'agent-under-delegation', authorizedBy: delegation.authorizedBy,
       instruction: delegation.instruction, actor,

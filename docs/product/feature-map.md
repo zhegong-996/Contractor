@@ -1,6 +1,6 @@
 # SuitMe 功能架构
 
-> 版本口径：第四十轮（2026-11-09）。功能模块树 + 实现位置 + 验证方式。
+> 版本口径：第四十一轮（2026-11-09）。功能模块树 + 实现位置 + 验证方式。
 > 判断「某个功能在哪个模块」以本文为准；分层契约见 [LAYER-CONTRACTS.md](../LAYER-CONTRACTS.md)。
 
 ## 功能总树
@@ -38,12 +38,16 @@ SuitMe 协作台
 ├─ 5 人机协作（HITL）
 │  ├─ 5.1 提问卡片 ……………… askHuman · 飞书/工作台双渲染
 │  ├─ 5.2 回答路由 ……………… src/hitl-bridge.ts（成对台账）
-│  └─ 5.3 中文指令 ……………… src/user-language.ts（建单/进度/验收/退回/转交）
+│  ├─ 5.3 中文指令 ……………… src/user-language.ts（建单/进度/验收/退回/转交）
+│  ├─ 5.4 准入三档 ……………… src/admission.ts（显式/推断/未准入）★41
+│  └─ 5.5 订阅生命周期 ……… src/subscription.ts（held/交回/释放）★41
 ├─ 6 验收与交付
 │  ├─ 6.1 验收合同 ……………… src/acceptance-plan.ts（开工锁定）
 │  ├─ 6.2 逐项判定与证据 ……… src/acceptance-round.ts · EvidenceRegion ★38
 │  ├─ 6.3 独立评审 ……………… src/visual-review.ts（评审者≠产出模型）
 │  ├─ 6.4 验收工作台（只读）…… src/acceptance-workbench.ts ★38
+│  ├─ 6.4b 报告内讨论 ………… src/acceptance-discussion.ts（追加式，不参与判定）★41
+│  ├─ 6.4c 区域点选 ………… 控制台验收视图（坐标底板 + 键盘可达）★41
 │  ├─ 6.5 验收编组 ……………… src/agent-registry.ts reviewCrew（验收/起草/巡检）
 │  ├─ 6.6 独立审码 ……………… src/code-review.ts（密钥/.env 命中即拦预览）★38
 │  ├─ 6.7 本机 Git 交付台 …… src/local-git.ts :4194/:9418
@@ -61,8 +65,10 @@ SuitMe 协作台
 │  ├─ 8.3 成本账本 …………… PG 成本账本 + 工作台可视化
 │  ├─ 8.4 服务体检 …………… src/service-status.ts（实时探测）
 │  ├─ 8.5 通道体检 …………… src/channel-health.ts（零外部请求）★39
-│  ├─ 8.6 分层契约体检 ……… src/layers-audit.ts · npm run audit:layers ★40
-│  └─ 8.7 金丝雀与自演进 …… src/evolution.ts（自查闸门默认强制）
+│  ├─ 8.6 分层契约体检 ……… src/layers-audit.ts · npm run audit:layers（45 条）★41
+│  ├─ 8.7 金丝雀与自演进 …… src/evolution.ts（自查闸门默认强制）
+│  ├─ 8.8 规则视图 …………… src/rules-view.ts · npm run rules:view（只读）★41
+│  └─ 8.9 一条命令安装 ……… src/bootstrap.ts · npm run bootstrap ★41
 └─ 9 国际化与合规
    ├─ 9.1 i18n 标准多语言 ……… locales/i18n-zh-CN.json（445 词条单一数据源）★35
    ├─ 9.2 海外元素清理 ………… src/shell-domestic.ts
@@ -76,7 +82,12 @@ SuitMe 协作台
 | 功能 | 文件 | 关键函数/类 | 测试 |
 |---|---|---|---|
 | 分层路由 | `src/router.ts` | `planRoute()` · `Router.route()` · `planCoverage()` | tests/router*.test.ts |
-| 直通 | `src/pass-through.ts` | `passThroughDecision()` · `isFollowup()` | tests/layers-audit.test.ts |
+| 直通 | `src/pass-through.ts` | `passThroughDecision()` · `isFollowup()` | tests/layers-audit.test.ts · tests/admission-subscription.test.ts |
+| 准入三档 | `src/admission.ts` | `assessAdmission()` · `admissionLabel()` | tests/admission-subscription.test.ts（7） |
+| 订阅生命周期 | `src/subscription.ts` | `classifyFollowupScope()` · `subscriptionStateOf()` | tests/admission-subscription.test.ts |
+| 报告内讨论 | `src/acceptance-discussion.ts` | `addDiscussionComment()` · `resolveDiscussionComment()` · `discussionDigest()` | tests/acceptance-discussion.test.ts（7） |
+| 规则视图 | `src/rules-view.ts` | `buildRulesView()` · `renderRulesViewText()` | tests/rules-view.test.ts（6） |
+| 一条命令安装 | `src/bootstrap.ts` | `buildBootstrapPlan()` · `runBootstrap()` | tests/bootstrap.test.ts（6） |
 | 组织编制 | `src/agent-registry.ts` | `resolveAssignment()` · `handoffEnvelope()` · `reviewCrew()` | tests/agent-registry.test.ts |
 | 知识分区 | `src/knowledge-authz.ts` | `canWriteKnowledge()` · `canCreateKnowledge()` · `canReadKnowledge()` | tests/knowledge-authz.test.ts |
 | 事件收件箱 | `src/event-inbox.ts` | `claims()` · `mirror()` · `status()` | tests/event-inbox.test.ts |
@@ -99,6 +110,9 @@ SuitMe 协作台
 | `channel-health` | 读 | owner/admin | 五类通道体检（零外部请求） |
 | `acceptance-workbench` | 读 | owner/admin | 清单 + 逐项 + 编组 + 报告聚合 |
 | `acceptance-crew` | 读 | owner/admin | 审查编组解析 |
+| `v06-acceptance-discussion-list` | 读 | 登录用户 | 报告内讨论线程 + 计数 |
+| `v06-acceptance-discussion-add` | 写 | operator+（viewer 拒绝） | 新增讨论（追加式，挂在项/区域/整份报告） |
+| `v06-acceptance-discussion-resolve` | 写 | operator+ | 只打「已处理」状态位 |
 | `agent-registry-view` | 读 | owner/admin | 组织编制摘要 |
 | `org-overview` / `organization-view` | 读 | owner/admin | 三层职能组织视图（modelCalls=0） |
 
@@ -129,8 +143,10 @@ HTTP 端点：
 
 | 入口 | 覆盖 |
 |---|---|
-| `npm test` | 639 例：契约 + 上游装载 + 自动化 + 收件箱 + 审码 + 体检 + 分层 |
-| `npm run audit:layers` | 40 条分层契约（ok 39 / partial 1 / gap 0） |
+| `npm test` | 673 例：契约 + 上游装载 + 自动化 + 收件箱 + 审码 + 体检 + 分层 + 准入/订阅/讨论/规则视图/安装 |
+| `npm run audit:layers` | 45 条分层契约（ok 45 / partial 0 / gap 0） |
+| `npm run rules:view` | 七段配置读成一份人话视图（只读） |
+| `npm run bootstrap -- --dry-run` | 安装计划（不执行） |
 | `npm run console:smoke` | 7 视图 + 28 单元矩阵 + 键盘 + 权限越权用例 |
 | `npm run guard:smoke` | 22 条运行时红线 |
 | `npm run steps:smoke` | 61 条步进 / HITL / 送达证据 |

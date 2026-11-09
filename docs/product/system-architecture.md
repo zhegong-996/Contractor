@@ -1,6 +1,6 @@
 # SuitMe 系统架构
 
-> 版本口径：第四十轮（2026-11-09）。组件清单、端口、数据流、部署形态与验证基线。
+> 版本口径：第四十一轮（2026-11-09）。组件清单、端口、数据流、部署形态与验证基线。
 > 深度设计文档见 [SYSTEM-ARCHITECTURE.md](../SYSTEM-ARCHITECTURE.md)（技术细节权威）；
 > 分层契约与体检见 [LAYER-CONTRACTS.md](../LAYER-CONTRACTS.md)。
 

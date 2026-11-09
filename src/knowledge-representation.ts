@@ -122,10 +122,23 @@ export type KnowledgeWikiView = {
  * 只读体检 + 投影落盘：读 canonical 知识文档（宽松列举，坏行如实跳过计数），
  * 派生 wiki 投影与注入索引，用共享记忆主干做证据体检，并把两份投影写盘
  * （可重建的缓存，不是事实源）。不改任何 canonical 记录、不拦截业务、不替代人审。
+ *
+ * 第四十一轮：支持传入 `readable` 按读方权限过滤。过滤后的视角**不写盘**——
+ * 共享投影必须是按 canonical 全量生成的可重建缓存，不能把某个人的可读范围
+ * 变成全组织的索引。这一点用 `filtered` 明确返回，处理方据此决定是否落盘。
  */
-export async function knowledgeWikiView(knowledge: KnowledgeService): Promise<KnowledgeWikiView> {
+export async function knowledgeWikiView(knowledge: KnowledgeService,
+  options: { readable?: (record: Record<string, unknown>) => boolean } = {}
+): Promise<KnowledgeWikiView & { filtered: boolean; hiddenByPermission: number }> {
   const { records, skipped } = await knowledge.listLenient();
-  return { ...knowledgeWikiViewFrom(records.map(entry => entry.value)), skippedDocuments: skipped };
+  const all = records.map(entry => entry.value);
+  const visible = options.readable ? all.filter(record => options.readable!(record as unknown as Record<string, unknown>)) : all;
+  const filtered = visible.length !== all.length;
+  return {
+    ...knowledgeWikiViewFrom(visible, undefined, skipped),
+    filtered,
+    hiddenByPermission: all.length - visible.length,
+  };
 }
 
 /** 纯计算部分单列，测试与冒烟不碰 Paperclip 也能跑同一份判据。 */

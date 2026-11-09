@@ -490,3 +490,22 @@
 | `tests/layers-audit.test.ts` | 116 | 体检与直通回归 10 例：七层无 gap、证据非空、直通不扩权、知识创建口径、验收就绪判据、个性化校验。 |
 
 > 条目合计：366 + 4 = **370** 条手工补记；同前，完整文件面以 `git ls-files` 为准。
+
+## 第四十一轮新增文件（12）
+
+| 路径 | 行数 | 说明 |
+|---|---|---|
+| `src/admission.ts` | 103 | 入站准入三档纯函数（`explicit` / `inferred` / `not-admitted`），零模型调用。配对成立或单负责人白名单唯一人才 `process`；配对失效 / 多人白名单未配对待确认，只回配对指引不建单；其余拒收。返回结构不含任何权限字段。 |
+| `src/subscription.ts` | 78 | 订阅生命周期（`held` / `handed-back` / `released`）+ 越界意图识别四类（改清单 / 换执行方 / 动授权面 / 换来源），刻意收紧宁可漏判；附状态中文说明与下一步指引。 |
+| `src/acceptance-discussion.ts` | 160 | 报告内讨论：按任务一份追加式 JSON（0600），正文字数上限 1000、无改写接口、只有 `resolvedAt / resolvedBy` 状态位、摘要不参与 readiness 与 summary。 |
+| `src/rules-view.ts` | 250 | 配置「规则视图」只读组合：派活 / 例行 / 事件 / Agent / 通道 / 验收 / 交付七节，每字段带 `source` 路径与 `origin`（`explicit` / `default`），并单列默认值清单；并发配额复用 `routineParallel()`，不另造第二套口径。 |
+| `src/bootstrap.ts` | 160 | 一条命令安装：幂等计划（prepare-config → install-deps → start-services → provision → doctor → audit）、失败即停、`dryRun` 不执行；Node 版本低于 engines 声明默认只警告，`--strict-node` 才拦。 |
+| `scripts/rules-view.ts` | 20 | 规则视图 CLI（`--json` 输出）；读不到配置时提示 `npm run setup` 并退出码 1。 |
+| `scripts/bootstrap.ts` | 67 | 安装 CLI（`--dry-run` / `--no-start` / `--strict-node`），服务探测走 `http://127.0.0.1:<bridgePort>/health`。 |
+| `tests/admission-subscription.test.ts` | 166 | 准入与订阅契约 14 例：三档判定、推断档无成员身份、拒收无权限字段、生命周期三态、越界四类正反面与「不误判正常追问」。 |
+| `tests/acceptance-discussion.test.ts` | 101 | 讨论契约 7 例：追加序、上限 1000、无改写接口、状态位与摘要计数、跨任务隔离、文件权限。 |
+| `tests/rules-view.test.ts` | 78 | 规则视图契约 6 例：七节齐备、每字段带来源、默认值单列、并发配额同源、文本渲染可读、缺配置不崩。 |
+| `tests/bootstrap.test.ts` | 86 | 安装契约 6 例：计划顺序与幂等、失败即停、dry-run 不执行、Node 版本只警告、`--strict-node` 拦截、下一步指引含端口 4200。 |
+| `docs/ROUND-41.md` | 114 | 第四十一轮交付说明：五项差距 + 1 个 partial 的收口记录、体检 40 → 45 条、验证证据与七条边界。 |
+
+> 条目合计：370 + 12 = **382** 条手工补记；本机 `git ls-files` 实际 **390** 条（差额为历史轮次未逐条补记项）。同前，完整文件面以 `git ls-files` 为准。

@@ -16,15 +16,15 @@
 | 事件接入 | 插件化 source（定时 / GitHub / 业务系统 / 轮询） | GitHub + 飞书，Source 插件 | 不涉及 | 飞书 / 钉钉 / 企微 / GitHub（轮询+webhook）/ 定时器 / 通用 `POST /events/:source` | **领先**（入口最多，且逐来源密钥 + 指纹幂等） |
 | 规则派活 | `rules.json`：`when{source,types|cron}`、`to`、`cwd`、`parallel`、`group`、`tell` | Ticket + Mandate，按 Thread 归属 | 不涉及 | 例程（interval / daily / cron）+ 事件分流 + 并发上限 + 窗口合并 | **持平**（上游是声明式规则文件，我们是配置 + Router；表达力接近，形态不同） |
 | 路由分层 | 无（事件直接到 Agent） | 主 Session → Ticket Executor，两层 | 不涉及 | legacy / flat / layered 三档，最多两跳，主管必须真实在岗 | **领先**（层是配置，可降级可回退） |
-| 直通（订阅绕过闸门） | 无此概念 | **有**：Subscriptions，bypass gate，grants no new authority | 不涉及 | 有：`pass-through.ts`，同会话补充说明接续，结构上不含 scope 字段 | **持平**（语义对齐；上游多了 hand-back / release 的完整生命周期） |
+| 直通（订阅绕过闸门） | 无此概念 | **有**：Subscriptions，bypass gate，grants no new authority + hand back / release | 不涉及 | 有：`pass-through.ts` + `subscription.ts`：接续 / 越界交回 / 释放终态，结构上不含 scope 字段 | **持平**（生命周期对齐：held / handed-back / released） |
 | Agent 编制 | `agents` 表 + `access: read/edit/full`（目录访问级） | Executor 绑定 worker | 不涉及 | 组织注册表：职责 / 生效范围 / 版本 / 在岗；交接信封；自派自验拦截 | **领先**（组织级职责与范围，非单机目录权限） |
-| 权限模型 | 通道 answerers + askFirst + 目录 access | allowed list + admission table + **strength 三档**（explicit / inferred / not admitted） | 不涉及 | casbin RBAC：人四级 + Agent 三档 + 知识三分区 + 范围校验 | **不同**：我们更细（分区+域），上游更细在「准入强度」——这一点我们**落后** |
+| 权限模型 | 通道 answerers + askFirst + 目录 access | allowed list + admission table + **strength 三档**（explicit / inferred / not admitted） | 不涉及 | casbin RBAC（人四级 + Agent 三档 + 知识三分区 + 读写都按域收窄）+ **准入三档**（`admission.ts`） | **持平**：分区与读写域更细；准入强度本轮补齐（`inferred` 只回说明，不自动放行） |
 | 知识库 | 无（只有 memory 目录） | 无 | 打回记忆（criteria / 失败例 / 变更） | 知识空间三分区 + 状态机 + HMAC 可复用闸 + 证据锚点 + L1/L2 图谱 + 语义检索 | **领先**（上游均无知识库） |
 | 记忆 | 会话续跑 + 轮次统计 | Ticket 内上下文 + 订阅线程 | 打回经验回流 | 共享记忆主干（append-only）+ 四类投影 + checkpoint + 团队记忆 + Dreaming 建议 | **领先** |
-| 验收 | 无清单，人拍板后继续 | 人 accept 后继续 | **最完整**：checks → 跑真实产品 → 截图/录屏/日志报告 → 逐条打回 → 记忆 | 清单开工锁定 + 逐项判定 + 视觉证据 + 独立评审 + 只读工作台 + 一条链接报告 + 打回沉淀 | **持平**（方法对齐；上游的区域标注+线程讨论交互更成熟，我们只有区域数据层） |
+| 验收 | 无清单，人拍板后继续 | 人 accept 后继续 | **最完整**：checks → 跑真实产品 → 截图/录屏/日志报告 → 逐条打回 → 记忆 | 清单开工锁定 + 逐项判定 + 视觉证据 + 独立评审 + 只读工作台 + 区域点选 + 报告内讨论 + 打回沉淀 | **持平**（交互已补；底板仍无内嵌截图，按坐标定位） |
 | 自动化 / 调度 | 内核 cron + due + 唤醒复查 + 合并排队 | 无（事件驱动） | 不涉及 | 定时调度器 + 晚启动补跑窗口 + wake 复查 + 并发上限 + 跳过留痕 | **领先**（多了「跳过不能静默」与密度默认值） |
 | 注意力预算 | `tell: always/needed/never` + 卡片重发策略 | 「占用最少人类注意力」哲学 + 通知规则 | 不涉及 | outbox 统一护栏 + 人类必达放行 + 升级限速静音 + 钉钉/企微镜像同一预算 | **持平**（上游的 `tell` 更简洁，我们的预算更可审计） |
-| 部署形态 | 单机一条命令，零依赖 | 单 repo，DeepSeek Harness 插件 | 跟随宿主 | 单机多进程（bridge/console/paperclip/vision/report/delivery），127.0.0.1 | **不同**：我们重，但换来组织、权限、验收、审计；安装体验**落后**于 autoloop |
+| 部署形态 | 单机一条命令，零依赖 | 单 repo，DeepSeek Harness 插件 | 跟随宿主 | 单机多进程（bridge/console/paperclip/vision/report/delivery），127.0.0.1 + `npm run bootstrap` 一条命令 | **不同**：我们重，但换来组织、权限、验收、审计；安装机械步骤已自动化，建管理员与飞书授权仍需人做 |
 | 交付流水线 | 审代码 → 检查 → 合并 → 上线 → 核对 | 产出 PR | 不涉及 | 本机 Git + CI + 独立审码 + 预览 + 版本证据；GitHub 只监听不交付 | **持平** |
 | 成本可见 | 轮数 / Token / 费用统计 | 无 | 不涉及 | PG 成本账本 + 工作台「本月花费 / Run Activity」 | **持平** |
 
@@ -85,12 +85,22 @@ cron 直接复用上游实现。
 2. **把分层变成可复跑的证据**：40 条体检，直接调用 Router / 注册表 / 知识授权 / 验收工作台的真实实现。
    `npm run audit:layers`。
 
-## 5. 下一步优先级（按差距大小）
+## 5. 差距收口记录（第四十一轮）
 
-| 优先级 | 事项 | 来源 | 说明 |
-|---|---|---|---|
-| P1 | 准入强度（explicit / inferred / not admitted） | Super-agent | 现在未登记的人在订阅线程里追问，只会被白名单挡掉；缺「推断候选」这一档 |
-| P1 | 报告内讨论 + 区域点选交互 | Acceptance | 数据层已有 `EvidenceRegion`，缺前端交互与线程 |
-| P2 | 订阅的 hand-back / release | Super-agent | 我们直通只有「接续 / 不接续」，没有「越界交回」 |
-| P2 | 配置收敛为一份可读的「规则视图」 | Autoloop | 降低接手成本，不改运行时 |
-| P3 | 安装体验（一条命令） | Autoloop | 与本机多进程形态冲突，需单独设计 |
+第四十轮列出的五项差距，本轮全部收口；表里写的是「现在到哪一步」，不是「计划做什么」。
+
+| 优先级 | 事项 | 来源 | 状态 | 落点与边界 |
+|---|---|---|---|---|
+| P1 | 准入强度三档 | Super-agent | ✅ 已做 | `src/admission.ts`；`inferred` 只回配对指引 + 留待确认，**不自动放行**（自动推断等于自动授权） |
+| P1 | 报告内讨论 + 区域点选 | Acceptance | ✅ 已做 | `src/acceptance-discussion.ts` + 控制台验收视图；讨论不参与判定，区域底板按坐标缩放、无内嵌截图 |
+| P2 | 订阅 hand-back / release | Super-agent | ✅ 已做 | `src/subscription.ts` + `pass-through.ts` 的 `handed-back` / `released`；越界识别只认四类改授权面说法 |
+| P2 | 配置收敛为一份规则视图 | Autoloop | ✅ 已做 | `src/rules-view.ts` + `npm run rules:view`；纯只读组合视图，不改运行时、不提供第二写入口 |
+| P3 | 一条命令安装 | Autoloop | ✅ 已做（有边界） | `src/bootstrap.ts` + `npm run bootstrap`；机械步骤自动化，建管理员 / 飞书授权 / 真实业务单仍需人做 |
+| — | 知识读按域收窄 | 自身体检 | ✅ 已做 | 第四十轮唯一的 partial；读方域未知时按档位兜底，不退回全域放行 |
+
+剩下的是「不同」而不是「落后」，且都不打算靠改代码消除：
+
+1. **自动推断身份并直接放行**：上游 `inferred` 档可以靠规则推断；我们只推断到「可能是我们的人」就停，
+   接下来的事必须由人配对。这是权限模型的取舍，不是缺功能。
+2. **区域底板内嵌截图**：事件流不存图片字节（业务材料不出本机），所以底板只有坐标。
+3. **零依赖单进程**：我们的组织 / 权限 / 验收 / 审计都要求多进程与持久化，单进程形态换不来这些。

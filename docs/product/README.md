@@ -1,10 +1,10 @@
 # SuitMe 协作台 · 产品功能介绍
 
-> 版本口径：第四十轮（2026-11-09）。本文是产品文档套件的入口，配套阅读：
+> 版本口径：第四十一轮（2026-11-09）。五项差距已收口，见 [ROUND-41](../ROUND-41.md)。本文是产品文档套件的入口，配套阅读：
 > [系统架构](system-architecture.md) · [产品架构](product-architecture.md) ·
 > [功能架构](feature-map.md) · [业务流程](business-flows.md) ·
 > [分层契约](../LAYER-CONTRACTS.md) · [三上游对标](../BENCHMARK-3UPSTREAM.md) ·
-> [架构图](../ARCHITECTURE-DIAGRAMS.html)
+> [架构图](../ARCHITECTURE-DIAGRAMS.html) · [本轮收口](../ROUND-41.md)
 
 ## 一句话定位
 

@@ -82,10 +82,21 @@ test('知识：新建与修改同一条范围口径（域内可建、跨域被�
   assert.equal(check('knowledge.create-aligns-with-update').status, 'ok');
 });
 
-test('知识：读不按业务域收窄，如实标 partial 而不是假装通过', () => {
-  const item = check('knowledge.read-not-domain-scoped');
-  assert.equal(item.status, 'partial');
-  assert.ok(String(item.note ?? '').includes('读隔离'));
+test('知识：读按业务域收窄，且读方域未知时不退回全域放行', () => {
+  // 第四十一轮收口：原来的 partial（读不按域收窄）改为真判定——
+  // 域内可读、跨域被拒、管理员可总览、域未知按档位兜底（viewer 被拒）。
+  const item = check('knowledge.read-scoped-by-domain');
+  assert.equal(item.status, 'ok');
+  assert.ok(item.evidence.some(line => line.includes('跨域读=false')), item.evidence.join('｜'));
+  assert.ok(item.evidence.some(line => line.includes('域未知 viewer=false')), item.evidence.join('｜'));
+});
+
+test('第四十一轮新增：释放终态 / 越界交回 / 准入三档 / 讨论与区域不参与判定', () => {
+  // 纯判定 42 条（运行时 3 条由 scripts/layers-audit.ts 追加，CLI 合计 45）。
+  assert.equal(report.counts.total, 42);
+  for (const id of ['pass-through.release-is-terminal', 'pass-through.out-of-scope-hands-back',
+    'agent.admission-three-tiers', 'acceptance.discussion-is-advisory', 'acceptance.regions-are-locators'])
+    assert.equal(check(id).status, 'ok', `${id} 不是 ok`);
 });
 
 test('验收：没有清单 / 评审者与产出方相同都判未就绪', () => {

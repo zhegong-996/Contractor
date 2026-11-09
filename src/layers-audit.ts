@@ -29,8 +29,9 @@ import {
 } from './knowledge-authz.ts';
 import { buildAcceptanceWorkbench } from './acceptance-workbench.ts';
 import { createPlan, type AcceptancePlan } from './acceptance-plan.ts';
-import type { AcceptanceRound } from './acceptance-round.ts';
+import { assertEvidenceRegions, type AcceptanceRound } from './acceptance-round.ts';
 import { passThroughDecision, type PassThroughCandidate } from './pass-through.ts';
+import { assessAdmission } from './admission.ts';
 import { validateModelSettings } from './model-settings.ts';
 import { parseUserCommand } from './user-language.ts';
 
@@ -281,6 +282,37 @@ export function auditLayerContracts(options: LayerAuditOptions = {}): LayerRepor
         : miss([`direct=${decision.direct}`, `kind=${decision.kind}`]);
     }));
 
+  checks.push(run('pass-through.release-is-terminal', 'pass-through', '释放是终态，不靠 phase 顺带推出',
+    '审计里记录过 subscription.released 的绑定，直通报 released 而不是静默当成新需求；与「只绑已验收单」区分开', () => {
+      const released = passThroughDecision({
+        candidates: [{ ...PASS_CANDIDATE, released: true }],
+        actor: { id: 'ou_alice', chatId: 'oc_team' },
+      });
+      const accepted = passThroughDecision({
+        candidates: [{ ...PASS_CANDIDATE, phase: 'accepted' }],
+        actor: { id: 'ou_alice', chatId: 'oc_team' },
+      });
+      return !released.direct && released.kind === 'released' && !accepted.direct && accepted.kind === 'accepted'
+        ? pass([`释放=${released.kind}`, `仅验收=${accepted.kind}`, `说明=${released.reason}`])
+        : miss([`释放=${released.kind}`, `仅验收=${accepted.kind}`]);
+    }));
+
+  checks.push(run('pass-through.out-of-scope-hands-back', 'pass-through', '越界要求交回主链路',
+    '换人 / 改验收清单 / 加权限 / 换来源这类补充说明不当成 note 塞给执行端，原样交回主链路且不夹带权限字段', () => {
+      const samples = ['把验收清单改一下，少两项', '这个任务换别人做', '给小王开一下访问权限', '把来源换成新的那份文档'];
+      const decisions = samples.map(text => passThroughDecision({
+        candidates: [PASS_CANDIDATE], actor: { id: 'ou_alice', chatId: 'oc_team' }, text,
+      }));
+      const inScope = passThroughDecision({
+        candidates: [PASS_CANDIDATE], actor: { id: 'ou_alice', chatId: 'oc_team' }, text: '刚补充了验收要求，请继续核对',
+      });
+      const noScopeField = decisions.every(decision => !('scope' in decision) && !('permissions' in decision));
+      return decisions.every(decision => !decision.direct && decision.kind === 'hand-back' && decision.taskId)
+        && inScope.direct && noScopeField
+        ? pass([`越界=${decisions.length} 条全部 hand-back`, `普通补充说明=${inScope.kind}`, '无权限字段'])
+        : miss([`越界=${decisions.map(d => d.kind).join('/')}`, `普通补充说明=${inScope.kind}`]);
+    }));
+
   checks.push(run('pass-through.ambiguous-needs-id', 'pass-through', '多条在办任务要指明任务号',
     '同一会话绑定两条在办任务时，不猜测、不随便挑一条，要求指明任务号', () => {
       const decision = passThroughDecision({
@@ -380,6 +412,28 @@ export function auditLayerContracts(options: LayerAuditOptions = {}): LayerRepor
         : miss([`编组=${keys.join(' / ')}`, `configured=${crew.configured}`]);
     }));
 
+  checks.push(run('agent.admission-three-tiers', 'agent', '准入三档，推断档不授予成员身份',
+    '配对出在职成员 / 单负责人白名单 = 显式准入；配对失效或多成员未配对 = 推断准入（只回说明）；其余未准入。只有显式准入能带成员身份',
+    () => {
+      const explicitPaired = assessAdmission({ channel: 'feishu', senderId: 's1', chatId: 'c1', paired: true, pairingValid: true, allowlisted: true, allowlistSize: 1 });
+      const explicitOwner = assessAdmission({ channel: 'feishu', senderId: 's1', chatId: 'c1', paired: false, allowlisted: true, allowlistSize: 1 });
+      const inferredStale = assessAdmission({ channel: 'feishu', senderId: 's1', chatId: 'c1', paired: true, pairingValid: false, allowlistSize: 1 });
+      const inferredUnpaired = assessAdmission({ channel: 'feishu', senderId: 's1', chatId: 'c1', paired: false, allowlisted: true, allowlistSize: 3 });
+      const rejected = assessAdmission({ channel: 'feishu', senderId: 's1', chatId: 'c1', paired: false, allowlisted: false, allowlistSize: 1 });
+      const okChain = explicitPaired.memberContext && !explicitOwner.memberContext
+        && inferredStale.handling === 'acknowledge' && !inferredStale.memberContext
+        && inferredUnpaired.handling === 'acknowledge' && !inferredUnpaired.memberContext
+        && rejected.handling === 'reject';
+      const evidence = [
+        `已配对=${explicitPaired.strength}/成员身份=${explicitPaired.memberContext}`,
+        `单负责人白名单=${explicitOwner.strength}/成员身份=${explicitOwner.memberContext}`,
+        `配对失效=${inferredStale.strength}/${inferredStale.handling}`,
+        `多成员未配对=${inferredUnpaired.strength}/${inferredUnpaired.handling}`,
+        `未准入=${rejected.strength}/${rejected.handling}`,
+      ];
+      return okChain ? pass(evidence) : miss(evidence);
+    }));
+
   /* ---------------------------------------------------------------- 权限 */
   checks.push(run('permission.role-monotonic', 'permission', '四级角色单调包含',
     'owner ⊇ admin ⊇ operator ⊇ viewer（owner 额外持有账号管理），没有越级空洞', () => {
@@ -474,14 +528,26 @@ export function auditLayerContracts(options: LayerAuditOptions = {}): LayerRepor
           `域内 org=${inDomainOrg.allowed}`, `全域 org=${globalOrg.allowed}`]);
     }));
 
-  checks.push(run('knowledge.read-not-domain-scoped', 'knowledge', '读不按业务域收窄',
-    '协作区 / 组织区登录即可读，读路径不校验 Agent 生效范围（写入才校验）', () => {
+  checks.push(run('knowledge.read-scoped-by-domain', 'knowledge', '读按业务域收窄（与写同口径）',
+    '声明了业务域的协作区条目：读方域相交才可读，跨域被拒，管理员可总览；读方域未知时按档位兜底（viewer 被拒），不退回全域放行；未声明域的历史条目保持登录可读',
+    () => {
       const worker = { kind: 'agent' as const, key: 'agent-a', agent: agentOf('agent-a', ['product']) };
-      const read = canReadKnowledge(worker, { visibility: 'team', domains: ['finance'] }, enforce);
-      return read.allowed
-        ? half([`跨域读=${read.allowed}`, `reason=${read.reason}`],
-          '读边界是「登录 + 已确认可复用」，不是业务域；如需读隔离要另立规则，本轮不放宽也不假装已有')
-        : pass([`跨域读=${read.allowed}`]);
+      const inDomain = canReadKnowledge(worker, { visibility: 'team', domains: ['product'] }, enforce, { readerDomains: ['product'] });
+      const crossDomain = canReadKnowledge(worker, { visibility: 'team', domains: ['finance'] }, enforce, { readerDomains: ['product'] });
+      const adminOverview = canReadKnowledge(human('bob'), { visibility: 'team', domains: ['finance'] }, enforce, { readerDomains: ['product'] });
+      // 读方域未知：worker 档可按协作区档位读，viewer 档被拒（不是全域放行）。
+      const unknownWorker = canReadKnowledge(worker, { visibility: 'team', domains: ['finance'] }, enforce);
+      const unknownViewer = canReadKnowledge(human('dave'), { visibility: 'team', domains: ['finance'] }, enforce);
+      const legacy = canReadKnowledge(worker, { visibility: 'team' }, enforce, { readerDomains: ['product'] });
+      const orgRead = canReadKnowledge(worker, { visibility: 'org', domains: ['finance'] }, enforce, { readerDomains: ['product'] });
+      const ok = inDomain.allowed && !crossDomain.allowed && adminOverview.allowed
+        && unknownWorker.allowed && !unknownViewer.allowed && legacy.allowed && orgRead.allowed;
+      const evidence = [
+        `域内读=${inDomain.allowed}`, `跨域读=${crossDomain.allowed}`,
+        `管理员总览=${adminOverview.allowed}`, `域未知 worker=${unknownWorker.allowed}`,
+        `域未知 viewer=${unknownViewer.allowed}`, `历史无域条目=${legacy.allowed}`, `组织区=${orgRead.allowed}`,
+      ];
+      return ok ? pass(evidence) : miss(evidence);
     }));
 
   /* ---------------------------------------------------------------- 验收 */
@@ -560,6 +626,48 @@ export function auditLayerContracts(options: LayerAuditOptions = {}): LayerRepor
       return actionKeys.length === 0
         ? pass([`字段=${Object.keys(workbench).join(',')}`])
         : miss([`出现动作字段=${actionKeys.join(',')}`]);
+    }));
+
+  checks.push(run('acceptance.discussion-is-advisory', 'acceptance', '讨论不参与判定',
+    '报告内讨论只带计数：加上讨论前后，工作台的就绪结论与逐项统计完全一致；讨论不能换来「已通过」', () => {
+      const plan = planFixture();
+      const crew = reviewCrew(REGISTRY, { taskId: 'T-ACCEPT', domain: 'product' });
+      const round = roundFixture(plan);
+      const plain = buildAcceptanceWorkbench({ taskId: 'T-ACCEPT', plan: { plan, revision: 'rev-1' }, round, crew, report: null });
+      const discussed = buildAcceptanceWorkbench({ taskId: 'T-ACCEPT', plan: { plan, revision: 'rev-1' }, round, crew, report: null,
+        discussion: { total: 5, unresolved: 3, byItem: { 'item-1': 3 }, note: '讨论只供人看' } });
+      const same = JSON.stringify(plain.readiness) === JSON.stringify(discussed.readiness)
+        && JSON.stringify(plain.summary) === JSON.stringify(discussed.summary)
+        && JSON.stringify(plain.items) === JSON.stringify(discussed.items);
+      return same && discussed.discussion.total === 5
+        ? pass([`讨论计入=${discussed.discussion.total} 条`, `未处理=${discussed.discussion.unresolved} 条`, '就绪与逐项统计未被讨论改变'])
+        : miss(['讨论改变了就绪判定或逐项统计']);
+    }));
+
+  checks.push(run('acceptance.regions-are-locators', 'acceptance', '区域只是定位信息',
+    '证据区域有上限、非坐标即拒绝，且带不带区域都不改变逐项判定——区域不进判定公式', () => {
+      const plan = planFixture();
+      const crew = reviewCrew(REGISTRY, { taskId: 'T-ACCEPT', domain: 'product' });
+      const withRegions = roundFixture(plan, {
+        judgements: plan.items.map(item => ({
+          itemId: item.id, name: item.name, status: 'passed' as const, evidenceRefs: ['evidence:1'], reason: '按清单核对通过',
+          regions: [{ x: 10, y: 20, width: 120, height: 80, note: '按钮被遮挡' }],
+        })),
+      });
+      const withoutRegions = roundFixture(plan);
+      const a = buildAcceptanceWorkbench({ taskId: 'T-ACCEPT', plan: { plan, revision: 'rev-1' }, round: withRegions, crew, report: null });
+      const b = buildAcceptanceWorkbench({ taskId: 'T-ACCEPT', plan: { plan, revision: 'rev-1' }, round: withoutRegions, crew, report: null });
+      let tooMany = '';
+      try { assertEvidenceRegions(Array.from({ length: 9 }, () => ({ x: 0, y: 0, width: 1, height: 1 }))); }
+      catch (error) { tooMany = msg(error); }
+      let badCoords = '';
+      try { assertEvidenceRegions([{ x: -1, y: 0, width: 1, height: 1 }]); }
+      catch (error) { badCoords = msg(error); }
+      const sameJudgement = a.summary.passed === b.summary.passed && a.items.every((item, index) => item.status === b.items[index]!.status)
+        && a.readiness.ready === b.readiness.ready;
+      return sameJudgement && a.items[0]!.regions.length === 1 && Boolean(tooMany) && Boolean(badCoords)
+        ? pass([`区域数=${a.items[0]!.regions.length}`, `判定一致=${sameJudgement}`, `超限拒绝=${tooMany}`])
+        : miss([`判定一致=${sameJudgement}`, `区域数=${a.items[0]!.regions.length}`, `超限拒绝=${tooMany || '未拒绝'}`]);
     }));
 
   /* ------------------------------------------------------------ 个性化 */

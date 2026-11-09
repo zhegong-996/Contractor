@@ -606,8 +606,13 @@
                       <template #default="{ row }">
                         <div>{{ row.reason || '—' }}</div>
                         <div v-if="row.evidenceRefs.length" class="list-row-meta">证据 {{ row.evidenceRefs.length }} 条</div>
-                        <div v-for="(region, i) in row.regions" :key="i" class="list-row-meta">
-                          区域 {{ i + 1 }}：{{ region.x }},{{ region.y }} · {{ region.width }}×{{ region.height }}{{ region.note ? ' · ' + region.note : '' }}
+                        <div v-if="row.regions.length" class="region-chips">
+                          <el-button v-for="(region, i) in row.regions" :key="i" size="small" text type="primary"
+                            :aria-label="'选中 ' + row.name + ' 的第 ' + (i + 1) + ' 个证据区域'"
+                            @click="pickRegion(row, i)">区域 {{ i + 1 }}：{{ region.x }},{{ region.y }} · {{ region.width }}×{{ region.height }}</el-button>
+                        </div>
+                        <div class="region-chips" style="margin-top:4px">
+                          <el-button size="small" text :aria-label="'就 ' + row.name + ' 发起讨论'" @click="pickItem(row)">讨论此项</el-button>
                         </div>
                       </template>
                     </el-table-column>
@@ -653,6 +658,70 @@
               </el-card>
             </el-col>
           </el-row>
+          <el-row :gutter="14">
+            <el-col :xs="24" :md="15" style="margin-bottom:14px">
+              <el-card shadow="never" class="contract-card">
+                <template #header>
+                  <div class="card-head"><span>证据区域 · 点选定位</span><span class="list-row-meta">{{ pickedLabel }}</span></div>
+                </template>
+                <div v-if="!pickedRegions.length" class="hint-text">
+                  这一项没有记录证据区域。没有区域就不画框，不凭空造坐标。
+                </div>
+                <template v-else>
+                  <div class="region-board" role="group" aria-label="证据区域坐标板">
+                    <button v-for="(region, i) in pickedRegions" :key="i" type="button" class="region-box"
+                      :class="{ active: picked && picked.index === i }" :style="boxStyle(region)"
+                      :aria-label="'区域 ' + (i + 1) + (region.note ? '：' + region.note : '')"
+                      :aria-pressed="picked && picked.index === i ? 'true' : 'false'"
+                      @click="pickRegion(pickedItem, i)">{{ i + 1 }}</button>
+                  </div>
+                  <div class="field-hint">{{ pickedRegionNote }}</div>
+                  <div class="hint-text" style="margin-top:6px">
+                    区域只是「回到具体位置」的定位信息，不参与通过 / 不通过判定；底板按本项区域的坐标范围等比缩放，不是原截图像素。
+                  </div>
+                </template>
+              </el-card>
+            </el-col>
+            <el-col :xs="24" :md="9" style="margin-bottom:14px">
+              <el-card shadow="never" class="contract-card">
+                <template #header>
+                  <div class="card-head">
+                    <span>报告内讨论</span>
+                    <el-tag size="small" :type="threadDigest.unresolved ? 'warning' : 'info'">
+                      {{ threadDigest.unresolved || 0 }} 条待处理 / 共 {{ threadDigest.total || 0 }} 条
+                    </el-tag>
+                  </div>
+                </template>
+                <div class="hint-text">讨论只供人看：不改变逐项判定，也不替代原发起人在原会话「确认验收」。</div>
+                <el-input v-model="draft" type="textarea" :rows="3" maxlength="1000" show-word-limit
+                  :placeholder="'就「' + targetLabel + '」说一句'" aria-label="讨论内容" />
+                <div class="card-head" style="margin-top:8px">
+                  <span class="list-row-meta">挂到：{{ targetLabel }}</span>
+                  <span>
+                    <el-button size="small" aria-label="改为讨论整份报告" @click="pickReport">整份报告</el-button>
+                    <el-button size="small" type="primary" :loading="posting" :disabled="!draft.trim()"
+                      aria-label="提交讨论" @click="addComment">发表</el-button>
+                  </span>
+                </div>
+                <div v-if="!thread.length" class="hint-text" style="margin-top:10px">还没有讨论。没有讨论就如实显示 0 条。</div>
+                <div v-else class="thread">
+                  <div v-for="comment in thread" :key="comment.id" class="thread-item" :class="{ resolved: comment.resolvedAt }">
+                    <div class="list-row-head">
+                      <span class="list-row-title">{{ comment.author }}</span>
+                      <span class="list-row-meta">{{ fmtTime(comment.at) }}</span>
+                    </div>
+                    <div class="list-row-detail">{{ comment.body }}</div>
+                    <div class="list-row-head" style="margin-top:6px">
+                      <span class="list-row-meta">{{ targetText(comment.target) }}</span>
+                      <el-button v-if="!comment.resolvedAt" size="small" text type="primary"
+                        aria-label="把这条讨论标为已处理" @click="resolveComment(comment)">标为已处理</el-button>
+                      <span v-else class="list-row-meta">已处理 · {{ comment.resolvedBy || '' }}</span>
+                    </div>
+                  </div>
+                </div>
+              </el-card>
+            </el-col>
+          </el-row>
         </template>
       </div>`,
     setup() {
@@ -682,16 +751,99 @@
       const statusTag = s => ({ passed: 'success', failed: 'danger', blocked: 'warning', pending: 'info' }[s] || 'info');
       const overallText = s => ({ passed: '全部通过', partial: '部分打回', blocked: '受阻' }[s] || s);
       const evidenceText = s => ({ captured: '实跑捕获', imported: '导入', authored: '自撰' }[s] || s);
+      // ---- 第四十一轮：区域点选 + 报告内讨论 -------------------------------
+      // 区域只是定位信息，讨论只是旁听席：两者都不参与就绪判定与人签。
+      const picked = ref(null);          // { itemId, index }；index 为 null 表示挂在整项
+      const thread = ref([]);
+      const threadDigest = ref({ total: 0, unresolved: 0, byItem: {} });
+      const draft = ref('');
+      const posting = ref(false);
+      const pickedItem = computed(() => picked.value ? (data.value.items || []).find(row => row.id === picked.value.itemId) || null : null);
+      const pickedRegions = computed(() => (pickedItem.value && pickedItem.value.regions) || []);
+      const pickedLabel = computed(() => {
+        if (!pickedItem.value) return '未选择检查项';
+        const index = picked.value && picked.value.index;
+        return pickedItem.value.name + (index === null || index === undefined ? '（整项）' : ' · 区域 ' + (index + 1));
+      });
+      const boxScale = computed(() => {
+        const regions = pickedRegions.value;
+        if (!regions.length) return 1;
+        // 归一化坐标（0..1）直接用；像素坐标按本项最大范围等比缩放。
+        return Math.max(1, ...regions.map(region => Math.max(region.x + region.width, region.y + region.height)));
+      });
+      const boxStyle = region => ({
+        left: (region.x / boxScale.value * 100) + '%', top: (region.y / boxScale.value * 100) + '%',
+        width: (region.width / boxScale.value * 100) + '%', height: (region.height / boxScale.value * 100) + '%',
+      });
+      const pickedRegionNote = computed(() => {
+        const index = picked.value && picked.value.index;
+        if (index === null || index === undefined) return '选中一项后可以点框定位到具体区域；也可以直接讨论整项。';
+        const region = pickedRegions.value[index];
+        if (!region) return '该区域不在本项证据里。';
+        const note = region.note ? '：' + region.note : '';
+        return '区域 ' + (index + 1) + ' 坐标 ' + region.x + ',' + region.y + ' · ' + region.width + '×' + region.height + note;
+      });
+      const targetLabel = computed(() => {
+        if (!picked.value) return '整份报告';
+        const item = pickedItem.value;
+        if (!item) return '整份报告';
+        const index = picked.value.index;
+        return item.name + (index === null || index === undefined ? '' : ' · 区域 ' + (index + 1));
+      });
+      const targetText = target => {
+        if (!target || target.kind === 'report') return '整份报告';
+        const item = (data.value.items || []).find(row => row.id === target.itemId);
+        const name = item ? item.name : target.itemId;
+        return target.kind === 'region' ? name + ' · 区域 ' + (Number(target.regionIndex) + 1) : name;
+      };
+      const pickRegion = (item, index) => { if (item) picked.value = { itemId: item.id, index }; };
+      const pickItem = item => { if (item) picked.value = { itemId: item.id, index: null }; };
+      const pickReport = () => { picked.value = null; };
+      const loadDiscussion = async () => {
+        if (!taskId.value) { thread.value = []; threadDigest.value = { total: 0, unresolved: 0, byItem: {} }; return; }
+        const result = await safe('v06-acceptance-discussion-list', { taskId: taskId.value });
+        if (result.__error) { thread.value = []; return; }
+        thread.value = Array.isArray(result.comments) ? result.comments : [];
+        threadDigest.value = result.digest || { total: 0, unresolved: 0, byItem: {} };
+      };
+      const addComment = async () => {
+        const body = draft.value.trim();
+        if (!body || !taskId.value) return;
+        const index = picked.value && picked.value.index;
+        const target = !picked.value ? { kind: 'report' }
+          : index === null || index === undefined
+            ? { kind: 'item', itemId: picked.value.itemId }
+            : { kind: 'region', itemId: picked.value.itemId, regionIndex: index };
+        posting.value = true;
+        try {
+          await api('v06-acceptance-discussion-add', { taskId: taskId.value, target, body });
+          draft.value = '';
+          ElementPlus.ElMessage.success('已记录讨论（不改变判定）');
+          await loadDiscussion();
+        } catch (e) { ElementPlus.ElMessage.error(String(e.message || e)); }
+        finally { posting.value = false; }
+      };
+      const resolveComment = async comment => {
+        try {
+          await api('v06-acceptance-discussion-resolve', { taskId: taskId.value, commentId: comment.id });
+          await loadDiscussion();
+        } catch (e) { ElementPlus.ElMessage.error(String(e.message || e)); }
+      };
       const load = async () => {
-        if (!taskId.value) { data.value = {}; return; }
+        picked.value = null; draft.value = '';
+        if (!taskId.value) { data.value = {}; thread.value = []; return; }
         data.value = await safe('v06-acceptance-workbench', { taskId: taskId.value });
+        await loadDiscussion();
       };
       onMounted(async () => {
         summary.value = await safe('view-summary', { limit: 50 });
         if (tasks.value.length) { taskId.value = tasks.value[0].id; await load(); }
       });
       return { summary, data, taskId, tasks, errorText, statCards, planLine, shortHash, crewRows,
-        statusText, statusTag, overallText, evidenceText, load, fmtTime, dutyText };
+        statusText, statusTag, overallText, evidenceText, load, fmtTime, dutyText,
+        picked, pickedItem, pickedRegions, pickedLabel, pickedRegionNote, boxStyle,
+        thread, threadDigest, draft, posting, targetLabel, targetText,
+        pickRegion, pickItem, pickReport, addComment, resolveComment };
     },
   };
 

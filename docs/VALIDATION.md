@@ -984,3 +984,31 @@ POST /workspace/channel-health  200  verdict=degraded
 - 准入强度（explicit / inferred / not admitted）未实现；直通只覆盖 IM 绑定会话。
 - 体检不探测网络，只读源码 / 配置 / 策略文件 / 本地台账。
 - 控制台未接入体检（仅 CLI + JSON），避免再次变更行为基线。
+
+## 第四十一轮（2026-11-09）：五项差距收口
+
+**改动**
+- `src/admission.ts`（新增）：准入三档纯函数（explicit / inferred / not-admitted）。`memberContext` 只有「配对成立 + explicit」才为 true，`inferred` 恒 false 且无权限字段。接入 `collaboration-intake.ts`：未准入仍抛 `Unauthorized`，推断准入只回一条配对指引 + 写 `admission.inferred` 审计，不建单、不续跑。
+- `src/subscription.ts`（新增）：订阅状态（held / handed-back / released）+ 越界意图识别（四类改授权面说法，双向词序匹配）。
+- `src/pass-through.ts`：判定从 6 种扩到 8 种，新增 `handed-back`（越界交回主链路，不塞进执行端上下文）与 `released`（审计已记录释放）；判定顺序显式指令 → 绑定 → 释放/已验收 → 多条 → 归属 → 越界 → 接续。
+- `src/collaboration-intake.ts`：交回时写 `subscription.handed-back` 审计 + 回执，返回 `routed:false` 让外层落回 Controller；`releasedSubscriptions()` 查审计事实而不是反推 phase。
+- `src/controller.ts`：两处验收（代码交付 / 按清单确认）落库时写 `subscription.released`。
+- `src/knowledge-authz.ts`：`canReadKnowledge` 第 4 参 `readerDomains`，协作区按读方业务域收窄；读方域未知按档位兜底（viewer 被拒），未声明域的历史条目保持登录可读。
+- `src/server.ts`：`knowledge-list` / `knowledge-get` / `knowledge-wiki` 注入读方业务域；wiki 一旦按权限过滤就不写共享投影。
+- `src/acceptance-discussion.ts`（新增）：报告内讨论，追加式、正文上限 1000 字、无改写接口，只有 `resolvedAt / resolvedBy` 状态位；`discussionDigest()` 只出计数。
+- `src/v06.ts`：三个动作 `acceptance-discussion-list / -add / -resolve`；工作台带 `discussion` 计数（不参与判定）。
+- `console/app.js` + `console/styles.css`：验收视图加区域点选（坐标底板、可聚焦按钮、每个框有可读名字）与报告内讨论（发表 / 标为已处理）；元素皆用 `var(--el-*)`，明暗主题同步。
+- `src/rules-view.ts`（新增）+ `scripts/rules-view.ts`：`npm run rules:view` 把七段配置读成一份人话视图，每行带来源路径与显式/默认标记；并发配额复用 `routineParallel()`。
+- `src/bootstrap.ts`（新增）+ `scripts/bootstrap.ts`：`npm run bootstrap` 一条命令（`--dry-run` / `--no-start` / `--strict-node`），幂等、失败即停；Node 版本低于 engines 声明时默认只警告（实测 v22.22.2 可跑通全部测试）。
+- `src/layers-audit.ts`：45 条（新增准入三档 / 释放终态 / 越界交回 / 讨论不参与判定 / 区域只是定位）。
+
+**回归**
+- `npm test` **673/673**（639 + 34：准入订阅 14 / 讨论 7 / 规则视图 6 / 安装 6 / 体检测试 +1）
+- `npx tsc --noEmit` 0 错
+- `npm run audit:layers` **45 条：ok 45 / partial 0 / gap 0**
+- `npm run rules:view` 正常；`npm run bootstrap -- --dry-run` 正常
+
+**如实边界**
+- `inferred` 不自动推断身份放行（自动推断 = 自动授权）；越界识别只认四类明确说法，可能漏判（漏判沿用原链路）。
+- 区域底板按坐标缩放，事件流不存图片字节，因此不内嵌截图。
+- 安装的建管理员 / 飞书授权 / 真实业务单仍需人做；Node 版本声明与实际可跑版本不一致（按警告处理，未改 `engines`）。

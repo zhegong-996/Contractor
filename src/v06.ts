@@ -26,6 +26,8 @@ import { defaultAttentionPolicy, defaultWatchdogPolicy, filterEvent, assertInter
   type AttentionPolicy, type WatchdogPolicy } from './runtime-guard.ts';
 import { assertStandardExternalised, readPlan } from './acceptance-plan.ts';
 import { buildAcceptanceWorkbench } from './acceptance-workbench.ts';
+import { addDiscussionComment, discussionDigest, discussionDir, listDiscussion,
+  resolveDiscussionComment } from './acceptance-discussion.ts';
 import { FeishuOrgService, parseOrgTable, type OrgMappingDraft } from './feishu-org.ts';
 import type { CollabEvent } from './event-stream.ts';
 import { renderForChannel, endpointCapabilities, PLAIN_TEXT, type ChannelId, type SemanticObject, type RenderedMessage } from './channels.ts';
@@ -576,7 +578,44 @@ export class V06Services {
     ]);
     return buildAcceptanceWorkbench({
       taskId, plan, round, report, crew: this.acceptanceCrew({ taskId }),
+      // 讨论只在有任务时读本机线程文件；没有就是 0 条，不编造。
+      discussion: taskId ? discussionDigest(listDiscussion(discussionDir(), taskId)) : undefined,
     });
+  }
+
+  /* ------------------------------------------------------------ 报告内讨论 */
+  async acceptanceDiscussionList(taskId: string) {
+    const file = listDiscussion(discussionDir(), taskId);
+    return { taskId, comments: file.comments, digest: discussionDigest(file),
+      note: '讨论追加式留存：正文不可改写，只有「已处理」状态可由人打；不参与判定、不替代人签' };
+  }
+
+  /**
+   * 新增讨论。允许挂在检查项、具体区域或整份报告上；作者身份必须是调用方
+   * 传进来的真人身份（v06 动作由 server 注入 actorUserId），不伪造评审者。
+   */
+  async acceptanceDiscussionAdd(input: { taskId?: string; target?: unknown; body?: string }, actor: string) {
+    const taskId = String(input.taskId ?? '');
+    const result = addDiscussionComment(discussionDir(), {
+      taskId, author: actor, target: input.target, body: String(input.body ?? ''),
+    });
+    this.localStore.audit('v06.acceptance-discussion-added', taskId, {
+      commentId: result.comment.id, author: actor, target: result.comment.target,
+      length: result.comment.body.length,
+    });
+    return { comment: result.comment, digest: discussionDigest(result.file) };
+  }
+
+  /** 只打「已处理」状态位；判定与验收动作都不在这里。 */
+  async acceptanceDiscussionResolve(input: { taskId?: string; commentId?: string; resolved?: boolean }, actor: string) {
+    const taskId = String(input.taskId ?? '');
+    const result = resolveDiscussionComment(discussionDir(), {
+      taskId, commentId: String(input.commentId ?? ''), actor, resolved: input.resolved !== false,
+    });
+    this.localStore.audit('v06.acceptance-discussion-resolved', taskId, {
+      commentId: result.comment.id, actor, resolved: Boolean(result.comment.resolvedAt),
+    });
+    return { comment: result.comment, digest: discussionDigest(result.file) };
   }
 
   // --- 飞书组织映射（FR-01/02 的组织落地）--------------------------------
@@ -757,6 +796,9 @@ export class V06Services {
       case 'plan-view': return this.acceptancePlanView(p.taskId);
       case 'round-view': return this.acceptanceRoundView(p.taskId);
       case 'acceptance-workbench': return this.acceptanceWorkbenchView(p.taskId);
+      case 'acceptance-discussion-list': return this.acceptanceDiscussionList(p.taskId);
+      case 'acceptance-discussion-add': return this.acceptanceDiscussionAdd(p, who);
+      case 'acceptance-discussion-resolve': return this.acceptanceDiscussionResolve(p, who);
       case 'acceptance-export': return this.acceptanceExport(p.taskId);
       case 'org-overview': return this.organizationOverview(p.space ?? 'default');
       case 'acceptance-report-view': return this.acceptanceReportView(p.taskId ?? '');

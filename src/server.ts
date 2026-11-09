@@ -301,7 +301,7 @@ const server = createServer(async (req, res) => {
       const action = url.pathname.slice('/workspace/'.length);
       // Reads recheck their own scope and revisions. They need not wait behind
       // indexing or native process reconciliation; mutations keep the single lane.
-      const v06Reads=['roles-view','role-route','role-hints','role-snapshot','transfer-view','transfer-policy','dispatch-guard','grant-widen','grant-check','edges-view','edge-impact','label-check','policy-view','verification-level','topology-advice','inflight-policy','signals','review-readiness','ontology-meta','ontology-view','ontology-query','attention-policy','attention-filter','watchdog-policy','watchdog-inspect','plan-view','round-view','acceptance-workbench','acceptance-export','acceptance-report-view','org-overview','org-mapping-view','context-pack','l2-status','l2-edges-view','l2-graph-view','agent-registry-view','acceptance-crew','evolution-view','execution-view'];
+      const v06Reads=['roles-view','role-route','role-hints','role-snapshot','transfer-view','transfer-policy','dispatch-guard','grant-widen','grant-check','edges-view','edge-impact','label-check','policy-view','verification-level','topology-advice','inflight-policy','signals','review-readiness','ontology-meta','ontology-view','ontology-query','attention-policy','attention-filter','watchdog-policy','watchdog-inspect','plan-view','round-view','acceptance-workbench','acceptance-discussion-list','acceptance-export','acceptance-report-view','org-overview','org-mapping-view','context-pack','l2-status','l2-edges-view','l2-graph-view','agent-registry-view','acceptance-crew','evolution-view','execution-view'];
       const readOnly=['view','view-summary','team-members','agent-services','agent-build','development-view','delivery-status','service-status','routing-status','organization-view','channel-health','memory-replay','memory-guard','loop-guard','network-view','memory-status','memory-search','memory-annotations','context-pack','context-record','context-search','ontology-view','model-settings','system-status','trace-view','knowledge-list','knowledge-get','knowledge-wiki','cognee-search','scheduler-status','event-inbox-status','retry-health','wake-list','github-watch-status'].includes(action)||action==='knowledge-graph'&&payload.project!==true||action.startsWith('v06-')&&v06Reads.includes(action.slice(4));
       const runWorkspace=readOnly?<T>(job:()=>Promise<T>)=>withFeishuReads(job):serialize;
       res.end(JSON.stringify(await runWorkspace(async () => {
@@ -441,17 +441,34 @@ const server = createServer(async (req, res) => {
           const pre = knowledgeReadActor();
           if (pre.kind === 'human') await ensureHumanBound(pre.username);
         }
+        /**
+         * 第四十一轮 · 读方业务域：agent 取 registry 生效范围；人取其实名个人
+         * Agent 所在的知识空间域（与写链 `members(domain)` 用同一事实源，不另造
+         * 一套「可读域」配置）。拿不到就返回 undefined，由 canReadKnowledge 按
+         * 档位兜底——不退回「全域放行」。
+         */
+        const knowledgeReadDomains = (actor: KnowledgeActor): readonly string[] | undefined => {
+          if (actor.kind === 'agent') return actor.agent?.domains;
+          const catalog: any = workspaces.catalog?.() ?? {};
+          const agentKey = catalog.memberAgents?.[actor.username];
+          if (!agentKey) return undefined;
+          const domains = Object.entries(catalog.spaces ?? {})
+            .filter(([, space]: [string, any]) => Array.isArray(space?.members) && space.members.includes(agentKey))
+            .map(([id]) => id);
+          return domains.length ? domains : undefined;
+        };
         if (action === 'knowledge-list') {
           // 宽松列举：任务文档里 knowledge-* 但非结构化条目的（如 knowledge-context
           // 引用文件）如实跳过，不让一条坏行挡住整个列表。
           const readerActor = knowledgeReadActor();
+          const readerDomains = knowledgeReadDomains(readerActor);
           const records = [];
           for (const task of store.list()) {
             const docs = await control.pc.get<any[]>(`/issues/${task.id}/documents`).catch(() => []);
             for (const doc of (docs ?? []).filter(d => /^knowledge-[a-z0-9-]{1,36}$/.test(d.key ?? ''))) {
               try {
                 const record = await knowledge.read({ taskId: task.id, key: doc.key });
-                if (canReadKnowledge(readerActor, record.value).allowed) records.push(record);
+                if (canReadKnowledge(readerActor, record.value, undefined, { readerDomains }).allowed) records.push(record);
               } catch { /* 非条目文档跳过 */ }
             }
           }
@@ -462,14 +479,22 @@ const server = createServer(async (req, res) => {
         }
         if (action === 'knowledge-get') {
           const record = await knowledge.read({ taskId: String(payload.taskId ?? ''), key: String(payload.key ?? '') });
-          const gate = canReadKnowledge(knowledgeReadActor(), record.value);
+          const readerActor = knowledgeReadActor();
+          const gate = canReadKnowledge(readerActor, record.value, undefined, { readerDomains: knowledgeReadDomains(readerActor) });
           if (!gate.allowed) throw new Error('未授权：' + gate.reason);
           return { value: record.value, revision: record.revision };
         }
         if (action === 'knowledge-wiki') {
           // 13a ②③ 只读体检 + 投影落盘：wiki 与注入索引都是 canonical 知识文档
           // 的投影（可重建、不是第二事实源）；体检只读不改，缺口如实报出。
-          const view = await knowledgeWikiView(knowledge);
+          // 第四十一轮：按读方可读范围过滤；一旦过滤就不写盘，避免把某个人的
+          // 可读视角变成全组织共享投影。
+          const wikiActor = knowledgeReadActor();
+          const wikiDomains = knowledgeReadDomains(wikiActor);
+          const view = await knowledgeWikiView(knowledge, {
+            readable: record => canReadKnowledge(wikiActor, record as any, undefined, { readerDomains: wikiDomains }).allowed,
+          });
+          if (view.filtered) return { ...view, note: view.note + '；本视图已按你的可读范围过滤，共享投影未写盘（过滤后的视角不能当全量投影）' };
           writeWikiProjection(view.pages);
           writeInjectedIndex(view.injected);
           return view;
