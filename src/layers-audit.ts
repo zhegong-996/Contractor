@@ -23,6 +23,8 @@ import { diffSnapshot, patrolCard, type PatrolSnapshot } from './patrol.ts';
 import { artifactRevisionByTask, continueArtifact, readArtifact, registerArtifact } from './artifact.ts';
 import { renderTopicWorkbench } from './topic-workbench.ts';
 import { canDecide, decide, openDecision, REQUIRED_CAPABILITY } from './decision-point.ts';
+import { tallyVerdicts, arbitrate } from './countersign.ts';
+import { contentHash, seal, verifySeal } from './content-seal.ts';
 import { attachChannel, attachTask, createTopic, readTopic, topicDigest } from './topic.ts';
 import type { RouterConfig } from './config.ts';
 import {
@@ -697,6 +699,44 @@ export function auditLayerContracts(options: LayerAuditOptions = {}): LayerRepor
           `无产物可比=${!nothing.comparable}`, '清单未被对账改写'])
         : miss([`漏验=${drifted.counts.missing}`, `清单外=${drifted.counts.extra}`,
           `无产物可比=${!nothing.comparable}`, `改清单不入对账=${detects}`, `清单未被改写=${untouched}`]);
+    }));
+
+  checks.push(run('collaboration.countersign-veto-and-arbitrate', 'acceptance', '会签一票否决、分歧升级仲裁',
+    '一票否决不靠多数洗白；重复投票去重；分歧仲裁单独标记；没卡住不能仲裁', () => {
+      const veto = tallyVerdicts([
+        { by: 'a', outcome: 'allow', reason: 'ok' },
+        { by: 'b', outcome: 'allow', reason: 'ok' },
+        { by: 'c', outcome: 'deny', reason: '必做项缺证据' },
+      ], { quorum: 3 });
+      const dup = tallyVerdicts([{ by: 'a', outcome: 'allow', reason: 'ok' },
+        { by: 'a', outcome: 'deny', reason: '再看不对' }], { quorum: 1 });
+      const deadlock = tallyVerdicts([
+        { by: 'a', outcome: 'allow', reason: 'ok' },
+        { by: 'b', outcome: 'deny', reason: '口径冲突' },
+      ], { quorum: 2, disagree: 'arbitrate' });
+      const resolved = arbitrate(deadlock, { by: 'reviewer', outcome: 'allow', reason: '以 A 口径为准' });
+      let cannotArbitrate = '';
+      try { arbitrate(veto, { by: 'x', outcome: 'deny', reason: '' }); } catch (error) { cannotArbitrate = msg(error); }
+      const ok = veto.verdict === 'deny' && veto.reasons.length === 1 && dup.collected === 1
+        && deadlock.verdict === 'deadlock' && resolved.arbitrated === true
+        && resolved.reviewer === 'reviewer' && Boolean(cannotArbitrate);
+      return ok
+        ? pass([`一票否决=${veto.verdict}`, `去重后人数=${dup.collected}`,
+          `分歧=${deadlock.verdict}`, `仲裁标记=${resolved.arbitrated}`])
+        : miss([`否决=${veto.verdict}`, `去重=${dup.collected}`, `分歧=${deadlock.verdict}`, `未卡住仲裁=${cannotArbitrate}`]);
+    }));
+
+  checks.push(run('security.content-seal-detects-tamper', 'permission', '内容密封能查出篡改',
+    '键顺序不影响哈希；改状态必变；排除易变字段后时间戳不算篡改', () => {
+      const base = { role: 'role-product', members: 3, owner: 'ou_a' };
+      const stamped = seal(base, { excluded: ['at'] });
+      const keyOrder = contentHash({ a: 1, b: 2 }) === contentHash({ b: 2, a: 1 });
+      const tampered = verifySeal({ ...base, members: 4 }, stamped) === false;
+      const volatile = verifySeal({ ...base, at: '2099' }, stamped) === true;
+      const intact = verifySeal(base, stamped) === true;
+      return keyOrder && tampered && volatile && intact
+        ? pass([`键序无关=${keyOrder}`, `改状态检出=${tampered}`, `易变字段排除=${volatile}`])
+        : miss([`键序=${keyOrder}`, `检出=${tampered}`, `排除=${volatile}`]);
     }));
 
   checks.push(run('decision.cross-domain-delegates-not-escalates', 'permission', '跨域判断权委派，不放行给本域 admin',
