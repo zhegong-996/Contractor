@@ -20,7 +20,8 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { reconcile, isReconcileRequest } from './reconcile.ts';
 import { diffSnapshot, patrolCard, type PatrolSnapshot } from './patrol.ts';
-import { artifactRevisionByTask, continueArtifact, readArtifact, registerArtifact } from './artifact.ts';
+import { artifactRevisionByTask, continueArtifact, readArtifact, registerArtifact, verifyArtifactRevision } from './artifact.ts';
+import { timeoutEscalation } from './escalation.ts';
 import { renderTopicWorkbench } from './topic-workbench.ts';
 import { canDecide, decide, openDecision, REQUIRED_CAPABILITY } from './decision-point.ts';
 import { tallyVerdicts, arbitrate } from './countersign.ts';
@@ -770,6 +771,32 @@ export function auditLayerContracts(options: LayerAuditOptions = {}): LayerRepor
       return ok
         ? pass([`修订数=${next.revisions.length}`, `续改来源=${run.continuation.fromRevision}`, '旧修订保留'])
         : miss([`幂等=${dup.revisions.length}`, `修订数=${next.revisions.length}`, `续改来源=${run.continuation.fromRevision}`]);
+    }));
+
+  checks.push(run('artifact.seal-detects-tamper', 'acceptance', '产物登记即盖章，改元数据能查出',
+    'seal 生成；改摘要检出；旧数据无 seal 不阻断', () => {
+      const dir = mkdtempSync(path.join(tmpdir(), 'audit-seal-'));
+      const artifact = registerArtifact(dir, { ref: 'report:R1', revision: 'r1', by: 'ou_a', taskId: 't1', summary: '通过 3 项' });
+      const revision = artifact.revisions[0]!;
+      const ok = Boolean(revision.seal) && verifyArtifactRevision(revision)
+        && !verifyArtifactRevision({ ...revision, summary: '改成 5 项' })
+        && verifyArtifactRevision({ ...revision, seal: undefined });
+      return ok
+        ? pass(['登记即盖章', '改摘要检出', '旧数据不阻断'])
+        : miss([`seal=${Boolean(revision.seal)}`, `篡改检出=${!verifyArtifactRevision({ ...revision, summary: 'x' })}`]);
+    }));
+
+  checks.push(run('escalation.timeout-escalates-to-owner', 'router', '悬置超时升级给域 owner',
+    '未超时继续等；超时升级给域 owner；域无 owner 明说需要人指定，不静默挂着', () => {
+      const pendingSince = '2026-11-09T00:00:00Z';
+      const waiting = timeoutEscalation({ domain: 'growth', domainOwner: 'ou_owner', pendingSince, now: '2026-11-09T12:00:00Z' });
+      const escalated = timeoutEscalation({ domain: 'growth', domainOwner: 'ou_owner', pendingSince, now: '2026-11-10T12:00:00Z' });
+      const noOwner = timeoutEscalation({ domain: 'growth', domainOwner: '', pendingSince, now: '2026-11-10T12:00:00Z' });
+      const ok = waiting.escalated === false && escalated.escalated === true && escalated.to === 'ou_owner'
+        && noOwner.escalated === true && noOwner.to === '' && /需要人指定/.test(noOwner.reason);
+      return ok
+        ? pass([`未超时=${!waiting.escalated}`, `超时升级=${escalated.to}`, `无 owner 明说=${noOwner.escalated}`])
+        : miss([`未超时=${!waiting.escalated}`, `升级=${escalated.to}`, `无 owner=${noOwner.reason}`]);
     }));
 
   checks.push(run('workbench.is-readonly-snapshot', 'acceptance', '工作台是只读快照',

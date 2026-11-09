@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import {
   artifactRevisionByTask, continueArtifact, listArtifacts, listContinuations,
-  readArtifact, registerArtifact,
+  readArtifact, registerArtifact, verifyArtifactRevision,
 } from '../src/artifact.ts';
 import { attachChannel, attachTask, createTopic } from '../src/topic.ts';
 import { renderTopicWorkbench, workbenchRows } from '../src/topic-workbench.ts';
@@ -91,4 +91,14 @@ test('工作台：按任务给状态与卡点，缺状态按 unknown 而不是�
   // 数据内嵌，不引外部资源：打开就能用，不依赖服务在线。
   assert.doesNotMatch(html, /https?:\/\//);
   assert.doesNotMatch(html, /<script src=/);
+});
+
+test('V2 产物可信：登记即盖章，改元数据能查出来', () => {
+  const base = dir();
+  const artifact = registerArtifact(base, { ref: 'report:R1', revision: 'r1', by: 'ou_a', taskId: 't1', summary: '通过 3 项验收' });
+  const revision = artifact.revisions[0]!;
+  assert.ok(revision.seal, '登记时应生成 seal');
+  assert.equal(verifyArtifactRevision(revision), true);
+  assert.equal(verifyArtifactRevision({ ...revision, summary: '改成 5 项' }), false, '改了摘要应检出');
+  assert.equal(verifyArtifactRevision({ ...revision, seal: undefined }), true, '旧数据无 seal 不阻断');
 });

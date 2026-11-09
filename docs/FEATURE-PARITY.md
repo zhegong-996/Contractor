@@ -148,4 +148,4 @@ npm run service -- status  # 常驻状态（launchd 安装见 docs/RE-AUDIT-2026
 | 一条命令安装（Autoloop） | ✅（有边界） | `src/bootstrap.ts` + `npm run bootstrap`；建管理员与飞书授权仍需人做 |
 | 知识读按域收窄（自身体检 partial） | ✅ | `canReadKnowledge` 第 4 参 `readerDomains`；读方域未知按档位兜底 |
 
-体检基线：`npm run audit:layers` → **53 条：ok 53 / partial 0 / gap 0**。
+体检基线：`npm run audit:layers` → **55 条：ok 55 / partial 0 / gap 0**。

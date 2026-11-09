@@ -64,3 +64,44 @@ export function escalationMessage(result: EscalationGateResult, question: string
   if (!result.notify) return '';
   return `【需要你】${question.slice(0, 200)}\n（升级通道只通知、不代为批准：这里不提供也不代替批准动作，请在原会话处理；本窗口已通知 ${result.windowCount} 条）`;
 }
+
+/** V5 超时升级：悬而未决超过时限、无人处理，就升级到该域的 owner，而不是静默挂着。 */
+export interface TimeoutEscalationInput {
+  /** 业务域；升级落到这个域的 owner。 */
+  domain: string;
+  domainOwner: string;
+  pendingSince: string;
+  now?: string;
+  timeoutMs?: number;
+}
+
+export interface TimeoutEscalationResult {
+  escalated: boolean;
+  to: string;
+  reason: string;
+  elapsedMs: number;
+}
+
+export const DEFAULT_TIMEOUT_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * 纯判定：挂多久算超时、超时后升级给谁。不做任何通知动作，
+ * 通知仍走 escalationGate（去重 + 限速），升级本身只产出「该找谁」。
+ */
+export function timeoutEscalation(input: TimeoutEscalationInput): TimeoutEscalationResult {
+  const now = Date.parse(input.now ?? new Date().toISOString());
+  const pending = Date.parse(input.pendingSince);
+  const timeoutMs = input.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const elapsedMs = now - pending;
+  const domain = String(input.domain ?? '').trim() || 'default';
+  const domainOwner = String(input.domainOwner ?? '').trim();
+  if (!domainOwner) {
+    return { escalated: true, to: '', elapsedMs,
+      reason: `悬置已 ${Math.round(elapsedMs / 3600000)} 小时，但 ${domain} 域没有 owner，无法自动升级——需要人指定负责人` };
+  }
+  if (elapsedMs >= timeoutMs) {
+    return { escalated: true, to: domainOwner, elapsedMs,
+      reason: `悬置超过 ${Math.round(timeoutMs / 3600000)} 小时无人处理，升级给 ${domain} 域 owner ${domainOwner}` };
+  }
+  return { escalated: false, to: domainOwner, elapsedMs, reason: '尚未超时，继续等原负责人' };
+}

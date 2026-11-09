@@ -12,6 +12,7 @@
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { contentHash } from './content-seal.ts';
 
 export interface ArtifactRevision {
   revision: string;
@@ -20,6 +21,8 @@ export interface ArtifactRevision {
   at: string;
   by: string;
   summary: string;
+  /** V2 产物可信：这一版的元数据内容哈希，验收/对账时能校验「声称的结果就是登记的内容」。 */
+  seal?: string;
 }
 
 export interface Artifact {
@@ -93,8 +96,11 @@ export function registerArtifact(dir: string, input: {
     current: revision, revisions: [], createdAt: at, updatedAt: at,
   };
   if (artifact.revisions.some(item => item.revision === revision)) return artifact;
-  artifact.revisions.push({ revision, taskId: input.taskId ?? null, at, by: input.by,
-    summary: input.summary?.trim() || '' });
+  const summary = input.summary?.trim() || '';
+  // V2 产物可信：对「修订号 + 任务 + 产出者 + 摘要」算内容哈希，登记即盖章；
+  // 之后续改/对账时能校验这一版没有被事后改动。
+  const seal = contentHash({ revision, taskId: input.taskId ?? null, by: input.by, summary });
+  artifact.revisions.push({ revision, taskId: input.taskId ?? null, at, by: input.by, summary, seal });
   artifact.current = revision;
   artifact.updatedAt = at;
   if (input.title?.trim()) artifact.title = input.title.trim();
@@ -106,6 +112,17 @@ export function registerArtifact(dir: string, input: {
 export function listContinuations(dir: string): Continuation[] {
   const file = readJson<{ items?: Continuation[] }>(continuationFile(dir));
   return file?.items ?? [];
+}
+
+/**
+ * V2 产物可信校验：这一版的元数据有没有被事后改动。
+ * 旧数据（没有 seal）返回 true，不阻断历史记录。
+ */
+export function verifyArtifactRevision(revision: ArtifactRevision): boolean {
+  if (!revision.seal) return true;
+  const expected = contentHash({ revision: revision.revision, taskId: revision.taskId,
+    by: revision.by, summary: revision.summary });
+  return revision.seal === expected;
 }
 
 /**
