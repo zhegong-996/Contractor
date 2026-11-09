@@ -49,7 +49,7 @@ L1  交付层    本机 Git 交付台、CI 核对、版本证据、预览
 | **验收合同** | 开工前锁定逐项计划；评审者不得是产出模型 | 执行中 immutable，判定逐项进行 |
 | **HITL 提问/回答** | 成对台账；回答 ≠ 验收 | 提问→挂起→回答→自动续跑闸（重新验证） |
 | **Wake（复查预约）** | taskId + at + note；到点触发一轮复查委托 | 预约→scheduled→done/cancelled |
-| **Routine（例行任务）** | schedule(interval/daily) + goal；时间槽幂等 | 每槽至多触发一次 |
+| **Routine（例行任务）** | schedule(interval/daily/cron) + goal；时间槽幂等 | 每槽至多触发一次；cron 30 分钟补跑窗口 |
 | **知识空间/条目** | 分区权限（RBAC）；跨空间需授权 | 创建→入库→引用→撤权沿 lineage 阻断 |
 | **团队记忆** | 打回原因、验收标准等沉淀；候选改进须真人批准 | 沉淀→审批→生效 |
 

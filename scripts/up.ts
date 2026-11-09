@@ -21,9 +21,18 @@ function ownsServicePid(pid: number, script: string, port: number): boolean {
     const cmd = execFileSync('ps', ['-p', String(pid), '-o', 'command='], { encoding: 'utf8' });
     if (cmd.includes(path.join(root, script))) return true;
   } catch { /* ps 在部分沙箱不可用，继续用端口归属判断 */ }
+  let listeners: number[] = [];
   try {
-    const listeners = execFileSync('lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-t'], { encoding: 'utf8' });
-    return listeners.split('\n').map(line => Number(line.trim())).filter(Boolean).includes(pid);
+    listeners = execFileSync('lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-t'], { encoding: 'utf8' })
+      .split('\n').map(line => Number(line.trim())).filter(Boolean);
+  } catch { return false; }
+  if (listeners.includes(pid)) return true;
+  // paperclip 是「supervisor（pid 文件里记的那个）→ 子进程监听端口」两层结构，
+  // ps 被沙箱禁用时上面的命令匹配拿不到，这里用 pgrep -P 认亲，避免 stop 卡死。
+  try {
+    const children = execFileSync('pgrep', ['-P', String(pid)], { encoding: 'utf8' })
+      .split('\n').map(line => Number(line.trim())).filter(Boolean);
+    return listeners.some(listener => children.includes(listener));
   } catch { return false; }
 }
 // 启动时兜底：如果上游重新构建过 UI 把中文壳覆盖成英文，这里自动重建一次。
@@ -67,7 +76,7 @@ for (const service of action === 'restart-bridge' ? services.filter(s => s.name 
   const child = spawn(process.execPath, ['--import', path.join(root, 'node_modules/tsx/dist/loader.mjs'), path.join(root, service.script)],
     { cwd: root, detached: true, stdio: ['ignore', log, log], env: process.env });
   writeFileSync(file, String(child.pid), { mode: 0o600 }); child.unref();
-  const deadline = Date.now() + 45000;
+  const deadline = Date.now() + (service.name === 'paperclip' ? 120000 : 90000);
   while (Date.now() < deadline) {
     if (await fetch(service.url).then(r => r.ok).catch(() => false)) { console.log(`${service.name}: ready`); break; }
     await new Promise(resolve => setTimeout(resolve, 250));

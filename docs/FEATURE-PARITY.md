@@ -1,12 +1,15 @@
-# 上游功能实现对照（第三十五轮审计 · 第三十六轮更新）
+# 上游功能实现对照（第三十五轮审计 · 第三十六轮落地 · 第三十七轮复盘）
 
 > 用户问题：是否把 Agent Autoloop、Super Agent、LobeHub（结合 acceptance）的功能全部实现出来了？
-> 本文按三个上游的公开功能面逐项对照本仓库实现位置与验证证据。**结论先说：核心功能全部落地且在生产链上真实接通。**
+> 本文按三个上游的公开功能面逐项对照本仓库实现位置与验证证据。
 >
-> **第三十六轮更新**：用户 2026-11-09 拍板「这几个也都要做」，第 5 节的四个未做项
-> （定时调度器、GitHub 监听、钉钉/企微通道、定时唤醒复查）**全部实现**，见第 5 节新表。
+> **第三十六轮**：用户 2026-11-09 拍板「这几个也都要做」，第 5 节的四个未做项
+> （定时调度器、GitHub 监听、钉钉/企微通道、定时唤醒复查）实现。
+> **第三十七轮复盘**：把「全部实现」修正为「核心闭环全通 + 3 类周边待补」，
+> 并修掉 4 个运行层缺陷 + 补 cron 排班。差异清单见 5.1 与
+> [RE-AUDIT-2026-11-09.md](RE-AUDIT-2026-11-09.md)。
 
-审计时间：2026-11-09（第三十五轮）；第三十六轮更新。运行基线：第三十六轮提交，`npm test` 585/585。
+审计时间：2026-11-09（第三十五轮）；第三十六轮落地；第三十七轮复盘。运行基线：`npm test` 589/589。
 
 ## 1. Agent Autoloop（KKKKhazix/agent-autoloop · MIT · 国内开源）
 
@@ -17,7 +20,7 @@
 | **挂起零消耗**（等拍板时进程退出，不烧 Token） | step 模式：一次进程只跑一步；HITL 等人期间进程退出，状态外置 PG 步进队列（`checkout-retry-runToken`），回来接原会话续跑 | `src/step-runner.ts`、`src/pg-host.ts`、`steps:smoke` 61/61；第三十二轮起为默认执行形态 |
 | **事件溯源**（断电不丢、每步可追溯） | append-only 事件主干 + 四类投影 + checkpoint 增量应用（checksum 与全量逐字节对照） | `src/event-stream.ts`、`src/memory-log.ts`、`npm run memory:checkpoint` |
 | **指令数据分离**（Issue 的话进不了提示词、改不了目录权限） | `runtimeGuard.enforce` 生产链开启；指令与数据红线（R 系列） | `src/runtime-guard.ts`、契约测试 |
-| **跳数熔断**（Agent 互相触发超限自动停） | `maxStepsPerRun` 步数上限（默认 60，可配 20000）+ mission 六态守门（failed 不重放） | `src/config.ts`、`src/mission-state.ts`、`src/step-execution.ts` |
+| **跳数熔断**（Agent 互相触发超限自动停） | **等价收窄**（第三十七轮修正口径）：上游数「事件链累计 8 层」；本仓库直接拒绝 Agent 自造事件（`events`/`resolve`），链根本不存在，另加 `maxStepsPerRun` 限单次步数 | `src/controller.ts:266`、`src/config.ts`、`src/mission-state.ts` |
 | **事件插件**（定时 / GitHub / 业务系统 / 轮询） | 飞书（上游 `feishuTrigger` 原版）+ 插件工作台 + **定时调度器 + GitHub 监听（第三十六轮实现，见第 5 节）** | `src/upstream.ts`、`src/collaboration-intake.ts`、`src/scheduler.ts`、`src/github-watch.ts` |
 | **Agent 插件**（一行配置接任意 CLI Agent） | 上游 `worker/agents.ts` `adapterFor` 原版装载（codex / claude / command / acp 四 adapter） | `src/upstream.ts`、`agents:smoke` 43/43；3100 代理页 13 agents |
 | **通道插件**（飞书 / 钉钉 / 企微 / 桌面通知） | 飞书通道（上游 `feishu-channel` 原版，长键 sha256 幂等）+ 桌面通知 + 升级限速静音（1 小时 3 次）+ **钉钉/企微补充通道（第三十六轮实现，见第 5 节）** | `src/channels.ts`、`src/escalation.ts`、`src/im-outbound.ts` |
@@ -65,20 +68,35 @@
 
 | 项 | 上游来源 | 实现（位置与证据） |
 |---|---|---|
-| **定时调度器** | Autoloop 事件插件 | `src/scheduler.ts`：例程（interval/daily）+ 时间槽幂等 + 审计 `routine.triggered`；bridge action `scheduler-status`；运行配置已启用每日晨报/每周健康检查两个例程 |
+| **定时调度器** | Autoloop 事件插件 | `src/scheduler.ts`：例程（interval/daily/**cron**）+ 时间槽幂等 + 审计 `routine.triggered`；**第三十七轮补 cron**（直接复用上游 `kernel/cron.ts`，支持 `0 18 * * 0` 这类真实排班）；bridge action `scheduler-status`；运行配置已启用每日晨报（09:30）/ 每周日健康检查（cron `0 18 * * 0`） |
 | **GitHub 监听接单** | Super-agent | `src/github-watch.ts`：轮询（gh api 优先/REST 兜底，60s 节流，首次只记基线）+ webhook（HMAC-SHA256 验签）；事件指纹幂等；审计 `github.event-observed`；正在监听 `zhegong-996/desktop-tutorial` |
 | **钉钉 / 企微通道** | Autoloop 通道插件 | `src/im-outbound.ts` + `src/channels.ts`：出站 webhook（钉钉加签/企微 markdown，与飞书共享注意力预算）；入站端点 `/im/dingtalk`、`/im/wecom`（明文；企微加密模式如实报未支持）；出站需配置 `DINGTALK_WEBHOOK_URL`/`WECOM_WEBHOOK_URL` 环境变量后启用 |
 | **定时唤醒复查** | Autoloop 自动闭环 | `src/scheduler.ts`：`wake-schedule`/`wake-cancel`/`wake-list` action + 到点自动触发复查委托（审计 `wake.review-triggered`）；已对真实任务预约次日 09:00 复查验证 |
 
 如实边界（仍未做，非遗漏）：Slack/Discord 通道（无国内需求）；企微回调加密模式（EncodingAESKey 解密）；webhook 端点的公网暴露（需自行反代）。
 
+## 5.1 第三十七轮复盘修正（2026-11-09）
+
+用户要求「再复盘对比一次」。这次不看本文上一版的自评，改从上游源码 + 本仓库代码 + 现场运行三处交叉核对，
+结论见 **[RE-AUDIT-2026-11-09.md](RE-AUDIT-2026-11-09.md)**。要点：
+
+- **功能面**：核心闭环全通；周边仍差 3 类 —— 规则匹配（`when.source/types`、`parallel`、排队合并）、
+  GitLab/通用 HTTP 事件源、验收的区域框选与主题矩阵。「全部实现」的旧说法改为「核心闭环全通 + 3 类周边待补」。
+- **跳数熔断**：上游是「事件链累计 8 层」，本仓库是「单次运行步数上限」+「禁止 Agent 自造事件」，
+  属**等价收窄**，不是同一机制，已改口径。
+- **运行面**（当时最严重）：bridge 未常驻、后台循环被一个已不存在的交付任务拖死（`scheduler` 与
+  `github-watch` 全程没跑）。本轮修复：逐阶段隔离、启动超时放宽、`stop` 认亲、新增 `npm run service`
+  常驻安装器；并补齐 cron 排班，把「每周」例程从 `daily 18:00` 改成 `cron 0 18 * * 0`。
+
 ## 6. 验证命令（全部真跑）
 
 ```sh
-npm test            # 585/585（含三个上游装载的契约测试 + 第三十六轮自动化四件套 21 例）
+npm test            # 589/589（含三个上游装载的契约测试 + 自动化四件套 + cron 3 例）
 npm run steps:smoke # 61/61：step 模式 + HITL 闭环 + 送达证据
 npm run agents:smoke    # 43/43：Agent 编制与 adapter
 npm run loop:smoke  # 18/18：双向协作回路
 npm run evolution:smoke # 45/45：沉淀回流（打回记忆）
+npm run guard:smoke # 22/22：运行时红线与出站工具
 npm run audit:upstream  # clean:true：上游固定提交与许可证
+npm run service -- status  # 常驻状态（launchd 安装见 docs/RE-AUDIT-2026-11-09.md）
 ```

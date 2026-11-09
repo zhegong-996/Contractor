@@ -56,6 +56,9 @@ npm run doctor
 - 接入层健康检查：<http://127.0.0.1:4180/health>
 - 知识与授权协作：<http://127.0.0.1:3100/SUI/knowledge-workspaces>，启用步骤见 [功能说明](docs/WORKSPACES.md)。
 - `npm run status` 查看服务；`npm run stop` 停止本项目管理的进程。
+- **常驻**：`npm run service -- install` 把 bridge 与 Paperclip 注册为 macOS LaunchAgent（登录即起、异常自重启），
+  `npm run service -- status|uninstall` 查看/卸载。定时调度器、GitHub 监听、飞书入口都挂在 bridge 上，
+  **不常驻就只在终端开着时生效**；安装限制与现场验证见 [复盘报告](docs/RE-AUDIT-2026-11-09.md)。
 - 运行数据、日志、个人登录配置和凭据保留在忽略的 `.runtime/`，不提交 GitHub。
 
 本地可信模式只监听回环地址。团队远程访问需要另行部署并启用 Paperclip 的多人认证，不能直接把当前端口暴露公网。

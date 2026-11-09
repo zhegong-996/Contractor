@@ -65,7 +65,7 @@ SuitMe 协作台
 
 | 功能 | 文件 | 关键函数/类 | 测试 |
 |---|---|---|---|
-| 定时调度器 | `src/scheduler.ts` | `Scheduler.tick()` · `routineSlot()` | tests/scheduler.test.ts (9) |
+| 定时调度器 | `src/scheduler.ts` | `Scheduler.tick()` · `routineSlot()` · `cronOccurrence()` · `describeSchedule()` | tests/scheduler.test.ts (12) |
 | 定时唤醒复查 | `src/scheduler.ts` | `scheduleWake()` · `tickWakes()` | tests/scheduler.test.ts |
 | GitHub 监听 | `src/github-watch.ts` | `GithubWatcher.tick()` · `handleWebhook()` · `verifyGithubSignature()` | tests/github-watch.test.ts (5) |
 | 钉钉/企微出站 | `src/im-outbound.ts` | `sendDingtalk()` · `sendWecom()` · `dingtalkSignedUrl()` | tests/im-outbound.test.ts (5) |

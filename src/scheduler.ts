@@ -26,11 +26,39 @@ import type { Config } from './config.ts';
 import type { Workspaces, WorkspaceActor } from './workspaces.ts';
 import type { WorkspaceAssistant } from './assistant.ts';
 import type { NativeTrigger } from './upstream.ts';
+import path from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
-/** 例行任务的调度形态：固定间隔 或 每日固定时刻（本地时区）。 */
+/**
+ * 第三十七轮 · cron 调度：直接复用上游 Autoloop 的 `kernel/cron.ts`（零依赖、
+ * MIT，@ ba8cf6d8cf24），不自己写解析器。上游规则用五字段 cron 表达「工作日
+ * 09:00 / 每周日 18:00」这类真实排班，此前的 interval/daily 只能逼近，写不出
+ * 「每周一、三、五」或「每月 1 日」。
+ */
+const cronModule = await import(pathToFileURL(path.join(
+  path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'), 'upstream/autoloop/kernel/cron.ts')).href) as {
+  parseCron(text: string): unknown | null;
+  nextRun(parsed: unknown, after: number, zone: string): number | null;
+  describeCron(text: string): string;
+};
+/** 本地时区（与「每日 09:30」同口径）；Intl 取不到时退回北京时间。 */
+const LOCAL_ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Shanghai';
+/**
+ * cron 的补跑窗口：进程在到点后 30 分钟内启动仍补跑一次（与 daily「当天
+ * 已过点即触发」同语义）；超过窗口不追，避免把昨天的班次在清晨补出来。
+ */
+const CRON_GRACE_MS = 30 * 60_000;
+
+/** 例行任务的调度形态：固定间隔 / 每日固定时刻 / 五字段 cron（本地时区）。 */
 export const routineScheduleSchema = z.union([
   z.object({ kind: z.literal('interval'), minutes: z.number().int().min(1).max(60 * 24 * 30) }).strict(),
   z.object({ kind: z.literal('daily'), at: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, '每日时刻必须是 HH:MM（24 小时制）') }).strict(),
+  z.object({
+    kind: z.literal('cron'),
+    /** 分 时 日 月 周；0 与 7 都是周日，支持 * / 步长 / 区间 / 逗号枚举。 */
+    expr: z.string().trim().min(9).max(120).refine(value => cronModule.parseCron(value) !== null,
+      '需要合法的 5 字段 cron 表达式（分 时 日 月 周）'),
+  }).strict(),
 ]);
 export type RoutineSchedule = z.infer<typeof routineScheduleSchema>;
 
@@ -57,14 +85,56 @@ export function defaultSchedulerConfig(): SchedulerConfig {
   return schedulerConfigSchema.parse({ enabled: true, routines: [], wake: { enabled: true } });
 }
 
+/** 每日例程的「下一次」：今天的时刻已过就顺延到明天（状态展示用）。 */
+function nextDailySlot(at: string, now: Date): string {
+  const [hour, minute] = at.split(':').map(Number);
+  const due = new Date(now); due.setHours(hour!, minute!, 0, 0);
+  const target = now.getTime() >= due.getTime() ? new Date(due.getTime() + 86_400_000) : due;
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${target.getFullYear()}-${pad(target.getMonth() + 1)}-${pad(target.getDate())}T${at}`;
+}
+
 /** 自动化触发者：admin 是本机操作者身份，automation 留痕到审计与历史。 */
 export function automationActor(automation: string): WorkspaceActor {
   return { userId: 'local-board', admin: true, automation };
 }
 
-/** interval / daily 的时间槽键：同槽只触发一次。 */
+/** 本地分钟键：`YYYY-MM-DDTHH:MM`，作为 cron 的幂等槽。 */
+function minuteKey(at: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}T${pad(at.getHours())}:${pad(at.getMinutes())}`;
+}
+
+/** cron 在补跑窗口内最近一次应触发时刻；窗口内没有则 null（= 不该触发）。 */
+export function cronOccurrence(expr: string, now: Date, graceMs = CRON_GRACE_MS): Date | null {
+  const parsed = cronModule.parseCron(expr);
+  if (!parsed) return null;
+  const nowMs = now.getTime();
+  let at = cronModule.nextRun(parsed, nowMs - graceMs - 60_000, LOCAL_ZONE);
+  let last: number | null = null;
+  while (at !== null && at <= nowMs) { last = at; at = cronModule.nextRun(parsed, at, LOCAL_ZONE); }
+  return last === null ? null : new Date(last);
+}
+
+/** cron 下一次应触发时刻（状态展示用）。 */
+export function cronNext(expr: string, now: Date): Date | null {
+  const parsed = cronModule.parseCron(expr);
+  if (!parsed) return null;
+  const at = cronModule.nextRun(parsed, now.getTime(), LOCAL_ZONE);
+  return at === null ? null : new Date(at);
+}
+
+/** 排班的人话说明（上游 describeCron：每天 18:00 / 每周日 06:00 / 工作日 09:00）。 */
+export function describeSchedule(schedule: RoutineSchedule): string {
+  if (schedule.kind === 'interval') return `每 ${schedule.minutes} 分钟`;
+  if (schedule.kind === 'daily') return `每天 ${schedule.at}`;
+  return cronModule.describeCron(schedule.expr);
+}
+
+/** interval / daily / cron 的时间槽键：同槽只触发一次；cron 不在窗口内返回 ''。 */
 export function routineSlot(schedule: RoutineSchedule, now: Date): string {
   if (schedule.kind === 'interval') return String(Math.floor(now.getTime() / (schedule.minutes * 60_000)));
+  if (schedule.kind === 'cron') { const at = cronOccurrence(schedule.expr, now); return at ? minuteKey(at) : ''; }
   const pad = (n: number) => String(n).padStart(2, '0');
   return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${schedule.at}`;
 }
@@ -112,6 +182,8 @@ export class Scheduler {
         if (now.getTime() < due.getTime()) continue;
       }
       const slot = routineSlot(routine.schedule, now);
+      // cron 未落在补跑窗口内就不该触发；空槽不是错误，只是「今天这班还没到」。
+      if (!slot) { report.skipped.push({ reason: 'cron-not-due', routineId: routine.id }); continue; }
       const tickId = `routine-tick:${routine.id}:${slot}`;
       if (!this.claim(tickId, { routineId: routine.id, slot })) continue;
       try {
@@ -200,11 +272,18 @@ export class Scheduler {
     return triggered;
   }
 
-  status(): { enabled: boolean; routines: (Routine & { nextSlot?: string })[]; wakes: (WakeRecord & { id: string; state: string })[] } {
+  status(): { enabled: boolean; routines: (Routine & { nextSlot?: string; summary: string })[]; wakes: (WakeRecord & { id: string; state: string })[] } {
     const cfg = this.config.scheduler;
+    const now = this.now();
     return {
       enabled: cfg?.enabled === true,
-      routines: (cfg?.routines ?? []).map(r => ({ ...r, nextSlot: routineSlot(r.schedule, this.now()) })),
+      routines: (cfg?.routines ?? []).map(r => ({
+        ...r,
+        summary: describeSchedule(r.schedule),
+        nextSlot: r.schedule.kind === 'cron'
+          ? (cronNext(r.schedule.expr, now) ? minuteKey(cronNext(r.schedule.expr, now)!) : undefined)
+          : r.schedule.kind === 'daily' ? nextDailySlot(r.schedule.at, now) : routineSlot(r.schedule, now),
+      })),
       wakes: this.listWakes(),
     };
   }

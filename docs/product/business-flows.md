@@ -97,8 +97,9 @@ Agent 产出代码 → 本机 Git worktree 分支(路径白名单+禁符号链�
 ## 流程 7：定时例行任务（★36）
 
 ```
-配置例程(scheduler.routines) → 每日 09:30 晨报 / 每周健康检查…
-  → 主循环 tick 判定: daily 必须已过 at 时刻(interval 按槽)
+配置例程(scheduler.routines) → 每日 09:30 晨报 / 每周日 18:00 健康检查(cron)…
+  → 主循环 tick 判定: daily 必须已过 at 时刻; interval 按槽; cron 按五字段匹配
+     （cron 带 30 分钟补跑窗口，进程晚启动仍补一次，超过窗口不追昨天的班）
      ★ 真实教训: 初版漏了"已过 at 时刻"判定, 凌晨启动会把当天 09:30
        的例程提前跑掉——上线首日即发现(审计 routine.triggered 多了 2 条),
        修复后补了回归用例("early boot must not pull the slot forward")

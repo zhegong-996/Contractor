@@ -45,8 +45,8 @@ flowchart TB
 
 | 进程 | 端口 | 职责 | 启停 |
 |---|---|---|---|
-| Bridge 主服务（`src/server.ts`） | 4180 | 全部业务 action、飞书监听、定时调度器、GitHub 监听、通道镜像、HTTP 端点 | `npm run up` |
-| Paperclip 服务 | 3100 | 任务调度核心、审批、Agent 运行、工作台前端 | `npm run up` |
+| Bridge 主服务（`src/server.ts`） | 4180 | 全部业务 action、飞书监听、定时调度器、GitHub 监听、通道镜像、HTTP 端点 | `npm run up` / `npm run service -- install`（常驻） |
+| Paperclip 服务 | 3100 | 任务调度核心、审批、Agent 运行、工作台前端 | `npm run up` / `npm run service -- install`（常驻） |
 | 管理控制台（`scripts/console-server.ts`） | 4200 | 只读运维 + 语义检索 | `npm run up` |
 | 视觉评审（`scripts/vision-server.ts`） | 4190 | 截图/录屏证据结构核对 | `npm run up` |
 | 验收报告（`scripts/acceptance-report*.ts`） | 4192 | 一条链接的验收报告页 | `npm run up` |

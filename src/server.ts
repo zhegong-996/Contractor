@@ -805,25 +805,48 @@ async function deliver() {
   }
 }
 let stopping = false;
+/**
+ * 第三十七轮复盘修复：此前所有阶段串在一个 try 里，任何一个已交付任务在
+ * Paperclip 侧不存在（本机重置 / 上游清库后残留的 delivered 记录）都会让
+ * control.sync 抛错，整块 serialize 中断 —— 后果是 deliver、workspaces、
+ * scheduler、githubWatcher 全部不跑，而且每 pollMs 刷一条同样的错误。
+ * 现在：逐任务、逐阶段隔离；同一 (任务, 错误) 只写一条审计，避免刷屏。
+ */
+const reportedTickFailures = new Set<string>();
+async function tickStage(name: string, job: () => Promise<unknown>): Promise<void> {
+  try { await job(); }
+  catch (error) {
+    const message = String(error instanceof Error ? error.message : error).slice(0, 300);
+    const key = `${name}:${message}`;
+    if (!reportedTickFailures.has(key)) {
+      reportedTickFailures.add(key);
+      store.audit('tick.stage-failed', null, { stage: name, error: message });
+      console.error(`Background check (${name}):`, message);
+    }
+  }
+}
 async function tick() {
   if (stopping) return;
   try {
     await serialize(async () => {
       for (const task of store.list().filter(t => t.phase === 'delivered')) {
-        await control.sync(task.id);
-        const fresh = store.get(task.id);
-        if (fresh.delivery?.ci === 'passed' && !fresh.delivery.deployedSha) {
-          try { await control.preview(task.id); } catch (error) { store.audit('preview.pending', task.id, { error: String(error).slice(0, 400) }); }
-        }
+        await tickStage(`sync:${task.id}`, async () => {
+          await control.sync(task.id);
+          const fresh = store.get(task.id);
+          if (fresh.delivery?.ci === 'passed' && !fresh.delivery.deployedSha) {
+            try { await control.preview(task.id); } catch (error) { store.audit('preview.pending', task.id, { error: String(error).slice(0, 400) }); }
+          }
+        });
       }
-      await deliver();
-      await workspaces.tick();
-      await teamMemory.tick();
-      await serviceNetwork.tick(); await assistant.tick();
+      await tickStage('deliver', deliver);
+      await tickStage('workspaces', () => workspaces.tick());
+      await tickStage('team-memory', () => teamMemory.tick());
+      await tickStage('service-network', () => serviceNetwork.tick());
+      await tickStage('assistant', () => assistant.tick());
       // 第三十六轮 · 自动化四件套：定时调度器（例行任务 + 到点唤醒复查）与
       // GitHub 监听轮询。失败只写审计，不阻断主循环。
-      try { await scheduler.tick(); } catch (error) { store.audit('scheduler.tick-failed', null, { error: String(error instanceof Error ? error.message : error).slice(0, 300) }); }
-      try { await githubWatcher.tick(); } catch (error) { store.audit('github.tick-failed', null, { error: String(error instanceof Error ? error.message : error).slice(0, 300) }); }
+      await tickStage('scheduler', () => scheduler.tick());
+      await tickStage('github-watch', () => githubWatcher.tick());
     });
   } catch (error) { console.error('Background check:', String(error).slice(0, 500)); }
   if (!stopping) setTimeout(tick, config.pollMs).unref();

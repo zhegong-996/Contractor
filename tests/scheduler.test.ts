@@ -157,3 +157,38 @@ test('automation actor is admin-scoped and carries the automation marker for aud
   assert.equal(actor.automation, 'github-watch');
   assert.equal(actor.userId, 'local-board');
 });
+
+test('a cron routine fires once per occurrence, not before its minute, and stays idempotent', async () => {
+  const f = fixture([{ id: 'weekday-standup', title: '站会', goal: '汇总昨日进展', schedule: { kind: 'cron', expr: '30 9 * * *' }, enabled: true }]);
+  try {
+    const early = await new Scheduler(f.w, f.assistant, f.config, () => new Date('2026-11-09T09:00:00+08:00')).tick();
+    assert.equal(early.routinesTriggered, 0, '09:00 未到 09:30，不得触发');
+    const onTime = await new Scheduler(f.w, f.assistant, f.config, () => new Date('2026-11-09T09:30:10+08:00')).tick();
+    assert.equal(onTime.routinesTriggered, 1, '09:30 触发');
+    const again = await new Scheduler(f.w, f.assistant, f.config, () => new Date('2026-11-09T09:31:00+08:00')).tick();
+    assert.equal(again.routinesTriggered, 0, '同一分钟槽内不重复；30 分钟宽限内也不重复补跑已跑过的槽');
+    assert.equal(f.created.length, 1);
+    assert.match(f.created[0]!.input.requestKey, /^routine:weekday-standup:2026-11-09T09:30$/);
+  } finally { f.close(); }
+});
+
+test('a weekly cron (Sunday 18:00) does not fire on other days', async () => {
+  const f = fixture([{ id: 'weekly-housekeeping', title: '每周整理', goal: '健康检查',
+    schedule: { kind: 'cron', expr: '0 18 * * 0' }, enabled: true }]);
+  try {
+    const monday = await new Scheduler(f.w, f.assistant, f.config, () => new Date('2026-11-09T18:05:00+08:00')).tick();
+    assert.equal(monday.routinesTriggered, 0, '周一不跑周日的班');
+    const sunday = await new Scheduler(f.w, f.assistant, f.config, () => new Date('2026-11-08T18:05:00+08:00')).tick();
+    assert.equal(sunday.routinesTriggered, 1, '周日 18:00 触发');
+    assert.equal(f.created.length, 1);
+  } finally { f.close(); }
+});
+
+test('an invalid cron expression is rejected at config parse time', async () => {
+  const { schedulerConfigSchema } = await import('../src/scheduler.ts');
+  assert.throws(() => schedulerConfigSchema.parse({ enabled: true, routines: [{ id: 'bad', title: 'bad', goal: 'g',
+    schedule: { kind: 'cron', expr: '61 25 * * *' } }], wake: { enabled: true } }), /cron/);
+  const ok = schedulerConfigSchema.parse({ enabled: true, routines: [{ id: 'ok', title: 'ok', goal: 'g',
+    schedule: { kind: 'cron', expr: '0 9 * * 1-5' } }], wake: { enabled: true } });
+  assert.equal(ok.routines[0]!.schedule.kind, 'cron');
+});
