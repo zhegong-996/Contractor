@@ -331,7 +331,7 @@ candidate ──人审确认──▶ confirmed ──撤回──▶ withdrawn
 ```sh
 npm run audit:layers            # 表格：按层分组，每条带断言、证据、说明
 npm run audit:layers -- --json  # JSON：counts / byLayer / checks
-npm test                        # 673 例，含 tests/layers-audit.test.ts（11 例）
+npm test                        # 678 例，含 tests/layers-audit.test.ts（11 例）
 ```
 
 判读口径：

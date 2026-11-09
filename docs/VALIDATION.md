@@ -1036,3 +1036,25 @@ POST /workspace/channel-health  200  verdict=degraded
 - bridge `/health` → `feishu: ready`（发现此前已连续 185 次重连失效，重启后恢复）
 
 **边界（未变）**：读到部门也不改派单、不写职能注册表；草案仍需人工确认并携带注册表修订号导入。
+
+### 同日补记二：组织映射「读错应用」缺陷与防呆
+
+**发现**：准备导入组织表时比对 `.runtime/config.json` 的 `feishu.appId` 与草案的 `appId`，
+两者不一致 —— 收消息的机器人是 `cli_aa61f940a0e15cf4`，而 `lark-cli` 默认 profile 读组织用的是
+`cli_aab018d4daf8dcc7`。`open_id` 按应用隔离，同一人在两边的 id 不同
+（龚哲：`ou_277c…` vs `ou_9b70…`），草案里的 id 无法用于派单匹配。
+
+**修复（防呆先于功能）**
+- `src/feishu-org.ts`：`idScopeVerdict()` + 草案三字段 `botAppId` / `idScopeMismatch` / `idScopeNote`。
+- `scripts/org-mapping.ts apply`：`idScopeMismatch` 为真时拒绝导入（除非 `--force-foreign-app`），拒绝先于请求。
+- `src/v06.ts`：工作台透传，界面上能看见原因。
+
+**回归**
+- `npx tsc --noEmit` 0 错
+- `node --test tests/feishu-org.test.ts` **12/12**（+2）
+- 真实 `npm run org:preview`：`appId=cli_aab018…`、`botAppId=cli_aa61f9…`、
+  `idScopeMismatch=true`、4 名成员，`departmentStructure=flat`
+- paperclip 3100 此前已停止，已重新拉起：`/api/health` → `status: ok / deploymentMode: local_trusted`
+
+**未完成（有意）**：职能注册表未改动。3 人的 id 属于另一个应用，导入只会得到
+「人在册、派单匹配不上」的假成功；补齐机器人应用的通讯录权限后一次导入。

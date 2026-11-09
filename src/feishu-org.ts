@@ -17,7 +17,7 @@ import { promisify } from 'node:util';
 import { existsSync, readFileSync } from 'node:fs';
 import { z } from 'zod';
 import { roleIdSchema } from './roles.ts';
-import { runtime } from './config.ts';
+import { loadConfig, runtime } from './config.ts';
 
 const execute = promisify(execFile);
 
@@ -94,7 +94,17 @@ export interface OrgMappingDraft {
   available: boolean;
   reason?: string;
   source: string;
+  /** 这次读组织用的应用（lark-cli 的 profile 决定）。 */
   appId: string | null;
+  /** 真正收消息、发派单的机器人应用。 */
+  botAppId?: string | null;
+  /**
+   * 读组织的应用 ≠ 收消息的机器人应用时为 true。
+   * 两个应用的 open_id 不通用：这种情况下草案里的人「在册但派单时匹配不上」，
+   * 必须先把机器人应用的通讯录权限补齐再重读，不能直接导入。
+   */
+  idScopeMismatch?: boolean;
+  idScopeNote?: string;
   /**
    * 只在「确实缺部门读取 scope 且一个人都读不到部门」时为 true。
    * 空部门不等于缺权限：租户可以根本没建子部门，成员都挂根部门下。
@@ -115,6 +125,25 @@ export interface OrgMappingDraft {
   excludedByOwner?: OwnerExclusion[];
   members: FeishuOrgMember[];
   note: string;
+}
+
+/**
+ * open_id 只在签发它的应用内有效。读组织用的应用（lark-cli 的 profile）
+ * 必须与收消息的机器人应用是同一个，否则 id 到了派单环节匹配不上。
+ */
+export function idScopeVerdict(appId: string | null, botAppId: string | null):
+  { mismatch: boolean; note: string } {
+  if (!appId || !botAppId || appId === botAppId) return { mismatch: false, note: '' };
+  return {
+    mismatch: true,
+    note: `读组织用的是应用 ${appId}，而收消息的机器人是 ${botAppId}。`
+      + 'open_id 按应用隔离，同一个人在两个应用下的 open_id 不同；'
+      + '直接导入会得到「人在册、派单匹配不上」的结果。需先给机器人应用补齐通讯录权限，再用它的身份重读。',
+  };
+}
+
+function botAppIdOf(): string | null {
+  try { return loadConfig().feishu?.appId || null; } catch { return null; }
 }
 
 async function defaultCommand(args: string[]): Promise<any> {
@@ -143,6 +172,8 @@ export class FeishuOrgService {
       appId = String(status?.appId ?? '') || null;
       grantedScopes = normaliseScopes(status?.identities?.user?.scope ?? status?.scope);
     } catch { /* 身份信息缺失不影响成员读取，草案里如实标 null */ }
+    const botAppId = botAppIdOf();
+    const scopeVerdict = idScopeVerdict(appId, botAppId);
 
     const calls: string[][] = [
       ['contact', '+search-user', '--as', 'user', '--user-ids', 'me', '--format', 'json'],
@@ -215,6 +246,8 @@ export class FeishuOrgService {
       ...(list.length === 0 && lastFailure ? { reason: lastFailure } : {}),
       source: 'lark-cli contact（通讯录部门树 + 聊过的人，当前已授权的 user 身份，最小可见范围）',
       appId, departmentScopeMissing,
+      botAppId,
+      ...(scopeVerdict.mismatch ? { idScopeMismatch: true, idScopeNote: scopeVerdict.note } : {}),
       departmentStructure: structures,
       departmentNote: departmentNoteOf(structures, tree.nodes.length, tree.error),
       authorizationHint: departmentScopeMissing ? ORG_AUTH_HINT : '',

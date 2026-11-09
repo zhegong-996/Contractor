@@ -5,6 +5,7 @@
 //
 // 草案与已导入记录只落在本机 .runtime/v06/，含真实姓名与 open_id，不进仓库。
 import { readFile, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { api } from '../src/client.ts';
 import { runtime } from '../src/config.ts';
 
@@ -22,6 +23,9 @@ if (action === 'preview') {
     departmentScopeMissing: draft.departmentScopeMissing,
     departmentStructure: draft.departmentStructure,
     departmentNote: draft.departmentNote,
+    botAppId: draft.botAppId ?? null,
+    idScopeMismatch: draft.idScopeMismatch === true,
+    ...(draft.idScopeMismatch ? { idScopeNote: draft.idScopeNote } : {}),
     authorizationHint: draft.authorizationHint,
     missingScopes: draft.missingScopes ?? [],
     scopeLogin: draft.missingScopes?.length
@@ -33,6 +37,18 @@ if (action === 'preview') {
 } else if (action === 'apply') {
   const file = process.argv[3];
   if (!file) throw new Error('Usage: npm run org:apply -- <org-table.json>');
+  // open_id 按应用隔离：读组织的应用与收消息的机器人不同应用时，
+  // 导进去的人「在册但派单匹配不上」。宁可拒绝，也不留一份看起来成功的映射。
+  if (!process.argv.includes('--force-foreign-app')) {
+    const draftFile = runtime('org-mapping-draft.json');
+    if (existsSync(draftFile)) {
+      const draft = JSON.parse(await readFile(draftFile, 'utf8')) as any;
+      if (draft?.idScopeMismatch === true) {
+        throw new Error(draft.idScopeNote ?? '组织草案的 open_id 属于另一个应用，不能直接导入；'
+          + '请先给机器人应用补齐通讯录权限后用它的身份重读，或确认无碍后加 --force-foreign-app');
+      }
+    }
+  }
   const table = JSON.parse(await readFile(file, 'utf8'));
   const entries = Array.isArray(table) ? table : table.entries;
   if (!Array.isArray(entries) || !entries.length) throw new Error('组织表为空或格式不正确');

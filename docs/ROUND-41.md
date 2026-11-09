@@ -18,7 +18,7 @@
 
 体检：**45 条 ok 45 / partial 0 / gap 0**（第四十轮 40 条 ok 39 / partial 1）。partial 清零。
 
-测试：**673 / 673**（第四十轮 639，本轮新增 34）。
+测试：**678 / 678**（第四十轮 639；本轮新增 34，同日两次补记再 +3、+2）。
 
 ## 2. 准入三档：不是「多一个开关」，是把「没有下文」补成一条说明
 
@@ -78,7 +78,7 @@
 - **边界不藏**：建管理员（`console:owner`）、飞书授权、真实业务单仍需人做，装完直接打印出来。
 
 **一个如实发现**：`package.json` 的 `engines` 写 `node >= 24.11`，但这台机器实际是 `v22.22.2`，
-全部 673 例测试、类型检查与本机服务都在该版本跑通。所以 preflight 默认**只警告不拦**，
+全部 678 例测试、类型检查与本机服务都在该版本跑通。所以 preflight 默认**只警告不拦**，
 `--strict-node` 才按声明拦截。这个差异写在 `warnings` 里，不静默，也不偷偷改 `engines`。
 
 ## 7. 知识读边界：从 partial 到 ok
@@ -98,7 +98,7 @@
 
 | 命令 | 结果 |
 |---|---|
-| `npm test` | **673 / 673** |
+| `npm test` | **678 / 678** |
 | `npx tsc --noEmit` | 0 错 |
 | `npm run audit:layers` | **45 条：ok 45 / partial 0 / gap 0** |
 | `npm run rules:view` | 七节输出正常，默认值单独列出 |
@@ -154,3 +154,52 @@
 `/health` 返回 `feishu: ready`（顺带发现 bridge 已连续 185 次重连失效，重启后恢复）。
 
 **边界不变**：部门读到了也不改派单、不写职能注册表；草案仍需人工确认 + 携带注册表修订号导入。
+
+## 11. 组织映射：查出一处「读错应用」的真实缺陷（同日补记）
+
+用户交代「都在产研，龚哲是 ceo 权限最大」，并问「飞书可以设置然后映射过去吗」。
+在准备导入组织表时查出：**读组织的应用与收消息的机器人应用不是同一个**，
+草案里的 open_id 因此无法用于派单匹配。
+
+**事实与证据**
+
+| 项 | 值 | 来源 |
+|---|---|---|
+| 收消息的机器人应用 | `cli_aa61f940a0e15cf4` | `.runtime/config.json` 的 `feishu.appId`；`feishu-pairing-evidence.json` |
+| 读组织用的应用（今天实际用的） | `cli_aab018d4daf8dcc7` | `lark-cli auth status` 的默认 profile；草案里的 `appId` |
+| 同一人两个应用下的 open_id | 龚哲：`ou_277c…`（机器人）vs `ou_9b70…`（读组织） | 配对证据 vs 草案 |
+
+`open_id` 按应用隔离，这是飞书的规定，不是本项目选择。所以今天这份草案虽然读到了 4 人，
+但其中 3 人的 id 属于另一个应用：**导进去会「人在册、派单匹配不上」**，
+而且从界面上看不出来 —— 这正是最该避免的一种假成功。
+
+**已落地的防呆（结构而非自觉）**
+
+- `src/feishu-org.ts`：新增 `idScopeVerdict(appId, botAppId)` 纯函数与
+  `botAppId` / `idScopeMismatch` / `idScopeNote` 三个草案字段；读不出任一侧不算冲突。
+- `scripts/org-mapping.ts apply`：草案 `idScopeMismatch === true` 时**直接拒绝导入**，
+  除非显式 `--force-foreign-app`。拒绝发生在发请求之前，不留半份映射。
+- `src/v06.ts`：工作台的组织映射面板透传这三个字段，界面上能直接看到为什么不能导。
+- 契约测试 +2：`idScopeVerdict` 四种组合；`org:apply` 的拒绝先于请求。
+
+**要真正完成映射，缺的是机器人应用的通讯录权限**（不是飞书里建部门）：
+
+当前机器人应用读部门返回 `40004 no dept authority`，读指定成员返回 `41050 no user authority`
+（只能读与它有会话往来的人，龚哲因为配对过所以可读）。补齐下面两个权限后，
+用 `--profile ai-native-collab` 的 user 身份重读，`idScopeMismatch` 会自动变 false：
+
+```
+https://open.feishu.cn/page/scope-apply?clientID=cli_aa61f940a0e15cf4&scopes=contact%3Acontact.base%3Areadonly%2Ccontact%3Adepartment.organize%3Areadonly
+```
+
+替代路径（不改应用权限）：让许家豪、刘玉顺、林恒昌各给机器人发一条消息，
+我就拿到他们在**机器人应用**下的真实 open_id，再导入。
+
+**「权限最大」不经过飞书**：当前安装 `deploymentMode = local_trusted`，
+只有 `local-board` 一个操作者，原生成员目录为空（`team-members.users = []`）。
+飞书身份只承担两件事：消息入口白名单（`allowedSenders`）与配对身份，
+不携带任何系统权限。要按人分权限，得先把安装切到多用户认证模式。
+
+**顺带发现**：检查期间 paperclip（3100）实际已停止（`/health` 连接被拒），
+bridge 的 `/health` 只是回显配置、并不探活下游。已用 `scripts/up.ts up` 拉起，
+`/api/health` 为 `status: ok / deploymentMode: local_trusted`。

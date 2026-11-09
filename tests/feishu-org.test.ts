@@ -9,7 +9,7 @@ import { root } from '../src/config.ts';
 import { V06Services } from '../src/v06.ts';
 import { MemoryV06Store } from '../src/v06-store.ts';
 import { FeishuOrgService, parseOrgTable, ORG_AUTH_HINT,
-  orgAuthCommand, missingOrgScopes, ORG_SCOPE_ADDITIONS } from '../src/feishu-org.ts';
+  orgAuthCommand, missingOrgScopes, ORG_SCOPE_ADDITIONS, idScopeVerdict } from '../src/feishu-org.ts';
 import { registrySchema } from '../src/roles.ts';
 
 const at = '2026-11-06T10:00:00.000Z';
@@ -223,4 +223,25 @@ test('组织映射 action 已登记到编排、只读白名单与工作台面板
   assert.match(v06, /'org-mapping-apply', 'org-mapping-preview'/);
   assert.match(server, /'org-overview','org-mapping-view'/);
   assert.match(panels, /feishuOrg: '飞书组织映射'/);
+});
+
+test('读组织的应用与收消息的机器人不是同一个时，草案必须标明 id 不可直接导入', () => {
+  // open_id 按应用隔离：同一人在两个应用下是两个不同的 id。
+  const mismatch = idScopeVerdict('cli_reader', 'cli_bot');
+  assert.equal(mismatch.mismatch, true);
+  assert.match(mismatch.note, /按应用隔离/);
+  assert.match(mismatch.note, /派单匹配不上/);
+
+  // 同一个应用、或任一侧未知，都不算冲突（未知只代表没读出来，不代表错）。
+  assert.equal(idScopeVerdict('cli_bot', 'cli_bot').mismatch, false);
+  assert.equal(idScopeVerdict(null, 'cli_bot').mismatch, false);
+  assert.equal(idScopeVerdict('cli_reader', null).mismatch, false);
+});
+
+test('草案 id 属于另一个应用时，org:apply 会拒绝导入而不是留一份假成功', () => {
+  const script = readFileSync(path.join(root, 'scripts/org-mapping.ts'), 'utf8');
+  assert.match(script, /idScopeMismatch === true/);
+  assert.match(script, /--force-foreign-app/);
+  // 拒绝要发生在真正发请求之前：先读草案再读组织表。
+  assert.ok(script.indexOf('idScopeMismatch') < script.indexOf('v06-org-mapping-apply'));
 });

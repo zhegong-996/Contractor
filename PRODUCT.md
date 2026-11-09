@@ -19,7 +19,7 @@
 - **知识**：个人区 / 协作区 / 组织区三分区；Agent 写入按业务域收窄；confirmed + HMAC + 未过期才可复用。
 - **验收**：清单开工前锁定、逐项判定、评审者≠产出方、只读工作台无放行按钮、人签只在原会话。
 - **自证**：`npm run audit:layers` 45 条分层契约（ok 45 / partial 0 / gap 0）；通道体检零外部请求；`npm run rules:view` 一份只读规则视图。
-- **验证基线**：`npm test` 673/673、`tsc` 0 错、`console:smoke` 7 视图 + 28 单元矩阵、`guard:smoke` 22/22。
+- **验证基线**：`npm test` 678/678、`tsc` 0 错、`console:smoke` 7 视图 + 28 单元矩阵、`guard:smoke` 22/22。
 - **文档**：产品文档套件见 `docs/product/`；契约见 `docs/LAYER-CONTRACTS.md`；对标见 `docs/BENCHMARK-3UPSTREAM.md`；架构图见 `docs/ARCHITECTURE-DIAGRAMS.html`。
 
 **仍未发生**：多租户与云端部署、全员 SSO、外部模型默认开启（需显式配置）、企微加密模式回调、
