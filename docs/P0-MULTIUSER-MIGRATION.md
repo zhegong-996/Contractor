@@ -65,3 +65,21 @@
 
 **执行前需要你给两样**：① 龚哲的邮箱（建底层账号，会被飞书身份顶替为主入口）；
 ② 确认可以短暂停一下服务（切换 + 建账号约 1-2 分钟窗口）。
+
+## 6. 新增风险（核实后，比原以为的更重）
+
+查 `src/controller.ts:55`：主安装的 paperclip 客户端是 `new Paperclip(config.paperclipUrl)`，**不带 token**，
+靠 `local_trusted` 的 loopback 信任。paperclip 源码注释明确「TLS（或 local_trusted 的 loopback 对端）才免鉴权」。
+
+所以**切 authenticated 不只是改个环境变量**：一切换，bridge → paperclip 的派活/执行/验收整条链会因缺 token 被 401 打断。
+
+正确的 P0 顺序应是：
+
+1. **子步骤 1（先在 local_trusted 下做，零风险）**：给 paperclip 客户端引入 board-token 机制
+   （token 从 secrets 读，`controller.ts` / `runner.ts` / `platform-port.ts` 三处构造都带上），
+   并验证「带 token 调用」在 local_trusted 下照常工作——把地基打好，还不碰模式。
+2. **子步骤 2**：写 `.runtime/deployment-mode.json = authenticated` + 重启（机制已就绪，见 scripts/paperclip.ts），
+   建管理员账号（手机号 18744396807 派生底层 email）+ claim bootstrap + 设 owner。
+3. **子步骤 3（需龚哲在飞书操作）**：生成配对码，龚哲单聊机器人发 `/member-pair <码>`，完成飞书绑定。
+
+已就绪：`scripts/paperclip.ts` 现在读 `deployment-mode.json`（默认仍 local_trusted，不破坏现状）。
