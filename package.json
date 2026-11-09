@@ -77,7 +77,8 @@
     "service": "node --import tsx scripts/service.ts",
     "reconcile": "node --import tsx scripts/reconcile.ts",
     "topic": "node --import tsx scripts/topic.ts",
-    "patrol": "node --import tsx scripts/patrol.ts"
+    "patrol": "node --import tsx scripts/patrol.ts",
+    "artifact": "node --import tsx scripts/artifact.ts"
   },
   "dependencies": {
     "@a2a-js/sdk": "1.3.0",

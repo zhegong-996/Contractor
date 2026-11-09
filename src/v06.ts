@@ -625,6 +625,55 @@ export class V06Services {
     return { topic };
   }
 
+  /** 产物清单：只登记引用与修订，不存内容。 */
+  async artifactListView() {
+    const { runtime } = await import('./config.ts');
+    const { listArtifacts, listContinuations } = await import('./artifact.ts');
+    const dir = runtime('v06');
+    const artifacts = listArtifacts(dir);
+    return {
+      total: artifacts.length,
+      artifacts: artifacts.map(artifact => ({ ref: artifact.ref, title: artifact.title,
+        current: artifact.current, revisions: artifact.revisions.length, updatedAt: artifact.updatedAt })),
+      continuations: listContinuations(dir).length,
+      note: '产物只存引用与修订号，内容仍在原来的文档/报告/表里。',
+    };
+  }
+
+  async artifactView(ref: string) {
+    const { runtime } = await import('./config.ts');
+    const { readArtifact, listContinuations } = await import('./artifact.ts');
+    const dir = runtime('v06');
+    const artifact = readArtifact(dir, ref);
+    if (!artifact) throw new Error(`产物 ${ref} 未登记`);
+    return { artifact, continuations: listContinuations(dir).filter(item => item.ref === artifact.ref) };
+  }
+
+  async artifactRegister(input: any, actor: string) {
+    const { runtime } = await import('./config.ts');
+    const { registerArtifact } = await import('./artifact.ts');
+    const artifact = registerArtifact(runtime('v06'), {
+      ref: String(input.ref ?? ''), title: input.title, revision: String(input.revision ?? ''),
+      by: String(input.by ?? '') || actor, taskId: input.taskId ? String(input.taskId) : null,
+      summary: input.summary,
+    });
+    this.localStore.audit('v06.artifact-registered', artifact.ref,
+      { actor, revision: artifact.current, taskId: input.taskId ?? null });
+    return { artifact };
+  }
+
+  async artifactContinue(input: any, actor: string) {
+    const { runtime } = await import('./config.ts');
+    const { continueArtifact } = await import('./artifact.ts');
+    const result = continueArtifact(runtime('v06'), {
+      ref: String(input.ref ?? ''), by: String(input.by ?? '') || actor,
+      goal: input.goal, note: input.note,
+    });
+    this.localStore.audit('v06.artifact-continued', result.artifact.ref,
+      { actor, fromRevision: result.continuation.fromRevision, continuation: result.continuation.id });
+    return result;
+  }
+
   /**
    * 控制台「验收 / 审查」工作台：一次只读聚合。
    * 只合并既有投影与审查编组，不产生新的验收结论、不改写清单或人签状态。
@@ -868,6 +917,10 @@ export class V06Services {
       case 'topic-view': return this.topicView(p.topicId);
       case 'topic-create': return this.topicCreate(p, who);
       case 'topic-attach': return this.topicAttach(p, who);
+      case 'artifact-list': return this.artifactListView();
+      case 'artifact-view': return this.artifactView(p.ref);
+      case 'artifact-register': return this.artifactRegister(p, who);
+      case 'artifact-continue': return this.artifactContinue(p, who);
       case 'acceptance-discussion-list': return this.acceptanceDiscussionList(p.taskId);
       case 'acceptance-discussion-add': return this.acceptanceDiscussionAdd(p, who);
       case 'acceptance-discussion-resolve': return this.acceptanceDiscussionResolve(p, who);

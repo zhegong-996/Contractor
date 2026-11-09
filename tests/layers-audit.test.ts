@@ -93,7 +93,7 @@ test('知识：读按业务域收窄，且读方域未知时不退回全域放�
 
 test('第四十一轮新增：释放终态 / 越界交回 / 准入三档 / 讨论与区域不参与判定', () => {
   // 纯判定 42 条（运行时 3 条由 scripts/layers-audit.ts 追加，CLI 合计 45）。
-  assert.equal(report.counts.total, 45);
+  assert.equal(report.counts.total, 47);
   for (const id of ['pass-through.release-is-terminal', 'pass-through.out-of-scope-hands-back',
     'agent.admission-three-tiers', 'acceptance.discussion-is-advisory', 'acceptance.regions-are-locators'])
     assert.equal(check(id).status, 'ok', `${id} 不是 ok`);

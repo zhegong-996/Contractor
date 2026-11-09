@@ -9,13 +9,17 @@ import path from 'node:path';
 import { runtime } from '../src/config.ts';
 import { Store } from '../src/store.ts';
 import { diffSnapshot, patrolCard, readSnapshot, writeSnapshot, type TaskMark } from '../src/patrol.ts';
+import { artifactRevisionByTask } from '../src/artifact.ts';
 
 const commit = process.argv.includes('--commit');
 const dir = runtime('v06');
 const store = new Store(path.join(runtime(), 'bridge.sqlite'));
+const revisions = artifactRevisionByTask(dir);
 const marks: Record<string, TaskMark> = {};
 for (const task of store.list()) {
-  marks[task.id] = { phase: String((task as { phase?: string }).phase ?? ''), round: null };
+  const revision = revisions[task.id];
+  marks[task.id] = { phase: String((task as { phase?: string }).phase ?? ''), round: null,
+    ...(revision ? { artifactRevision: revision } : {}) };
 }
 
 const previous = readSnapshot(dir);

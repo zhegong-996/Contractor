@@ -20,6 +20,8 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { reconcile, isReconcileRequest } from './reconcile.ts';
 import { diffSnapshot, patrolCard, type PatrolSnapshot } from './patrol.ts';
+import { artifactRevisionByTask, continueArtifact, readArtifact, registerArtifact } from './artifact.ts';
+import { renderTopicWorkbench } from './topic-workbench.ts';
 import { attachChannel, attachTask, createTopic, readTopic, topicDigest } from './topic.ts';
 import type { RouterConfig } from './config.ts';
 import {
@@ -694,6 +696,38 @@ export function auditLayerContracts(options: LayerAuditOptions = {}): LayerRepor
           `无产物可比=${!nothing.comparable}`, '清单未被对账改写'])
         : miss([`漏验=${drifted.counts.missing}`, `清单外=${drifted.counts.extra}`,
           `无产物可比=${!nothing.comparable}`, `改清单不入对账=${detects}`, `清单未被改写=${untouched}`]);
+    }));
+
+  checks.push(run('artifact.continuation-keeps-history', 'acceptance', '续改接在旧版上，不复制也不覆盖',
+    '同一修订幂等、新修订追加、续改记录来源修订且不建任务、旧修订仍可追溯', () => {
+      const dir = mkdtempSync(path.join(tmpdir(), 'audit-artifact-'));
+      registerArtifact(dir, { ref: 'report:R1', title: '报告', revision: 'r1', by: 'ou_a', taskId: 't1' });
+      const dup = registerArtifact(dir, { ref: 'report:R1', revision: 'r1', by: 'ou_a' });
+      const next = registerArtifact(dir, { ref: 'report:R1', revision: 'r2', by: 'ou_b', taskId: 't2' });
+      const run = continueArtifact(dir, { ref: 'report:R1', by: 'ou_c', goal: '改成 80 人档' });
+      const ok = dup.revisions.length === 1 && next.revisions.length === 2 && next.current === 'r2'
+        && run.continuation.fromRevision === 'r2' && run.continuation.toTaskId === null
+        && readArtifact(dir, 'report:R1')!.revisions.length === 2
+        && /不新建副本/.test(run.brief)
+        && artifactRevisionByTask(dir).t2 === 'r2';
+      return ok
+        ? pass([`修订数=${next.revisions.length}`, `续改来源=${run.continuation.fromRevision}`, '旧修订保留'])
+        : miss([`幂等=${dup.revisions.length}`, `修订数=${next.revisions.length}`, `续改来源=${run.continuation.fromRevision}`]);
+    }));
+
+  checks.push(run('workbench.is-readonly-snapshot', 'acceptance', '工作台是只读快照',
+    '缺状态不猜成正常、数据内嵌不引外部资源、页面上没有写入动作', () => {
+      const dir = mkdtempSync(path.join(tmpdir(), 'audit-wb-'));
+      const topic = createTopic({ title: 'T', goal: 'G', ownerUserId: 'ou_a' }, dir);
+      attachTask({ topicId: topic.id, taskId: 't1', roleId: 'role-product', ownerUserId: 'ou_a' }, dir);
+      const loaded = { ...topic, tasks: [{ taskId: 't1', roleId: 'role-product',
+        ownerUserId: 'ou_a', addedAt: '2026-11-09T00:00:00Z', addedBy: 'ou_a' }] };
+      const html = renderTopicWorkbench(loaded, {});
+      const ok = /unknown/.test(html) && /只读工作台/.test(html)
+        && !/https?:\/\//.test(html) && !/<script src=/.test(html)
+        && !/fetch\(/.test(html) && !/method:\s*'POST'/.test(html);
+      return ok ? pass(['缺状态=unknown', '无外部资源', '无写入动作'])
+        : miss([`外部资源=${/https?:\/\//.test(html)}`, `写入=${/fetch\(/.test(html)}`]);
     }));
 
   checks.push(run('patrol.speaks-only-on-change', 'router', '巡检有变化才出声',

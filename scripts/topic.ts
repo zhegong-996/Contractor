@@ -7,7 +7,13 @@
 //   npm run topic -- attach-channel <topicId> --kind im --ref oc_xxx --owner ou_xxx
 //
 // 主题只做聚合：不派单、不判定、不改任务状态。没有责任人的东西挂不进来。
+import path from 'node:path';
+import { writeFileSync } from 'node:fs';
 import { api } from '../src/client.ts';
+import { runtime } from '../src/config.ts';
+import { Store } from '../src/store.ts';
+import { readTopic } from '../src/topic.ts';
+import { renderTopicWorkbench } from '../src/topic-workbench.ts';
 
 const [action, ...rest] = process.argv.slice(2);
 const value = (name: string): string => {
@@ -43,8 +49,20 @@ if (action === 'list') {
     topicId: rest[0], kind: value('--kind') || 'im', ref: value('--ref'), ownerUserId: value('--owner'),
   }) as any;
   print({ topicId: result?.topic?.id, channels: result?.topic?.channels?.length });
+} else if (action === 'workbench') {
+  // 活文档：数据内嵌、浏览器里联动，不依赖服务在线。
+  const topic = readTopic(String(rest[0] ?? ''));
+  const store = new Store(path.join(runtime(), 'bridge.sqlite'));
+  const states: Record<string, { state: string; blockedReason: string }> = {};
+  for (const task of store.list()) {
+    states[task.id] = { state: String((task as { phase?: string }).phase ?? 'unknown'),
+      blockedReason: String((task as { blockedReason?: string }).blockedReason ?? '') };
+  }
+  const file = path.join(runtime('v06'), 'topics', `${topic.id}.html`);
+  writeFileSync(file, renderTopicWorkbench(topic, { states }), { mode: 0o600 });
+  console.log(file);
 } else {
   console.log('用法：npm run topic -- list | view <id> | create --title … --goal … --owner … | '
-    + 'attach-task <id> --task … --role … --owner … | attach-channel <id> --kind im --ref … --owner …');
+    + 'attach-task <id> --task … --role … --owner … | attach-channel <id> --kind im --ref … --owner … | workbench <id>');
   process.exitCode = 1;
 }
