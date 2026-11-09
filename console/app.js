@@ -90,6 +90,8 @@
   const DUTY_LABELS = { personal: '个人助手', supervisor: '业务域主管', worker: '执行',
     acceptance: '验收', 'standard-drafting': '标准起草', inspection: '周期巡检' };
   const dutyText = id => DUTY_LABELS[id] || '专项协作';
+  const agentLabel = id => ({ 'role-product': '产研', 'role-growth': '增长', 'role-ops': '运营',
+    'codex': '执行 · codex', 'claude': '执行 · claude', 'workbuddy': 'WorkBuddy' }[id] || id);
 
   const fmtTime = value => value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '—';
 
@@ -147,15 +149,19 @@
           <template #header>{{ mode === 'collaboration' ? '任务与责任链' : '最近任务' }}</template>
           <el-alert v-if="summary.__error" :title="'读取失败：' + summary.__error" type="warning" :closable="false" />
           <el-table v-else :data="tasks" size="default" @row-click="openTask">
-            <el-table-column prop="id" label="任务" min-width="220">
-              <template #default="{ row }"><el-link type="primary">{{ row.title || row.id }}</el-link></template>
+            <el-table-column label="任务" min-width="300">
+              <template #default="{ row }">
+                <div class="task-cell">
+                  <div class="task-id">{{ row.identifier || row.id }}</div>
+                  <el-link type="primary" class="task-title">{{ row.title || '（无标题）' }}</el-link>
+                </div>
+              </template>
             </el-table-column>
-            <el-table-column prop="agent" label="负责" width="110" />
+            <el-table-column prop="agent" label="负责" width="120">
+              <template #default="{ row }"><el-tag size="small" effect="plain">{{ agentLabel(row.agent) }}</el-tag></template>
+            </el-table-column>
             <el-table-column label="阶段" width="110">
               <template #default="{ row }"><el-tag :type="phaseTag(row.phase)" effect="light">{{ phaseLabel(row.phase) }}</el-tag></template>
-            </el-table-column>
-            <el-table-column label="更新时间" width="180">
-              <template #default="{ row }">{{ fmtTime(row.updatedAt || row.updated_at) }}</template>
             </el-table-column>
           </el-table>
         </el-card>
@@ -173,21 +179,23 @@
       const summary = ref({}); const loading = ref(true); const taskDrawer = ref(false); const current = ref(null);
       const tasks = computed(() => Array.isArray(summary.value.tasks) ? summary.value.tasks : []);
       const statCards = computed(() => {
-        const phases = { running: 0, waiting: 0, delivered: 0, failed: 0 };
-        for (const t of tasks.value) if (t.phase in phases) phases[t.phase] += 1;
+        const need = { blocked: 0, review: 0, waiting: 0, ready: 0, running: 0, in_progress: 0, dispatched: 0, intake: 0, todo: 0, delivered: 0, accepted: 0, closed: 0 };
+        for (const t of tasks.value) if (t.phase in need) need[t.phase] += 1;
         return [
-          { label: '进行中', value: phases.running }, { label: '待回答/等待', value: phases.waiting },
-          { label: '已交付', value: phases.delivered }, { label: '失败', value: phases.failed },
+          { label: '待我拍板', value: need.blocked + need.review + need.waiting + need.ready },
+          { label: '进行中', value: need.running + need.in_progress + need.dispatched + need.intake + need.todo },
+          { label: '待验收', value: need.delivered },
+          { label: '已完成', value: need.accepted + need.closed },
         ];
       });
       const phaseLabel = p => ({ running: '进行中', waiting: '等待', delivered: '已交付', failed: '失败', todo: '待办', blocked: '受阻',
-        intake: '待接入', dispatched: '已派单', in_progress: '进行中', review: '待评审', accepted: '已验收', closed: '已结束', draft: '草稿' }[p] || p || '—');
+        intake: '待接入', dispatched: '已派单', in_progress: '进行中', review: '待评审', ready: '待人处理', accepted: '已验收', closed: '已结束', draft: '草稿' }[p] || p || '—');
       const phaseTag = p => ({ running: 'primary', waiting: 'warning', delivered: 'success', failed: 'danger', blocked: 'danger',
-        accepted: 'success', review: 'warning', closed: 'info', draft: 'info', dispatched: 'primary', intake: 'info', in_progress: 'primary', todo: 'info' }[p] || 'info');
+        ready: 'warning', accepted: 'success', review: 'warning', closed: 'info', draft: 'info', dispatched: 'primary', intake: 'info', in_progress: 'primary', todo: 'info' }[p] || 'info');
       const load = async () => { loading.value = true; summary.value = await safe('view-summary'); loading.value = false; };
       const openTask = row => { current.value = row; taskDrawer.value = true; };
       onMounted(load);
-      return { summary, loading, tasks, statCards, phaseLabel, phaseTag, load, openTask, taskDrawer, current, fmtTime };
+      return { summary, loading, tasks, statCards, phaseLabel, phaseTag, load, openTask, taskDrawer, current, fmtTime, agentLabel };
     },
   };
 
@@ -200,15 +208,19 @@
           <template #header>任务与责任链</template>
           <el-alert v-if="summary.__error" :title="'读取失败：' + summary.__error" type="warning" :closable="false" />
           <el-table v-else :data="tasks" size="default" @row-click="openTask">
-            <el-table-column prop="id" label="任务" min-width="220">
-              <template #default="{ row }"><el-link type="primary">{{ row.title || row.id }}</el-link></template>
+            <el-table-column label="任务" min-width="300">
+              <template #default="{ row }">
+                <div class="task-cell">
+                  <div class="task-id">{{ row.identifier || row.id }}</div>
+                  <el-link type="primary" class="task-title">{{ row.title || '（无标题）' }}</el-link>
+                </div>
+              </template>
             </el-table-column>
-            <el-table-column prop="agent" label="负责" width="110" />
+            <el-table-column prop="agent" label="负责" width="120">
+              <template #default="{ row }"><el-tag size="small" effect="plain">{{ agentLabel(row.agent) }}</el-tag></template>
+            </el-table-column>
             <el-table-column label="阶段" width="110">
               <template #default="{ row }"><el-tag :type="phaseTag(row.phase)" effect="light">{{ phaseLabel(row.phase) }}</el-tag></template>
-            </el-table-column>
-            <el-table-column label="更新时间" width="180">
-              <template #default="{ row }">{{ fmtTime(row.updatedAt || row.updated_at) }}</template>
             </el-table-column>
           </el-table>
         </el-card>
@@ -353,7 +365,7 @@
       });
       return { summary, tasks, routing, router, coverage, threeTier, shapeReady, registry, agents, evolution, candidates,
         comparison, execution, missing, missingText, domainText, phaseLabel, phaseTag, openTask, taskDrawer, current,
-        clean, dutyText, fmtTime };
+        clean, dutyText, fmtTime, agentLabel };
     },
   };
 

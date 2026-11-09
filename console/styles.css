@@ -123,3 +123,8 @@ html.dark .login-wrap { background: linear-gradient(160deg, #141a24 0%, var(--el
   background: var(--el-fill-color-blank);
 }
 .thread-item.resolved { opacity: .62; }
+
+/* 任务看板：任务号 + 人话标题（第五十五轮「能看懂」改造） */
+.task-cell { display: flex; flex-direction: column; gap: 2px; align-items: flex-start; }
+.task-id { font-size: 11px; color: var(--el-text-color-secondary); font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+.task-title { font-size: 13px; justify-content: flex-start; }

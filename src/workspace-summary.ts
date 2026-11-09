@@ -94,9 +94,40 @@ function clip(text: unknown, max: number): string {
   return value.length > max ? value.slice(0, max) + '…' : value;
 }
 
-function localTitle(task: Task): string {
+/**
+ * 从任务的 context JSON 里抽出「人话标题 + 目标」。
+ * context 是一段 JSON（{request: "…"}），直接取第一行会得到 `{`；
+ * 这里解析出 request 字段，标题取 request 的第一句，目标取全文。
+ */
+function requestOf(task: Task): { title: string; goal: string } {
+  const identifier = String(task.identifier ?? '');
+  let request = '';
+  try {
+    const parsed = JSON.parse(String(task.context ?? '{}'));
+    if (parsed && typeof parsed === 'object' && typeof (parsed as { request?: unknown }).request === 'string') {
+      request = (parsed as { request: string }).request.trim();
+    }
+  } catch { /* context 不是 JSON，退回原逻辑 */ }
+  if (request) {
+    const firstLine = request.split('\n')[0] ?? '';
+    return {
+      title: clip(firstLine || identifier || '未命名任务', VIEW_SUMMARY_TITLE_LIMIT),
+      goal: clip(request, VIEW_SUMMARY_GOAL_LIMIT),
+    };
+  }
   const firstLine = String(task.context ?? '').split('\n')[0] ?? '';
-  return clip(firstLine || task.identifier || '未命名任务', VIEW_SUMMARY_TITLE_LIMIT);
+  return {
+    title: clip(firstLine || identifier || '未命名任务', VIEW_SUMMARY_TITLE_LIMIT),
+    goal: '',
+  };
+}
+
+function localTitle(task: Task): string {
+  return requestOf(task).title;
+}
+
+function localGoal(task: Task): string {
+  return requestOf(task).goal;
 }
 
 export function buildWorkspaceSummary(input: ViewSummaryInput): ViewSummary {
@@ -113,7 +144,7 @@ export function buildWorkspaceSummary(input: ViewSummaryInput): ViewSummary {
       id: task.id,
       identifier: task.identifier,
       title: host && host.title ? clip(host.title, VIEW_SUMMARY_TITLE_LIMIT) : localTitle(task),
-      goal: host ? clip(host.goal, VIEW_SUMMARY_GOAL_LIMIT) : '',
+      goal: host ? clip(host.goal, VIEW_SUMMARY_GOAL_LIMIT) : localGoal(task),
       agent: task.agent,
       phase: task.phase,
       generation: task.generation,

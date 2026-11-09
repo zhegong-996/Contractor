@@ -137,3 +137,20 @@ test('P-5 统计与连接标记如实透传，空页也不编造', () => {
   assert.equal(empty.page.hasMore, false);
   assert.equal(empty.titleSource, 'local');
 });
+
+test('context 是 JSON 时，标题提取 request 而不是 JSON 开头的花括号', () => {
+  const jsonTask = task(0, {
+    context: JSON.stringify({ id: 'x', identifier: 'SUI-999', request: '检查知识库最近一周新增条目\n第二行是细节' }),
+  });
+  const summary = buildWorkspaceSummary({ tasks: [jsonTask], actor: admin, spaceCount: 0, sourceCount: 0, feishuConnected: false, assistantAvailable: false, configurableAgents: 0 });
+  const t = summary.tasks[0]!;
+  assert.ok(t.title.startsWith('检查知识库'), `标题应是 request 第一句，实际是「${t.title}」`);
+  assert.ok(!t.title.startsWith('{'), `标题不应是 JSON 花括号，实际是「${t.title}」`);
+  assert.match(t.goal, /第二行是细节/, 'goal 应含 request 全文');
+});
+
+test('context 不是 JSON 时，退回取第一行', () => {
+  const plain = task(1, { context: '本地指令 1\n第二行不应出现在摘要' });
+  const summary = buildWorkspaceSummary({ tasks: [plain], actor: admin, spaceCount: 0, sourceCount: 0, feishuConnected: false, assistantAvailable: false, configurableAgents: 0 });
+  assert.equal(summary.tasks[0]!.title, '本地指令 1');
+});
