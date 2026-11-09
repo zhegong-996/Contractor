@@ -100,12 +100,20 @@ export const configSchema = z.object({
     visualReviewer: z.object({
       // 'structural' is deterministic and needs NO model service (it verifies
       // visual evidence binding, not semantic image content). 'model' wires an
-      // OpenAI-compatible LOCAL endpoint when a vision model is available.
+      // OpenAI-compatible endpoint (local by default; external only with the
+      // explicit authorisation in `external` below).
       mode: z.enum(['structural', 'model']).default('structural'),
       model: z.string().min(1).default('structural-vision-reviewer'),
       endpoint: z.string().url().optional(),
+      // 外部视觉模型（如 DeepSeek VL）：真实业务截图外发必须显式授权 +
+      // host 白名单 + https，否则一律走本机端点。key 从 apiKeyEnv 读。
+      external: z.object({
+        enabled: z.boolean().default(false),
+        allowedHosts: z.array(z.string()).default(['api.deepseek.com']),
+        apiKeyEnv: z.string().default('SUITME_VISION_API_KEY'),
+      }).default(() => ({ enabled: false, allowedHosts: ['api.deepseek.com'], apiKeyEnv: 'SUITME_VISION_API_KEY' })),
       timeoutMs: z.number().int().min(1000).max(60000).default(15000),
-    }).default(() => ({ mode: 'structural' as const, model: 'structural-vision-reviewer', timeoutMs: 15000 })),
+    }).default(() => ({ mode: 'structural' as const, model: 'structural-vision-reviewer', timeoutMs: 15000, external: { enabled: false, allowedHosts: ['api.deepseek.com'], apiKeyEnv: 'SUITME_VISION_API_KEY' } })),
   }).optional(),
   // v0.6 runtime guard. Enforcement is ON by default now that the notification
   // gateway protects every human-required message: low-value / self-progress

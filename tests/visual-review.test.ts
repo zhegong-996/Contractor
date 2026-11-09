@@ -140,3 +140,41 @@ test('本地视觉模型适配器只允许本机端点，避免把真实材料�
   assert.doesNotThrow(() => new LocalModelVisionAdapter('http://127.0.0.1:8090/v1/chat/completions', 'vision', 1000));
   assert.equal(new StructuralVisionAdapter().semanticJudgement, false);
 });
+
+test('外部视觉模型适配器：必须 https 且 host 在授权白名单内', async () => {
+  const { ExternalVisionAdapter } = await import('../src/visual-review.ts');
+  assert.throws(() => new ExternalVisionAdapter('http://api.deepseek.com/v1/chat/completions', 'vl', 1000,
+    ['api.deepseek.com'], 'SUITME_VISION_API_KEY'), /必须使用 https/);
+  assert.throws(() => new ExternalVisionAdapter('https://evil.example.com/v1/chat/completions', 'vl', 1000,
+    ['api.deepseek.com'], 'SUITME_VISION_API_KEY'), /不在授权白名单/);
+  assert.doesNotThrow(() => new ExternalVisionAdapter('https://api.deepseek.com/v1/chat/completions', 'vl', 1000,
+    ['api.deepseek.com'], 'SUITME_VISION_API_KEY'));
+});
+
+test('外部视觉模型适配器无密钥时诚实报错，不假装判了视觉内容', async () => {
+  const { ExternalVisionAdapter } = await import('../src/visual-review.ts');
+  const plan = createPlan({ taskId, names: ['A'], lockedBy: 'owner', producerModel: 'producer-gpt', reviewerModel: 'external-vision:vl' });
+  const adapter = new ExternalVisionAdapter('https://api.deepseek.com/v1/chat/completions', 'vl', 1000,
+    ['api.deepseek.com'], 'SUITME_VISION_API_KEY');
+  await assert.rejects(() => adapter.review({ plan, producerModel: 'producer-gpt', events: [], artifacts: [] }),
+    /未配置密钥/);
+});
+
+test('visualAdapterFor：external 授权下选外部适配器，否则保持本机适配器', async () => {
+  const { visualAdapterFor, ExternalVisionAdapter, LocalModelVisionAdapter } = await import('../src/visual-review.ts');
+  const external = configSchema.parse({ ...base, acceptance: { mode: 'independent',
+    visualReviewer: { mode: 'model', model: 'deepseek-vl-chat', endpoint: 'https://api.deepseek.com/v1/chat/completions',
+      external: { enabled: true, allowedHosts: ['api.deepseek.com'], apiKeyEnv: 'SUITME_VISION_API_KEY' } } } });
+  assert.ok(visualAdapterFor(external) instanceof ExternalVisionAdapter);
+  const local = configSchema.parse({ ...base, acceptance: { mode: 'independent',
+    visualReviewer: { mode: 'model', model: 'apple-vision-local', endpoint: 'http://127.0.0.1:4190/v1/chat/completions' } } });
+  assert.ok(visualAdapterFor(local) instanceof LocalModelVisionAdapter);
+});
+
+test('reviewerIdFor 区分外部与本地视觉模型', () => {
+  const external = configSchema.parse({ ...base, acceptance: { mode: 'independent',
+    visualReviewer: { mode: 'model', model: 'deepseek-vl-chat', endpoint: 'https://api.deepseek.com/v1/chat/completions',
+      external: { enabled: true } } } });
+  assert.equal(reviewerIdFor(external), 'external-vision:deepseek-vl-chat');
+  assert.equal(reviewerIdFor(independent), 'structural-vision-reviewer');
+});

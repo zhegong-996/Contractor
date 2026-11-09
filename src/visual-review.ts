@@ -108,6 +108,42 @@ export class StructuralVisionAdapter implements VisualReviewAdapter {
   }
 }
 
+/** 组装 OpenAI 兼容的视觉评审请求体（本地与外部适配器共用）。 */
+function buildVisionBody(request: VisualReviewRequest, model: string, options: { maxTokens?: number; effort?: string } = {}): string {
+  const content: unknown[] = [{ type: 'text', text: JSON.stringify({
+    instruction: '按开工前锁定的逐项标准，独立判定每项是否通过；只能依据所提供的截图/录屏与事件证据，不得臆测。',
+    producerModel: request.producerModel,
+    items: request.plan.items,
+    events: request.events.map(e => ({ id: eventId(e), kind: e.kind, evidenceKind: e.evidenceKind, outcome: e.outcome })),
+    artifacts: request.artifacts.map(({ bytesBase64, ...rest }) => ({ ...rest })),
+    // Each decoded image maps 1:1 to the artifact that supplied its bytes,
+    // so the reviewer can bind verdict refs to the right trace event.
+    visualImages: request.artifacts.filter(a => a.bytesBase64 && a.kind === 'screenshot')
+      .map(a => ({ eventId: a.eventId, itemId: a.itemId, kind: a.kind })),
+    outputSchema: '{"verdicts":[{"itemId":"","status":"passed|failed|blocked","reason":"","refs":[]}],"limitations":[]}',
+  }) }];
+  for (const artifact of request.artifacts) if (artifact.bytesBase64 && artifact.kind === 'screenshot')
+    content.push({ type: 'image_url', image_url: { url: `data:${artifact.mimeType ?? 'image/png'};base64,${artifact.bytesBase64}` } });
+  const body: Record<string, unknown> = { model, messages: [{ role: 'user', content }], temperature: 0 };
+  if (options.maxTokens) body.max_tokens = options.maxTokens;
+  if (options.effort) body.effort = options.effort;
+  return JSON.stringify(body);
+}
+
+/** 解析 OpenAI 兼容响应里的结构化判定；拒绝验收清单之外的 itemId。 */
+function parseVisionResponse(text: string, plan: AcceptancePlan): { verdicts: VisualVerdict[]; limitations: string[] } {
+  let payload: unknown;
+  try { payload = JSON.parse(text); } catch { throw new Error('视觉评审模型返回了非 JSON 响应'); }
+  const contentText = String((payload as { choices?: { message?: { content?: string } }[] })?.choices?.[0]?.message?.content ?? '')
+    .replace(/^```(?:json)?|```$/g, '').trim();
+  let parsed: unknown;
+  try { parsed = JSON.parse(contentText); } catch { throw new Error('视觉评审模型输出不是合法 JSON'); }
+  const result = z.object({ verdicts: z.array(visualVerdictSchema), limitations: z.array(z.string()).default([]) }).parse(parsed);
+  const allowed = new Set(plan.items.map(i => i.id));
+  if (result.verdicts.some(v => !allowed.has(v.itemId))) throw new Error('视觉评审返回了验收清单之外的检查项');
+  return { verdicts: result.verdicts, limitations: result.limitations };
+}
+
 /** Optional real vision model. Endpoint must be local; key comes from env only. */
 export class LocalModelVisionAdapter implements VisualReviewAdapter {
   readonly id: string;
@@ -147,43 +183,51 @@ export class LocalModelVisionAdapter implements VisualReviewAdapter {
   }
   async review(request: VisualReviewRequest): Promise<VisualReviewOutput> {
     const apiKey = process.env.SUITME_VISION_API_KEY ?? '';
-    const content: unknown[] = [{ type: 'text', text: JSON.stringify({
-      instruction: '按开工前锁定的逐项标准，独立判定每项是否通过；只能依据所提供的截图/录屏与事件证据，不得臆测。',
-      producerModel: request.producerModel,
-      items: request.plan.items,
-      events: request.events.map(e => ({ id: eventId(e), kind: e.kind, evidenceKind: e.evidenceKind, outcome: e.outcome })),
-      artifacts: request.artifacts.map(({ bytesBase64, ...rest }) => ({ ...rest })),
-      // Each decoded image maps 1:1 to the artifact that supplied its bytes,
-      // so the local reviewer can bind verdict refs to the right trace event.
-      visualImages: request.artifacts.filter(a => a.bytesBase64 && a.kind === 'screenshot')
-        .map(a => ({ eventId: a.eventId, itemId: a.itemId, kind: a.kind })),
-      outputSchema: '{"verdicts":[{"itemId":"","status":"passed|failed|blocked","reason":"","refs":[]}],"limitations":[]}',
-    }) }];
-    for (const artifact of request.artifacts) if (artifact.bytesBase64 && artifact.kind === 'screenshot')
-      content.push({ type: 'image_url', image_url: { url: `data:${artifact.mimeType ?? 'image/png'};base64,${artifact.bytesBase64}` } });
-    const response = await this.post(JSON.stringify({
-      model: this.model, messages: [{ role: 'user', content }], temperature: 0,
-    }), apiKey);
+    const response = await this.post(buildVisionBody(request, this.model), apiKey);
     if (response.status < 200 || response.status >= 300)
       throw new Error(`视觉评审模型返回 ${response.status}`);
-    let payload: any;
-    try { payload = JSON.parse(response.text); }
-    catch { throw new Error('本机视觉评审模型返回了非 JSON 响应'); }
-    const text = String(payload?.choices?.[0]?.message?.content ?? '').replace(/^```(?:json)?|```$/g, '').trim();
-    let parsed: unknown;
-    try { parsed = JSON.parse(text); } catch { throw new Error('视觉评审模型输出不是合法 JSON'); }
-    const result = z.object({ verdicts: z.array(visualVerdictSchema), limitations: z.array(z.string()).default([]) }).parse(parsed);
-    // A model may not judge items that were not in the sealed plan.
-    const allowed = new Set(request.plan.items.map(i => i.id));
-    if (result.verdicts.some(v => !allowed.has(v.itemId))) throw new Error('视觉评审返回了验收清单之外的检查项');
-    return { verdicts: result.verdicts, limitations: result.limitations };
+    return parseVisionResponse(response.text, request.plan);
+  }
+}
+
+/** 明确授权的外部视觉模型（如 DeepSeek VL）。真实业务截图外发，需 https + host 白名单。 */
+export class ExternalVisionAdapter implements VisualReviewAdapter {
+  readonly id: string;
+  readonly semanticJudgement = true;
+  private readonly apiKey: string;
+  constructor(private readonly endpoint: string, private readonly model: string,
+    private readonly timeoutMs: number, allowedHosts: readonly string[],
+    apiKeyEnv: string, reviewerId?: string) {
+    const url = new URL(endpoint);
+    if (url.protocol !== 'https:') throw new Error('外部视觉模型端点必须使用 https，不得明文发送业务截图');
+    if (!allowedHosts.includes(url.hostname))
+      throw new Error(`视觉评审外部端点 ${url.hostname} 不在授权白名单（${allowedHosts.join('、')}）内`);
+    this.apiKey = process.env[apiKeyEnv] ?? process.env.COGNEE_LLM_API_KEY ?? '';
+    this.id = reviewerId ?? `external-vision:${model}`;
+  }
+  async review(request: VisualReviewRequest): Promise<VisualReviewOutput> {
+    if (!this.apiKey) throw new Error('外部视觉模型未配置密钥（SUITME_VISION_API_KEY 与 COGNEE_LLM_API_KEY 均为空）');
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    try {
+      const response = await fetch(this.endpoint, {
+        method: 'POST', signal: controller.signal,
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${this.apiKey}` },
+        body: buildVisionBody(request, this.model, { maxTokens: 4000, effort: 'low' }),
+      });
+      if (!response.ok) throw new Error(`外部视觉模型返回 ${response.status}`);
+      return parseVisionResponse(await response.text(), request.plan);
+    } finally { clearTimeout(timer); }
   }
 }
 
 export function visualAdapterFor(config: Config): VisualReviewAdapter {
   const spec = config.acceptance?.visualReviewer;
   if (spec?.mode === 'model') {
-    if (!spec.endpoint) throw new Error('视觉评审模型模式需要 acceptance.visualReviewer.endpoint（本机地址）');
+    if (!spec.endpoint) throw new Error('视觉评审模型模式需要 acceptance.visualReviewer.endpoint');
+    if (spec.external?.enabled)
+      return new ExternalVisionAdapter(spec.endpoint, spec.model, spec.timeoutMs,
+        spec.external.allowedHosts, spec.external.apiKeyEnv, reviewerIdFor(config));
     return new LocalModelVisionAdapter(spec.endpoint, spec.model, spec.timeoutMs, reviewerIdFor(config));
   }
   return new StructuralVisionAdapter();
@@ -192,7 +236,8 @@ export function visualAdapterFor(config: Config): VisualReviewAdapter {
 /** The identity recorded in the sealed plan and in every review round. */
 export function reviewerIdFor(config: Config): string {
   const spec = config.acceptance?.visualReviewer;
-  return spec?.mode === 'model' ? `local-vision:${spec.model}` : (spec?.model ?? 'structural-vision-reviewer');
+  if (spec?.mode === 'model') return spec.external?.enabled ? `external-vision:${spec.model}` : `local-vision:${spec.model}`;
+  return spec?.model ?? 'structural-vision-reviewer';
 }
 
 export function acceptanceChainEnabled(config: Config): boolean {

@@ -5,7 +5,8 @@ const input = { profiles: [{ id: 'fast', name: '轻量事务', tier: 'fast', pro
   bindings: [{ agent: 'executor', fast: 'fast', standard: '', code: '' }], externalRequestsEnabled: false };
 test('model drafts cannot enable a provider, carry credentials, or bind an unauthorized identity', () => {
   assert.equal(validateModelSettings(input, ['executor']).externalRequestsEnabled, false);
-  assert.throws(() => validateModelSettings({ ...input, externalRequestsEnabled: true }, ['executor']));
+  // 外部请求开关从「写死关闭」改为「可显式开启」：true 是合法的，默认仍 false。
+  assert.equal(validateModelSettings({ ...input, externalRequestsEnabled: true }, ['executor']).externalRequestsEnabled, true);
   assert.throws(() => validateModelSettings({ ...input, profiles: [{ ...input.profiles[0], apiKey: 'forbidden' }] }, ['executor']));
   assert.throws(() => validateModelSettings(input, ['another-executor']), /未配置/);
   assert.throws(() => validateModelSettings({ ...input, bindings: [{ ...input.bindings[0], code: 'fast' }] }, ['executor']), /分层/);

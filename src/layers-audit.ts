@@ -26,6 +26,7 @@ import { renderTopicWorkbench } from './topic-workbench.ts';
 import { canDecide, decide, openDecision, REQUIRED_CAPABILITY } from './decision-point.ts';
 import { tallyVerdicts, arbitrate } from './countersign.ts';
 import { contentHash, seal, verifySeal } from './content-seal.ts';
+import { ExternalVisionAdapter } from './visual-review.ts';
 import { attachChannel, attachTask, createTopic, readTopic, topicDigest } from './topic.ts';
 import type { RouterConfig } from './config.ts';
 import {
@@ -856,18 +857,17 @@ export function auditLayerContracts(options: LayerAuditOptions = {}): LayerRepor
 
   /* ------------------------------------------------------------ 个性化 */
   checks.push(run('personal.model-binding-guarded', 'personalization', '每人模型绑定受校验',
-    '执行身份必须存在、档位必须一致、外部请求必须关闭；三处任一不符即拒绝保存', () => {
+    '执行身份必须存在、档位必须一致、外部请求默认关闭（显式开启后才允许）', () => {
       const good = validateModelSettings(MODEL_SETTINGS, ['worker-a']);
-      let unknownAgent = '', tierMismatch = '', external = '';
+      let unknownAgent = '', tierMismatch = '';
       try { validateModelSettings({ ...MODEL_SETTINGS, bindings: [{ agent: 'ghost', fast: 'fast', standard: 'standard', code: 'code' }] }, ['worker-a']); }
       catch (error) { unknownAgent = msg(error); }
       try { validateModelSettings({ ...MODEL_SETTINGS, bindings: [{ agent: 'worker-a', fast: 'fast', standard: 'fast', code: 'code' }] }, ['worker-a']); }
       catch (error) { tierMismatch = msg(error); }
-      try { validateModelSettings({ ...MODEL_SETTINGS, externalRequestsEnabled: true }, ['worker-a']); }
-      catch (error) { external = msg(error); }
-      return good.bindings.length === 1 && Boolean(unknownAgent) && Boolean(tierMismatch) && Boolean(external)
-        ? pass([`合法=${good.bindings.length} 条绑定`, `未知身份=${unknownAgent}`, `档位不符=${tierMismatch}`, `外发=${external.slice(0, 40)}`])
-        : miss([`未知身份=${unknownAgent || '未拒绝'}`, `档位=${tierMismatch || '未拒绝'}`]);
+      const externalDefaultOff = validateModelSettings(MODEL_SETTINGS, ['worker-a']).externalRequestsEnabled === false;
+      return good.bindings.length === 1 && Boolean(unknownAgent) && Boolean(tierMismatch) && externalDefaultOff
+        ? pass([`合法=${good.bindings.length} 条绑定`, `未知身份=${unknownAgent}`, `档位不符=${tierMismatch}`, `外发默认关=${externalDefaultOff}`])
+        : miss([`未知身份=${unknownAgent || '未拒绝'}`, `档位=${tierMismatch || '未拒绝'}`, `外发默认关=${externalDefaultOff}`]);
     }));
 
   checks.push(run('personal.own-knowledge-space', 'personalization', '个人区可自建',
@@ -890,6 +890,23 @@ export function auditLayerContracts(options: LayerAuditOptions = {}): LayerRepor
         && handoff?.action === 'handoff' && legacy?.action === 'accept' && legacy.fromLegacySyntax
         ? pass([`确认验收→${accept.action}`, `打回→${reject.action}`, `转交→${handoff.action}`, `旧命令→${legacy.action}`])
         : miss([`accept=${accept?.action}`, `reject=${reject?.action}`, `handoff=${handoff?.action}`]);
+    }));
+
+  checks.push(run('acceptance.vision-review-external-gated', 'permission', '外部视觉评审需 https + 白名单授权',
+    'http 拒绝、非白名单 host 拒绝、白名单 https 接受、语义判定开启', () => {
+      let httpRejected = false, hostRejected = false;
+      try { new ExternalVisionAdapter('http://api.deepseek.com/v1/chat/completions', 'vl', 1000,
+        ['api.deepseek.com'], 'SUITME_VISION_API_KEY'); }
+      catch (error) { httpRejected = /必须使用 https/.test(msg(error)); }
+      try { new ExternalVisionAdapter('https://evil.example.com/v1/chat/completions', 'vl', 1000,
+        ['api.deepseek.com'], 'SUITME_VISION_API_KEY'); }
+      catch (error) { hostRejected = /不在授权白名单/.test(msg(error)); }
+      const external = new ExternalVisionAdapter('https://api.deepseek.com/v1/chat/completions', 'vl', 1000,
+        ['api.deepseek.com'], 'SUITME_VISION_API_KEY');
+      const ok = httpRejected && hostRejected && external.semanticJudgement === true;
+      return ok
+        ? pass([`http 拒绝=${httpRejected}`, `白名单拒绝=${hostRejected}`, `语义判定=${external.semanticJudgement}`])
+        : miss([`http 拒绝=${httpRejected}`, `白名单拒绝=${hostRejected}`]);
     }));
 
   /* -------------------------------------------------------------- 汇总 */

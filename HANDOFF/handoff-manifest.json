@@ -128,7 +128,7 @@
     "收尾修复：reviewSource 改用评审后 revision，消除真实链路悬空 lineage；历史 append-only 日志中的旧行不物理删除"
   ],
   "validation": {
-    "unitTests": "681/681",
+    "unitTests": "723/723",
     "typecheck": "pass",
     "buildWorkspaces": "pass",
     "buildChineseShell": "pass (hiddenEntries 4, missed 0, warning null；前台重跑，后台沙箱批量删除保护为已知坑)",
@@ -313,7 +313,7 @@
     "不要把升级闸当成代批通道（恒「不代为批准」）、不要让团队包导入提权、不要让 Skill 默认开启或绕过内容哈希校验"
   ],
   "finalValidationAtHandoff": {
-    "unitTests": "681/681",
+    "unitTests": "723/723",
     "typecheck": "pass",
     "layersAudit": "45 条（ok 45 / partial 0 / gap 0）",
     "consoleSmoke": "ok:true, 58/58（7 视图 × 2 主题 × 2 宽度 = 28 单元验收矩阵，含白屏检测与键盘逐键）",

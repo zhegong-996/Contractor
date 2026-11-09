@@ -10,7 +10,7 @@ export const modelSettingsInput = z.object({
     maxInputChars: z.number().int().min(1000).max(80000), maxOutputTokens: z.number().int().min(128).max(16384),
   }).strict()).min(1).max(12),
   bindings: z.array(z.object({ agent: z.string(), fast: z.string(), standard: z.string(), code: z.string() }).strict()).max(100),
-  externalRequestsEnabled: z.literal(false),
+  externalRequestsEnabled: z.boolean(),
 }).strict();
 export type ModelSettings = z.infer<typeof modelSettingsInput>;
 export function validateModelSettings(value: unknown, participants: string[]) {
@@ -48,7 +48,7 @@ export class ModelSettingsService {
       for (const agent of participants) if (!settings.bindings.some(b => b.agent === agent)) settings.bindings.push({ agent, fast: '', standard: '', code: '' });
       revision = doc.latestRevisionId;
     }
-    return { settings, revision, activeMode: 'existing-cli', externalRequestsEnabled: false,
+    return { settings, revision, activeMode: 'existing-cli', externalRequestsEnabled: settings.externalRequestsEnabled,
       currentAssistant: { engine: this.w.config.assistant?.engine ?? 'codex', model: this.w.config.assistant?.model ?? null },
       identities: this.w.participantKeys().map(key => ({ key, name: this.w.config.agents[key]!.name,
         mode: this.w.config.agents[key]!.mode, engine: this.w.config.agents[key]!.use, model: this.w.config.agents[key]!.model ?? null })),
@@ -66,7 +66,7 @@ export class ModelSettingsService {
     await this.w.pc.request('PUT', '/issues/' + catalog.modelRegistryIssueId + '/documents/model-settings', {
       title: '模型配置与委托策略', format: 'markdown', body: JSON.stringify(settings, null, 2), baseRevisionId: expectedRevision,
     });
-    this.w.store.audit('models.configuration-saved', catalog.modelRegistryIssueId!, { profileCount: settings.profiles.length, externalRequestsEnabled: false });
+    this.w.store.audit('models.configuration-saved', catalog.modelRegistryIssueId!, { profileCount: settings.profiles.length, externalRequestsEnabled: settings.externalRequestsEnabled });
     return this.read(actor);
   }
 }

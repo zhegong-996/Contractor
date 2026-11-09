@@ -6,9 +6,10 @@
 
 ## 1. 一句话结论
 
-这个系统目前的 LLM 只出现在**执行**（codex/claude 外部 CLI）和**知识实体抽取**（Cognee + DeepSeek）
-两处，且都是独立进程。**评审、路由、准入、判定这些「中间过程」是零模型的确定性规则**——
-这不是「不需要模型」，而是「模型化评审/判定还没做，模型网关被 `z.literal(false)` 写死关闭」。
+这个系统目前的 LLM 出现在**执行**（codex/claude 外部 CLI）、**知识实体抽取**（Cognee + DeepSeek）
+和**视觉评审**（DeepSeek `deepseek-flash`，第四十八轮接入）三处。**路由、准入、判定**仍是零模型的
+确定性规则——这部分是刻意保留（结构性判定比 LLM 更可靠），不是缺口；但**视觉/语义评审**此前是缺口，
+已在第四十八轮补上。
 
 ## 2. 上游项目用模型的真相
 
@@ -28,7 +29,8 @@
 | 执行 Agent | ✅ | `assistant-turn.ts` spawn codex/claude CLI（用各自 key `~/.codex` `~/.claude`） | 已用 |
 | 知识实体抽取 | ✅ | `cognee-native.ts` → DeepSeek key（`.runtime/cognee-env.json`） | 已配 `sk-358…` |
 | 语义召回 | 半 | `semantic-recall.ts` → Apple 本地 300 维词向量（**非 LLM**，是嵌入） | 本地嵌入 |
-| **评审** | ❌ | `independent-review.ts` `vision:false, semanticJudgement:false, externalModelEnabled:false` | **零模型** |
+| **评审（视觉/语义）** | ✅ | `visual-review.ts` `ExternalVisionAdapter` → DeepSeek `deepseek-flash`（视觉语义判定） | 第四十八轮接入 |
+| **评审（结构）** | ❌ | `TraceEvidenceReviewer` 确定性证据绑定（哈希/来源/可回放） | 刻意保留：结构判定更可靠 |
 | **路由 / 准入 / 判定** | ❌ | 确定性规则（`admission.ts` / `pass-through.ts` / `router.ts`） | **零模型** |
 | **模型网关** | — | `model-settings.ts` `externalRequestsEnabled: z.literal(false)` | **写死关闭** |
 
@@ -48,9 +50,9 @@
 
 1. **模型网关**：把 `externalRequestsEnabled` 从 `z.literal(false)` 改为可配置（`z.boolean()`）。
    这是「打开一扇故意关着的门」，不是补漏配；需要用户指定 provider 并提供统一 key。
-2. **评审模型化（对齐 LobeHub）**：给 `independent-review.ts` 加可插拔的语义/视觉 reviewer 槽位——
-   当 `semanticJudgement:true` 且有视觉模型时，截图/录屏证据交给视觉模型判内容；
-   没有时保持现状并诚实声明 `vision:false`。借鉴 LobeHub「独立 Acceptance Model 槽位 + 只列视觉模型」。
+2. **评审模型化（对齐 LobeHub）** ✅ 已完成（第四十八轮）：新增 `ExternalVisionAdapter`，
+   `semanticJudgement:true` 时把截图交给 DeepSeek 视觉模型判内容；没有 key 时诚实报错不假装。
+   借鉴 LobeHub「独立 Acceptance Model 槽位 + 只列视觉模型」，评审模型（deepseek-flash）≠ 写作模型（codex/claude）。
 3. **assessor 模型化（对齐 SuperAgent）**：SuperAgent 的 inferred 候选由模型判断，我们是程序规则。
    保留程序规则兜底，加一个可选的模型 assessor 处理程序判不准的模糊候选。
 
