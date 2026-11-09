@@ -567,6 +567,65 @@ export class V06Services {
   }
 
   /**
+   * 回群对账：拿「开工前锁定的清单」和「本轮逐项判定」比一遍，只报差异。
+   * 不改判定、不补建待办、不动 readiness —— 差异是给人看的，不是给人替的。
+   */
+  async reconcileRun(taskId: string) {
+    const { reconcile } = await import('./reconcile.ts');
+    const [sealed, round] = await Promise.all([
+      this.acceptancePlanView(taskId), this.acceptanceRoundView(taskId),
+    ]);
+    const declared = (sealed?.plan?.items ?? []).map((item: any) => ({
+      id: String(item.id), name: String(item.name ?? item.id), required: item.required !== false,
+    }));
+    const produced = round?.judgements?.length
+      ? round.judgements.map((judgement: any) => ({
+        id: String(judgement.itemId), name: String(judgement.name ?? judgement.itemId), status: judgement.status,
+      })) : null;
+    const result = reconcile({
+      declared, produced,
+      artifact: round ? { ref: `任务 ${taskId} 评审第 ${round.round} 轮`,
+        revision: round.planRevision, at: round.createdAt } : null,
+    });
+    return { taskId, round: round?.round ?? null, judgedAt: round?.createdAt ?? null, ...result };
+  }
+
+  /** 主题列表：只做聚合陈述，一个主题一句话说清到哪一步了。 */
+  async topicListView() {
+    const { listTopics, topicDigest } = await import('./topic.ts');
+    const topics = listTopics();
+    return { total: topics.length, topics: topics.map(topic => topicDigest(topic)),
+      note: '主题只聚合有责任人的入口与任务；不参与派单、不参与验收判定。' };
+  }
+
+  async topicView(topicId: string) {
+    const { readTopic, topicDigest } = await import('./topic.ts');
+    const topic = readTopic(topicId);
+    return { topic, digest: topicDigest(topic) };
+  }
+
+  async topicCreate(input: any, actor: string) {
+    const { createTopic } = await import('./topic.ts');
+    const topic = createTopic({ title: input.title, goal: input.goal,
+      ownerUserId: String(input.ownerUserId ?? ''), actor });
+    this.localStore.audit('v06.topic-created', topic.id,
+      { actor, title: topic.title, ownerUserId: topic.ownerUserId });
+    return { topic };
+  }
+
+  async topicAttach(input: any, actor: string) {
+    const { attachChannel, attachTask } = await import('./topic.ts');
+    const topic = input.kind === 'task'
+      ? attachTask({ topicId: String(input.topicId), taskId: String(input.taskId),
+        roleId: String(input.roleId ?? ''), ownerUserId: String(input.ownerUserId ?? ''), actor })
+      : attachChannel({ topicId: String(input.topicId), kind: input.kind, ref: String(input.ref ?? ''),
+        ownerUserId: String(input.ownerUserId ?? ''), actor });
+    this.localStore.audit('v06.topic-attached', topic.id,
+      { actor, kind: input.kind, ref: String(input.ref ?? input.taskId ?? '') });
+    return { topic };
+  }
+
+  /**
    * 控制台「验收 / 审查」工作台：一次只读聚合。
    * 只合并既有投影与审查编组，不产生新的验收结论、不改写清单或人签状态。
    */
@@ -803,6 +862,12 @@ export class V06Services {
       case 'plan-view': return this.acceptancePlanView(p.taskId);
       case 'round-view': return this.acceptanceRoundView(p.taskId);
       case 'acceptance-workbench': return this.acceptanceWorkbenchView(p.taskId);
+      // 回群对账 + 主题聚合（对标千问办公的「和待办对一下」「关联多个群」）
+      case 'reconcile-run': return this.reconcileRun(p.taskId);
+      case 'topic-list': return this.topicListView();
+      case 'topic-view': return this.topicView(p.topicId);
+      case 'topic-create': return this.topicCreate(p, who);
+      case 'topic-attach': return this.topicAttach(p, who);
       case 'acceptance-discussion-list': return this.acceptanceDiscussionList(p.taskId);
       case 'acceptance-discussion-add': return this.acceptanceDiscussionAdd(p, who);
       case 'acceptance-discussion-resolve': return this.acceptanceDiscussionResolve(p, who);

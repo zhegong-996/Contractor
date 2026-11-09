@@ -15,6 +15,11 @@
  * scripts/layers-audit.ts 追加，本文件只覆盖可纯判定的部分。
  */
 import { planRoute, routedBy, planCoverage, type RoutingRequest } from './router.ts';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { reconcile, isReconcileRequest } from './reconcile.ts';
+import { attachChannel, attachTask, createTopic, readTopic, topicDigest } from './topic.ts';
 import type { RouterConfig } from './config.ts';
 import {
   agentInstanceSchema, agentRegistrySchema, defaultAgentRegistry, resolveAssignment,
@@ -668,6 +673,47 @@ export function auditLayerContracts(options: LayerAuditOptions = {}): LayerRepor
       return sameJudgement && a.items[0]!.regions.length === 1 && Boolean(tooMany) && Boolean(badCoords)
         ? pass([`区域数=${a.items[0]!.regions.length}`, `判定一致=${sameJudgement}`, `超限拒绝=${tooMany}`])
         : miss([`判定一致=${sameJudgement}`, `区域数=${a.items[0]!.regions.length}`, `超限拒绝=${tooMany || '未拒绝'}`]);
+    }));
+
+  checks.push(run('reconcile.reports-without-mutating', 'acceptance', '对账只报不改',
+    '清单与报告对不上时只产出差异与卡片、不改判定；没有产物时说「没得比」而不是「没问题」', () => {
+      const declared: { id: string; name: string; required: boolean }[] = [
+        { id: 'E1', name: '能导出', required: true }, { id: 'E2', name: '能回滚', required: true },
+      ];
+      const drifted = reconcile({ declared,
+        produced: [{ id: 'E1', status: 'passed' }, { id: 'X9', name: '清单外', status: 'passed' }] });
+      const nothing = reconcile({ declared, produced: null });
+      const untouched = declared.length === 2 && declared[1]!.id === 'E2';
+      const detects = isReconcileRequest('表更新过了，和待办对一下') && !isReconcileRequest('把验收清单改一下，少两项');
+      const same = drifted.comparable && drifted.counts.missing === 1 && drifted.counts.extra === 1
+        && /没有改动/.test(drifted.card) && nothing.comparable === false && nothing.findings.length === 0
+        && /不是核对通过/.test(nothing.conclusion) && untouched && detects;
+      return same
+        ? pass([`漏验=${drifted.counts.missing}`, `清单外=${drifted.counts.extra}`,
+          `无产物可比=${!nothing.comparable}`, '清单未被对账改写'])
+        : miss([`漏验=${drifted.counts.missing}`, `清单外=${drifted.counts.extra}`,
+          `无产物可比=${!nothing.comparable}`, `改清单不入对账=${detects}`, `清单未被改写=${untouched}`]);
+    }));
+
+  checks.push(run('topic.aggregation-requires-owner', 'router', '主题只聚合有责任人的东西',
+    '缺负责人的入口/任务挂不进来，一个任务只属一个主题，摘要只陈述现状', () => {
+      const dir = mkdtempSync(path.join(tmpdir(), 'audit-topic-'));
+      const a = createTopic({ title: '闭门会筹备', goal: '把活动办完', ownerUserId: 'ou_a' }, dir);
+      const b = createTopic({ title: '另一个主题', goal: '另一件事', ownerUserId: 'ou_b' }, dir);
+      let noOwner = '';
+      try { attachChannel({ topicId: a.id, kind: 'im', ref: 'oc_1', ownerUserId: '' }, dir); }
+      catch (error) { noOwner = msg(error); }
+      attachTask({ topicId: a.id, taskId: 't1', roleId: 'role-product', ownerUserId: 'ou_a' }, dir);
+      let twice = '';
+      try { attachTask({ topicId: b.id, taskId: 't1', roleId: 'role-product', ownerUserId: 'ou_b' }, dir); }
+      catch (error) { twice = msg(error); }
+      // 挂完要重读：attachTask 返回的是新对象，用挂之前的快照会读到空主题。
+      const digest = topicDigest(readTopic(a.id, dir), { t1: { state: 'blocked', blockedReason: '等物料规格' } });
+      const ok = Boolean(noOwner) && Boolean(twice) && digest.tasks === 1 && digest.blocked.length === 1
+        && /1 个卡点/.test(digest.summary);
+      return ok
+        ? pass([`缺负责人拒绝=${noOwner.slice(0, 20)}`, `跨主题重复拒绝=${twice.slice(0, 20)}`, '摘要只陈述现状'])
+        : miss([`缺负责人拒绝=${noOwner || '未拒绝'}`, `跨主题重复=${twice || '未拒绝'}`, `摘要=${digest.summary}`]);
     }));
 
   /* ------------------------------------------------------------ 个性化 */

@@ -8,6 +8,8 @@ import { persistHitlAnswer, routeAnswerToHitl } from './hitl-bridge.ts';
 import { parseUserCommand } from './user-language.ts';
 import { passThroughDecision } from './pass-through.ts';
 import { assessAdmission, inferredAcknowledgement } from './admission.ts';
+import { isReconcileRequest, reconcile } from './reconcile.ts';
+import { addDiscussionComment, discussionDir } from './acceptance-discussion.ts';
 import type { AgentServices } from './agent-services.ts';
 import type { Workspaces } from './workspaces.ts';
 import type { WorkspaceAssistant } from './assistant.ts';
@@ -219,8 +221,43 @@ export class CollaborationIntake {
         });
       }
     } catch { /* observation only */ }
+    // 「表更新过了，和待办对一下」：群里这句话触发一次对账，结果进讨论并回一张卡片。
+    // 只报不改 —— 不改判定、不补建待办、不动 readiness。
+    const reconciled = isReconcileRequest(trigger.text) ? await this.reconcileCard(task.id) : null;
+    if (reconciled?.card) this.w.store.notify('reconcile:' + trigger.id, task.id, reconciled.card);
     if (!followup) this.w.store.notify('collab-intake:' + trigger.id, task.id, `${task.identifier} 已${detail === '暂停' ? '暂停自动处理' : '接续'}；沿用当前任务、来源和授权范围。\n${this.w.config.paperclipUrl}/SUI/knowledge-workspaces`);
     this.w.store.db.prepare('UPDATE events SET state=? WHERE id=?').run('done', trigger.id);
-    return { taskId: task.id, resumed: detail !== '暂停' };
+    return { taskId: task.id, resumed: detail !== '暂停',
+      ...(reconciled ? { reconcile: { comparable: reconciled.comparable,
+        counts: reconciled.counts, conclusion: reconciled.conclusion } } : {}) };
+  }
+
+  /**
+   * 拿锁定清单和本轮逐项判定比一遍，把差异写进讨论（advisory）并回一张卡片。
+   * 没有清单或没有判定时如实说「没得比」，不拿「暂无差异」冒充核对通过。
+   */
+  private async reconcileCard(taskId: string) {
+    try {
+      const [{ readPlan }, { readRound }] = await Promise.all([
+        import('./acceptance-plan.ts'), import('./acceptance-round.ts'),
+      ]);
+      const pc = (this.w as unknown as { pc?: any }).pc;
+      if (!pc) return null;
+      const sealed = await readPlan(pc, taskId).catch(() => null);
+      const round = await readRound(pc, taskId).catch(() => null);
+      const declared = (sealed?.plan?.items ?? []).map((item: any) => ({
+        id: String(item.id), name: String(item.name ?? item.id), required: item.required !== false,
+      }));
+      const produced = round?.judgements?.length
+        ? round.judgements.map((judgement: any) => ({
+          id: String(judgement.itemId), name: String(judgement.name ?? judgement.itemId), status: judgement.status,
+        })) : null;
+      const result = reconcile({ declared, produced,
+        artifact: round ? { ref: `任务 ${taskId} 评审第 ${round.round} 轮`,
+          revision: round.planRevision, at: round.createdAt } : null });
+      if (result.card) addDiscussionComment(discussionDir(),
+        { taskId, author: 'workspace-assistant', target: 'report', body: result.card });
+      return result;
+    } catch { return null; }
   }
 }
