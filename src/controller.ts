@@ -383,6 +383,13 @@ export class Controller {
     // 第四十一轮：验收即释放该会话的订阅（终态）。直通据此不再接续，
     // 而不是靠「phase 恰好是 accepted」顺带推出——释放本身要有事实可查。
     this.store.audit('subscription.released', task.id, { reason: '任务已验收，释放同一会话的订阅', at: receipt.acceptedAt });
+    // G2 结果回流：验收完成即登记产物修订。产物 revision = 交付 commit，
+    // 巡检下一轮发现 revision 变化 → 提示对账；续改接在同一份产物上，不另存副本。
+    const { registerArtifact } = await import('./artifact.ts');
+    registerArtifact(runtime('v06'), {
+      ref: `delivery:${task.id}`, title: `${task.identifier} 交付产物`, revision: sha,
+      taskId: task.id, by: actor, summary: `通过 ${cases.length} 项验收（${receipt.environment}）`,
+    });
     recordMemory({ kind: 'acceptance-recorded', actor,
       payload: { taskId: id, mode: 'code-delivery', sha, cases: cases.map(c => c.name) },
       idempotencyKey: 'accept:' + id + ':' + sha });
