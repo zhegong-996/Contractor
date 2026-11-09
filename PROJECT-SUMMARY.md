@@ -80,6 +80,7 @@ flowchart TB
 | 两套前端 | `console/`（自研） + `plugins/knowledge-workspaces/`（可回退） | `console/` **七视图**（含第三十八轮新增「组织」与重写的「验收」）、明暗主题、320/425px、键盘逐键可达、统一中文语言层，只读代理 4180；旧插件工作台保留。中文壳 `shell-locale.ts` 在构建期用 Babel AST 只替换展示文案，`shell-domestic.ts` 精确收敛侧栏并隐藏未连接海外卡片 |
 | 自动化与事件面 | `src/scheduler.ts` + `src/event-inbox.ts` + `src/github-watch.ts` + `src/im-outbound.ts` | 例行任务支持 `interval / daily / cron` 与**事件分流**（`when.source/types`），同组并发上限（显式配置才生效）、窗口内多条事件合并成一轮；通用入站事件源 `POST /events/:source` 支持 GitLab / 任意业务系统，逐来源密钥 + 指纹幂等，**只收事实不开工单**；GitHub 轮询 + webhook 双路径；钉钉 / 企微出站镜像 |
 | 交付与观测 | `src/controller.ts` + `src/code-review.ts` + `src/retry-health.ts` | 交付链 `publish → sync → **code-review** → preview → accept`，审码是独立阶段（确定性规则拦住密钥 / 环境文件，独立文档，不替代人签）；`retry-health` 把 outbox 状态机读成健康表（状态分布 / 最久等待 / 卡住清单 / 通道级失败），并写死「pending ≠ 失败」等口径 |
+| 通道与自检 | `src/channel-health.ts` + `src/service-status.ts` | `channel-health` 是只读的「通道体检」：飞书长连接四态、GitHub 凭据、事件源登记、钉钉/企微、真实工单证据，每条只回答「现在什么状态 / 依据 / 缺什么与下一步」，不发任何外部请求；`service-status` 仍负责本机服务实时探测。两者口径统一：partial 不粉饰成 ready，未配置标 off 不算故障 |
 
 ### 2.3 关键运行约束
 

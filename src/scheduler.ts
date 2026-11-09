@@ -109,15 +109,45 @@ export type Routine = z.infer<typeof routineSchema>;
 
 /** 例行任务的分组键（缺省：自成一组）。 */
 export function routineGroup(routine: Routine): string { return routine.group ?? routine.id; }
+/** 高频例程的密度阈值：间隔 ≤ 60 分钟的 interval 例程缺省串行。 */
+export const DENSE_INTERVAL_MINUTES = 60;
+
+export type ParallelPolicy = {
+  /** undefined = 不限流（每一班都跑）。 */
+  limit: number | undefined;
+  /** 这个值从哪来：显式配置 / 高频例程的密度默认 / 不限。 */
+  source: 'explicit' | 'density' | 'unlimited';
+  /** 给人看的理由，直接进 status 与控制台，避免「为什么这班没跑」靠猜。 */
+  reason: string;
+};
+
 /**
- * 并发配额：**只有显式写了 parallel 才生效**，缺省返回 undefined = 不限。
+ * 并发配额：显式配置优先；没有配置时按**调度密度**决定，而不是一刀切。
  *
- * 上游 Autoloop 的缺省是 1（同组串行），照搬会改掉本项目已有的产品口径：
- * 「每天 09:30 晨报」如果昨天那班还没收尾，今天的班次会被静默跳过 —— 人以为
- * 跑了，其实没跑。所以这里把显式配置（= 我要限流）和没配（= 每槽一班，
- * 维持三十七轮之前的行为）分开，不以前者偷偷替换后者。
+ * 为什么不是上游的「缺省 1」：日级例程（每天 09:30 晨报）如果昨天那班还没
+ * 收尾，今天的班次会被静默跳过 —— 人以为跑了，其实没跑，这是业务事故。
+ *
+ * 为什么也不是「缺省不限」：分钟级的巡检/轮询如果完全不限，上游一卡就会
+ * 在同一组里堆出十几个同质任务，每个都在等人看，等于把噪声灌进工作台。
+ *
+ * 所以两种缺省分开：**高频（interval ≤ 60 分钟）缺省 1，低频缺省不限**。
+ * 被配额挡住时先于占槽判定，槽位不烧掉 —— 恢复后下一 tick 自然补上。
  */
-export function routineParallel(routine: Routine): number | undefined { return routine.parallel; }
+export function routineParallel(routine: Routine): ParallelPolicy {
+  if (routine.parallel !== undefined) {
+    return { limit: routine.parallel, source: 'explicit', reason: `显式配置 ${routine.parallel} 并发` };
+  }
+  if (routine.schedule?.kind === 'interval' && routine.schedule.minutes <= DENSE_INTERVAL_MINUTES) {
+    return {
+      limit: 1, source: 'density',
+      reason: `每 ${routine.schedule.minutes} 分钟一班属于高频例程，缺省串行以免堆积；要并行请显式写 parallel`,
+    };
+  }
+  return { limit: undefined, source: 'unlimited', reason: '低频例程缺省不限并发（不让上一班没验收完就吃掉今天这一班）' };
+}
+
+/** 只取数值，给不关心来源的调用点用。 */
+export function routineParallelLimit(routine: Routine): number | undefined { return routineParallel(routine).limit; }
 
 export const schedulerConfigSchema = z.object({
   /** 总开关；关闭后 tick 直接返回，已建的 wake 预约保留但不触发。 */
@@ -196,6 +226,14 @@ export type SchedulerTick = {
 };
 
 export class Scheduler {
+  /**
+   * 被并发配额挡下的记录（写进 events 表的 `routine-blocked:{id}`，跨重启可见）。
+   *
+   * 为什么要有：配额跳过本身是对的（避免堆积），但**静默跳过**会让人以为跑了。
+   * 这里让每次跳过在 status / 审计里都有据可查；审计按小时节流，不刷屏。
+   */
+  private readonly blockedAuditedAt = new Map<string, number>();
+
   constructor(
     readonly w: Workspaces,
     private readonly assistant: WorkspaceAssistant,
@@ -205,6 +243,33 @@ export class Scheduler {
     /** 收件箱：事件驱动规则从这里取事实；不注入则事件型规则如实跳过。 */
     private readonly inbox?: import('./event-inbox.ts').EventInbox,
   ) {}
+
+  /**
+   * 记一次「因配额跳过」：状态留痕 + 审计（同例行每小时最多一条）。
+   * 跳过不是失败，但必须可解释 —— 否则人会以为这班已经跑过了。
+   */
+  private noteBlocked(routine: Routine, group: string, limit: number): void {
+    const at = this.now().toISOString();
+    const open = this.openInGroup(group);
+    // 写进 events 表而不是内存：重启之后「上一班为什么没跑」还能查得到。
+    this.w.store.db.prepare('INSERT OR REPLACE INTO events(id,state,value) VALUES(?,?,?)')
+      .run(`routine-blocked:${routine.id}`, 'blocked', JSON.stringify({ at, open, limit, group }));
+    const now = this.now().getTime();
+    if (now - (this.blockedAuditedAt.get(routine.id) ?? 0) < 3_600_000) return;
+    this.blockedAuditedAt.set(routine.id, now);
+    this.w.store.audit('routine.blocked', null, {
+      routineId: routine.id, group, limit, open, at,
+      hint: '同组未收尾任务已达配额；配额在占槽前判定，下一 tick 会自动补上',
+    });
+  }
+
+  /** 恢复：这一班真的跑起来了，把上次的「被挡」标成 recovered（留痕但不误导）。 */
+  private noteRecovered(routineId: string): void {
+    const id = `routine-blocked:${routineId}`;
+    const row = this.w.store.db.prepare('SELECT state,value FROM events WHERE id=?').get(id) as { state: string; value: string } | undefined;
+    if (!row || row.state !== 'blocked') return;
+    this.w.store.db.prepare('UPDATE events SET state=? WHERE id=?').run('recovered', id);
+  }
 
   /** events 表幂等占位：不存在才插入，返回是否首次（true = 本 tick 有权处理）。 */
   private claim(id: string, value: unknown): boolean {
@@ -263,8 +328,9 @@ export class Scheduler {
       // 并发上限先于占槽判定：占不到配额就不占槽，下一 tick 还能补上，
       // 而不是把这一班永久烧掉。没配 parallel 就不限流（见 routineParallel）。
       const group = routineGroup(routine);
-      const limit = routineParallel(routine);
+      const limit = routineParallelLimit(routine);
       if (limit !== undefined && this.openInGroup(group) >= limit) {
+        this.noteBlocked(routine, group, limit);
         report.skipped.push({ reason: 'parallel-limit', routineId: routine.id }); continue;
       }
       const tickId = `routine-tick:${routine.id}:${slot}`;
@@ -278,6 +344,7 @@ export class Scheduler {
           sources: [], requestKey: `routine:${routine.id}:${slot}`, autoDiscover: true,
         }, actor);
         this.recordTask(task.id, routine, group);
+        this.noteRecovered(routine.id);
         this.w.store.audit('routine.triggered', task.id, { routineId: routine.id, slot, taskId: task.id, automation: 'scheduler' });
         try {
           await this.assistant.delegate(task.id, true, 'advance',
@@ -316,9 +383,10 @@ export class Scheduler {
     const pending = this.inbox.pending({ source: when.source, types: when.types });
     if (!pending.length) { report.skipped.push({ reason: 'no-events', routineId: routine.id }); return; }
     const group = routineGroup(routine);
-    const limit = routineParallel(routine);
+    const limit = routineParallelLimit(routine);
     if (limit !== undefined && this.openInGroup(group) >= limit) {
       // 配额满了不动事件：它们留在收件箱里等下一轮，不会被丢掉。
+      this.noteBlocked(routine, group, limit);
       report.skipped.push({ reason: 'parallel-limit', routineId: routine.id }); return;
     }
     const windowMs = (routine.mergeMinutes ?? 30) * 60_000;
@@ -337,6 +405,7 @@ export class Scheduler {
         sources: [], requestKey: `routine:${routine.id}:${batch[0]!.fingerprint}:${batch.length}`, autoDiscover: true,
       }, actor);
       this.recordTask(task.id, routine, group);
+      this.noteRecovered(routine.id);
       this.inbox.consume(batch.map(event => event.id), task.id);
       this.w.store.audit('routine.triggered', task.id, {
         routineId: routine.id, source: when.source, eventCount: batch.length, taskId: task.id, automation: 'scheduler' });
@@ -415,24 +484,35 @@ export class Scheduler {
 
   status(): {
     enabled: boolean;
-    // parallel 在状态里用 null 表示「未配置、不限流」，避免和「配了但为 0」混淆。
-    routines: (Omit<Routine, 'parallel'> & { nextSlot?: string; summary: string; group: string; parallel: number | null; pendingEvents?: number })[];
+    // parallel 在状态里用 null 表示「不限流」，避免和「配了但为 0」混淆；
+    // parallelSource / parallelReason 说明这个配额是配出来的还是密度默认的。
+    routines: (Omit<Routine, 'parallel'> & { nextSlot?: string; summary: string; group: string; parallel: number | null; parallelSource: ParallelPolicy['source']; parallelReason: string; blocked?: { at: string; open: number; limit: number; group: string }; pendingEvents?: number })[];
     groups: { group: string; parallel: number | null; open: number }[];
     wakes: (WakeRecord & { id: string; state: string })[];
   } {
     const cfg = this.config.scheduler;
+    // 「上一班为什么没跑」从 events 表读，跨重启仍在；recovered 的不再展示。
+    const blockedRows = this.w.store.db.prepare("SELECT id,value FROM events WHERE id LIKE 'routine-blocked:%' AND state='blocked'")
+      .all() as { id: string; value: string }[];
+    const blockedMap = new Map(blockedRows.map(row => {
+      const record = JSON.parse(row.value) as { at: string; open: number; limit: number; group: string };
+      return [row.id.slice('routine-blocked:'.length), record] as const;
+    }));
     const now = this.now();
     const routines = (cfg?.routines ?? []).map(r => {
       // 事件型没有「下一次几点」，只有「现在攒了几条待分流」。
       const pendingEvents = r.when && this.inbox
         ? this.inbox.pending({ source: r.when.source, types: r.when.types }).length : undefined;
-      const parallel = routineParallel(r);
+      const policy = routineParallel(r);
       return {
         ...r,
         group: routineGroup(r),
-        parallel: parallel ?? null,
+        parallel: policy.limit ?? null,
+        parallelSource: policy.source,
+        parallelReason: policy.reason,
+        ...(blockedMap.has(r.id) ? { blocked: blockedMap.get(r.id)! } : {}),
         ...(pendingEvents === undefined ? {} : { pendingEvents }),
-        summary: r.when ? `事件驱动：${r.when.source} 的 ${r.when.types.join('/')}（${parallel === undefined ? '不限并发' : parallel + ' 并发'}）`
+        summary: r.when ? `事件驱动：${r.when.source} 的 ${r.when.types.join('/')}（${policy.limit === undefined ? '不限并发' : policy.limit + ' 并发'}）`
           : describeSchedule(r.schedule!),
         nextSlot: r.schedule
           ? r.schedule.kind === 'cron'

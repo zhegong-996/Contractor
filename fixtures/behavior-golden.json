@@ -35,12 +35,19 @@
       "change": "frozen 重冻结：count 161 -> 172（added 11 / changed 12 / removed 0）；readOnlyAllowlist.actions 24 -> 26；shellPainted.menu 6 -> 7；allViewsRendered 6 -> 7",
       "reason": "四处预期变化，无行为退化：① 新增「组织」视图（共享上下文底座 + 三层职能）与重写「验收」视图（工作台 + 审查 Agent），菜单 6->7、视图数 6->7；② 新增验收矩阵（3 视图 x 2 主题 x 2 宽度 = 12 单元）产生 matrixOverflowAndFocus / matrixKeyboardOrder 两组检查；③ 只读白名单新增 retry-health 与 event-inbox-status（24->26）；④ 服务页新增出站投递健康与事件收件箱两张卡、验收页改版，view-服务 / view-验收 / view-概览的 textLength 相应变化。矩阵当场发现并修掉两个真问题（侧栏菜单不可 Tab 到达、验收页任务选择器无可读名字）。全套回归 npm test 620/620、console:smoke ok:true 后按流程手工重冻结；真跑脚本自身不自动改写基线。",
       "reviewer": "本轮交付者（用户已要求把周边与运行层全部修复并集成 acceptance）"
+    },
+    {
+      "at": "2026-11-09",
+      "round": "第三十九轮（用户指令：四条边界优化）",
+      "change": "frozen 重冻结：count 172 -> 172；changed 3 / added 0 / removed 0。具体为 matrixOverflowAndFocus.cells 12 -> 28、readOnlyAllowlist.actions 26 -> 27、view-服务.textLength（服务页新增通道体检卡）",
+      "reason": "三处均为预期变化，无行为退化：① 验收矩阵从 3 视图抽样扩到全部 7 视图（7x2x2=28 单元），并新增「渲染节点 < 12 = 疑似白屏」判据，28/28 当场通过；② 只读白名单新增 channel-health（通道体检，只读、零外部请求）；③ 控制台服务页新增「通道体检」表（通道/方向/状态/依据/缺下一步），故该视图 textLength 变化。npm test 629/629、console:smoke 58 项 ok:true 后按流程手工重冻结；真跑脚本不自动改写基线。",
+      "reviewer": "本轮交付者（用户已要求把四条边界全部优化）"
     }
   ],
   "frozen": {
     "schemaVersion": 1,
     "kind": "console",
-    "signature": "858eb5ef0edfc6842eefa0c747b2564c",
+    "signature": "a578718dadcb2d6256ef2b68616ca707",
     "entries": [
       {
         "key": "checks.adminAccountsForbidden.ok",
@@ -260,7 +267,7 @@
       },
       {
         "key": "checks.matrixOverflowAndFocus.cells",
-        "value": "12"
+        "value": "28"
       },
       {
         "key": "checks.matrixOverflowAndFocus.ok",
@@ -296,7 +303,7 @@
       },
       {
         "key": "checks.readOnlyAllowlist.actions",
-        "value": "26"
+        "value": "27"
       },
       {
         "key": "checks.readOnlyAllowlist.ok",
@@ -576,7 +583,7 @@
       },
       {
         "key": "checks.view-服务.textLength",
-        "value": "98"
+        "value": "138"
       },
       {
         "key": "checks.view-服务.title",

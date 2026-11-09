@@ -874,13 +874,53 @@
                 <div v-if="!inbox.counts.length" class="hint-text">还没有外部事件进来。</div>
                 <div class="hint-text" style="margin-top:8px">收件箱只收事实，建不建任务由例行规则的 when 决定；验收仍由原发起人在原会话确认。</div>
               </template>
-              <div v-else class="hint-text">事件源默认关闭；在配置里登记来源与密钥环境变量后才收。</div>
+              <div v-else class="hint-text">入站面按「登记了来源」开启：没登记来源时没有入口，登记后由例行规则的 when 决定开不开单。</div>
+            </el-card>
+          </el-col>
+        </el-row>
+        <el-row :gutter="14">
+          <el-col :xs="24" style="margin-bottom:14px">
+            <el-card shadow="never" class="contract-card">
+              <template #header>
+                <div class="card-head">
+                  <span>通道体检</span>
+                  <el-tag v-if="channels && channels.verdict" size="small" :type="channelTag(channels.verdict)" effect="light">{{ channelText(channels.verdict) }}</el-tag>
+                </div>
+              </template>
+              <el-alert v-if="channels && channels.__error" :title="'读取失败：' + channels.__error" type="info" :closable="false" />
+              <template v-else-if="channels && channels.checks">
+                <el-table :data="channels.checks" size="small">
+                  <el-table-column prop="name" label="通道" min-width="110" />
+                  <el-table-column label="方向" width="76">
+                    <template #default="{ row }">{{ directionText(row.direction) }}</template>
+                  </el-table-column>
+                  <el-table-column label="状态" width="86">
+                    <template #default="{ row }">
+                      <el-tag :type="channelTag(row.verdict)" effect="light" size="small">{{ channelText(row.verdict) }}</el-tag>
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="依据" min-width="240">
+                    <template #default="{ row }">
+                      <div v-for="fact in row.facts" :key="fact" class="hint-text" style="margin:0">· {{ clean(fact) }}</div>
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="缺什么 / 下一步" min-width="260">
+                    <template #default="{ row }">
+                      <div v-for="item in row.missing" :key="item" class="hint-text" style="margin:0;color:#d9534f">· {{ clean(item) }}</div>
+                      <div class="hint-text" style="margin:0">{{ clean(row.next) }}</div>
+                    </template>
+                  </el-table-column>
+                </el-table>
+                <div class="hint-text" style="margin-top:8px">{{ clean(channels.note || '') }}</div>
+                <div class="hint-text">体检只读配置与本地台账，不发任何外部请求；「部分可用」不是故障，「未配置」也不算。</div>
+              </template>
+              <div v-else class="hint-text">需要管理权限才能看通道体检。</div>
             </el-card>
           </el-col>
         </el-row>
       </div>`,
     setup() {
-      const data = ref({}), system = ref({}), retry = ref(null), inbox = ref(null);
+      const data = ref({}), system = ref({}), retry = ref(null), inbox = ref(null), channels = ref(null);
       const services = computed(() => Array.isArray(data.value.services) ? data.value.services : []);
       const text = computed(() => system.value.__error ? '读取失败：' + system.value.__error : JSON.stringify(system.value, null, 2));
       // 第三十四轮修复：service-status 返回的是 state（connected / degraded / unavailable），
@@ -889,13 +929,18 @@
       const stateTag = state => ({ connected: 'success', degraded: 'warning', unavailable: 'info' }[state] || 'info');
       const retryText = v => ({ healthy: '正常', backlog: '有积压', failing: '在失败' }[v] || v);
       const retryTag = v => ({ healthy: 'success', backlog: 'warning', failing: 'danger' }[v] || 'info');
+      const channelText = v => ({ ready: '可用', partial: '部分可用', blocked: '不可用', off: '未配置', degraded: '有缺口' }[v] || v);
+      const channelTag = v => ({ ready: 'success', partial: 'warning', blocked: 'danger', off: 'info', degraded: 'warning' }[v] || 'info');
+      const directionText = v => ({ inbound: '收', outbound: '发', both: '收+发' }[v] || v);
       onMounted(async () => {
         data.value = await safe('service-status'); system.value = await safe('system-status');
-        // 这两项要管理权限：只读角色会拿到 403，如实显示成「看不到」而不是报错。
+        // 这三项要管理权限：只读角色会拿到 403，如实显示成「看不到」而不是报错。
         retry.value = await safe('retry-health');
         inbox.value = await safe('event-inbox-status');
+        channels.value = await safe('channel-health');
       });
-      return { data, services, text, retry, inbox, clean, stateText, stateTag, retryText, retryTag };
+      return { data, services, text, retry, inbox, channels, clean, stateText, stateTag,
+        retryText, retryTag, channelText, channelTag, directionText };
     },
   };
 

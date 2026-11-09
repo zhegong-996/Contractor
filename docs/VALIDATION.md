@@ -928,3 +928,35 @@ POST /events/gitlab（默认关闭）            400  {"ok":false,"reason":"even
 2. 验收页任务选择器内层 `input.el-select__input` 无可读名字；修法：`<label for>` 关联 + `id`。
 
 **如实边界**：审码不含模型评审（确定性规则只覆盖「人一定会拦」的硬项）；事件源默认关闭且未与 GitHub 既有通道合并；矩阵只覆盖控制台三视图（插件工作台的 `test:responsive` 仍是另一套）；`parallel` 缺省不限流（与上游缺省串行不同，理由见 `docs/ROUND-38.md` 1.3）；证据区域只到数据层，未做「从该区域开始复看」的交互；本轮没有新的飞书真实工单。
+
+## 第三十九轮 · 四条边界的收口（2026-11-09）
+
+**改动**
+- `src/event-inbox.ts`：`enabled` 缺省 `false → true`（没登记来源=没入口）；新增 `claims()`（一个来源只有一条路径）与 `mirror()`（既有通道事实进同一台账，`state='mirrored'`，不进 `pending`）；`status()` 增 `claimed` / `mirrored` / `note`。
+- `src/server.ts`：`/github/webhook` 在 `claims('github')` 时交收件箱（202），否则走既有通道并在验签成功后 `mirror`；新增只读动作 `channel-health`（同步 `readOnly` 与 `scripts/console-server.ts` 白名单）。
+- `src/scheduler.ts`：`routineParallel()` 返回 `{limit, source, reason}`，缺省按密度（`interval ≤ 60 分钟` → 1，其余不限）；新增 `routineParallelLimit()`；配额跳过写 `events(routine-blocked:{id})` + 审计（每小时节流）+ 恢复时标 `recovered`；`status()` 增 `parallelSource` / `parallelReason` / `blocked`。
+- `src/channel-health.ts`（新增）：只读通道体检，五条检查（飞书 / GitHub / 事件源 / 钉钉企微 / 真实工单证据），不发任何外部请求。
+- `console/app.js`：服务页新增「通道体检」卡；事件收件箱空态文案改为「按登记来源开启」。
+- `scripts/console-smoke.mjs`：矩阵 `3 → 7` 视图（28 单元），新增白屏判据（渲染节点 < 12）。
+- 测试：新增 `tests/channel-health.test.ts`（7 例）；`tests/scheduler.test.ts` 第 13 例改写为「缺省按密度串行 + 跳过留痕 + 收尾后恢复」并新增低频不走配额 1 例；`tests/event-inbox.test.ts` 增 `claims` / `mirror` 1 例并改写总开关用例。
+
+**回归**
+- `npm test` **629/629**（620 + 9）
+- `npx tsc --noEmit` 0 错；`node --check console/app.js` 与 `scripts/console-smoke.mjs` 通过
+- `npm run console:smoke` **ok:true / failed:[]**，58 项检查，矩阵 **28/28**
+
+**真跑（bridge 4180，重启加载本轮代码）**
+
+```text
+POST /workspace/channel-health  200  verdict=degraded
+  ready 2 / partial 1 / blocked 0 / off 2
+  feishu      ready      长连接已就绪 / 1 人 1 群
+  github      partial    仓库 zhegong-996/desktop-tutorial；token 与 webhook 密钥都没配
+  event-inbox off        接管来源：无
+  im          off        钉钉/企微未配置（按需）
+  real-story  ready      真实来源工单 5 条，最近 SUI-135（2026-11-08 11:22）
+```
+
+**本轮修正的自身错误**：第一版 `channel-health` 用 `feishuState === 'ready'` 当 `botReady`，重启后 8 秒内会显示「机器人身份未通过」（实测撞到），改为长连接四态（ready / connecting / disconnected / disabled），connecting 判 partial 而不是 blocked。
+
+**如实边界**：`mirror` 台账无清理策略；体检不探测网络（飞书 ready 只证明监听进程在）；GitHub 的 gh 登录态未被覆盖（故意判 partial 而非 blocked）；矩阵只证明结构不证明信息正确；真实工单仍需人发。

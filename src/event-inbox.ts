@@ -35,13 +35,17 @@ export const inboxSourceSchema = z.object({
 export type InboxSource = z.infer<typeof inboxSourceSchema>;
 
 export const inboxConfigSchema = z.object({
-  /** 默认关闭：没配来源就不该有入站面。 */
-  enabled: z.boolean().default(false),
+  /**
+   * 总开关，缺省 **true**：入站面由「有没有登记来源」决定，不再多一个必开开关。
+   * 没有 sources 就等于没有入口（任何 POST 都回 source-not-configured），
+   * 所以缺省打开不会凭空多出一个谁都能投的口子。
+   */
+  enabled: z.boolean().default(true),
   sources: z.record(z.string().min(1), inboxSourceSchema).default(() => ({})),
 }).strict();
 export type InboxConfig = z.infer<typeof inboxConfigSchema>;
 export function defaultInboxConfig(): InboxConfig {
-  return inboxConfigSchema.parse({ enabled: false, sources: {} });
+  return inboxConfigSchema.parse({ enabled: true, sources: {} });
 }
 
 /** 一条进箱事件：只描述事实与来源，不含任何「该怎么办」的指令。 */
@@ -56,6 +60,8 @@ export type InboxEvent = {
   at: string;
   state: string;
   taskId?: string;
+  /** 留痕记录的来路（例如 `github-watch`）：说明它是被哪条通道先收走的。 */
+  via?: string;
   /** 收件时该来源是否命中类型白名单；未命中仍然入箱，但不会参与分流。 */
   allowed: boolean;
 };
@@ -204,6 +210,52 @@ export class EventInbox {
     return { ok: true, id, source, type, fingerprint, duplicate };
   }
 
+  /**
+   * 该来源是否**由收件箱接管**。
+   *
+   * 用途：GitHub 此前只有 `/github/webhook` 一条即时通道（收到就建单）。一旦
+   * 有人把 `github` 登记进 sources，就应该只有一条路径 —— 由规则决定开不开单、
+   * 合并成几条，而不是两条通道各建一次。server 用这个判定走哪条分支。
+   */
+  claims(source: string): boolean {
+    const cfg = this.cfg;
+    return Boolean(cfg && cfg.sources[source]);
+  }
+
+  /**
+   * 留痕：调用方**已经验过签**的事实，写进同一本台账，但直接置为 `mirrored`，
+   * 不参与规则分流（`pending()` 只取 pending），因此不会与既有通道重复建单。
+   *
+   * 为什么还要留痕：出问题时人只看 `event-inbox-status` 一张表就能回答「这个
+   * 仓库到底投过什么、我们收到了几条」，不用再去翻两套日志。
+   *
+   * 与 accept 的区别只有两点：不信任验签（调用方已完成）、不落 pending。
+   * 指标口径不变：mirrored 既不是「待处理」也不是「已建单」。
+   */
+  mirror(source: string, raw: string, headers: Record<string, string | undefined>, via: string, kindHint?: InboxSource['kind']): { ok: boolean; id?: string; duplicate?: boolean; reason?: string } {
+    let body: Record<string, unknown>;
+    try { body = JSON.parse(raw) as Record<string, unknown>; } catch { return { ok: false, reason: 'bad-json' }; }
+    if (typeof body !== 'object' || body === null || Array.isArray(body)) return { ok: false, reason: 'bad-json' };
+    const header = headers['x-gitlab-event'] ?? headers['x-github-event'];
+    // 未登记来源时用调用方给的 kindHint 归一化（例如 GitHub 走既有通道，不在 sources 里）。
+    const kind = kindHint ?? this.config?.sources[source]?.kind;
+    const mapped = kind === 'gitlab' ? GITLAB_EVENTS[String(header ?? '').toLowerCase()]
+      : kind === 'github' ? GITHUB_EVENTS[String(header ?? '')] : undefined;
+    const bodyType = typeof body.type === 'string' ? body.type.trim() : typeof body.object_kind === 'string' ? body.object_kind.trim() : '';
+    const type = (mapped ?? bodyType).toLowerCase() || 'unknown';
+    const fingerprint = fingerprintOf(source, type, body, raw);
+    const id = `inbox:${source}:${type}:${fingerprint}`;
+    const record: InboxEvent = {
+      id, source, type, fingerprint, ...describe(source, type, body),
+      at: this.now().toISOString(), state: 'mirrored', allowed: false, via,
+    };
+    const result = this.store.db.prepare('INSERT OR IGNORE INTO events(id,state,value) VALUES(?,?,?)')
+      .run(id, record.state, JSON.stringify(record));
+    const duplicate = result.changes !== 1;
+    if (!duplicate) this.store.audit('inbox.mirrored', null, { source, type, fingerprint, via, id });
+    return { ok: true, id, duplicate };
+  }
+
   /** 待分流事件（默认只看 pending）；指定 source / types 时按规则筛。 */
   pending(filter: { source?: string; types?: string[] } = {}): InboxEvent[] {
     const rows = this.store.db.prepare("SELECT value FROM events WHERE id LIKE 'inbox:%' AND state='pending'").all() as { value: string }[];
@@ -228,10 +280,20 @@ export class EventInbox {
   }
 
   /** 只读状态：按来源×类型×状态计数，供控制台展示事件面。 */
-  status(): { enabled: boolean; sources: { name: string; kind: string; allow: string[]; secretConfigured: boolean }[]; counts: { source: string; type: string; state: string; count: number }[]; pending: number } {
+  status(): {
+    enabled: boolean;
+    /** 由收件箱接管的来源（这些来源的 webhook 不再走即时建单）。 */
+    claimed: string[];
+    sources: { name: string; kind: string; allow: string[]; secretConfigured: boolean }[];
+    counts: { source: string; type: string; state: string; count: number }[];
+    pending: number;
+    /** 已由其他通道收走、只做台账留痕的条数（不参与分流）。 */
+    mirrored: number;
+    note: string;
+  } {
     const rows = this.store.db.prepare("SELECT state,value FROM events WHERE id LIKE 'inbox:%'").all() as { state: string; value: string }[];
     const tally = new Map<string, { source: string; type: string; state: string; count: number }>();
-    let pending = 0;
+    let pending = 0, mirrored = 0;
     for (const row of rows) {
       const event = JSON.parse(row.value) as InboxEvent;
       // 状态以列为准（见 consume 的注释），正文只提供来源与类型。
@@ -240,15 +302,22 @@ export class EventInbox {
       const cell = tally.get(key) ?? { source: event.source, type: event.type, state, count: 0 };
       cell.count += 1; tally.set(key, cell);
       if (state === 'pending') pending += 1;
+      if (state === 'mirrored') mirrored += 1;
     }
     const cfg = this.cfg;
+    const sources = Object.entries((cfg?.sources ?? {}) as Record<string, InboxSource>);
     return {
-      enabled: Boolean(cfg),
-      sources: Object.entries((cfg?.sources ?? {}) as Record<string, InboxSource>).map(([name, source]) => ({
+      enabled: this.config?.enabled !== false,
+      claimed: sources.map(([name]) => name),
+      sources: sources.map(([name, source]) => ({
         name, kind: source.kind, allow: source.allow, secretConfigured: Boolean(this.env[source.secretEnv]),
       })),
       counts: [...tally.values()].sort((a, b) => b.count - a.count).slice(0, 50),
       pending,
+      mirrored,
+      note: sources.length
+        ? '入站面按「登记了来源」开启；pending 待规则分流，mirrored 是其他通道已收走的留痕，两者都不是失败'
+        : '没有登记任何来源，入站面为空（POST /events/:source 一律 source-not-configured）；GitHub 仍走既有 /github/webhook 即时通道',
     };
   }
 }

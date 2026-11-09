@@ -345,13 +345,15 @@ try {
   await screenshot('overview-dark');
 
   // ---- 验收矩阵：深浅色并排 + 320px + 键盘逐键（标准化执行）------------------
-  // RE-AUDIT「待补」第 5 项。矩阵只测三条与人相关的硬线，不测主观好看：
+  // RE-AUDIT「待补」第 5 项。矩阵只测四条与人相关的硬线，不测主观好看：
   //   ① 页面级没有横向溢出（内容不该被挤到屏幕外）；
   //   ② 每个可聚焦元素都有可读名字，且没有 tabindex > 0 劫持顺序；
-  //   ③ 逐键 Tab 的落点严格按 DOM 顺序递增（键盘用户不会被甩来甩去）。
+  //   ③ 逐键 Tab 的落点严格按 DOM 顺序递增（键盘用户不会被甩来甩去）；
+  //   ④ 视图不是白屏（渲染出的节点数有下限）—— 否则「能点开」会被误当成「能用」。
   const matrix = [];
   const matrixProblems = [];
-  const matrixViews = ['概览', '组织', '验收'];
+  // 第三十九轮：从三条抽样视图扩到全部七个 —— 抽样会漏掉没被抽到的那个。
+  const matrixViews = ['概览', '协作', '组织', '知识', '验收', '服务', '我的配置'];
   const tabKey = async () => {
     await cdp('Input.dispatchKeyEvent', { type: 'rawKeyDown', windowsVirtualKeyCode: 9, code: 'Tab', key: 'Tab' });
     await cdp('Input.dispatchKeyEvent', { type: 'keyUp', windowsVirtualKeyCode: 9, code: 'Tab', key: 'Tab' });
@@ -382,6 +384,7 @@ try {
           const unnamedTags = focusables.filter(node => !nameOf(node))
             .slice(0, 4).map(node => node.tagName.toLowerCase() + '.' + String(node.className).slice(0, 40));
           return { clientWidth: el.clientWidth, scrollWidth: el.scrollWidth, offenders,
+            nodes: document.querySelectorAll('.app-main *').length,
             focusables: focusables.length,
             unnamed: focusables.filter(node => !nameOf(node)).length, unnamedTags,
             hijack: focusables.filter(node => Number(node.getAttribute('tabindex')) > 0).length };
@@ -423,6 +426,8 @@ try {
         if (cell.hijack) matrixProblems.push(`${title}/${theme}/${width}px ${cell.hijack} 个元素用 tabindex>0 劫持键盘顺序`);
         if (nameless) matrixProblems.push(`${title}/${theme}/${width}px 有 ${nameless} 次 Tab 落在没有名字的可交互元素上`);
         if (distinct < 3) matrixProblems.push(`${title}/${theme}/${width}px Tab 只经过 ${distinct} 个元素就去到文档末尾，键盘用户基本走不动`);
+        // 白屏检测：能点开 ≠ 能用。渲染节点太少说明数据没到或模板没渲染。
+        if (cell.nodes < 12) matrixProblems.push(`${title}/${theme}/${width}px 只渲染了 ${cell.nodes} 个节点，疑似白屏（数据没到或模板没渲染）`);
       }
     }
   }

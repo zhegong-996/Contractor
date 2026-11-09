@@ -25,14 +25,44 @@ function fixture(sources: Record<string, unknown>, env: Record<string, string | 
 }
 const hex = (secret: string, raw: string) => createHmac('sha256', secret).update(raw).digest('hex');
 
-test('没登记来源 / 没配密钥 / 关了开关，都拒收且给出原因', () => {
+test('没登记来源 / 没配密钥 / 显式关掉总开关，都拒收且给出原因', () => {
   const { inbox, cleanup } = fixture({ gitlab: { secretEnv: 'GITLAB_TOKEN' } }, {});
   try {
     assert.deepEqual(inbox.accept('nobody', '{}', {}), { ok: false, reason: 'source-not-configured' });
     // 登记了来源但环境变量没值：宁可不收，也不开一个谁都能投的口子。
     assert.deepEqual(inbox.accept('gitlab', '{}', { 'x-gitlab-token': 'x' }), { ok: false, reason: 'secret-not-configured' });
-    const off = new EventInbox(inbox['store'], defaultInboxConfig(), {});
+    // 默认配置总开关是开的，但没有登记来源 = 没有入口：不会因为「默认开启」多出一个裸奔口子。
+    const empty = new EventInbox(inbox['store'], defaultInboxConfig(), {});
+    assert.deepEqual(empty.accept('gitlab', '{}', {}), { ok: false, reason: 'source-not-configured' });
+    assert.equal(empty.status().enabled, true);
+    assert.deepEqual(empty.status().claimed, []);
+    // 显式关掉总开关：即使登记了来源、密钥也对，仍然不收。
+    const off = new EventInbox(inbox['store'], inboxConfigSchema.parse({ enabled: false, sources: { gitlab: { secretEnv: 'T' } } }), { T: 'k' });
     assert.deepEqual(off.accept('gitlab', '{}', {}), { ok: false, reason: 'events-disabled' });
+  } finally { cleanup(); }
+});
+
+test('claims 决定 GitHub 走哪条通道；mirror 只留痕、不参与分流', () => {
+  const { inbox, store, cleanup } = fixture({}, {});
+  try {
+    // 没登记 github：不由收件箱接管，既有 /github/webhook 即时通道继续用。
+    assert.equal(inbox.claims('github'), false);
+    const raw = JSON.stringify({ ref: 'refs/heads/main', head_commit: { message: 'fix: 修一个空指针' } });
+    const mirrored = inbox.mirror('github', raw, { 'x-github-event': 'push' }, 'github-watch', 'github');
+    assert.equal(mirrored.ok, true);
+    assert.equal(mirrored.duplicate, false);
+    // 留痕只是台账：pending 里没有它，规则不会拿它去开工单。
+    assert.equal(inbox.pending().length, 0);
+    const status = inbox.status();
+    assert.equal(status.mirrored, 1);
+    assert.equal(status.pending, 0);
+    assert.ok(status.counts.some(cell => cell.state === 'mirrored' && cell.type === 'push'), '按 github 事件名归一化');
+    // 同一事实重复留痕是幂等的。
+    assert.equal(inbox.mirror('github', raw, { 'x-github-event': 'push' }, 'github-watch', 'github').duplicate, true);
+    // 登记之后由收件箱接管：一个来源只有一条路径。
+    const claimed = new EventInbox(store, inboxConfigSchema.parse({ sources: { github: { secretEnv: 'T', kind: 'github' } } }), { T: 'k' });
+    assert.equal(claimed.claims('github'), true);
+    assert.deepEqual(claimed.status().claimed, ['github']);
   } finally { cleanup(); }
 });
 

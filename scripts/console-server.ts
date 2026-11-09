@@ -35,6 +35,8 @@ export const CONSOLE_READ_ACTIONS: readonly string[] = [
   'v06-acceptance-workbench',
   // 组织视图：共享上下文底座 + 三层职能 + 可见任务分布（只读聚合）。
   'organization-view',
+  // 通道体检：凭据齐备度与上次真实工单（只读，不发外部请求）。
+  'channel-health',
   // 第三十八轮 · 运行层两块只读面：出站投递健康（retry-health）与事件收件箱
   // （event-inbox-status）。都只读，写入口仍只在 bridge 的 /events/:source 与
   // 调度器内部。

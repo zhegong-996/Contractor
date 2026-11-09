@@ -39,25 +39,57 @@ function fixture(routines: Config['scheduler']['routines'], now = () => new Date
     close() { store.close(); rmSync(dir, { recursive: true, force: true }); } };
 }
 
-test('an interval routine creates exactly one task per slot and survives repeated ticks', async () => {
+test('interval 例程缺省按密度串行：上一班没收尾就让路，且跳过有据可查', async () => {
   const f = fixture([{ id: 'daily-check', title: '核对交付看板', goal: '汇总当前交付状态并给出阻塞清单',
     schedule: { kind: 'interval', minutes: 30 }, enabled: true }]);
   try {
-    const first = await new Scheduler(f.w, f.assistant, f.config, f.now).tick();
+    const s = (clock = '2026-11-09T10:00:00+08:00') => new Scheduler(f.w, f.assistant, f.config, () => new Date(clock));
+    const first = await s().tick();
     assert.equal(first.routinesTriggered, 1);
     assert.equal(f.created.length, 1);
     assert.match(f.created[0]!.input.title, /^\[例行\] 核对交付看板$/);
     assert.match(f.created[0]!.input.goal, /不是新的人工需求/);
     assert.equal(f.created[0]!.actor.automation, 'scheduler');
     assert.equal(f.created[0]!.actor.admin, true);
-    const again = await new Scheduler(f.w, f.assistant, f.config, f.now).tick();
+    const again = await s().tick();
     assert.equal(again.routinesTriggered, 0, '同一时间槽内重复 tick 不重复建任务');
     assert.equal(f.created.length, 1);
-    const later = await new Scheduler(f.w, f.assistant, f.config, () => new Date('2026-11-09T10:31:00+08:00')).tick();
-    assert.equal(later.routinesTriggered, 1, '跨槽后再次触发');
+
+    // 跨槽但上一班还没收尾：高频例程缺省串行，不堆第二个同质任务。
+    const blocked = await s('2026-11-09T10:31:00+08:00').tick();
+    assert.equal(blocked.routinesTriggered, 0, '上一班未收尾时让路');
+    assert.ok(blocked.skipped.some(skip => skip.reason === 'parallel-limit'), '跳过要写明原因');
+    assert.equal(f.created.length, 1);
+    // 跳过不能静默：状态里能看到「为什么这班没跑」。
+    const status = s().status();
+    assert.equal(status.routines[0]!.parallel, 1);
+    assert.equal(status.routines[0]!.parallelSource, 'density');
+    assert.ok(status.routines[0]!.blocked?.at, '最近一次因配额跳过要留痕');
+    assert.equal(status.routines[0]!.blocked?.open, 1);
+
+    // 收尾后下一槽自动补上 —— 跳过不烧槽位。
+    const built = f.store.list().find(t => t.triggerId?.startsWith('workspace:routine:daily-check'))!;
+    f.store.save({ ...built, phase: 'accepted' });
+    const later = await s('2026-11-09T11:02:00+08:00').tick();
+    assert.equal(later.routinesTriggered, 1, '收尾后恢复触发');
     assert.equal(f.created.length, 2);
     assert.equal(f.delegated.length, 2);
     assert.match(f.delegated[0]!.instruction, /不要自行替人做验收结论/);
+  } finally { f.close(); }
+});
+
+test('低频例程（daily / cron）缺省不限并发：昨天没收尾也照跑今天这一班', async () => {
+  const f = fixture([{ id: 'morning-brief', title: '晨报', goal: '汇总昨夜任务进展',
+    schedule: { kind: 'daily', at: '09:30' }, enabled: true }]);
+  try {
+    const s = (clock: string) => new Scheduler(f.w, f.assistant, f.config, () => new Date(clock));
+    assert.equal((await s('2026-11-09T09:31:00+08:00').tick()).routinesTriggered, 1);
+    // 昨天这班没验收完，今天照样要跑：静默跳过会被误当成「已经发过晨报」。
+    const next = await s('2026-11-10T09:31:00+08:00').tick();
+    assert.equal(next.routinesTriggered, 1, '不因上一班未收尾而跳过');
+    assert.equal(f.created.length, 2);
+    assert.equal(s('2026-11-10T09:31:00+08:00').status().routines[0]!.parallel, null);
+    assert.equal(s('2026-11-10T09:31:00+08:00').status().routines[0]!.parallelSource, 'unlimited');
   } finally { f.close(); }
 });
 

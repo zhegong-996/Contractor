@@ -27,6 +27,7 @@ import { CollaborationIntake } from './collaboration-intake.ts';
 import { Scheduler, automationTrigger } from './scheduler.ts';
 import { EventInbox } from './event-inbox.ts';
 import { readRetryHealth } from './retry-health.ts';
+import { buildChannelHealth } from './channel-health.ts';
 import { GithubWatcher } from './github-watch.ts';
 import { sendDingtalk, sendWecom, dingtalkEndpoint, wecomEndpoint, dingtalkToTrigger, wecomPlainXmlToTrigger, wecomIsEncrypted, type ImSendResult } from './im-outbound.ts';
 import { ModelSettingsService } from './model-settings.ts';
@@ -206,9 +207,34 @@ const server = createServer(async (req, res) => {
     // GITHUB_WEBHOOK_SECRET）。bridge 只绑 127.0.0.1，公网暴露需自行反代。
     if (req.method === 'POST' && url.pathname === '/github/webhook') {
       const raw = await readRawBody(req);
+      const header = (name: string): string | undefined => {
+        const value = req.headers[name];
+        return Array.isArray(value) ? value[0] : value;
+      };
+      // 第三十九轮 · 一条通道只有一个入口：一旦有人把 github 登记进
+      // eventInbox.sources，webhook 就交给收件箱，由 `when` 规则决定开不开单、
+      // 要不要合并成一轮；否则仍走既有即时通道（收到就建单），行为不变。
+      if (eventInbox.claims('github')) {
+        const result = eventInbox.accept('github', raw, {
+          'x-hub-signature-256': header('x-hub-signature-256'),
+          'x-signature-256': header('x-signature-256'),
+          'x-github-event': header('x-github-event'),
+        });
+        res.statusCode = result.ok ? 202 : 400;
+        res.end(JSON.stringify({ ...result, routed: 'inbox' })); return;
+      }
       const result = await serialize(() => githubWatcher.handleWebhook(raw,
         req.headers['x-hub-signature-256'] as string | undefined,
         req.headers['x-github-event'] as string | undefined));
+      // 已验签但未走到建单的事实（duplicate / ignored / no-target / 未监听类型）
+      // 在收件箱留一条 mirrored 痕迹：不参与分流，只为让「这个仓库投过什么」
+      // 只看一张表就能回答。验签失败不留痕 —— 那本来就不是我们的事实。
+      if (!['not-enabled', 'webhook-secret-not-configured', 'bad-signature', 'bad-json'].includes(String(result?.reason))) {
+        eventInbox.mirror('github', raw, {
+          'x-hub-signature-256': header('x-hub-signature-256'),
+          'x-github-event': header('x-github-event'),
+        }, 'github-watch', 'github');
+      }
       res.end(JSON.stringify(result)); return;
     }
     // 第三十八轮 · 通用入站事件源（GitLab / 任意业务系统）。只把事实写进收件箱
@@ -276,7 +302,7 @@ const server = createServer(async (req, res) => {
       // Reads recheck their own scope and revisions. They need not wait behind
       // indexing or native process reconciliation; mutations keep the single lane.
       const v06Reads=['roles-view','role-route','role-hints','role-snapshot','transfer-view','transfer-policy','dispatch-guard','grant-widen','grant-check','edges-view','edge-impact','label-check','policy-view','verification-level','topology-advice','inflight-policy','signals','review-readiness','ontology-meta','ontology-view','ontology-query','attention-policy','attention-filter','watchdog-policy','watchdog-inspect','plan-view','round-view','acceptance-workbench','acceptance-export','acceptance-report-view','org-overview','org-mapping-view','context-pack','l2-status','l2-edges-view','l2-graph-view','agent-registry-view','acceptance-crew','evolution-view','execution-view'];
-      const readOnly=['view','view-summary','team-members','agent-services','agent-build','development-view','delivery-status','service-status','routing-status','organization-view','memory-replay','memory-guard','loop-guard','network-view','memory-status','memory-search','memory-annotations','context-pack','context-record','context-search','ontology-view','model-settings','system-status','trace-view','knowledge-list','knowledge-get','knowledge-wiki','cognee-search','scheduler-status','event-inbox-status','retry-health','wake-list','github-watch-status'].includes(action)||action==='knowledge-graph'&&payload.project!==true||action.startsWith('v06-')&&v06Reads.includes(action.slice(4));
+      const readOnly=['view','view-summary','team-members','agent-services','agent-build','development-view','delivery-status','service-status','routing-status','organization-view','channel-health','memory-replay','memory-guard','loop-guard','network-view','memory-status','memory-search','memory-annotations','context-pack','context-record','context-search','ontology-view','model-settings','system-status','trace-view','knowledge-list','knowledge-get','knowledge-wiki','cognee-search','scheduler-status','event-inbox-status','retry-health','wake-list','github-watch-status'].includes(action)||action==='knowledge-graph'&&payload.project!==true||action.startsWith('v06-')&&v06Reads.includes(action.slice(4));
       const runWorkspace=readOnly?<T>(job:()=>Promise<T>)=>withFeishuReads(job):serialize;
       res.end(JSON.stringify(await runWorkspace(async () => {
         workspaceActor = await teamMembers.gate(action, payload, workspaceActor);
@@ -529,6 +555,32 @@ const server = createServer(async (req, res) => {
         if (action === 'event-inbox-status') { workspaces.manager(workspaceActor); return eventInbox.status(); }
         // 第三十八轮 · 出站重试健康：outbox 状态机 + 近 24h 投递失败的只读汇总。
         if (action === 'retry-health') { workspaces.manager(workspaceActor); return readRetryHealth(store); }
+        // 第三十九轮 · 通道体检：只读配置与本地台账，不发外部请求。
+        // 「还没有真实工单」从此是一条可查的事实（哪条通道缺什么），而不是一句猜测。
+        if (action === 'channel-health') {
+          workspaces.manager(workspaceActor);
+          const tasks = store.list();
+          const real = tasks.filter(task => (task.chatId ?? '').startsWith('oc_') || (task.senderId ?? '').startsWith('ou_'));
+          const last = real[real.length - 1];
+          const lastAt = last
+            ? (store.db.prepare('SELECT max(at) AS at FROM audit WHERE issue_id=?').get(last.id) as { at: string | null } | undefined)?.at ?? undefined
+            : undefined;
+          return buildChannelHealth({
+            feishu: {
+              enabled: config.feishu.enabled, appId: config.feishu.appId,
+              state: feishuState === 'ready' ? 'ready' : feishuState === 'disconnected' ? 'disconnected'
+                : feishuState === 'disabled' ? 'disabled' : 'connecting',
+              allowedSenders: config.feishu.allowedSenders.length, allowedChats: config.feishu.allowedChats.length,
+            },
+            github: { ...githubWatcher.status() },
+            im: {
+              dingtalkConfigured: Boolean(process.env.DINGTALK_WEBHOOK || process.env.DINGTALK_TOKEN),
+              wecomConfigured: Boolean(process.env.WECOM_WEBHOOK || process.env.WECOM_KEY),
+            },
+            inbox: (() => { const status = eventInbox.status(); return { enabled: status.enabled, claimed: status.claimed, pending: status.pending, mirrored: status.mirrored }; })(),
+            realStories: { total: real.length, ...(lastAt ? { lastAt } : {}), ...(last ? { lastIdentifier: last.identifier } : {}) },
+          });
+        }
         if (action === 'wake-list') { workspaces.manager(workspaceActor); return scheduler.listWakes(); }
         if (action === 'wake-schedule') { workspaces.manager(workspaceActor); return scheduler.scheduleWake(payload); }
         if (action === 'wake-cancel') { workspaces.manager(workspaceActor); return scheduler.cancelWakes(String(payload.taskId ?? '')); }
