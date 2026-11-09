@@ -18,7 +18,7 @@
 
 体检：**45 条 ok 45 / partial 0 / gap 0**（第四十轮 40 条 ok 39 / partial 1）。partial 清零。
 
-测试：**678 / 678**（第四十轮 639；本轮新增 34，同日两次补记再 +3、+2）。
+测试：**681 / 681**（第四十轮 639；本轮新增 34，同日两次补记再 +3、+2）。
 
 ## 2. 准入三档：不是「多一个开关」，是把「没有下文」补成一条说明
 
@@ -78,7 +78,7 @@
 - **边界不藏**：建管理员（`console:owner`）、飞书授权、真实业务单仍需人做，装完直接打印出来。
 
 **一个如实发现**：`package.json` 的 `engines` 写 `node >= 24.11`，但这台机器实际是 `v22.22.2`，
-全部 678 例测试、类型检查与本机服务都在该版本跑通。所以 preflight 默认**只警告不拦**，
+全部 681 例测试、类型检查与本机服务都在该版本跑通。所以 preflight 默认**只警告不拦**，
 `--strict-node` 才按声明拦截。这个差异写在 `warnings` 里，不静默，也不偷偷改 `engines`。
 
 ## 7. 知识读边界：从 partial 到 ok
@@ -98,7 +98,7 @@
 
 | 命令 | 结果 |
 |---|---|
-| `npm test` | **678 / 678** |
+| `npm test` | **681 / 681** |
 | `npx tsc --noEmit` | 0 错 |
 | `npm run audit:layers` | **45 条：ok 45 / partial 0 / gap 0** |
 | `npm run rules:view` | 七节输出正常，默认值单独列出 |
@@ -203,3 +203,33 @@ https://open.feishu.cn/page/scope-apply?clientID=cli_aa61f940a0e15cf4&scopes=con
 **顺带发现**：检查期间 paperclip（3100）实际已停止（`/health` 连接被拒），
 bridge 的 `/health` 只是回显配置、并不探活下游。已用 `scripts/up.ts up` 拉起，
 `/api/health` 为 `status: ok / deploymentMode: local_trusted`。
+
+### 补记：把读取链路修到「加权限就能生效」
+
+上一节只查出了「读错应用」，但只加防呆不够 —— 即便管理员把机器人应用的通讯录权限补齐，
+原实现仍然不会读到正确数据，因为两处硬编码把路堵死了：
+
+1. **不传 profile**：`defaultCommand` 直接调 `lark-cli`，落到默认 profile 的另一个应用。
+   改为 `larkArgs(profile, args)` 统一前置 `--profile <config.feishu.profile>`。
+2. **身份写死 `--as user`**：user 身份需要人扫码登录，而机器人应用自己就有 tenant token。
+   改为 `contactRead()` 先试 `--as bot`、失败再退 `--as user`。用机器人身份读到的人，
+   open_id 与收消息时是同一应用，可以直接派单匹配 —— 这条路径打通后**不需要任何人扫码**。
+
+配套的可读性修正：
+
+- `conciseCliError()`：lark-cli 报错时以非零码退出、把整段 stderr（含完整命令行）抛出来，
+  原样塞进 `departmentNote` 会变成一大坨噪声。现在只取 `error.message`，例如
+  「no dept authority error」。
+- `departmentScopeMissing` 判据补上 `!tree.ok`：部门树压根读不到 + 确实缺 scope，就是缺权限；
+  租户扁平（能读、但没有子部门）仍不算缺权限。
+- 新增 `authorizationUrl`：缺权限时直接给开放平台的权限申请页，scope 已经填好，
+  不用人再去权限列表里找。
+- `ORG_AUTH_HINT` 从裸命令改成 `npm run org:auth` —— 裸命令会整体替换 scope、清空既有授权，
+  这正是前一天踩过的坑，不该再留在提示里。
+
+**真实结果**（`npm run org:preview`）：`appId = botAppId = cli_aa61f940a0e15cf4`、
+`idScopeMismatch = false`、`members = []`、`departmentNote = no dept authority error`、
+`authorizationUrl` 指向机器人应用的权限申请页。**这比之前那份「4 个人但 id 不能用」的草案诚实**：
+现在它明确说「没权限」，并给出补齐的方法。
+
+契约测试 +3（profile 前置、申请页编码、错误正文提取），`tests/feishu-org.test.ts` 15/15。

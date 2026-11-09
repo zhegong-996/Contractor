@@ -27,6 +27,7 @@ if (action === 'preview') {
     idScopeMismatch: draft.idScopeMismatch === true,
     ...(draft.idScopeMismatch ? { idScopeNote: draft.idScopeNote } : {}),
     authorizationHint: draft.authorizationHint,
+    ...(draft.authorizationUrl ? { authorizationUrl: draft.authorizationUrl } : {}),
     missingScopes: draft.missingScopes ?? [],
     scopeLogin: draft.missingScopes?.length
       ? '运行 npm run org:auth 取得携带现有全部 scope 的登录命令（需本人在飞书确认）'

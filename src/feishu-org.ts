@@ -21,9 +21,13 @@ import { loadConfig, runtime } from './config.ts';
 
 const execute = promisify(execFile);
 
-/** 管理员补齐通讯录/部门读取范围的一次性授权命令（需本人在飞书确认）。 */
+/**
+ * 补齐通讯录/部门读取范围的做法。
+ * 不要写成裸的 `lark-cli auth login --scope "…"`：飞书重新登录会把 scope 集合
+ * 整体替换成这次传入的值，只传两个新 scope 会清空已有权限。走脚本才会带上全量。
+ */
 export const ORG_AUTH_HINT =
-  'lark-cli auth login --scope "contact:contact.base:readonly contact:department.organize:readonly" --no-wait --json';
+  'npm run org:auth（带当前已授权的全部 scope，避免整体替换）';
 
 /** 读取部门字段必须新增的两个 scope。 */
 export const ORG_SCOPE_ADDITIONS = [
@@ -117,6 +121,8 @@ export interface OrgMappingDraft {
   departmentNote?: string;
   /** 简短提示，保持既有调用方兼容；真正可执行的全量命令见 authorizationCommand。 */
   authorizationHint: string;
+  /** 飞书开放平台的权限申请页：把缺的 scope 直接填好，省得人翻权限列表。 */
+  authorizationUrl?: string;
   /** 携带当前全部已授权 scope + 缺失 scope 的登录命令，不会冲掉已有权限。 */
   authorizationCommand?: string;
   grantedScopes?: string[];
@@ -146,13 +152,37 @@ function botAppIdOf(): string | null {
   try { return loadConfig().feishu?.appId || null; } catch { return null; }
 }
 
+/** lark-cli 的 profile 决定用哪个应用的身份；必须显式带上，否则会落到默认 profile 的另一个应用。 */
+export function larkArgs(profile: string | null | undefined, args: string[]): string[] {
+  return profile ? ['--profile', profile, ...args] : [...args];
+}
+
+function profileOf(): string | null {
+  try { return loadConfig().feishu?.profile || null; } catch { return null; }
+}
+
+/** 飞书开放平台的权限申请页，直接把缺的 scope 填进去，省得人去翻权限列表。 */
+export function scopeApplyUrl(appId: string | null, scopes: readonly string[]): string {
+  if (!appId || scopes.length === 0) return '';
+  return `https://open.feishu.cn/page/scope-apply?clientID=${appId}&scopes=${encodeURIComponent(scopes.join(','))}`;
+}
+
 async function defaultCommand(args: string[]): Promise<any> {
-  const { stdout } = await execute('lark-cli', args, {
+  const { stdout } = await execute('lark-cli', larkArgs(profileOf(), args), {
     timeout: 25000, maxBuffer: 4 * 1024 * 1024,
     env: { PATH: process.env.PATH, HOME: process.env.HOME, TMPDIR: process.env.TMPDIR,
       LARKSUITE_CLI_NO_UPDATE_NOTIFIER: '1', LARKSUITE_CLI_NO_SKILLS_NOTIFIER: '1' },
   });
   return JSON.parse(stdout);
+}
+
+/** lark-cli 在 API 报错时会以非零码退出，把整段 stderr 抛出来；这里只取里面的错误正文。 */
+export function conciseCliError(raw: unknown): string {
+  const text = String((raw as Error)?.message ?? raw ?? '');
+  const match = text.match(/"message"\s*:\s*"([^"]+)"/);
+  if (match) return match[1]!;
+  const first = text.split('\n').map(line => line.trim()).filter(Boolean)[0] ?? '';
+  return first.slice(0, 160) || '通讯录读取失败';
 }
 
 export class FeishuOrgService {
@@ -240,7 +270,13 @@ export class FeishuOrgService {
      * - 权限齐了但租户没建子部门：全员挂根部门，这是组织事实，不该催人重复授权。
      */
     const nobodyHasDepartment = list.length > 0 && list.every(member => !member.department);
-    const departmentScopeMissing = scopeMissing.length > 0 && nobodyHasDepartment;
+    /** 部门树读不到 + 确实缺 scope，才判定缺权限；租户扁平不算。 */
+    const departmentScopeMissing = scopeMissing.length > 0 && (!tree.ok || nobodyHasDepartment);
+    /** 部门树压根读不到：多半是应用侧没开通讯录权限，直接给开放平台的申请页。 */
+    const needsScopeGrant = !tree.ok || scopeMissing.length > 0;
+    const authorizationUrl = needsScopeGrant
+      ? scopeApplyUrl(botAppId ?? appId, scopeMissing.length > 0 ? scopeMissing : [...ORG_SCOPE_ADDITIONS])
+      : '';
     return {
       schemaVersion: 1, generatedAt, available: list.length > 0,
       ...(list.length === 0 && lastFailure ? { reason: lastFailure } : {}),
@@ -250,7 +286,8 @@ export class FeishuOrgService {
       ...(scopeVerdict.mismatch ? { idScopeMismatch: true, idScopeNote: scopeVerdict.note } : {}),
       departmentStructure: structures,
       departmentNote: departmentNoteOf(structures, tree.nodes.length, tree.error),
-      authorizationHint: departmentScopeMissing ? ORG_AUTH_HINT : '',
+      authorizationHint: departmentScopeMissing || !tree.ok ? ORG_AUTH_HINT : '',
+      ...(authorizationUrl ? { authorizationUrl } : {}),
       authorizationCommand: orgAuthCommand(grantedScopes),
       grantedScopes,
       missingScopes: scopeMissing,
@@ -260,13 +297,30 @@ export class FeishuOrgService {
     };
   }
 
+/**
+ * 通讯录读取的身份顺序：先用机器人应用自己的身份，失败再退到 user 身份。
+   * 机器人身份不需要有人扫码登录，而且拿到的 open_id 与收消息时是同一个应用，
+   * 可以直接用于派单匹配 —— 这正是之前缺的那一环。
+   */
+  private async contactRead(path: string, params: Record<string, unknown>): Promise<any> {
+    let last: any = null;
+    for (const identity of ['bot', 'user']) {
+      try {
+        const response = await this.command(['api', 'GET', path, '--params', JSON.stringify(params),
+          '--as', identity, '--format', 'json']);
+        if (response?.ok === true) return response;
+        last = response;
+      } catch (error) { last ??= { ok: false, error: { message: conciseCliError(error) } }; }
+    }
+    return last ?? { ok: false, error: { message: '通讯录读取失败' } };
+  }
+
   /** 部门树（不含根部门）。失败不抛出：返回 ok:false 与原因，由调用方如实写进草案。 */
   private async readDepartments(): Promise<{ ok: boolean; nodes: DepartmentNode[]; error: string }> {
     try {
-      const response = await this.command(['api', 'GET', '/open-apis/contact/v3/departments', '--params',
-        JSON.stringify({ parent_department_id: '0', fetch_child: true, page_size: 50,
-          department_id_type: 'open_department_id', user_id_type: 'open_id' }),
-        '--as', 'user', '--format', 'json']);
+      const response = await this.contactRead('/open-apis/contact/v3/departments',
+        { parent_department_id: '0', fetch_child: true, page_size: 50,
+          department_id_type: 'open_department_id', user_id_type: 'open_id' });
       if (response?.ok !== true)
         return { ok: false, nodes: [], error: String(response?.error?.message ?? '部门树读取失败') };
       const nodes = (response?.data?.items ?? [])
@@ -278,7 +332,7 @@ export class FeishuOrgService {
         }));
       return { ok: true, nodes, error: '' };
     } catch (error) {
-      return { ok: false, nodes: [], error: String((error as Error).message ?? error) };
+      return { ok: false, nodes: [], error: conciseCliError(error) };
     }
   }
 
@@ -287,9 +341,9 @@ export class FeishuOrgService {
     openId: string; name: string; activated: boolean; crossTenant: boolean;
   }[]> {
     try {
-      const response = await this.command(['api', 'GET', '/open-apis/contact/v3/users/find_by_department',
-        '--params', JSON.stringify({ department_id: departmentId, department_id_type: 'open_department_id',
-          user_id_type: 'open_id', page_size: 50 }), '--as', 'user', '--format', 'json']);
+      const response = await this.contactRead('/open-apis/contact/v3/users/find_by_department',
+        { department_id: departmentId, department_id_type: 'open_department_id',
+          user_id_type: 'open_id', page_size: 50 });
       if (response?.ok !== true) return [];
       return (response?.data?.items ?? [])
         .filter((item: any) => item?.open_id)

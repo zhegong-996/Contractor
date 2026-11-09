@@ -9,7 +9,8 @@ import { root } from '../src/config.ts';
 import { V06Services } from '../src/v06.ts';
 import { MemoryV06Store } from '../src/v06-store.ts';
 import { FeishuOrgService, parseOrgTable, ORG_AUTH_HINT,
-  orgAuthCommand, missingOrgScopes, ORG_SCOPE_ADDITIONS, idScopeVerdict } from '../src/feishu-org.ts';
+  orgAuthCommand, missingOrgScopes, ORG_SCOPE_ADDITIONS, idScopeVerdict,
+  larkArgs, scopeApplyUrl, conciseCliError } from '../src/feishu-org.ts';
 import { registrySchema } from '../src/roles.ts';
 
 const at = '2026-11-06T10:00:00.000Z';
@@ -244,4 +245,32 @@ test('草案 id 属于另一个应用时，org:apply 会拒绝导入而不是留
   assert.match(script, /--force-foreign-app/);
   // 拒绝要发生在真正发请求之前：先读草案再读组织表。
   assert.ok(script.indexOf('idScopeMismatch') < script.indexOf('v06-org-mapping-apply'));
+});
+
+test('读组织必须显式带项目 profile，否则会落到默认 profile 的另一个应用', () => {
+  // 这是本轮真实踩到的坑：不加 --profile，lark-cli 用默认应用，
+  // 读出来的 open_id 和收消息的机器人不是同一个应用空间。
+  assert.deepEqual(larkArgs('ai-native-collab', ['auth', 'status']),
+    ['--profile', 'ai-native-collab', 'auth', 'status']);
+  // 没配 profile 时保持原样，不改既有行为。
+  assert.deepEqual(larkArgs(null, ['auth', 'status']), ['auth', 'status']);
+  assert.deepEqual(larkArgs('', ['auth', 'status']), ['auth', 'status']);
+});
+
+test('缺权限时给的是开放平台申请页，而不是让人去翻权限列表', () => {
+  const url = scopeApplyUrl('cli_demo', ['contact:contact.base:readonly', 'contact:department.organize:readonly']);
+  assert.match(url, /scope-apply\?clientID=cli_demo&scopes=/);
+  // scope 里的冒号必须编码，否则被当成端口/参数分隔符。
+  assert.match(url, /contact%3Acontact\.base%3Areadonly/);
+  assert.match(url, /%2Ccontact%3Adepartment/);
+  // 没有应用或没有缺失项时不拼链接，避免给出一个空授权页。
+  assert.equal(scopeApplyUrl(null, ['a']), '');
+  assert.equal(scopeApplyUrl('cli_demo', []), '');
+});
+
+test('lark-cli 的报错只取正文，不把整段命令回显塞进用户可见的说明里', () => {
+  const raw = new Error('Command failed: lark-cli --profile x api GET /open-apis/contact/v3/departments\n'
+    + '{ "ok": false, "error": { "code": 40004, "message": "no dept authority error" } }');
+  assert.equal(conciseCliError(raw), 'no dept authority error');
+  assert.equal(conciseCliError(new Error('boom\nsecond line')), 'boom');
 });
