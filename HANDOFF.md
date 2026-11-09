@@ -15,7 +15,7 @@
 | 2 | 读本文件第 1、2、5、6 节（产品口径、现状、红线、边界） |
 | 3 | 读 `HANDOFF/00-START-HERE.md`（环境、端口、8 个已知坑）与 `HANDOFF/06-CURRENT-STATE-AND-NEXT.md`（现状与下一步） |
 | 4 | 动手前读 `docs/PRD-v0.6.md` §10C（C-P1~C-P8）、`HANDOFF/07-RULES-AND-BOUNDARIES.md`、`HANDOFF/08-OPEN-DECISIONS.md` |
-| 5 | 跑 `npm test`（690/690）、`npm run audit:layers`（47 条，partial 0）与 `npm run console:smoke`（7 视图 + 28 单元验收矩阵）确认基线，再按 `HANDOFF/05-VALIDATION-AND-COMMANDS.md` 跑全套回归 |
+| 5 | 跑 `npm test`（693/693）、`npm run audit:layers`（48 条，partial 0）与 `npm run console:smoke`（7 视图 + 28 单元验收矩阵）确认基线，再按 `HANDOFF/05-VALIDATION-AND-COMMANDS.md` 跑全套回归 |
 | 6 | 要动某块代码时查 `HANDOFF/04-CODE-MAP.md` / `HANDOFF/FILE-INVENTORY.md` |
 | 7 | 拿不准的产品/隐私选择**问用户**，不要自己拍板 |
 

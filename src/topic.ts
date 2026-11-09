@@ -182,3 +182,73 @@ export function topicDigest(topic: Topic,
     byState, blocked, summary,
   };
 }
+
+/** 一个群/协作板可以同时服务多个主题（例如「筹备」和「预算」都在同一个群）。 */
+export function findTopicsByChannel(ref: string, dir: string = topicDir()): Topic[] {
+  const target = String(ref ?? '').trim();
+  if (!target) return [];
+  return listTopics(dir).filter(topic => topic.channels.some(channel => channel.ref === target));
+}
+
+export interface ChannelMessage {
+  channelRef: string;
+  at: string;
+  author: string;
+  text: string;
+}
+
+export interface ChannelDigest {
+  ref: string;
+  kind: string | null;
+  messages: number;
+  lastAt: string | null;
+  /** 这个频道最后一句说了什么，给未读的人一个落点。 */
+  lastText: string;
+}
+
+export interface TopicContextPack {
+  topicId: string;
+  title: string;
+  goal: string;
+  channels: ChannelDigest[];
+  /** 合并稿：按频道分组、按时间排序，只做归并和标注，不下结论。 */
+  merged: string;
+}
+
+/**
+ * 把主题下多个频道的上下文并成一份稿子（千问的「跨群对齐」里最没有争议的那一半）。
+ *
+ * 刻意只做三件事：归并、标注来源、留最后一句。
+ * 不做「两个频道说的是不是同一件事」的判断 —— 那种判断要么靠模型瞎猜，
+ * 要么得先定口径，两者都不该塞进一个只读聚合里。
+ */
+export function topicContextPack(topic: Topic, messages: readonly ChannelMessage[],
+  options: { perChannel?: number } = {}): TopicContextPack {
+  const perChannel = Math.max(1, options.perChannel ?? 3);
+  const known = new Map(topic.channels.map(channel => [channel.ref, channel]));
+  const grouped = new Map<string, ChannelMessage[]>();
+  for (const message of messages) {
+    if (!known.has(message.channelRef)) continue;       // 不属于本主题的频道不进稿
+    if (!grouped.has(message.channelRef)) grouped.set(message.channelRef, []);
+    grouped.get(message.channelRef)!.push(message);
+  }
+  const channels: ChannelDigest[] = [];
+  const lines = [`【主题】${topic.title}｜目标：${topic.goal}`];
+  for (const channel of topic.channels) {
+    const list = (grouped.get(channel.ref) ?? []).slice().sort((a, b) => a.at.localeCompare(b.at));
+    const tail = list.slice(-perChannel);
+    channels.push({
+      ref: channel.ref,
+      kind: channel.kind ?? null,
+      messages: list.length,
+      lastAt: tail.at(-1)?.at ?? null,
+      lastText: tail.at(-1)?.text ?? '',
+    });
+    lines.push(`\n[${channel.kind}] ${channel.ref}（${list.length} 条，负责人 ${channel.ownerUserId}）`);
+    if (tail.length === 0) lines.push('  （这个入口还没有可合并的内容）');
+    for (const message of tail) lines.push(`  · ${message.at} ${message.author}：${message.text}`);
+  }
+  lines.push('\n以上是按频道归并的原文摘录，没有做结论、也没有判定谁对谁错；'
+    + '口径不一致时仍需人指定以哪边为准。');
+  return { topicId: topic.id, title: topic.title, goal: topic.goal, channels, merged: lines.join('\n') };
+}

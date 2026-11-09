@@ -6,7 +6,9 @@ import { mkdtempSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { reconcile, isReconcileRequest } from '../src/reconcile.ts';
-import { attachChannel, attachTask, createTopic, listTopics, readTopic, topicDigest } from '../src/topic.ts';
+import { attachChannel, attachTask, createTopic, findTopicsByChannel, listTopics, readTopic,
+  topicContextPack, topicDigest } from '../src/topic.ts';
+import { diffSnapshot, patrolCard, readSnapshot, writeSnapshot, type PatrolSnapshot } from '../src/patrol.ts';
 
 const dir = () => mkdtempSync(path.join(tmpdir(), 'topic-'));
 
@@ -126,4 +128,53 @@ test('主题摘要只陈述现状：几入口、几任务、几个卡点', () =>
   const empty = createTopic({ title: '空主题', goal: '还没挂东西', ownerUserId: 'ou_a' }, base);
   assert.match(topicDigest(readTopic(empty.id, base)).summary, /还没有任务/);
   assert.equal(listTopics(base).length, 2);
+});
+
+test('巡检：没变化就不出声，首次巡检只建基线', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'patrol-'));
+  const first = diffSnapshot(readSnapshot(dir), { t1: { phase: 'running', round: null } });
+  assert.equal(first.length, 0, '没有上一份快照时不算变化');
+  writeSnapshot(dir, { t1: { phase: 'running', round: null } }, '2026-11-09T00:00:00Z');
+  const same = diffSnapshot(readSnapshot(dir), { t1: { phase: 'running', round: null } });
+  assert.equal(patrolCard(same), '', '无变化时卡片必须为空');
+  const moved = diffSnapshot(readSnapshot(dir), { t1: { phase: 'review', round: null } });
+  assert.equal(moved.length, 1);
+  const card = patrolCard(moved, { at: '2026-11-09T01:00:00Z' });
+  assert.match(card, /阶段：running → review/);
+  assert.match(card, /没有改动任何任务状态/);
+});
+
+test('产物修订变了要提示对账，且不把新任务当变化刷屏', () => {
+  const previous: PatrolSnapshot = { schemaVersion: 1, at: 't0', tasks: { t1: { phase: 'running', round: null, artifactRevision: 'r1' } } };
+  const changes = diffSnapshot(previous, {
+    t1: { phase: 'running', round: null, artifactRevision: 'r2' },
+    t2: { phase: 'running', round: null },
+  });
+  assert.equal(changes.length, 1, '新出现的任务不报变化');
+  assert.equal(changes[0]!.kind, 'artifact');
+  assert.equal(changes[0]!.recheck, true);
+  assert.match(patrolCard(changes), /和待办对一遍/);
+});
+
+test('主题多频道：一个群服务多个主题，合并稿只归并下结论', () => {
+  const base = dir();
+  const a = createTopic({ title: '筹备', goal: '办完活动', ownerUserId: 'ou_a' }, base);
+  const b = createTopic({ title: '预算', goal: '控住成本', ownerUserId: 'ou_a' }, base);
+  attachChannel({ topicId: a.id, kind: 'im', ref: 'oc_1', ownerUserId: 'ou_a' }, base);
+  attachChannel({ topicId: b.id, kind: 'im', ref: 'oc_1', ownerUserId: 'ou_a' }, base);
+  assert.deepEqual(findTopicsByChannel('oc_1', base).map(t => t.title).sort(), ['筹备', '预算']);
+  assert.deepEqual(findTopicsByChannel('oc_none', base), []);
+
+  attachChannel({ topicId: a.id, kind: 'im', ref: 'oc_2', ownerUserId: 'ou_b' }, base);
+  const pack = topicContextPack(readTopic(a.id, base), [
+    { channelRef: 'oc_1', at: '2026-11-09T01:00:00Z', author: '甲', text: '物料差 3 份' },
+    { channelRef: 'oc_1', at: '2026-11-09T02:00:00Z', author: '乙', text: '明天送印' },
+    { channelRef: 'oc_2', at: '2026-11-09T03:00:00Z', author: '丙', text: '预算按 50 人算' },
+    { channelRef: 'oc_unknown', at: '2026-11-09T04:00:00Z', author: '丁', text: '不该出现' },
+  ], { perChannel: 1 });
+  assert.equal(pack.channels.length, 2);
+  assert.equal(pack.channels.find(c => c.ref === 'oc_1')!.messages, 2);
+  assert.match(pack.merged, /乙：明天送印/);
+  assert.doesNotMatch(pack.merged, /不该出现/, '不属于本主题的频道不进稿');
+  assert.match(pack.merged, /没有做结论/);
 });

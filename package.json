@@ -76,7 +76,8 @@
     "console:owner": "node --import tsx scripts/console-server.ts init-owner",
     "service": "node --import tsx scripts/service.ts",
     "reconcile": "node --import tsx scripts/reconcile.ts",
-    "topic": "node --import tsx scripts/topic.ts"
+    "topic": "node --import tsx scripts/topic.ts",
+    "patrol": "node --import tsx scripts/patrol.ts"
   },
   "dependencies": {
     "@a2a-js/sdk": "1.3.0",

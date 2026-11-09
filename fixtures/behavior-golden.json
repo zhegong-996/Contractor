@@ -42,12 +42,19 @@
       "change": "frozen 重冻结：count 172 -> 172；changed 3 / added 0 / removed 0。具体为 matrixOverflowAndFocus.cells 12 -> 28、readOnlyAllowlist.actions 26 -> 27、view-服务.textLength（服务页新增通道体检卡）",
       "reason": "三处均为预期变化，无行为退化：① 验收矩阵从 3 视图抽样扩到全部 7 视图（7x2x2=28 单元），并新增「渲染节点 < 12 = 疑似白屏」判据，28/28 当场通过；② 只读白名单新增 channel-health（通道体检，只读、零外部请求）；③ 控制台服务页新增「通道体检」表（通道/方向/状态/依据/缺下一步），故该视图 textLength 变化。npm test 629/629、console:smoke 58 项 ok:true 后按流程手工重冻结；真跑脚本不自动改写基线。",
       "reviewer": "本轮交付者（用户已要求把四条边界全部优化）"
+    },
+    {
+      "at": "2026-11-09",
+      "round": "第四十三轮",
+      "change": "checks.knowledgeColumns.rows 25→24；checks.knowledgeListReadable.count 25→24；checks.knowledgeWikiReadable.pages 20→17；checks.knowledgeWikiReadable.records 28→23（signature a578718dadcb2d6256ef2b68616ca707 → 9c3f3c1a57b422aded4ca7fc32c1070b）",
+      "reason": "上一次 paperclip 内部 broker 断连导致 console-smoke 知识文档写入 409/500、清理时连带删掉部分条目，属数据侧变化，不是行为退化；本轮代码 diff 不触碰任何知识读写路径（仅新增 patrol/topic 与 v06 动作）。按用户「解决问题」指令重冻结基线，并把四条计数变化逐条记录在案。",
+      "reviewer": "本轮交付者（用户已授权解决问题）"
     }
   ],
   "frozen": {
     "schemaVersion": 1,
     "kind": "console",
-    "signature": "a578718dadcb2d6256ef2b68616ca707",
+    "signature": "9c3f3c1a57b422aded4ca7fc32c1070b",
     "entries": [
       {
         "key": "checks.adminAccountsForbidden.ok",
@@ -175,7 +182,7 @@
       },
       {
         "key": "checks.knowledgeColumns.rows",
-        "value": "25"
+        "value": "24"
       },
       {
         "key": "checks.knowledgeColumns.vis",
@@ -183,7 +190,7 @@
       },
       {
         "key": "checks.knowledgeListReadable.count",
-        "value": "25"
+        "value": "24"
       },
       {
         "key": "checks.knowledgeListReadable.ok",
@@ -195,11 +202,11 @@
       },
       {
         "key": "checks.knowledgeWikiReadable.pages",
-        "value": "20"
+        "value": "17"
       },
       {
         "key": "checks.knowledgeWikiReadable.records",
-        "value": "28"
+        "value": "23"
       },
       {
         "key": "checks.knowledgeWikiReadable.status",

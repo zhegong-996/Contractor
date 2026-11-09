@@ -19,6 +19,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { reconcile, isReconcileRequest } from './reconcile.ts';
+import { diffSnapshot, patrolCard, type PatrolSnapshot } from './patrol.ts';
 import { attachChannel, attachTask, createTopic, readTopic, topicDigest } from './topic.ts';
 import type { RouterConfig } from './config.ts';
 import {
@@ -693,6 +694,25 @@ export function auditLayerContracts(options: LayerAuditOptions = {}): LayerRepor
           `无产物可比=${!nothing.comparable}`, '清单未被对账改写'])
         : miss([`漏验=${drifted.counts.missing}`, `清单外=${drifted.counts.extra}`,
           `无产物可比=${!nothing.comparable}`, `改清单不入对账=${detects}`, `清单未被改写=${untouched}`]);
+    }));
+
+  checks.push(run('patrol.speaks-only-on-change', 'router', '巡检有变化才出声',
+    '首次巡检只建基线、无变化卡片为空、新任务不刷屏、产物修订变了提示对账', () => {
+      const same = diffSnapshot(
+        { schemaVersion: 1, at: 't0', tasks: { t1: { phase: 'running', round: null } } } as PatrolSnapshot,
+        { t1: { phase: 'running', round: null } });
+      const first = diffSnapshot(null, { t1: { phase: 'running', round: null } });
+      const moved = diffSnapshot(
+        { schemaVersion: 1, at: 't0', tasks: { t1: { phase: 'running', round: null, artifactRevision: 'r1' } } } as PatrolSnapshot,
+        { t1: { phase: 'review', round: null, artifactRevision: 'r2' }, t2: { phase: 'running', round: null } });
+      const ok = same.length === 0 && patrolCard(same) === '' && first.length === 0
+        && moved.length === 2 && moved.every(change => change.taskId === 't1')
+        && moved.some(change => change.recheck === true)
+        && /没有改动任何任务状态/.test(patrolCard(moved));
+      return ok
+        ? pass([`无变化卡片长度=${patrolCard(same).length}`, `首次基线变化=${first.length}`,
+          `变化项=${moved.map(change => change.kind).join(',')}`])
+        : miss([`无变化=${same.length}`, `首次=${first.length}`, `变化项=${moved.length}`]);
     }));
 
   checks.push(run('topic.aggregation-requires-owner', 'router', '主题只聚合有责任人的东西',
