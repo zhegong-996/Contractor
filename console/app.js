@@ -53,6 +53,7 @@
   const VIEWS = [
     { id: 'overview', title: '概览', subtitle: '同一份共享现场，人和助手各看自己该看的' },
     { id: 'collaboration', title: '协作', subtitle: '谁接、谁派、谁干，都在一条责任链上' },
+    { id: 'organization', title: '组织', subtitle: '一份共享上下文，按职能配置三层座位' },
     { id: 'knowledge', title: '知识', subtitle: '资料与证据按归属分区管理：个人 / 协作 / 组织' },
     { id: 'acceptance', title: '验收', subtitle: '开工前锁定清单，逐项判定后由发起人确认' },
     { id: 'services', title: '服务', subtitle: '本机与国内服务的实时状态' },
@@ -553,61 +554,243 @@
     },
   };
 
-  // ---------------------------------------------------------------- 验收视图
+  // ---------------------------------------------------------------- 验收 / 审查视图
+  // 只读工作台：清单在开工前锁定，这里看逐项判定、证据区域与审查 Agent 编组。
+  // 最终核可仍由原发起人在飞书原会话完成；本页不提供「通过 / 打回」写入口。
   const AcceptanceView = {
     template: `
       <div>
+        <el-card shadow="never" style="margin-bottom:14px">
+          <div class="card-head">
+            <div>
+              <label class="list-row-title" for="acceptance-task-select">选择要审查的任务</label>
+              <div class="hint-text" style="margin:4px 0 0">清单锁定后不可改写；证据与逐项判定只是给人看的依据。</div>
+            </div>
+            <el-select id="acceptance-task-select" v-model="taskId" filterable placeholder="选择一个协作任务" style="width:min(360px, 100%)" @change="load">
+              <el-option v-for="t in tasks" :key="t.id" :label="t.identifier + ' · ' + t.title" :value="t.id" />
+            </el-select>
+          </div>
+        </el-card>
+        <el-alert v-if="errorText" :title="errorText" type="warning" :closable="false" style="margin-bottom:14px" />
+        <el-empty v-if="!tasks.length" description="当前身份可见范围内还没有协作任务" />
+        <el-empty v-else-if="!taskId" description="先选择一个任务" />
+        <template v-else>
+          <el-row :gutter="14" style="margin-bottom:14px">
+            <el-col v-for="card in statCards" :key="card.label" :xs="12" :sm="6">
+              <el-card shadow="never"><div class="stat"><div class="stat-num">{{ card.value }}</div><div class="stat-label">{{ card.label }}</div></div></el-card>
+            </el-col>
+          </el-row>
+          <el-row :gutter="14">
+            <el-col :xs="24" :md="15" style="margin-bottom:14px">
+              <el-card shadow="never" class="contract-card">
+                <template #header>
+                  <div class="card-head"><span>验收清单与逐项判定</span><span class="list-row-meta">{{ planLine }}</span></div>
+                </template>
+                <el-alert v-if="!data.plan" type="info" :closable="false" title="该任务未锁定验收清单，沿用原发起人在原会话核可；本页不伪造清单。" />
+                <template v-else>
+                  <div class="hint-text">等级 {{ data.plan.level }} · 清单指纹 {{ shortHash }} · 锁定 {{ fmtTime(data.plan.lockedAt) }} · 起草 {{ data.plan.draftedBy || '未记录' }}</div>
+                  <el-table :data="data.items" size="small">
+                    <el-table-column label="检查项" min-width="190">
+                      <template #default="{ row }">
+                        <div class="list-row-title">{{ row.name }}</div>
+                        <div class="list-row-detail">{{ row.criteria }}</div>
+                      </template>
+                    </el-table-column>
+                    <el-table-column label="证据" width="96">
+                      <template #default="{ row }">{{ evidenceText(row.evidenceKind) }}</template>
+                    </el-table-column>
+                    <el-table-column label="判定" width="88">
+                      <template #default="{ row }"><el-tag size="small" :type="statusTag(row.status)" effect="light">{{ statusText(row.status) }}</el-tag></template>
+                    </el-table-column>
+                    <el-table-column label="原因 / 证据位置" min-width="210">
+                      <template #default="{ row }">
+                        <div>{{ row.reason || '—' }}</div>
+                        <div v-if="row.evidenceRefs.length" class="list-row-meta">证据 {{ row.evidenceRefs.length }} 条</div>
+                        <div v-for="(region, i) in row.regions" :key="i" class="list-row-meta">
+                          区域 {{ i + 1 }}：{{ region.x }},{{ region.y }} · {{ region.width }}×{{ region.height }}{{ region.note ? ' · ' + region.note : '' }}
+                        </div>
+                      </template>
+                    </el-table-column>
+                  </el-table>
+                  <div v-if="data.round" class="hint-text" style="margin-top:10px">
+                    第 {{ data.round.round }} 轮 · 结论 {{ overallText(data.round.overall) }} · 打回 {{ data.round.rejected.recheckItems.length }} 项 / 保留 {{ data.round.rejected.keepItems.length }} 项
+                  </div>
+                </template>
+              </el-card>
+            </el-col>
+            <el-col :xs="24" :md="9">
+              <el-card shadow="never" class="contract-card" style="margin-bottom:14px">
+                <template #header><div class="card-head"><span>审查 Agent</span><el-tag size="small" :type="data.crew && data.crew.configured ? 'success' : 'info'">{{ data.crew && data.crew.configured ? '已编组' : '未配置（降级）' }}</el-tag></div></template>
+                <el-alert v-if="data.crew && data.crew.degraded" :title="data.crew.degraded" type="info" :closable="false" style="margin-bottom:10px" />
+                <div v-for="row in crewRows" :key="row.key" class="list-row">
+                  <div class="list-row-head"><span class="list-row-title">{{ row.label }}</span><span class="list-row-meta">{{ row.agent }}</span></div>
+                </div>
+                <div v-if="data.crew && data.crew.collaborators.length" class="list-row">
+                  <div class="list-row-title">协作职责</div>
+                  <div class="list-row-detail">{{ data.crew.collaborators.map(c => dutyText(c.responsibility) + '：' + (c.assignment.agentKey || '未配置')).join('；') }}</div>
+                </div>
+                <div class="hint-text" style="margin-top:8px">红线：{{ ((data.crew && data.crew.redLines) || []).join('；') }}</div>
+              </el-card>
+              <el-card shadow="never" class="contract-card" style="margin-bottom:14px">
+                <template #header>报告与沉淀</template>
+                <el-descriptions :column="1" border size="small">
+                  <el-descriptions-item label="报告">{{ data.report && data.report.available ? (data.report.verdict + ' · ' + data.report.cases + ' 项') : '本机暂无归档报告' }}</el-descriptions-item>
+                  <el-descriptions-item label="归档轮次">{{ data.report ? data.report.archivedRounds : 0 }}</el-descriptions-item>
+                  <el-descriptions-item label="就绪">{{ data.readiness && data.readiness.ready ? '证据链已齐' : '未就绪（见下）' }}</el-descriptions-item>
+                </el-descriptions>
+                <div v-if="data.readiness && data.readiness.gaps.length" class="hint-text" style="margin-top:8px">
+                  <div v-for="gap in data.readiness.gaps" :key="gap">· {{ gap }}</div>
+                </div>
+                <div class="hint-text" style="margin-top:8px">下次交付前先自查：</div>
+                <div v-if="data.selfCheckStandards && data.selfCheckStandards.length">
+                  <div v-for="item in data.selfCheckStandards" :key="item" class="list-row-detail">· {{ item }}</div>
+                </div>
+                <div v-else class="hint-text">暂无沉淀标准；没有历史打回就不凭空造。</div>
+              </el-card>
+              <el-card shadow="never" class="contract-card">
+                <template #header>签字与边界</template>
+                <div class="hint-text">最终「确认验收」只能由原发起人在飞书原会话用中文完成；本页只读，不提供通过 / 打回按钮。报告、模型判定、CI 与合并审批都不替代人签。</div>
+              </el-card>
+            </el-col>
+          </el-row>
+        </template>
+      </div>`,
+    setup() {
+      const summary = ref({}); const data = ref({});
+      const taskId = ref('');
+      const tasks = computed(() => Array.isArray(summary.value.tasks) ? summary.value.tasks : []);
+      const errorText = computed(() => summary.value.__error ? ('任务读取失败：' + summary.value.__error)
+        : (data.value.__error ? ('验收数据读取失败：' + data.value.__error) : ''));
+      const statCards = computed(() => {
+        const s = data.value.summary || {};
+        return [
+          { label: '检查项', value: s.total ?? 0 }, { label: '通过', value: s.passed ?? 0 },
+          { label: '打回 / 阻断', value: (s.failed ?? 0) + (s.blocked ?? 0) }, { label: '待评审', value: s.pending ?? 0 },
+        ];
+      });
+      const planLine = computed(() => data.value.plan ? ('等级 ' + data.value.plan.level + ' · 版本 ' + data.value.plan.revision) : '未锁定');
+      const shortHash = computed(() => data.value.plan ? String(data.value.plan.hash).slice(0, 12) : '—');
+      const crewRows = computed(() => {
+        const crew = data.value.crew; if (!crew) return [];
+        return [
+          { key: 'reviewer', label: '逐项评审', agent: (crew.reviewer && crew.reviewer.agentKey) || '未配置（沿用服务式验收）' },
+          { key: 'standard', label: '标准起草', agent: (crew.standardDrafter && crew.standardDrafter.agentKey) || '未配置' },
+          { key: 'inspector', label: '周期巡检', agent: (crew.inspector && crew.inspector.agentKey) || '未配置' },
+        ];
+      });
+      const statusText = s => ({ passed: '通过', failed: '打回', blocked: '阻断', pending: '待评审' }[s] || s);
+      const statusTag = s => ({ passed: 'success', failed: 'danger', blocked: 'warning', pending: 'info' }[s] || 'info');
+      const overallText = s => ({ passed: '全部通过', partial: '部分打回', blocked: '受阻' }[s] || s);
+      const evidenceText = s => ({ captured: '实跑捕获', imported: '导入', authored: '自撰' }[s] || s);
+      const load = async () => {
+        if (!taskId.value) { data.value = {}; return; }
+        data.value = await safe('v06-acceptance-workbench', { taskId: taskId.value });
+      };
+      onMounted(async () => {
+        summary.value = await safe('view-summary', { limit: 50 });
+        if (tasks.value.length) { taskId.value = tasks.value[0].id; await load(); }
+      });
+      return { summary, data, taskId, tasks, errorText, statCards, planLine, shortHash, crewRows,
+        statusText, statusTag, overallText, evidenceText, load, fmtTime, dutyText };
+    },
+  };
+
+  // ---------------------------------------------------------------- 组织视图
+  // 团队共用一份上下文底座；在它之上按职能配置三层座位。层是配置不是骨架。
+  const OrganizationView = {
+    template: `
+      <div>
+        <el-alert v-if="data.__error" :title="'组织数据读取失败：' + data.__error" type="warning" :closable="false" style="margin-bottom:14px" />
         <el-row :gutter="14" style="margin-bottom:14px">
-          <el-col v-for="card in statCards" :key="card.label" :xs="12" :sm="8" :md="6">
+          <el-col v-for="card in statCards" :key="card.label" :xs="12" :sm="6">
             <el-card shadow="never"><div class="stat"><div class="stat-num">{{ card.value }}</div><div class="stat-label">{{ card.label }}</div></div></el-card>
           </el-col>
         </el-row>
         <el-row :gutter="14">
-          <el-col :xs="24" :md="12" style="margin-bottom:14px">
+          <el-col :xs="24" :md="14">
             <el-card shadow="never" class="contract-card">
-              <template #header>验收规则</template>
-              <div class="hint-text">清单锁定后不可改写；打回原因沉淀为下次交付前的自查标准</div>
-              <el-descriptions :column="1" border size="small">
-                <el-descriptions-item label="清单">开工前锁定，逐项判定</el-descriptions-item>
-                <el-descriptions-item label="证据">捕获、导入、自撰三类分开</el-descriptions-item>
-                <el-descriptions-item label="评审">独立评审者不得等于产出模型</el-descriptions-item>
-                <el-descriptions-item label="签字">原发起人在原会话用中文确认验收</el-descriptions-item>
-              </el-descriptions>
+              <template #header>
+                <div class="card-head"><span>三层职能座位</span><span class="list-row-meta">{{ data.shape ? data.shape.label : '' }}</span></div>
+              </template>
+              <div class="hint-text">同一份共享现场上的三种座位；谁在这一层由编制决定，不是固定组织架构图。</div>
+              <div v-for="layer in layers" :key="layer.key" class="layer-block">
+                <div class="list-row-head">
+                  <span class="list-row-title">{{ layer.label }}</span>
+                  <el-tag size="small" :type="layer.configured ? 'success' : 'info'" effect="light">{{ layer.configured ? (layer.agents.length + ' 个 Agent') : '未配置' }}</el-tag>
+                </div>
+                <div class="list-row-detail">{{ layer.hint }}</div>
+                <div v-if="layer.agents.length" class="agent-chips">
+                  <el-tag v-for="agent in layer.agents" :key="agent.key + layer.key" size="small" effect="plain">
+                    {{ agent.label }}<span class="hint-text" style="margin-left:6px">{{ agent.responsibilities.map(dutyText).join(' / ') }}</span>
+                  </el-tag>
+                </div>
+                <div v-else class="hint-text">这一层当前没有配置，系统按扁平运行，不硬造。</div>
+              </div>
+            </el-card>
+            <el-card shadow="never" class="contract-card" style="margin-top:14px">
+              <template #header><div class="card-head"><span>按职能分布</span><span class="list-row-meta">任务按承接 Agent 归并</span></div></template>
+              <el-table :data="domains" size="small">
+                <el-table-column prop="domain" label="业务域" min-width="120" />
+                <el-table-column label="主管" min-width="140">
+                  <template #default="{ row }">{{ row.supervisor || '未配置（扁平）' }}</template>
+                </el-table-column>
+                <el-table-column prop="workers" label="执行" width="70" />
+                <el-table-column prop="reviewers" label="验收" width="70" />
+                <el-table-column prop="tasks" label="任务" width="70" />
+              </el-table>
+              <div v-if="!domains.length" class="hint-text">还没有配置业务域；当前按扁平形态运行。</div>
+              <div class="hint-text" style="margin-top:8px">未分配任务 {{ data.tasks ? data.tasks.unassigned : 0 }} 个；{{ data.tasks ? data.tasks.note : '' }}</div>
             </el-card>
           </el-col>
-          <el-col :xs="24" :md="12">
+          <el-col :xs="24" :md="10">
             <el-card shadow="never" class="contract-card">
-              <template #header>组织概览</template>
-              <div class="hint-text">层是配置不是产品骨架；小团队可扁平，大团队按业务域分层</div>
-              <el-alert v-if="org.__error" :title="'读取失败：' + org.__error" type="warning" :closable="false" />
-              <template v-else>
-                <div v-for="(section, i) in sections.slice(0, 8)" :key="i" class="list-row">
-                  <div class="list-row-head">
-                    <span class="list-row-title">{{ clean(section.title ?? section.name ?? '板块') }}</span>
-                    <span class="list-row-meta">{{ clean(section.status ?? '') }}</span>
-                  </div>
-                  <div class="list-row-detail" v-if="section.summary ?? section.description">{{ clean(section.summary ?? section.description) }}</div>
-                </div>
-                <div v-if="!sections.length" class="hint-text">暂无板块数据。</div>
-              </template>
+              <template #header>团队共享上下文底座</template>
+              <el-descriptions :column="1" border size="small">
+                <el-descriptions-item label="引擎">{{ data.contextBase ? data.contextBase.engine : '—' }}</el-descriptions-item>
+                <el-descriptions-item label="事件主干">{{ data.contextBase ? data.contextBase.events : 0 }} 条</el-descriptions-item>
+                <el-descriptions-item label="知识来源 / 空间">{{ data.contextBase ? (data.contextBase.sources + ' / ' + data.contextBase.spaces) : '0 / 0' }}</el-descriptions-item>
+                <el-descriptions-item label="投影">{{ data.contextBase ? data.contextBase.projections.join(' · ') : '—' }}</el-descriptions-item>
+                <el-descriptions-item label="模型调用">{{ data.contextBase ? data.contextBase.modelCalls : 0 }}</el-descriptions-item>
+              </el-descriptions>
+              <div class="hint-text" style="margin-top:8px">{{ data.contextBase ? data.contextBase.note : '' }}</div>
+            </el-card>
+            <el-card shadow="never" class="contract-card" style="margin-top:14px">
+              <template #header>任务分布</template>
+              <div class="agent-chips">
+                <el-tag v-for="(count, phase) in phaseRows" :key="phase" size="small" effect="plain">{{ phaseText(phase) }} {{ count }}</el-tag>
+              </div>
+              <div v-for="row in agentRows" :key="row.agent" class="list-row">
+                <div class="list-row-head"><span class="list-row-title">{{ row.agent }}</span><span class="list-row-meta">{{ row.count }} 个任务</span></div>
+              </div>
+              <div v-if="!agentRows.length" class="hint-text">当前可见范围内还没有承接中的任务。</div>
+            </el-card>
+            <el-card shadow="never" class="contract-card" style="margin-top:14px">
+              <template #header>组织原则</template>
+              <div v-for="note in notes" :key="note" class="list-row-detail">· {{ note }}</div>
             </el-card>
           </el-col>
         </el-row>
       </div>`,
     setup() {
-      const summary = ref({}); const org = ref({});
-      const tasks = computed(() => Array.isArray(summary.value.tasks) ? summary.value.tasks : []);
-      const sections = computed(() => Array.isArray(org.value.sections) ? org.value.sections : []);
+      const data = ref({});
+      const layers = computed(() => Array.isArray(data.value.layers) ? data.value.layers : []);
+      const domains = computed(() => Array.isArray(data.value.domains) ? data.value.domains : []);
+      const notes = computed(() => Array.isArray(data.value.notes) ? data.value.notes : []);
+      const agentRows = computed(() => data.value.tasks && Array.isArray(data.value.tasks.byAgent) ? data.value.tasks.byAgent : []);
+      const phaseRows = computed(() => data.value.tasks && data.value.tasks.byPhase ? data.value.tasks.byPhase : {});
       const statCards = computed(() => {
-        const accepted = tasks.value.filter(t => t.phase === 'accepted').length;
-        const pending = tasks.value.filter(t => ['review', 'in_progress', 'dispatched', 'waiting'].includes(t.phase)).length;
-        return [{ label: '已验收', value: accepted }, { label: '待确认', value: pending }, { label: '任务总数', value: tasks.value.length }];
+        const agents = new Set(); for (const layer of layers.value) for (const agent of layer.agents) agents.add(agent.key);
+        return [
+          { label: '共享事件', value: data.value.contextBase ? data.value.contextBase.events : 0 },
+          { label: '知识来源', value: data.value.contextBase ? data.value.contextBase.sources : 0 },
+          { label: '在岗 Agent', value: agents.size },
+          { label: '业务域', value: domains.value.length },
+        ];
       });
-      onMounted(async () => {
-        const [s, o] = await Promise.all([safe('view-summary'), safe('v06-org-overview')]);
-        summary.value = s; org.value = o;
-      });
-      return { summary, org, tasks, sections, statCards, clean };
+      const phaseText = p => ({ intake: '待接入', dispatched: '已派单', in_progress: '进行中', review: '待评审',
+        accepted: '已验收', closed: '已结束', draft: '草稿', waiting: '等待中' }[p] || p);
+      onMounted(async () => { data.value = await safe('organization-view'); });
+      return { data, layers, domains, notes, agentRows, phaseRows, statCards, phaseText, dutyText };
     },
   };
 
@@ -643,17 +826,76 @@
             </el-card>
           </el-col>
         </el-row>
+        <el-row :gutter="14">
+          <el-col :xs="24" :md="12" style="margin-bottom:14px">
+            <el-card shadow="never" class="contract-card">
+              <template #header>
+                <div class="card-head">
+                  <span>出站投递健康</span>
+                  <el-tag v-if="retry" size="small" :type="retryTag(retry.verdict)" effect="light">{{ retryText(retry.verdict) }}</el-tag>
+                </div>
+              </template>
+              <el-alert v-if="retry && retry.__error" :title="'读取失败：' + retry.__error" type="info" :closable="false" />
+              <template v-else-if="retry">
+                <div class="agent-chips">
+                  <el-tag v-for="cell in retry.states" :key="cell.state" size="small" effect="plain">{{ cell.label }} {{ cell.count }}</el-tag>
+                </div>
+                <el-descriptions :column="2" border size="small" style="margin-top:10px">
+                  <el-descriptions-item label="待投递">{{ retry.pending.count }}</el-descriptions-item>
+                  <el-descriptions-item label="最久等待">{{ retry.pending.oldestMinutes === null ? '—' : retry.pending.oldestMinutes + ' 分钟' }}</el-descriptions-item>
+                </el-descriptions>
+                <div v-if="retry.pending.stuck.length" class="hint-text" style="margin-top:8px">
+                  超过 {{ retry.pending.stuckThresholdMinutes }} 分钟未投出：{{ retry.pending.stuck.length }} 条
+                </div>
+                <div v-if="retry.failures.length" class="hint-text" style="margin-top:8px">
+                  近 24 小时失败：{{ retry.failures.map(f => f.channel + ' ' + f.count + ' 次').join('；') }}
+                </div>
+                <div v-for="note in retry.notes" :key="note" class="hint-text">· {{ note }}</div>
+              </template>
+              <div v-else class="hint-text">需要管理权限才能看出站队列。</div>
+            </el-card>
+          </el-col>
+          <el-col :xs="24" :md="12" style="margin-bottom:14px">
+            <el-card shadow="never" class="contract-card">
+              <template #header>
+                <div class="card-head">
+                  <span>事件收件箱</span>
+                  <el-tag size="small" type="info" effect="light">{{ inbox && inbox.enabled ? (inbox.pending + ' 条待分流') : '未启用' }}</el-tag>
+                </div>
+              </template>
+              <el-alert v-if="inbox && inbox.__error" :title="'读取失败：' + inbox.__error" type="info" :closable="false" />
+              <template v-else-if="inbox && inbox.enabled">
+                <el-table :data="inbox.counts" size="small">
+                  <el-table-column prop="source" label="来源" min-width="90" />
+                  <el-table-column prop="type" label="类型" min-width="110" />
+                  <el-table-column prop="state" label="状态" width="90" />
+                  <el-table-column prop="count" label="条数" width="70" />
+                </el-table>
+                <div v-if="!inbox.counts.length" class="hint-text">还没有外部事件进来。</div>
+                <div class="hint-text" style="margin-top:8px">收件箱只收事实，建不建任务由例行规则的 when 决定；验收仍由原发起人在原会话确认。</div>
+              </template>
+              <div v-else class="hint-text">事件源默认关闭；在配置里登记来源与密钥环境变量后才收。</div>
+            </el-card>
+          </el-col>
+        </el-row>
       </div>`,
     setup() {
-      const data = ref({}), system = ref({});
+      const data = ref({}), system = ref({}), retry = ref(null), inbox = ref(null);
       const services = computed(() => Array.isArray(data.value.services) ? data.value.services : []);
       const text = computed(() => system.value.__error ? '读取失败：' + system.value.__error : JSON.stringify(system.value, null, 2));
       // 第三十四轮修复：service-status 返回的是 state（connected / degraded / unavailable），
       // 旧代码读不存在的 running 布尔，导致所有服务永远显示「已停止」、说明列为空。
       const stateText = state => ({ connected: '已接通', degraded: '已降级', unavailable: '未接通' }[state] || state || '未知');
       const stateTag = state => ({ connected: 'success', degraded: 'warning', unavailable: 'info' }[state] || 'info');
-      onMounted(async () => { data.value = await safe('service-status'); system.value = await safe('system-status'); });
-      return { data, services, text, clean, stateText, stateTag };
+      const retryText = v => ({ healthy: '正常', backlog: '有积压', failing: '在失败' }[v] || v);
+      const retryTag = v => ({ healthy: 'success', backlog: 'warning', failing: 'danger' }[v] || 'info');
+      onMounted(async () => {
+        data.value = await safe('service-status'); system.value = await safe('system-status');
+        // 这两项要管理权限：只读角色会拿到 403，如实显示成「看不到」而不是报错。
+        retry.value = await safe('retry-health');
+        inbox.value = await safe('event-inbox-status');
+      });
+      return { data, services, text, retry, inbox, clean, stateText, stateTag, retryText, retryTag };
     },
   };
 
@@ -999,7 +1241,7 @@
 
   // ---------------------------------------------------------------- 主壳
   const App = {
-    components: { LoginView, TasksView, CollaborationView, KnowledgeView, AcceptanceView, ServicesView, SettingsView, AdminView },
+    components: { LoginView, TasksView, CollaborationView, OrganizationView, KnowledgeView, AcceptanceView, ServicesView, SettingsView, AdminView },
     template: `
       <login-view v-if="!session" @ok="loadSession" />
       <el-container v-else class="app-shell">
@@ -1009,10 +1251,13 @@
             <span>SuitMe 协作台</span>
           </div>
           <el-menu :default-active="view" @select="switchView" class="app-menu">
-            <el-menu-item v-for="v in visibleViews" :key="v.id" :index="v.id">
+            <!-- 第三十八轮 · 键盘可达：菜单项默认 tabindex=-1（只靠方向键），
+                 而菜单根节点又不可聚焦，结果键盘用户根本进不了侧栏。显式给
+                 tabindex=0 让每一项都能 Tab 到，并在样式里补 :focus-visible 环。 -->
+            <el-menu-item v-for="v in visibleViews" :key="v.id" :index="v.id" tabindex="0">
               <span>{{ v.title }}</span>
             </el-menu-item>
-            <el-menu-item v-if="hasAdminArea" index="admin"><span>管理</span></el-menu-item>
+            <el-menu-item v-if="hasAdminArea" index="admin" tabindex="0"><span>管理</span></el-menu-item>
           </el-menu>
           <div class="aside-foot">发起任务请回到飞书</div>
         </el-aside>
@@ -1043,6 +1288,7 @@
           <el-main class="app-main">
             <tasks-view v-if="view === 'overview'" :session="session" mode="overview" />
             <collaboration-view v-else-if="view === 'collaboration'" :session="session" />
+            <organization-view v-else-if="view === 'organization'" />
             <knowledge-view v-else-if="view === 'knowledge'" :session="session" />
             <acceptance-view v-else-if="view === 'acceptance'" />
             <services-view v-else-if="view === 'services'" :session="session" />
@@ -1075,7 +1321,7 @@
           const data = await r.json();
           session.value = data;
           applyTheme(data.settings?.theme === 'dark' ? 'dark' : 'light');
-          const target = ['overview', 'collaboration', 'knowledge', 'acceptance', 'services'].includes(data.settings?.defaultView)
+          const target = ['overview', 'collaboration', 'organization', 'knowledge', 'acceptance', 'services'].includes(data.settings?.defaultView)
             ? data.settings.defaultView : 'overview';
           view.value = target === 'admin' && !hasAdminArea.value ? 'overview' : target;
         } catch { session.value = null; }

@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import { agentRegistrySchema, defaultAgentRegistry } from './agent-registry.ts';
 import { schedulerConfigSchema, defaultSchedulerConfig } from './scheduler.ts';
+import { inboxConfigSchema, defaultInboxConfig } from './event-inbox.ts';
 import { githubWatchConfigSchema, defaultGithubWatchConfig } from './github-watch.ts';
 import { dingtalkConfigSchema, defaultDingtalkConfig, wecomConfigSchema, defaultWecomConfig } from './im-outbound.ts';
 
@@ -236,6 +237,18 @@ export const configSchema = z.object({
    *     入站端点需公网回调；凭据一律走环境变量，绝不进 config / 仓库）。
    */
   scheduler: schedulerConfigSchema.default(() => defaultSchedulerConfig()),
+  /**
+   * 第三十八轮 · 通用入站事件源（GitLab / 任意系统 POST 一条 JSON）。
+   * 只收事实进收件箱，要不要开工单由 scheduler 的 `when` 规则决定；每个来源
+   * 一把独立密钥（环境变量名写在这里，值不进仓库）。默认关闭。
+   */
+  eventInbox: inboxConfigSchema.default(() => defaultInboxConfig()),
+  /**
+   * 第三十八轮 · 独立审码阶段的闸门。默认开启：block 级问题（密钥、环境文件）
+   * 拦住预览部署；关掉则降级为「记录但不拦」，并在报告里写明没拦。
+   */
+  codeReview: z.object({ enforce: z.boolean().default(true) }).default(() => ({ enforce: true as const })),
+
   githubWatch: githubWatchConfigSchema.default(() => defaultGithubWatchConfig()),
   dingtalk: dingtalkConfigSchema.default(() => defaultDingtalkConfig()),
   wecom: wecomConfigSchema.default(() => defaultWecomConfig()),

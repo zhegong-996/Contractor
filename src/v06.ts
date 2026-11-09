@@ -25,6 +25,7 @@ import { runOrgExtraction, DeterministicExtractionAdapter, buildTaskGraphMirror,
 import { defaultAttentionPolicy, defaultWatchdogPolicy, filterEvent, assertIntervention, inspectRun, recoveryFrom,
   type AttentionPolicy, type WatchdogPolicy } from './runtime-guard.ts';
 import { assertStandardExternalised, readPlan } from './acceptance-plan.ts';
+import { buildAcceptanceWorkbench } from './acceptance-workbench.ts';
 import { FeishuOrgService, parseOrgTable, type OrgMappingDraft } from './feishu-org.ts';
 import type { CollabEvent } from './event-stream.ts';
 import { renderForChannel, endpointCapabilities, PLAIN_TEXT, type ChannelId, type SemanticObject, type RenderedMessage } from './channels.ts';
@@ -563,6 +564,21 @@ export class V06Services {
     };
   }
 
+  /**
+   * 控制台「验收 / 审查」工作台：一次只读聚合。
+   * 只合并既有投影与审查编组，不产生新的验收结论、不改写清单或人签状态。
+   */
+  async acceptanceWorkbenchView(taskId: string) {
+    const [plan, round, report] = await Promise.all([
+      this.acceptancePlanView(taskId),
+      this.acceptanceRoundView(taskId),
+      this.acceptanceReportView(taskId),
+    ]);
+    return buildAcceptanceWorkbench({
+      taskId, plan, round, report, crew: this.acceptanceCrew({ taskId }),
+    });
+  }
+
   // --- 飞书组织映射（FR-01/02 的组织落地）--------------------------------
   /** 只读预览：把当前授权范围可见的真实成员读成草案，不写注册表、不改派单。 */
   async orgMappingPreview(includeChatted = true) {
@@ -740,6 +756,7 @@ export class V06Services {
       // F. review readiness + read-only workbench projections
       case 'plan-view': return this.acceptancePlanView(p.taskId);
       case 'round-view': return this.acceptanceRoundView(p.taskId);
+      case 'acceptance-workbench': return this.acceptanceWorkbenchView(p.taskId);
       case 'acceptance-export': return this.acceptanceExport(p.taskId);
       case 'org-overview': return this.organizationOverview(p.space ?? 'default');
       case 'acceptance-report-view': return this.acceptanceReportView(p.taskId ?? '');

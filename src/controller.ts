@@ -19,6 +19,8 @@ import { getRouter } from './router.ts';
 import { fromAutoloopReceipt, mapFollowupToAnswer } from './collaboration-loop.ts';
 import { recordMemory } from './memory-log.ts';
 import { EvolutionService, defaultEvolutionDeps, assertDeliverySelfCheck } from './evolution.ts';
+// 第三十八轮 · 交付前独立审码（RE-AUDIT 待补第 4 项）：与验收分开的一段。
+import { reviewDelivery, assertCodeReviewGate, codeReviewLines } from './code-review.ts';
 import type { V06Services } from './v06.ts';
 
 /**
@@ -330,7 +332,18 @@ export class Controller {
     return task;
   }
   async preview(id: string) {
-    const task = this.store.get(id); task.delivery = await this.github.preview(task); this.store.save(task);
+    const task = this.store.get(id);
+    // 独立审码阶段（与验收分开的一段）：先看这次改动里有没有「人一定会拦」的
+    // 硬项（密钥、环境文件），再决定要不要部署预览。报告单独落一份文档，
+    // 只作证据 —— 验收结论仍然只在原会话由原发起人下。
+    const report = await reviewDelivery({ config: this.config, headSha: task.delivery!.headSha, at: new Date().toISOString() });
+    await this.pc.document(task.id, 'code-review', '独立审码（预览部署前）', codeReviewLines(report).join('\n'));
+    this.store.audit('delivery.code-review', task.id, {
+      verdict: report.verdict, findings: report.findings.length,
+      blocking: report.findings.filter(finding => finding.severity === 'block').length,
+      enforced: this.config.codeReview.enforce, headSha: task.delivery!.headSha });
+    assertCodeReviewGate(report, this.config.codeReview.enforce);
+    task.delivery = await this.github.preview(task); this.store.save(task);
     await this.pc.document(task.id, 'deployment', '预览部署版本', JSON.stringify(task.delivery, null, 2));
     this.store.notify(`preview:${task.delivery.deployedSha}`, task.id, `${task.identifier} 的 CI 已通过，可验收。\n[预览](${task.delivery.previewUrl})\n验收时请注明此版本：${task.delivery.deployedSha}`);
     await this.trace.append(task.id, fromDelivery({

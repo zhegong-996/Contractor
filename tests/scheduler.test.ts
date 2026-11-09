@@ -190,5 +190,6 @@ test('an invalid cron expression is rejected at config parse time', async () => 
     schedule: { kind: 'cron', expr: '61 25 * * *' } }], wake: { enabled: true } }), /cron/);
   const ok = schedulerConfigSchema.parse({ enabled: true, routines: [{ id: 'ok', title: 'ok', goal: 'g',
     schedule: { kind: 'cron', expr: '0 9 * * 1-5' } }], wake: { enabled: true } });
-  assert.equal(ok.routines[0]!.schedule.kind, 'cron');
+  // 第三十八轮起 schedule 与 when 二选一，类型上是 optional；这里显式断言。
+  assert.equal(ok.routines[0]!.schedule!.kind, 'cron');
 });

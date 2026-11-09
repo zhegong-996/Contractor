@@ -1,6 +1,6 @@
 # 交接给下一位 Agent · SuitMe 协作台
 
-> 生成：2026-11-08 23:40（北京时间，第三十四轮四缺口修复 + 断点审计后更新）｜仓库：`/Users/gong.zhe/Developer/ai-native-collab`
+> 生成：2026-11-08 23:40 ｜ 最近更新：2026-11-09 11:00（第三十八轮：周边与运行层收口 + Acceptance 成为模块）｜仓库：`/Users/gong.zhe/Developer/ai-native-collab`
 > 远端：`https://github.com/zhegong-996/suitme-collab.git`（`main`）
 > 代码基线：**永远以 `git rev-parse HEAD` 为准**，不要相信文档里写死的 hash。本次更新前 `HEAD = origin/main = 20fd99a`（第二十九 / 三十轮）、工作区含第三十一轮改动；本文随本轮一并提交后 `HEAD` 会前进，仍应与 `origin/main` 一致。
 > 本文件是**根目录速览入口**；详细权威交接包在 `HANDOFF/`，项目总结在 `PROJECT-SUMMARY.md`。三者随仓库一起提交推送，clone 即得。
@@ -15,7 +15,7 @@
 | 2 | 读本文件第 1、2、5、6 节（产品口径、现状、红线、边界） |
 | 3 | 读 `HANDOFF/00-START-HERE.md`（环境、端口、8 个已知坑）与 `HANDOFF/06-CURRENT-STATE-AND-NEXT.md`（现状与下一步） |
 | 4 | 动手前读 `docs/PRD-v0.6.md` §10C（C-P1~C-P8）、`HANDOFF/07-RULES-AND-BOUNDARIES.md`、`HANDOFF/08-OPEN-DECISIONS.md` |
-| 5 | 跑 `npm test`（563/563）确认基线，再按 `HANDOFF/05-VALIDATION-AND-COMMANDS.md` 跑全套回归 |
+| 5 | 跑 `npm test`（620/620）与 `npm run console:smoke`（7 视图 + 12 单元验收矩阵）确认基线，再按 `HANDOFF/05-VALIDATION-AND-COMMANDS.md` 跑全套回归 |
 | 6 | 要动某块代码时查 `HANDOFF/04-CODE-MAP.md` / `HANDOFF/FILE-INVENTORY.md` |
 | 7 | 拿不准的产品/隐私选择**问用户**，不要自己拍板 |
 
@@ -50,7 +50,7 @@ npm test                         # 第三十一轮复跑：557/557，0 fail
 
 ---
 
-## 2. 现在做到哪（第三十四轮收口状态：四缺口修复 + 产品断点审计 + console UI）
+## 2. 现在做到哪（第三十八轮收口状态：周边与运行层全补 + Acceptance 为一等模块）
 
 | 阶段 | 状态 | 关键交付 |
 |---|---|---|
@@ -71,7 +71,7 @@ npm test                         # 第三十一轮复跑：557/557，0 fail
 | 切默认底座 local-pg + step | **第三十二轮完成** | `host.provider` 默认 local-pg、`execution.mode` 默认 step（用户拍板「切（推荐）」）；显式配置即回退；`step:once` 端到端验证三红线 |
 | DeepSeek v4 flash 接入 Cognee 原生管线 | **第三十三轮完成** | 用户给 key：LLM 外部 DeepSeek v4 flash、embedding 默认本机 fastembed（jina zh 768 维）；cognify / search 端到端真跑通过；key 只进进程环境；cognify 自动接入与 key 持久化待拍板（`HANDOFF/08` 第 2 项） |
 
-严格顺序 **A → B → C → 生产项，不并行**；C 的每一步都单独真跑验收过。最新边界声明是 `docs/ADAPTATION-v0.6.md` 的 `0.00000000000000000000000000000000000` 节；最新验证记录是 `docs/VALIDATION.md` 第三十四轮。
+严格顺序 **A → B → C → 生产项，不并行**；C 的每一步都单独真跑验收过。最新边界声明是 `docs/ADAPTATION-v0.6.md` 的 `0.00000000000000000000000000000000000` 节；最新验证记录是 `docs/VALIDATION.md` 第三十八轮；本轮交付说明见 `docs/ROUND-38.md`，上游对照收口见 `docs/FEATURE-PARITY.md` 5.2。
 
 **最后一轮全套回归（第三十一轮 ③c/③d）**：`npm test` **557/557**、`console:smoke` **55/55**、`steps:smoke` **61/61**、`host:pg` **24/24**、`loop:smoke` **18/18**、`guard:smoke` **22/22**（golden 基线人审重冻结）、`memory:hierarchy` 16/16、`tsc`、两个构建、425px 响应式、真实浏览器走查 11/11、`router:smoke` 31/31、`agents:smoke` 43/43、`shapes:smoke` 36/36、`evolution:smoke` 45/45、`atlas:check` 11/11、上游审计 clean、`git diff --check`。端到端真跑：`knowledge-wiki` 27 记录 / 17 页 / 0 悬空（旧记录缺证据如实报）、`dreaming-run` 首跑 24 条建议登记复跑幂等、修订自动挂锚点 → 确认 + inject → 注入索引收 1 条；**无证据的旧记录即使人审确认 + inject 也不进注入索引**（红线联动）。
 

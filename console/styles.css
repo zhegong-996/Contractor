@@ -66,6 +66,9 @@ html.dark .login-wrap { background: linear-gradient(160deg, #141a24 0%, var(--el
 .list-row-title { font-weight: 600; font-size: 13px; color: var(--el-text-color-primary); }
 .list-row-meta { font-size: 11.5px; color: var(--el-text-color-secondary); white-space: nowrap; }
 .list-row-detail { font-size: 12px; color: var(--el-text-color-regular); margin-top: 3px; line-height: 1.6; }
+.layer-block { padding: 10px 0; border-bottom: 1px dashed var(--el-border-color-lighter); }
+.layer-block:last-child { border-bottom: 0; }
+.agent-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .stat { text-align: center; padding: 4px 0; }
 .stat-num { font-size: 26px; font-weight: 700; color: var(--el-text-color-primary); }
 .stat-label { font-size: 12px; color: var(--el-text-color-secondary); margin-top: 4px; }
@@ -77,6 +80,16 @@ html.dark .login-wrap { background: linear-gradient(160deg, #141a24 0%, var(--el
   border: 1px solid var(--el-border-color-lighter);
 }
 .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; word-break: break-all; }
+
+/* 第三十八轮 · 键盘可见焦点：侧栏项补 tabindex 之后，必须看得见焦点落在哪。
+   只在 :focus-visible 时出现，鼠标点击不闪框。 */
+.app-menu .el-menu-item:focus-visible,
+.app-header button:focus-visible,
+.el-button:focus-visible {
+  outline: 2px solid var(--el-color-primary);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
 
 @media (max-width: 768px) {
   .app-aside { width: 64px !important; }

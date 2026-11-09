@@ -20,8 +20,10 @@
 | **③d OpenMausBot 五项（第 12 条 (b)）** | ✅ **第三十一轮完成**：Skill 能力包、对外动作不重跑（崩溃回收 + 显式失败双闸）、委托树血缘 + generation、升级只通知不代批 + 限速、团队包黑名单 / 密钥扫描 / 导入不提权 | 见第 14 节 |
 | **切默认底座 local-pg + step** | ✅ **第三十二轮完成**：用户拍板「切（推荐）」；`config.ts` 默认 `host.provider=local-pg`、`execution.mode=step`，显式配 paperclip / loop 即回退；`step:once` 端到端真跑验证三红线（状态外置 / 步间重评 / 诚实失败） | 见第 15 节 |
 | **DeepSeek v4 flash 接入 Cognee 原生管线** | ✅ **第三十三轮完成**：用户提供 key，LLM 走外部 DeepSeek v4 flash、embedding 默认本机 fastembed（`jinaai/jina-embeddings-v2-base-zh` 768 维）；cognify / search 端到端真跑通过、语义召回准确；bridge 带环境变量重启后状态如实显示已配置 | 见第 16 节 |
+| **自动化四件套 + 运行层缺陷修复** | ✅ **第三十六 / 三十七轮完成**：定时调度器（interval/daily/cron）、GitHub 监听（轮询 + webhook HMAC）、钉钉/企微通道、定时唤醒复查；修掉「一个失效交付任务饿死整条主循环」等 4 个运行层缺陷 | 见 `docs/RE-AUDIT-2026-11-09.md` |
+| **周边与运行层收口 + Acceptance 成为模块** | ✅ **第三十八轮完成**：验收工作台与审查 Agent 前端、共享上下文底座 + 三层职能组织视图、事件分流/并发上限/合并成一轮、GitLab 与通用 HTTP 事件源、交付前独立审码阶段、验收矩阵（3 视图 × 2 主题 × 1280/320）× 键盘逐键、出站重试健康视图 | 见 [`docs/ROUND-38.md`](../docs/ROUND-38.md) |
 
-系统能跑、全套回归全绿（**557/557 单测**、**`console:smoke` 55/55**、**`memory:hierarchy` 16/16**、**`guard:smoke` 22/22**（golden 基线已人审重冻结）、**`steps:smoke` 61/61**、**`host:pg` 24/24**、**`router:smoke` 31/31、`agents:smoke` 43/43、`shapes:smoke` 36/36、`evolution:smoke` 45/45、`loop:smoke` 18/18**、上游 clean（含 casbin / Vue / Element Plus 登记））。`HEAD = origin/main = 远端 main`。C-1 起每次代码改动都重跑全套；本机 PG 17.10 专属库 `suitme_collab_c1` 已可真跑。服务现状：3100 / 4180 / 4190 / 4192 / 4194（+git 9418）+ console 4200 全部运行中，由 `scripts/services.ts` 统一纳管。
+系统能跑、全套回归全绿（**620/620 单测**、**`console:smoke` ok:true / failed:[]（7 视图 + 12 单元验收矩阵）**、**`memory:hierarchy` 16/16**、**`guard:smoke` 22/22**（golden 基线已人审重冻结，第三十八轮记录见 `fixtures/behavior-golden.json` 的 `humanReview`）、**`steps:smoke` 61/61**、**`host:pg` 24/24**、**`router:smoke` 31/31、`agents:smoke` 43/43、`shapes:smoke` 36/36、`evolution:smoke` 45/45、`loop:smoke` 18/18**、上游 clean（含 casbin / Vue / Element Plus 登记））。`HEAD = origin/main = 远端 main`。C-1 起每次代码改动都重跑全套；本机 PG 17.10 专属库 `suitme_collab_c1` 已可真跑。服务现状：3100 / 4180 / 4190 / 4192 / 4194（+git 9418）+ console 4200 全部运行中，由 `scripts/services.ts` 统一纳管。
 
 ## 2. B2 已完成（四项，均带真跑证据）
 

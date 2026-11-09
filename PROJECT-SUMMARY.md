@@ -77,7 +77,9 @@ flowchart TB
 | 自演进 | `src/evolution.ts` + `src/evolution-ledger.ts` | 交付前强制自查接在 `Controller.publish()` 之前，五种情况全阻断；候选改进状态机 `proposed → gate-passed → approved → canary → active → rolled-back`；工程闸门复用 `memoryReplayReport()` 且 `modelCalls=0`；人审只认组织级真人；台账**独立于 B1 主干**，避免改变已验收的 checksum |
 | 平台端口 | `src/platform-port.ts` + `paperclip.ts` / `LocalHostPlatform` / `PgHostPlatform` | `HostPlatformPort` 收拢任务 / 文档 / 身份 / 健康检查 / UI 承载；`config.host.provider` 默认 `paperclip`，`local` 是最小非 Paperclip 实现，`local-pg` 在本机 PG 真跑事务、ACL、cost-ledger、heartbeat、`FOR UPDATE SKIP LOCKED` 步进队列与崩溃恢复（21/21） |
 | 长程执行 | `src/step-execution.ts` + `loop-pump.ts` + `step-runner.ts` | 循环 / 会话状态 / 执行环境三者分离；`StepQueue`（内存 / PG）、`executeOneStep()` 一次进程只跑一步、`checkpoint` 与 `modelCalls` 外置、`runToken` 崩溃回收且旧凭据失效、步间按当前主体重评权限；`config.execution.mode` 默认 `loop` 与改造前逐字等价，`step` 必须配 `local-pg`（配置层直接拒绝假单步） |
-| 两套前端 | `console/`（自研） + `plugins/knowledge-workspaces/`（可回退） | `console/` 六视图、明暗主题、425px、统一中文语言层，只读代理 4180；旧插件工作台保留。中文壳 `shell-locale.ts` 在构建期用 Babel AST 只替换展示文案，`shell-domestic.ts` 精确收敛侧栏并隐藏未连接海外卡片 |
+| 两套前端 | `console/`（自研） + `plugins/knowledge-workspaces/`（可回退） | `console/` **七视图**（含第三十八轮新增「组织」与重写的「验收」）、明暗主题、320/425px、键盘逐键可达、统一中文语言层，只读代理 4180；旧插件工作台保留。中文壳 `shell-locale.ts` 在构建期用 Babel AST 只替换展示文案，`shell-domestic.ts` 精确收敛侧栏并隐藏未连接海外卡片 |
+| 自动化与事件面 | `src/scheduler.ts` + `src/event-inbox.ts` + `src/github-watch.ts` + `src/im-outbound.ts` | 例行任务支持 `interval / daily / cron` 与**事件分流**（`when.source/types`），同组并发上限（显式配置才生效）、窗口内多条事件合并成一轮；通用入站事件源 `POST /events/:source` 支持 GitLab / 任意业务系统，逐来源密钥 + 指纹幂等，**只收事实不开工单**；GitHub 轮询 + webhook 双路径；钉钉 / 企微出站镜像 |
+| 交付与观测 | `src/controller.ts` + `src/code-review.ts` + `src/retry-health.ts` | 交付链 `publish → sync → **code-review** → preview → accept`，审码是独立阶段（确定性规则拦住密钥 / 环境文件，独立文档，不替代人签）；`retry-health` 把 outbox 状态机读成健康表（状态分布 / 最久等待 / 卡住清单 / 通道级失败），并写死「pending ≠ 失败」等口径 |
 
 ### 2.3 关键运行约束
 

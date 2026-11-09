@@ -31,6 +31,14 @@ export const CONSOLE_READ_ACTIONS: readonly string[] = [
   'routing-status', 'trace-view', 'model-settings', 'v06-org-overview',
   'network-view', 'ontology-view', 'context-pack', 'memory-search',
   'v06-agent-registry-view', 'v06-evolution-view', 'v06-execution-view',
+  // 验收模块：清单 / 逐项判定 / 证据区域 / 审查 Agent 编组 / 报告，一次只读聚合。
+  'v06-acceptance-workbench',
+  // 组织视图：共享上下文底座 + 三层职能 + 可见任务分布（只读聚合）。
+  'organization-view',
+  // 第三十八轮 · 运行层两块只读面：出站投递健康（retry-health）与事件收件箱
+  // （event-inbox-status）。都只读，写入口仍只在 bridge 的 /events/:source 与
+  // 调度器内部。
+  'retry-health', 'event-inbox-status',
   'knowledge-list', 'knowledge-get', // P-13：知识条目列表与单条详情（读）
   'knowledge-wiki', // 13a ②③：知识地图投影与注入索引的只读体检
 ] as const;

@@ -301,7 +301,7 @@ try {
   await screenshot('overview-1280');
 
   // 视图切换走查（知识视图含分区列）。
-  const views = ['概览', '协作', '知识', '验收', '服务', '我的配置'];
+  const views = ['概览', '协作', '组织', '知识', '验收', '服务', '我的配置'];
   let rendered = 0;
   for (const title of views) {
     const clicked = await evaluate(`(() => {
@@ -343,6 +343,98 @@ try {
   const darkAfter = await evaluate(`document.documentElement.classList.contains('dark')`);
   check('themeToggle', darkBefore !== darkAfter, { darkBefore, darkAfter });
   await screenshot('overview-dark');
+
+  // ---- 验收矩阵：深浅色并排 + 320px + 键盘逐键（标准化执行）------------------
+  // RE-AUDIT「待补」第 5 项。矩阵只测三条与人相关的硬线，不测主观好看：
+  //   ① 页面级没有横向溢出（内容不该被挤到屏幕外）；
+  //   ② 每个可聚焦元素都有可读名字，且没有 tabindex > 0 劫持顺序；
+  //   ③ 逐键 Tab 的落点严格按 DOM 顺序递增（键盘用户不会被甩来甩去）。
+  const matrix = [];
+  const matrixProblems = [];
+  const matrixViews = ['概览', '组织', '验收'];
+  const tabKey = async () => {
+    await cdp('Input.dispatchKeyEvent', { type: 'rawKeyDown', windowsVirtualKeyCode: 9, code: 'Tab', key: 'Tab' });
+    await cdp('Input.dispatchKeyEvent', { type: 'keyUp', windowsVirtualKeyCode: 9, code: 'Tab', key: 'Tab' });
+  };
+  for (const theme of ['light', 'dark']) {
+    for (const width of [1280, 320]) {
+      for (const title of matrixViews) {
+        await evaluate(`(() => {
+          const item = [...document.querySelectorAll('.app-menu .el-menu-item')].find(m => m.textContent.includes(${JSON.stringify(title)}));
+          item?.click(); return Boolean(item);
+        })()`);
+        await delay(500);
+        await evaluate(`document.documentElement.classList.toggle('dark', ${theme === 'dark'})`);
+        await cdp('Emulation.setDeviceMetricsOverride', { width, height: 900, deviceScaleFactor: 1, mobile: width < 600 });
+        await delay(350);
+        const cell = await evaluate(`(() => {
+          const el = document.documentElement;
+          const clipped = node => { let p = node.parentElement;
+            while (p && p !== document.body) { const ov = getComputedStyle(p).overflowX;
+              if (ov === 'auto' || ov === 'scroll' || ov === 'hidden') return true; p = p.parentElement; } return false; };
+          const offenders = [...document.querySelectorAll('.app-main *')]
+            .filter(node => { const r = node.getBoundingClientRect(); return r.width > 0 && r.right > el.clientWidth + 1 && !clipped(node); })
+            .slice(0, 4).map(node => node.tagName.toLowerCase() + '.' + String(node.className).slice(0, 40));
+          const focusables = [...document.querySelectorAll('a[href],button,input,select,textarea,[tabindex]:not([tabindex="-1"])')]
+            .filter(node => !node.disabled && node.offsetParent !== null);
+          focusables.forEach((node, index) => { node.dataset.kbIndex = String(index); });
+          const nameOf = node => (node.getAttribute('aria-label') || node.labels?.[0]?.textContent || node.textContent || node.value || node.getAttribute('title') || '').trim();
+          const unnamedTags = focusables.filter(node => !nameOf(node))
+            .slice(0, 4).map(node => node.tagName.toLowerCase() + '.' + String(node.className).slice(0, 40));
+          return { clientWidth: el.clientWidth, scrollWidth: el.scrollWidth, offenders,
+            focusables: focusables.length,
+            unnamed: focusables.filter(node => !nameOf(node)).length, unnamedTags,
+            hijack: focusables.filter(node => Number(node.getAttribute('tabindex')) > 0).length };
+        })()`);
+        // 逐键：先把焦点归到页面第一个可聚焦元素（标准化起点），再真实派发 Tab。
+        // 判据只有三条硬线（不追求「序号严格递增」——Element Plus 菜单用的是
+        // roving tabindex，焦点落在带 tabindex=-1 的菜单项上是标准做法）：
+        //   ① 焦点不许逃到 body / html（逃了就是「按 Tab 掉出页面」）；
+        //   ② 落点是有名字的可交互元素；
+        //   ③ 6 次 Tab 至少经过 3 个不同元素（否则就是焦点陷阱）。
+        await evaluate(`(() => {
+          const first = [...document.querySelectorAll('a[href],button,input,select,textarea,[tabindex]:not([tabindex="-1"])')]
+            .filter(node => !node.disabled && node.offsetParent !== null)[0];
+          if (first) first.focus();
+          return Boolean(first);
+        })()`);
+        const stops = [];
+        for (let i = 0; i < 8; i++) {
+          stops.push(await evaluate(`(() => {
+            const node = document.activeElement;
+            if (!node) return { tag: 'none', name: '' };
+            const name = (node.getAttribute('aria-label') || node.labels?.[0]?.textContent || node.textContent || node.value || node.getAttribute('title') || '').trim();
+            return { tag: node.tagName.toLowerCase(), cls: String(node.className).slice(0, 30), name: name.slice(0, 24) };
+          })()`));
+          await tabKey();
+        }
+        // Tab 走到底会落到 body（浏览器把焦点交回自身）—— 这是文档结束，不是缺陷。
+        // 只看「走到末尾之前」的落点：要有至少 3 个不同元素，且没有缺名字的交互元素。
+        const bodyIndex = stops.findIndex(stop => stop.tag === 'body' || stop.tag === 'html');
+        const core = bodyIndex === -1 ? stops : stops.slice(0, bodyIndex);
+        const distinct = new Set(core.map(stop => stop.tag + '.' + (stop.cls ?? ''))).size;
+        const interactive = new Set(['input', 'button', 'a', 'select', 'textarea']);
+        const nameless = core.filter(stop => interactive.has(stop.tag) && !stop.name).length;
+        const keyboardOk = distinct >= 3 && nameless === 0;
+        matrix.push({ view: title, theme, width, ...cell, stops: stops.map(stop => stop.tag + (stop.name ? ':' + stop.name : '')), distinct, nameless, increasing: keyboardOk });
+        if (cell.scrollWidth > cell.clientWidth + 1) matrixProblems.push(`${title}/${theme}/${width}px 横向溢出 ${cell.scrollWidth - cell.clientWidth}px`);
+        if (cell.offenders.length) matrixProblems.push(`${title}/${theme}/${width}px ${cell.offenders.length} 个元素越过视口：${cell.offenders.join(', ')}`);
+        if (cell.unnamed) matrixProblems.push(`${title}/${theme}/${width}px ${cell.unnamed} 个可聚焦元素没有可读名字：${cell.unnamedTags.join(', ')}`);
+        if (cell.hijack) matrixProblems.push(`${title}/${theme}/${width}px ${cell.hijack} 个元素用 tabindex>0 劫持键盘顺序`);
+        if (nameless) matrixProblems.push(`${title}/${theme}/${width}px 有 ${nameless} 次 Tab 落在没有名字的可交互元素上`);
+        if (distinct < 3) matrixProblems.push(`${title}/${theme}/${width}px Tab 只经过 ${distinct} 个元素就去到文档末尾，键盘用户基本走不动`);
+      }
+    }
+  }
+  writeFileSync(path.join(root, '.runtime/console-matrix.json'), JSON.stringify({ at: new Date().toISOString(), cells: matrix, problems: matrixProblems }, null, 2));
+  check('matrixOverflowAndFocus', matrixProblems.length === 0, { cells: matrix.length, problems: matrixProblems.slice(0, 8) });
+  check('matrixKeyboardOrder', matrix.every(cell => cell.increasing), { stops: matrix.map(cell => cell.stops.join('→')).slice(0, 4) });
+
+  // 回到浅色 + 桌面宽度，后续检查在稳定形态下进行。
+  await evaluate(`document.documentElement.classList.toggle('dark', false)`);
+  await cdp('Emulation.setDeviceMetricsOverride', { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false });
+  await evaluate(`[...document.querySelectorAll('.app-menu .el-menu-item')].find(m => m.textContent.includes('概览'))?.click()`);
+  await delay(500);
 
   // 产品词与网页发起入口检查。
   const visible = await evaluate(`document.body.innerText`);

@@ -25,6 +25,8 @@ import { CollaborationIntake } from './collaboration-intake.ts';
 // 第三十六轮 · 自动化四件套（用户拍板「这几个也都要做」）：定时调度器 +
 // 定时唤醒复查（scheduler）、GitHub 监听（github-watch）、钉钉/企微通道（im-outbound）。
 import { Scheduler, automationTrigger } from './scheduler.ts';
+import { EventInbox } from './event-inbox.ts';
+import { readRetryHealth } from './retry-health.ts';
 import { GithubWatcher } from './github-watch.ts';
 import { sendDingtalk, sendWecom, dingtalkEndpoint, wecomEndpoint, dingtalkToTrigger, wecomPlainXmlToTrigger, wecomIsEncrypted, type ImSendResult } from './im-outbound.ts';
 import { ModelSettingsService } from './model-settings.ts';
@@ -60,6 +62,7 @@ import { dreamFromKnowledge, registerDreamProposals } from './dreaming.ts';
 import { EvolutionService, defaultEvolutionDeps } from './evolution.ts';
 // P-5：控制台只读摘要（服务端分页 / 字段裁剪），原 view 逐字保留。
 import { buildWorkspaceSummary, parseViewSummaryPage, visibleTasksFor, type HostTitle } from './workspace-summary.ts';
+import { buildOrganizationView } from './organization-view.ts';
 
 // 第三十四轮（key 持久化）：启动时把 .runtime/cognee-env.json（gitignored、0600）
 // 里的凭据装载进进程环境；已设的进程环境变量优先，不会被覆盖。装载失败（文件
@@ -134,7 +137,11 @@ const teamMemory = new TeamMemory(workspaces);
 const collaborationIntake = new CollaborationIntake(workspaces, assistant, agentServices);
 // 第三十六轮 · 自动化四件套实例：调度器 / GitHub 监听挂进主循环 tick（见下方
 // tick()），出站镜像挂进 deliver()；入站端点见 /github/webhook 与 /im/*。
-const scheduler = new Scheduler(workspaces, assistant, config);
+// 第三十八轮 · 事件收件箱：GitLab / 任意业务系统 POST 进来的事实先落这里，
+// 再由 scheduler 的 `when` 规则决定「要不要开工单、合并成几条」。
+const eventInbox = new EventInbox(store, config.eventInbox);
+const scheduler = new Scheduler(workspaces, assistant, config, () => new Date(), eventInbox);
+
 const githubWatcher = new GithubWatcher(workspaces, assistant, config);
 const modelSettings = new ModelSettingsService(workspaces);
 const graph = new KnowledgeGraph(workspaces);
@@ -204,6 +211,28 @@ const server = createServer(async (req, res) => {
         req.headers['x-github-event'] as string | undefined));
       res.end(JSON.stringify(result)); return;
     }
+    // 第三十八轮 · 通用入站事件源（GitLab / 任意业务系统）。只把事实写进收件箱
+    // （events 表 inbox:* 记录），不开工单；要不要开、合并成几条，由 scheduler
+    // 的 when 规则决定。每来源一把独立密钥，没有密钥的形态在这里直接拒收。
+    if (req.method === 'POST' && url.pathname.startsWith('/events/')) {
+      const source = decodeURIComponent(url.pathname.slice('/events/'.length)) || '';
+      const raw = await readRawBody(req);
+      const header = (name: string): string | undefined => {
+        const value = req.headers[name];
+        return Array.isArray(value) ? value[0] : value;
+      };
+      const result = eventInbox.accept(source, raw, {
+        'x-signature-256': header('x-signature-256'),
+        'x-hub-signature-256': header('x-hub-signature-256'),
+        'x-gitlab-token': header('x-gitlab-token'),
+        'x-gitlab-event': header('x-gitlab-event'),
+        'x-github-event': header('x-github-event'),
+        authorization: header('authorization'),
+      });
+      // 202 = 已收下待分流（含重复投递）；400 = 拒收，原因写在 reason 里。
+      res.statusCode = result.ok ? 202 : 400;
+      res.end(JSON.stringify(result)); return;
+    }
     // 第三十六轮 · 钉钉 / 企微入站端点（可选；需公网回调，本地经反代可达）。
     // 消息转 NativeTrigger 走与飞书相同的 ingestTrigger 链；白名单按通道
     // 独立配置（allowedSenders，默认空 = 拒绝所有）。
@@ -246,8 +275,8 @@ const server = createServer(async (req, res) => {
       const action = url.pathname.slice('/workspace/'.length);
       // Reads recheck their own scope and revisions. They need not wait behind
       // indexing or native process reconciliation; mutations keep the single lane.
-      const v06Reads=['roles-view','role-route','role-hints','role-snapshot','transfer-view','transfer-policy','dispatch-guard','grant-widen','grant-check','edges-view','edge-impact','label-check','policy-view','verification-level','topology-advice','inflight-policy','signals','review-readiness','ontology-meta','ontology-view','ontology-query','attention-policy','attention-filter','watchdog-policy','watchdog-inspect','plan-view','round-view','acceptance-export','acceptance-report-view','org-overview','org-mapping-view','context-pack','l2-status','l2-edges-view','l2-graph-view','agent-registry-view','acceptance-crew','evolution-view','execution-view'];
-      const readOnly=['view','view-summary','team-members','agent-services','agent-build','development-view','delivery-status','service-status','routing-status','memory-replay','memory-guard','loop-guard','network-view','memory-status','memory-search','memory-annotations','context-pack','context-record','context-search','ontology-view','model-settings','system-status','trace-view','knowledge-list','knowledge-get','knowledge-wiki','cognee-search','scheduler-status','wake-list','github-watch-status'].includes(action)||action==='knowledge-graph'&&payload.project!==true||action.startsWith('v06-')&&v06Reads.includes(action.slice(4));
+      const v06Reads=['roles-view','role-route','role-hints','role-snapshot','transfer-view','transfer-policy','dispatch-guard','grant-widen','grant-check','edges-view','edge-impact','label-check','policy-view','verification-level','topology-advice','inflight-policy','signals','review-readiness','ontology-meta','ontology-view','ontology-query','attention-policy','attention-filter','watchdog-policy','watchdog-inspect','plan-view','round-view','acceptance-workbench','acceptance-export','acceptance-report-view','org-overview','org-mapping-view','context-pack','l2-status','l2-edges-view','l2-graph-view','agent-registry-view','acceptance-crew','evolution-view','execution-view'];
+      const readOnly=['view','view-summary','team-members','agent-services','agent-build','development-view','delivery-status','service-status','routing-status','organization-view','memory-replay','memory-guard','loop-guard','network-view','memory-status','memory-search','memory-annotations','context-pack','context-record','context-search','ontology-view','model-settings','system-status','trace-view','knowledge-list','knowledge-get','knowledge-wiki','cognee-search','scheduler-status','event-inbox-status','retry-health','wake-list','github-watch-status'].includes(action)||action==='knowledge-graph'&&payload.project!==true||action.startsWith('v06-')&&v06Reads.includes(action.slice(4));
       const runWorkspace=readOnly?<T>(job:()=>Promise<T>)=>withFeishuReads(job):serialize;
       res.end(JSON.stringify(await runWorkspace(async () => {
         workspaceActor = await teamMembers.gate(action, payload, workspaceActor);
@@ -335,6 +364,19 @@ const server = createServer(async (req, res) => {
             projection,threeTier:assessThreeTier(events,projection,errors,
               shapeOptions(getRouter(),getAgentRegistry())),
             router:getRouter().status(),routerCoverage:planCoverage(events)};
+        }
+        if(action==='organization-view'){
+          // 只读聚合：团队共有的上下文底座 + 当前组织形态与编制 + 可见任务分布。
+          // 不派单、不写编制、不因空编制硬造主管；层是配置不是骨架。
+          const catalog=workspaces.catalog();
+          const {events}=readBridgedEvents();
+          const router=getRouter().status();
+          return buildOrganizationView({
+            shape:{mode:router.mode,maxHops:router.maxHops,domains:router.domains.map(domain=>domain.id)},
+            registry:getAgentRegistry(),
+            tasks:visibleTasksFor(workspaceActor,store.list()),
+            events:events.length,sources:catalog.sources.length,spaces:Object.keys(catalog.spaces).length,
+          });
         }
         if(action==='development-start')return development.start(payload,workspaceActor);
         if(action==='development-accept')return development.accept(payload,workspaceActor);
@@ -482,6 +524,11 @@ const server = createServer(async (req, res) => {
         if (action === 'ontology-save') return ontology.save(payload.space, payload.schema, payload.revision ?? null, workspaceActor);
         // 第三十六轮 · 自动化四件套的 bridge 动作（写操作走 serialize 单车道）。
         if (action === 'scheduler-status') { workspaces.manager(workspaceActor); return scheduler.status(); }
+        // 第三十八轮 · 事件面只读状态：哪些来源登记了、收了多少条、待分流几条。
+        // 不含事件正文的写入口，控制台仍然只有读。
+        if (action === 'event-inbox-status') { workspaces.manager(workspaceActor); return eventInbox.status(); }
+        // 第三十八轮 · 出站重试健康：outbox 状态机 + 近 24h 投递失败的只读汇总。
+        if (action === 'retry-health') { workspaces.manager(workspaceActor); return readRetryHealth(store); }
         if (action === 'wake-list') { workspaces.manager(workspaceActor); return scheduler.listWakes(); }
         if (action === 'wake-schedule') { workspaces.manager(workspaceActor); return scheduler.scheduleWake(payload); }
         if (action === 'wake-cancel') { workspaces.manager(workspaceActor); return scheduler.cancelWakes(String(payload.taskId ?? '')); }

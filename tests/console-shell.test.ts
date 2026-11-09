@@ -131,8 +131,9 @@ test('C-4 编制视图走只读白名单，不新增写动作或新网页入口'
 
 test('P-5 控制台改拉服务端分页摘要，不再请求全量工作区快照', () => {
   assert.doesNotMatch(app, /safe\('view'\)/, '控制台不得再请求全量 view');
-  // P-12 重写后任务列表出现在概览 / 协作 / 验收三个视图。
-  assert.ok((app.match(/safe\('view-summary'\)/g) ?? []).length >= 3, '用到任务列表的视图都要改');
+  // P-12 重写后任务列表出现在概览 / 协作 / 验收三个视图；验收工作台带 limit
+  // 参数按需取前 50 条（仍走摘要，不碰全量快照），所以匹配时允许带参数。
+  assert.ok((app.match(/safe\('view-summary'[),]/g) ?? []).length >= 3, '用到任务列表的视图都要改');
   assert.match(server, /'view-summary'/, '只读动作必须登记进控制台白名单');
   assert.doesNotMatch(app, /'view-summary': \d+/, '摘要走默认超时，不给慢请求开口子');
 });

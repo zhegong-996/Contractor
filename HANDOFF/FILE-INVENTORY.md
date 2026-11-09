@@ -447,3 +447,26 @@
 | `tests/openmaus-12b.test.ts` | 131 | ③d 契约 6 例：skill 白名单+默认关、开启绑哈希+篡改失效、escalation 去重/限速/首达/不代批、团队包黑名单+密钥扫描、导入不提权、黑名单覆盖数。 |
 
 > 条目合计：330（P-10 时点）+ 15（P-11/P-12/P-13 补记）+ 7（本轮）= **352**，与 `git ls-files` 一致。
+
+## 第三十四~三十八轮新增文件（补记，12）
+
+> 第三十四~三十七轮的文件改动见 `docs/VALIDATION.md` 与 `docs/RE-AUDIT-2026-11-09.md`；
+> 下表只补第三十八轮新增的 12 个文件（此前几轮未逐条补进本表，行数以实际文件为准）。
+
+| 路径 | 行数 | 说明 |
+|---|---|---|
+| `src/acceptance-workbench.ts` | 210 | 验收工作台只读聚合：清单 + 逐项判定合并、统计、打回清单、审查 Agent 编组、报告与就绪缺口；没有合格 Agent 时如实降级，不伪造清单。 |
+| `src/organization-view.ts` | 200 | 组织视图只读聚合（`modelCalls=0`）：共享上下文底座（事件主干 / 来源 / 空间 / 四类投影）+ 三层职能座位 + 按业务域分布 + 任务归并。 |
+| `src/event-inbox.ts` | 246 | 通用入站事件源：GitLab / GitHub / 通用 JSON 归一化、逐来源密钥（HMAC 或 token）、指纹幂等、`pending/filtered/consumed` 状态、只读状态汇总。只收事实，不开工单。 |
+| `src/code-review.ts` | 213 | 交付前独立审码：统一 diff 解析 + 确定性规则（密钥 / `.env` → block；调试残留 / 大 diff / 缺测试 → warn）+ 闸门 + 中文摘要；密钥只留脱敏片段。 |
+| `src/retry-health.ts` | 116 | 出站重试健康：outbox 状态分布、待投递最久等待、超阈值卡住清单、近 24h 通道级失败计数、`healthy/backlog/failing` 判定，并把「pending ≠ 失败」等口径写进 `notes`。 |
+| `tests/acceptance-workbench.test.ts` | 96 | 工作台契约 4 例：合并顺序与证据区域、未锁定不伪造、打回进入自查标准、区域校验边界。 |
+| `tests/organization-view.test.ts` | 103 | 组织视图契约 3 例：空编制扁平不硬造、分层归位与任务归并、未登记业务域与未分配计数。 |
+| `tests/event-inbox.test.ts` | 118 | 收件箱契约 6 例：拒收四因、GitLab 事件名映射、HMAC 与幂等、白名单外仍入箱、坏输入不落库、消费与状态计数。 |
+| `tests/scheduler-rules.test.ts` | 132 | 规则契约 6 例：合并成一轮并消费、重复 tick 幂等、并发上限不动事件、`parallel=2`、窗口外不并入、配置二选一与边界。 |
+| `tests/code-review.test.ts` | 92 | 审码契约 6 例：diff 解析行号、密钥阻断且脱敏、环境文件与私钥、调试残留只 warn、闸门只拦阻断、摘要格式与边界。 |
+| `tests/retry-health.test.ts` | 97 | 重试健康契约 6 例：健康态、积压判定、失败+积压、窗口外与无 `at` 不猜、三条口径常在、从库读取。 |
+| `docs/ROUND-38.md` | 118 | 第三十八轮交付说明：七项改动、验证证据、真跑记录、六条如实边界。 |
+
+> 条目合计：352（第三十一轮时点）+ 12（第三十八轮）= **364** 条手工补记；`git ls-files` 实际 **379** 条
+> （第三十四~三十七轮新增文件未逐条补进本表，差额 15 条）。本表是导航，**完整文件面以 `git ls-files` 为准**。

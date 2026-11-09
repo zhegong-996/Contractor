@@ -20,6 +20,10 @@ export class Store {
       CREATE TABLE IF NOT EXISTS outbox(id TEXT PRIMARY KEY, issue_id TEXT NOT NULL, text TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'pending');
       CREATE TABLE IF NOT EXISTS receipts(id TEXT PRIMARY KEY, issue_id TEXT NOT NULL, value TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS audit(id INTEGER PRIMARY KEY, at TEXT NOT NULL, action TEXT NOT NULL, issue_id TEXT, value TEXT NOT NULL);`);
+    // 第三十八轮 · 旧库原地补 outbox.at（重试健康要算积压时长）。SQLite 没有
+    // ADD COLUMN IF NOT EXISTS，重复执行会报错，这里按「已存在就跳过」处理。
+    const columns = this.db.prepare('PRAGMA table_info(outbox)').all() as { name: string }[];
+    if (!columns.some(column => column.name === 'at')) this.db.exec('ALTER TABLE outbox ADD COLUMN at TEXT');
   }
   list(): Task[] { return (this.db.prepare('SELECT value FROM tasks').all() as { value: string }[]).map(r => JSON.parse(r.value)); }
   get(id: string): Task {
@@ -36,6 +40,10 @@ export class Store {
       task.lease = lease; task.phase = 'running'; this.save(task); return task; });
   }
   audit(action: string, issueId: string | null, value: unknown) { this.db.prepare('INSERT INTO audit(at,action,issue_id,value) VALUES(?,?,?,?)').run(new Date().toISOString(), action, issueId, JSON.stringify(value)); }
-  notify(id: string, issueId: string, text: string) { this.db.prepare('INSERT OR IGNORE INTO outbox(id,issue_id,text) VALUES(?,?,?)').run(id, issueId, text); }
+  notify(id: string, issueId: string, text: string) {
+    // 第三十八轮 · 出站队列加 at（投递时刻）：没有它就算不出「积压了多久」，
+    // 重试健康只能看状态分布，看不出「卡住的是一条还是四条」。旧库原地补列。
+    this.db.prepare('INSERT OR IGNORE INTO outbox(id,issue_id,text,at) VALUES(?,?,?,?)').run(id, issueId, text, new Date().toISOString());
+  }
   close() { this.db.close(); }
 }

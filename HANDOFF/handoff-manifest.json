@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "purpose": "SuitMe 协作台项目交接包：让下一位 Agent 无需对话历史即可安全继续",
-  "generatedAt": "2026-11-08T23:40:00+08:00",
+  "generatedAt": "2026-11-09T11:00:00+08:00",
   "authoritativeLocation": "/Users/gong.zhe/Developer/ai-native-collab/HANDOFF/",
   "rootEntryFiles": [
     {
@@ -128,7 +128,7 @@
     "收尾修复：reviewSource 改用评审后 revision，消除真实链路悬空 lineage；历史 append-only 日志中的旧行不物理删除"
   ],
   "validation": {
-    "unitTests": "563/563",
+    "unitTests": "620/620",
     "typecheck": "pass",
     "buildWorkspaces": "pass",
     "buildChineseShell": "pass (hiddenEntries 4, missed 0, warning null；前台重跑，后台沙箱批量删除保护为已知坑)",
@@ -155,11 +155,12 @@
     "gitDiffCheck": "pass",
     "reference": "HANDOFF/05-VALIDATION-AND-COMMANDS.md 第 11 节与 docs/VALIDATION.md 第三十三轮",
     "hostPgSmoke": "ok:true, 24/24（PostgreSQL 17.10 专属库 suitme_collab_c1，现亦为默认底座）",
-    "consoleSmoke": "ok:true, 55/55；检查项含登录 / RBAC / 知识分区正负例 / 读分区三例 / 证据锚点 / wiki / 注入索引纪律 / 六视图 / 主题 / 425px / 零海外文案",
+    "consoleSmoke": "ok:true, failed:[]（7 视图 + 12 单元验收矩阵：3 视图 × 2 主题 × 1280/320，含键盘逐键）",
     "routerSmoke": "ok:true, checks 31, failed []；隔离内存 Trace，未写真实 .runtime/routing/events.jsonl",
     "agentsSmoke": "ok:true, 43/43 checks（隔离内存 Trace，不写真实 .runtime/routing/events.jsonl）",
     "shapesSmoke": "ok:true, checks 36, failed []；两种形态各跑一单五阶段，每步带 Router / 在岗快照，真实日志行数前后不变",
-    "stepsSmoke": "ok:true, 61/61；A1 口径更新为「默认 step 且 loop 可显式回退」"
+    "stepsSmoke": "ok:true, 61/61；A1 口径更新为「默认 step 且 loop 可显式回退」",
+    "guardSmoke": "22/22（golden 基线第三十八轮人审重冻结，记录在 fixtures/behavior-golden.json 的 humanReview）"
   },
   "services": {
     "3100": {
@@ -263,12 +264,12 @@
   ],
   "fileInventory": {
     "path": "HANDOFF/FILE-INVENTORY.md",
-    "totalEntries": 352,
+    "totalEntries": 364,
     "handWrittenDescriptions": 213,
     "autoExtractedDescriptions": 69,
     "fallback": 0,
     "uncovered": 0,
-    "note": "第十四轮 269 + C-1 新增 4 + C-2 新增 7 + C-3 新增 3 + C-4 新增 3 + C-5 新增 2 + C-6 新增 4 + P-1 新增 5（src/step-execution.ts、src/loop-pump.ts、src/step-runner.ts、scripts/steps-smoke.ts、tests/step-execution.test.ts）+ 2026-11-08 交接总结新增 2（HANDOFF.md、PROJECT-SUMMARY.md）+ P-5 新增 2（src/workspace-summary.ts、tests/workspace-summary.test.ts）+ P-6 新增 7（src/step-hitl.ts、src/step-delivery.ts、src/mission-state.ts、scripts/step-answer.ts、tests/step-hitl.test.ts、tests/step-delivery.test.ts、licenses/runner-MIT.txt）+ 评估文档 1（docs/REFERENCE-openmausbot.md）+ P-7 新增 4（src/memory-hierarchy.ts、tests/memory-hierarchy.test.ts、scripts/memory-hierarchy-smoke.ts、docs/REFERENCE-anthropic-agent-memory.md）+ P-8 新增 7（src/knowledge-guard.ts、src/behavior-baseline.ts、tests/knowledge-guard.test.ts、tests/behavior-baseline.test.ts、tests/p8-contracts.test.ts、scripts/guard-smoke.ts、fixtures/behavior-golden.json）+ 架构图册 3（docs/architecture-atlas.html、docs/ARCHITECTURE-ATLAS.md、scripts/atlas-check.mjs）+ 能力对比报告 1（docs/REFERENCE-capability-comparison.md）+ P-9 新增 4（src/collaboration-loop.ts、tests/collaboration-loop.test.ts、tests/p9-contracts.test.ts、scripts/loop-smoke.ts）+ P-10 新增 2（src/hitl-bridge.ts、tests/hitl-bridge.test.ts）；既有文件修改不计新增+ P-11/P-12/P-13 新增 15（auto-resume / delegated-accept / services / rbac / console-auth / knowledge-authz / auto-resume.test / console/vendor 5 / licenses 3）+ 第三十一轮 ③c/③d 新增 7（knowledge-representation / dreaming / skill-pack / escalation / team-pack / knowledge-writechain.test / openmaus-12b.test）"
+    "note": "第十四轮 269 + C-1 新增 4 + C-2 新增 7 + C-3 新增 3 + C-4 新增 3 + C-5 新增 2 + C-6 新增 4 + P-1 新增 5（src/step-execution.ts、src/loop-pump.ts、src/step-runner.ts、scripts/steps-smoke.ts、tests/step-execution.test.ts）+ 2026-11-08 交接总结新增 2（HANDOFF.md、PROJECT-SUMMARY.md）+ P-5 新增 2（src/workspace-summary.ts、tests/workspace-summary.test.ts）+ P-6 新增 7（src/step-hitl.ts、src/step-delivery.ts、src/mission-state.ts、scripts/step-answer.ts、tests/step-hitl.test.ts、tests/step-delivery.test.ts、licenses/runner-MIT.txt）+ 评估文档 1（docs/REFERENCE-openmausbot.md）+ P-7 新增 4（src/memory-hierarchy.ts、tests/memory-hierarchy.test.ts、scripts/memory-hierarchy-smoke.ts、docs/REFERENCE-anthropic-agent-memory.md）+ P-8 新增 7（src/knowledge-guard.ts、src/behavior-baseline.ts、tests/knowledge-guard.test.ts、tests/behavior-baseline.test.ts、tests/p8-contracts.test.ts、scripts/guard-smoke.ts、fixtures/behavior-golden.json）+ 架构图册 3（docs/architecture-atlas.html、docs/ARCHITECTURE-ATLAS.md、scripts/atlas-check.mjs）+ 能力对比报告 1（docs/REFERENCE-capability-comparison.md）+ P-9 新增 4（src/collaboration-loop.ts、tests/collaboration-loop.test.ts、tests/p9-contracts.test.ts、scripts/loop-smoke.ts）+ P-10 新增 2（src/hitl-bridge.ts、tests/hitl-bridge.test.ts）；既有文件修改不计新增+ P-11/P-12/P-13 新增 15（auto-resume / delegated-accept / services / rbac / console-auth / knowledge-authz / auto-resume.test / console/vendor 5 / licenses 3）+ 第三十一轮 ③c/③d 新增 7（knowledge-representation / dreaming / skill-pack / escalation / team-pack / knowledge-writechain.test / openmaus-12b.test） ｜ 第三十八轮新增 12 个文件（5 个 src 模块 + 6 个契约测试 + docs/ROUND-38.md）后为 364 条手工补记；`git ls-files` 实际 379 条（第三十四~三十七轮新增文件未逐条补表，差额 15）；完整文件面以 `git ls-files` 为准。"
   },
   "nextSteps": [
     "Cognee 原生管线已全链落地（第三十四轮）：图谱投影自动 cognify（autoCognify 可关）+ console 语义检索 + 凭据持久化；剩余可选：检索结果溯源到具体来源版本、cognify 费用账本接入",
@@ -320,5 +321,5 @@
   },
   "authoritativeOnly": true,
   "portableCopyNote": "WorkBuddy 工作区 handoff/ 与 SuitMe-HANDOFF.zip 已停用、不再维护；详细交接唯一权威位置为仓库内 HANDOFF/，根目录 HANDOFF.md / PROJECT-SUMMARY.md 为同仓库内同步维护的总览入口。",
-  "codeBaseCommit": "以 git rev-parse HEAD 为准（第三十二轮切默认底座后提交推送；HEAD = origin/main = 远端 main）"
+  "codeBaseCommit": "以 `git rev-parse HEAD` 为准（第三十八轮：周边与运行层收口 + Acceptance 成为模块；HEAD = origin/main = 远端 main）"
 }

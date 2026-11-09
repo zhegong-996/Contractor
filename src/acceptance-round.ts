@@ -5,11 +5,34 @@ import { eventId, parseTrace, assertTraceReady, type CollabEvent, type EvidenceK
 
 export type JudgementStatus = 'passed' | 'failed' | 'blocked';
 
+/** 截图区域：像素坐标或 0..1 归一化坐标都接受，前端按原样展示。 */
+export type EvidenceRegion = { x: number; y: number; width: number; height: number; note?: string };
+export const EVIDENCE_REGION_LIMIT = 8;
+
+/** 区域只是「让人回到具体位置」的定位信息，不参与通过 / 不通过判定。 */
+export function assertEvidenceRegions(value: unknown): EvidenceRegion[] {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) throw new Error('证据区域必须是数组');
+  if (value.length > EVIDENCE_REGION_LIMIT) throw new Error(`证据区域最多 ${EVIDENCE_REGION_LIMIT} 个`);
+  return value.map((raw, index) => {
+    if (!raw || typeof raw !== 'object') throw new Error(`第 ${index + 1} 个证据区域格式不正确`);
+    const region = raw as Record<string, unknown>;
+    const numbers = ['x', 'y', 'width', 'height'].map(key => Number(region[key]));
+    if (numbers.some(number => !Number.isFinite(number))) throw new Error(`第 ${index + 1} 个证据区域坐标必须是有限数`);
+    const [x, y, width, height] = numbers as [number, number, number, number];
+    if (x < 0 || y < 0 || width <= 0 || height <= 0) throw new Error(`第 ${index + 1} 个证据区域范围不合法`);
+    if (x > 100000 || y > 100000 || width > 100000 || height > 100000) throw new Error(`第 ${index + 1} 个证据区域超出范围`);
+    const note = typeof region.note === 'string' ? region.note.trim().slice(0, 200) : '';
+    return { x, y, width, height, ...(note ? { note } : {}) };
+  });
+}
+
 export interface ItemEvidence {
   refs: string[];
   evidenceKind: EvidenceKind;
   sourceRefs?: { id: string; revision: string }[];
   note?: string;
+  regions?: EvidenceRegion[];
 }
 
 export interface Judgement {
@@ -18,6 +41,7 @@ export interface Judgement {
   status: JudgementStatus;
   evidenceRefs: string[];
   reason: string;
+  regions?: EvidenceRegion[];
 }
 
 export interface AcceptanceRound {
@@ -49,7 +73,8 @@ export function evaluateRound(input: {
   const replayable = input.events ? new Set(input.events.map(eventId)) : null;
   const judgements: Judgement[] = input.plan.items.map(item => {
     const evidence = input.evidence[item.id];
-    const base = { itemId: item.id, name: item.name };
+    const regions = assertEvidenceRegions(evidence?.regions);
+    const base = { itemId: item.id, name: item.name, ...(regions.length ? { regions } : {}) };
     if (!evidence?.refs?.length) {
       return { ...base, status: 'blocked', evidenceRefs: [], reason: '缺少证据引用' };
     }

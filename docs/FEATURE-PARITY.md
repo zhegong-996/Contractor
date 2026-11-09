@@ -1,4 +1,4 @@
-# 上游功能实现对照（第三十五轮审计 · 第三十六轮落地 · 第三十七轮复盘）
+# 上游功能实现对照（第三十五轮审计 · 第三十六轮落地 · 第三十七轮复盘 · 第三十八轮收口）
 
 > 用户问题：是否把 Agent Autoloop、Super Agent、LobeHub（结合 acceptance）的功能全部实现出来了？
 > 本文按三个上游的公开功能面逐项对照本仓库实现位置与验证证据。
@@ -88,15 +88,33 @@
   `github-watch` 全程没跑）。本轮修复：逐阶段隔离、启动超时放宽、`stop` 认亲、新增 `npm run service`
   常驻安装器；并补齐 cron 排班，把「每周」例程从 `daily 18:00` 改成 `cron 0 18 * * 0`。
 
+## 5.2 第三十八轮收口（2026-11-09）
+
+RE-AUDIT 第 6 节列的 5 项待补**全部补上**，并把 Acceptance 从「契约 + 报告」提升为
+控制台的一等模块。逐项证据见 **[ROUND-38.md](ROUND-38.md)**：
+
+| 待补项 | 结果 |
+|---|---|
+| 规则匹配（`when.source/types`、`parallel`、排队合并） | ✅ 事件分流 + 并发上限（显式配置才生效）+ 窗口内合并成一轮 |
+| 验收区域框选 | ◐ 数据层完成（`EvidenceRegion` + 校验 + 展示），交互未做 |
+| GitLab / 通用 HTTP 事件源 | ✅ `POST /events/:source`，逐来源密钥 / 指纹幂等 / 只收事实 |
+| 交付流水线独立审码阶段 | ✅ 确定性命中「密钥 / `.env`」即拦预览，独立报告，不替代人签 |
+| 验收矩阵 | ✅ 3 视图 × 2 主题 × 1280/320 共 12 单元 + 键盘逐键 |
+
+同轮补的两处**不在上表**但属用户明说范围：**验收工作台 + 审查 Agent 前端**（`v06-acceptance-workbench`
+一次只读聚合 + `AcceptanceView` 重写，页面上刻意没有通过 / 打回按钮），**共享上下文底座 + 三层职能
+组织视图**（`organization-view`，`modelCalls=0`），以及 **出站重试健康**（`retry-health`）。
+
 ## 6. 验证命令（全部真跑）
 
 ```sh
-npm test            # 589/589（含三个上游装载的契约测试 + 自动化四件套 + cron 3 例）
+npm test            # 620/620（含三个上游装载的契约测试 + 自动化四件套 + cron + 事件收件箱 + 审码 + 重试健康）
 npm run steps:smoke # 61/61：step 模式 + HITL 闭环 + 送达证据
 npm run agents:smoke    # 43/43：Agent 编制与 adapter
 npm run loop:smoke  # 18/18：双向协作回路
 npm run evolution:smoke # 45/45：沉淀回流（打回记忆）
-npm run guard:smoke # 22/22：运行时红线与出站工具
+npm run guard:smoke # 22/22：运行时红线与出站工具（golden 已人审重冻结）
+npm run console:smoke   # ok:true：7 视图 + 12 单元验收矩阵 + 键盘逐键
 npm run audit:upstream  # clean:true：上游固定提交与许可证
 npm run service -- status  # 常驻状态（launchd 安装见 docs/RE-AUDIT-2026-11-09.md）
 ```

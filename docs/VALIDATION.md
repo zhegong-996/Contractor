@@ -896,3 +896,35 @@ Cognee `cognify` 的真实外部模型调用未发生（缺端点与凭据）；
 **console UI 截图**（scripts/owner-screenshots.mjs，owner 身份）：`.runtime/console/owner-01-login.png` ~ `owner-04-overview.png`。
 
 **已知边界**：cognified 共享数据集跨来源，检索收口到 owner/admin；机器重启后检索/自动 cognify 依赖 .runtime/cognee-env.json（删除即回到未配置态）；DeepSeek 调用有真实费用（用户已确认不担心）。
+
+## 第三十八轮 · 周边与运行层收口 + Acceptance 成为模块（2026-11-09）
+
+**改动**：
+- 新增 `src/acceptance-workbench.ts`、`src/organization-view.ts`、`src/event-inbox.ts`、`src/code-review.ts`、`src/retry-health.ts`；
+- `src/acceptance-round.ts` 增 `EvidenceRegion` / `assertEvidenceRegions`（证据区域只定位不判定，上限 8）；
+- `src/scheduler.ts` 增 `when`（事件分流）/`group`/`parallel`/`mergeMinutes`（`schedule` 与 `when` 必须二选一，`superRefine` 强制）；
+- `src/store.ts` outbox 增 `at` 列（旧库原地 `ALTER TABLE`）并让 `notify` 记录投递时刻；
+- `src/controller.ts` 在 `sync → preview` 之间插入独立审码阶段（`reviewDelivery` + `assertCodeReviewGate` + 独立 Paperclip 文档 `code-review`）；
+- `src/config.ts` 增 `eventInbox`（默认关闭）与 `codeReview.enforce`（默认开启）；
+- `src/server.ts` 增 `POST /events/:source` 与两个只读动作 `retry-health` / `event-inbox-status`（同步 `v06Reads`/`readOnly`/`scripts/console-server.ts` 三处白名单）；
+- 前端：`console/app.js` 重写 `AcceptanceView`、新增 `OrganizationView`、服务页增两张卡、侧栏菜单项补 `tabindex="0"`；`console/styles.css` 增键盘焦点环；
+- `scripts/console-smoke.mjs` 增 12 单元验收矩阵（3 视图 × 2 主题 × 1280/320）与键盘逐键走查；
+- 新增测试 6 个文件：`tests/acceptance-workbench.test.ts`（4）、`tests/organization-view.test.ts`（3）、`tests/event-inbox.test.ts`（6）、`tests/scheduler-rules.test.ts`（6）、`tests/code-review.test.ts`（6）、`tests/retry-health.test.ts`（6）。
+
+**静态与回归**：`npm test` **620/620**、`tsc --noEmit` 0 错、`console:smoke` **ok:true / failed:[]**（7 视图 + 矩阵 12/12）、`guard:smoke` **22/22**（golden 人审重冻结，记录在 `fixtures/behavior-golden.json`）、`steps:smoke` 61/61、`agents:smoke` 全绿、`loop:smoke` 18/18。
+
+**真跑（bridge 4180 重启加载本轮代码）**：
+
+```text
+POST /workspace/organization-view         200  shape.mode=flat / contextBase.projections 四类 / modelCalls=0
+POST /workspace/v06-acceptance-workbench  200  plan·items·round·report 一次取齐；未锁定任务如实 plan:null
+POST /workspace/retry-health              200  total:29（仅本机 17 / 已送达 12）/ pending 0 / verdict healthy
+POST /workspace/event-inbox-status        200  enabled:false（默认关闭）
+POST /events/gitlab（默认关闭）            400  {"ok":false,"reason":"events-disabled"}
+```
+
+**验收矩阵发现的真实缺陷（已修）**：
+1. 侧栏菜单项默认 `tabindex=-1`、菜单根不可聚焦 → **键盘用户根本进不了侧栏**；修法：菜单项补 `tabindex="0"` + `:focus-visible` 焦点环。修后 Tab 顺序为 `概览→协作→组织→知识→验收→服务→我的配置→主题按钮`。
+2. 验收页任务选择器内层 `input.el-select__input` 无可读名字；修法：`<label for>` 关联 + `id`。
+
+**如实边界**：审码不含模型评审（确定性规则只覆盖「人一定会拦」的硬项）；事件源默认关闭且未与 GitHub 既有通道合并；矩阵只覆盖控制台三视图（插件工作台的 `test:responsive` 仍是另一套）；`parallel` 缺省不限流（与上游缺省串行不同，理由见 `docs/ROUND-38.md` 1.3）；证据区域只到数据层，未做「从该区域开始复看」的交互；本轮没有新的飞书真实工单。
