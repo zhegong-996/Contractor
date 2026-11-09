@@ -103,6 +103,21 @@ export class CollaborationIntake {
       this.w.store.notify('agent-service:'+trigger.id,task.id,`已交给${profile.name}：${task.identifier}。需要补充信息时会在这里问你。`);
       return {taskId:task.id,serviceId:profile.id};
     }
+    // 第五十二轮 · 飞书协作执行闭环：/do <任务> 走 拆解→执行→会签评审，
+    // 护栏（准入/委托/会签）全程参与。fire-and-forget，先回「已启动」再回结果。
+    const doRequest = /^\/do\s+([\s\S]+)$/.exec(trigger.text.trim());
+    if (doRequest) {
+      const task = doRequest[1]!.trim();
+      if (!task) throw new Error('/do 需要任务描述');
+      this.w.store.notify('collab-do:' + trigger.id, '', `已收到协作任务「${task.slice(0, 60)}」，正在走 拆解→执行→会签评审 闭环，完成后回你。`);
+      void import('./collaboration-runtime.ts').then(({ runCollaboration }) =>
+        runCollaboration(task, { id: trigger.id, type: 'im', detail: task })
+          .then(outcome => this.w.store.notify('collab-do-done:' + trigger.id, '',
+            `✅「${task.slice(0, 60)}」会签结果：\n${outcome.checkerVerdict.slice(0, 600)}`))
+          .catch(error => this.w.store.notify('collab-do-fail:' + trigger.id, '',
+            `❌ 协作执行失败：${String(error).slice(0, 300)}`)));
+      return { taskId: null, collaborationStarted: true, task };
+    }
 
     let match: string[] | null = /^\/collab\s+(\S+)(?:\s+([\s\S]+))?$/.exec(trigger.text.trim());
     const followup = !match;
