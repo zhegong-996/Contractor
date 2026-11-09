@@ -173,7 +173,13 @@ export class RoleRegistryService {
       members: parsed.members.map(m => ({ ...m, roleSnapshot: m.roleSnapshot ?? snapshotFor(parsed, m.userId) })) };
     assertRegistry(next);
     const revision = await this.store.writeConfig('role-registry', next, expectedRevision);
-    const change: RegistryChange = { action: 'role-registry.changed', at, actor, detail: { version: next.version, roles: next.roles.length, members: next.members.length }, version: next.version };
+    // V1 配置篡改留痕：变更前后各算内容哈希，审计里能查到「内容从哪个 hash 变成哪个 hash」。
+    const { sealDiff } = await import('./content-seal.ts');
+    const seal = sealDiff(current.registry, next, ['version', 'updatedAt']);
+    const change: RegistryChange = { action: 'role-registry.changed', at, actor,
+      detail: { version: next.version, roles: next.roles.length, members: next.members.length,
+        beforeHash: seal.beforeHash, afterHash: seal.afterHash, changedKeys: seal.changedKeys },
+      version: next.version };
     this.audit(change.action, change);
     return { registry: next, revision, change };
   }
