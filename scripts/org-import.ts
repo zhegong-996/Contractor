@@ -12,8 +12,8 @@ import { readFileSync } from 'node:fs';
 import { api } from '../src/client.ts';
 
 const draft = JSON.parse(readFileSync('.runtime/org-mapping-draft.json', 'utf8')) as any;
-const byName = new Map((draft.members ?? []).map((m: any) => [m.name, m.openId]));
-const id = (name: string) => {
+const byName = new Map<string, string>((draft.members ?? []).map((m: any) => [String(m.name), String(m.openId)]));
+const id = (name: string): string => {
   const found = byName.get(name);
   if (!found) throw new Error(`草案里找不到成员 ${name}，先运行 npm run org:preview`);
   return found;

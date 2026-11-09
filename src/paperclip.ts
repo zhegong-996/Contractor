@@ -1,5 +1,13 @@
+import { secrets } from './config.ts';
+
+/** P0：主控制面的 board token 来源。local_trusted 下为空（loopback 免鉴权），
+ *  切 authenticated 后从 secrets.json 读到，调用方无需逐处传。 */
+function boardToken(): string | undefined {
+  try { return secrets().boardToken || undefined; } catch { return undefined; }
+}
+
 export class Paperclip {
-  constructor(readonly url: string, readonly token: string | undefined = process.env.COLLAB_PAPERCLIP_BOARD_TOKEN, readonly runId?: string) {}
+  constructor(readonly url: string, readonly token: string | undefined = boardToken() ?? process.env.COLLAB_PAPERCLIP_BOARD_TOKEN, readonly runId?: string) {}
   async request<T = any>(method: string, route: string, body?: unknown): Promise<T> {
     const response = await fetch(`${this.url}/api${route}`, { method, signal: AbortSignal.timeout(30000),
       headers: { 'Content-Type': 'application/json', ...(this.token ? { Authorization: `Bearer ${this.token}` } : {}),
