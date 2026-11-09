@@ -6,6 +6,7 @@ import type { HitlSink } from './step-hitl.ts';
 import { resolveHitlSink } from './step-hitl.ts';
 import { persistHitlAnswer, routeAnswerToHitl } from './hitl-bridge.ts';
 import { parseUserCommand } from './user-language.ts';
+import { passThroughDecision } from './pass-through.ts';
 import type { AgentServices } from './agent-services.ts';
 import type { Workspaces } from './workspaces.ts';
 import type { WorkspaceAssistant } from './assistant.ts';
@@ -81,13 +82,23 @@ export class CollaborationIntake {
     if (explicit && ['task', 'status', 'accept', 'reject', 'handoff'].includes(explicit.action)) return;
     if (!memberActor && (!origin.senders.includes(trigger.actor.id) || !(origin.chats.includes('*') || origin.chats.includes(String(trigger.meta.chatId))))) throw new Error('Unauthorized: ' + origin.label + ' origin');
     if (!match) {
+      // 直通：同一会话的补充说明直接接续原任务，不建新单、不过 Router。
+      // 判定收敛在 pass-through.ts 的纯函数里，边界可单测（绑定 / 已完成 / 多条 / 归属）。
       const candidates = [];
-      for (const t of this.w.store.list().filter(t => t.kind === 'collaboration' && t.phase !== 'accepted')) {
-        const binding = (await this.w.state(t)).imBinding;
-        if (binding?.senderId === trigger.actor.id && binding.chatId === trigger.meta.chatId) candidates.push(t);
+      for (const t of this.w.store.list().filter(t => t.kind === 'collaboration')) {
+        const st = await this.w.state(t);
+        candidates.push({ id: t.id, phase: t.phase, binding: st.imBinding, requesterUserId: st.context?.requesterUserId });
       }
-      if (candidates.length !== 1) return { routed: false, needsTaskReference: candidates.length > 1 };
-      match = [trigger.text, candidates[0]!.id, trigger.text.trim()];
+      const pass = passThroughDecision({
+        explicitAction: null, candidates,
+        actor: { id: trigger.actor.id, chatId: String(trigger.meta.chatId) },
+        member: memberActor?.userId ? { userId: memberActor.userId } : null,
+      });
+      if (!pass.direct) {
+        if (pass.deny) throw new Error(pass.reason);
+        return { routed: false, reason: pass.reason, ...(pass.needsTaskReference ? { needsTaskReference: true } : {}) };
+      }
+      match = [trigger.text, pass.taskId!, trigger.text.trim()];
     }
     const task = this.w.store.get(match[1]!), state = await this.w.state(task), binding = state.imBinding;
     if(memberActor&&state.context?.requesterUserId&&state.context.requesterUserId!==memberActor.userId)throw new Error('Unauthorized: IM member ownership');

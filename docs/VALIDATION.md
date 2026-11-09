@@ -960,3 +960,27 @@ POST /workspace/channel-health  200  verdict=degraded
 **本轮修正的自身错误**：第一版 `channel-health` 用 `feishuState === 'ready'` 当 `botReady`，重启后 8 秒内会显示「机器人身份未通过」（实测撞到），改为长连接四态（ready / connecting / disconnected / disabled），connecting 判 partial 而不是 blocked。
 
 **如实边界**：`mirror` 台账无清理策略；体检不探测网络（飞书 ready 只证明监听进程在）；GitHub 的 gh 登录态未被覆盖（故意判 partial 而非 blocked）；矩阵只证明结构不证明信息正确；真实工单仍需人发。
+
+## 第四十轮（2026-11-09）：分层契约体检 + 直通契约化 + 知识口径修正
+
+**改动**
+- `src/pass-through.ts`（新增，98 行）：把原来内联在 `CollaborationIntake.ingestTrigger` 的直通判断抽成纯函数，6 种判定（direct / explicit-command / no-binding / ambiguous / accepted / ownership），鉴权失败与路由失败分开；返回结构不含 scope / permissions。
+- `src/collaboration-intake.ts`：改为调用 `passThroughDecision()`；行为不放宽（鉴权失败仍抛错，路由失败仍返回 `routed:false`）。
+- `src/knowledge-authz.ts`：`canWriteKnowledge` / `canReadKnowledge` / `canCreateKnowledge` 支持注入判定函数（生产默认 casbin）；**修缺陷**——`canCreateKnowledge` 原先把条目域硬编码为 `['*']`，导致域主管「改得、建不得」，改为按条目 `domains` 校验。
+- `src/server.ts`：知识创建 / 改归属域 / agent 提出三处传入 `payload.domains`。
+- `src/layers-audit.ts`（新增，626 行）：40 条分层契约体检，纯函数、零模型调用，直接调用真实实现。
+- `scripts/layers-audit.ts`（新增，150 行）：CLI，追加三类运行时检查（派活点接线 / 策略文件未放宽 / 配置与编制自洽），`--json` 输出。
+- `tests/layers-audit.test.ts`（新增，10 例）：钉住七层边界，含知识创建口径回归。
+
+**回归**
+- `npm test` **639/639**（629 + 10）
+- `npx tsc --noEmit` 0 错
+- `npm run audit:layers` **40 条：ok 39 / partial 1 / gap 0**
+- `npm run console:smoke` ok:true / failed:[]（7 视图 + 28 单元矩阵）
+- `npm run guard:smoke` 22/22；`steps:smoke` 61/61；`agents:smoke` 43/43；`loop:smoke` ok:true
+
+**如实边界**
+- 唯一 partial：知识读不按业务域收窄（写收窄、读不收窄；如需读隔离要另立规则）。
+- 准入强度（explicit / inferred / not admitted）未实现；直通只覆盖 IM 绑定会话。
+- 体检不探测网络，只读源码 / 配置 / 策略文件 / 本地台账。
+- 控制台未接入体检（仅 CLI + JSON），避免再次变更行为基线。

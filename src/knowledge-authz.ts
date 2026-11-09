@@ -33,6 +33,12 @@ export type KnowledgeWriteIntent = 'create' | 'update' | 'delete';
 
 export type KnowledgeAuthzResult = { allowed: boolean; reason: string };
 
+/**
+ * 判定函数可注入：生产用 casbin（默认），体检 / 单测用角色种子矩阵。
+ * 注入点只影响「用什么策略判定」，不影响分区规则本身——规则始终在本文件。
+ */
+export type Enforce = (sub: string, permission: string) => boolean;
+
 function actorSub(actor: KnowledgeActor): string {
   return actor.kind === 'human' ? 'user:' + actor.username : 'agent:' + actor.key;
 }
@@ -57,7 +63,7 @@ function coversEntryDomain(actor: KnowledgeActor, entry: KnowledgeEntryLike): bo
 }
 
 export function canWriteKnowledge(actor: KnowledgeActor, entry: KnowledgeEntryLike,
-  intent: KnowledgeWriteIntent): KnowledgeAuthzResult {
+  intent: KnowledgeWriteIntent, enforce: Enforce = rbacEnforce): KnowledgeAuthzResult {
   const sub = actorSub(actor);
   const visibility = entryVisibility(entry);
   const owner = entry.owner ?? '';
@@ -74,7 +80,7 @@ export function canWriteKnowledge(actor: KnowledgeActor, entry: KnowledgeEntryLi
 
   if (visibility === 'team') {
     const tier = actor.kind === 'human' ? sub : agentTier(actor.agent);
-    const ok = rbacEnforce(tier, 'knowledge-write-team');
+    const ok = enforce(tier, 'knowledge-write-team');
     return ok ? { allowed: true, reason: '协作区条目，档位允许' }
       : { allowed: false, reason: '协作区条目需要运营（operator）及以上或 worker 档 agent' };
   }
@@ -82,16 +88,26 @@ export function canWriteKnowledge(actor: KnowledgeActor, entry: KnowledgeEntryLi
   // org 组织区：update 需 write-org，delete 需 delete-org。
   const tier = actor.kind === 'human' ? sub : agentTier(actor.agent);
   const permission = intent === 'delete' ? 'knowledge-delete-org' : 'knowledge-write-org';
-  const ok = rbacEnforce(tier, permission);
+  const ok = enforce(tier, permission);
   return ok ? { allowed: true, reason: '组织区条目，档位允许' }
     : { allowed: false, reason: intent === 'delete'
       ? '删除组织区条目需要管理员（admin）及以上或 supervisor 档 agent' : '修改组织区条目需要管理员（admin）及以上或 supervisor 档 agent' };
 }
 
-/** 创建时的判定：visibility 由创建者声明，org/team 走档位，personal 恒可建。 */
-export function canCreateKnowledge(actor: KnowledgeActor, visibility: 'personal' | 'team' | 'org'): KnowledgeAuthzResult {
+/**
+ * 创建时的判定：visibility 由创建者声明，org/team 走档位，personal 恒可建。
+ *
+ * 第四十轮修正：新建条目也要按**条目自己的业务域**校验 agent 的生效范围，
+ * 而不是一律拿 ['*'] 去比。旧写法等于「只有全域 agent 能建 team/org 条目」，
+ * 与「改已有条目时按条目域判定」不一致——域主管改得、却建不得，是自相矛盾的收窄。
+ * 不传 domains 时保持旧行为（['*']），避免既有调用方语义漂移。
+ */
+export type CreateKnowledgeOptions = { domains?: readonly string[]; enforce?: Enforce };
+export function canCreateKnowledge(actor: KnowledgeActor, visibility: 'personal' | 'team' | 'org',
+  options: CreateKnowledgeOptions = {}): KnowledgeAuthzResult {
   if (visibility === 'personal') return { allowed: true, reason: '个人区知识可自由创建' };
-  return canWriteKnowledge(actor, { visibility, owner: actorSub(actor), domains: ['*'] }, 'create');
+  const { domains = ['*'], enforce = rbacEnforce } = options;
+  return canWriteKnowledge(actor, { visibility, owner: actorSub(actor), domains: [...domains] }, 'create', enforce);
 }
 
 /**
@@ -101,7 +117,8 @@ export function canCreateKnowledge(actor: KnowledgeActor, visibility: 'personal'
  * console 代理虽是 bridge admin 身份，但 actorUser 由可信端注入后按真实登录
  * 用户判定，冒充他人只会降权不会提权。
  */
-export function canReadKnowledge(actor: KnowledgeActor, entry: KnowledgeEntryLike): KnowledgeAuthzResult {
+export function canReadKnowledge(actor: KnowledgeActor, entry: KnowledgeEntryLike,
+  enforce: Enforce = rbacEnforce): KnowledgeAuthzResult {
   const visibility = entryVisibility(entry);
   if (visibility !== 'personal') return { allowed: true, reason: '协作区 / 组织区条目登录即可读' };
   const sub = actorSub(actor);
@@ -109,7 +126,7 @@ export function canReadKnowledge(actor: KnowledgeActor, entry: KnowledgeEntryLik
   if (owner && owner === sub) return { allowed: true, reason: '个人区条目，归属者本人可读' };
   // 管理员总览：人 admin 档、agent supervisor 档（与写判定的 org 档位对齐）。
   const tier = actor.kind === 'human' ? sub : agentTier(actor.agent);
-  if (rbacEnforce(tier, 'knowledge-write-org'))
+  if (enforce(tier, 'knowledge-write-org'))
     return { allowed: true, reason: '管理员总览：个人区条目对 admin 档可见' };
   return { allowed: false, reason: `个人区条目仅归属者（${owner || '未登记'}）本人与管理员可见` };
 }

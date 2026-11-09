@@ -1,6 +1,6 @@
 # 交接给下一位 Agent · SuitMe 协作台
 
-> 生成：2026-11-08 23:40 ｜ 最近更新：2026-11-09 11:35（第三十九轮：四条边界收口 —— 事件源合并 / 全视图矩阵 / 并发密度 / 通道体检）｜仓库：`/Users/gong.zhe/Developer/ai-native-collab`
+> 生成：2026-11-08 23:40 ｜ 最近更新：2026-11-09（第四十轮：分层契约体检 / 直通契约化 / 三上游对标 / 三张架构图）｜仓库：`/Users/gong.zhe/Developer/ai-native-collab`
 > 远端：`https://github.com/zhegong-996/suitme-collab.git`（`main`）
 > 代码基线：**永远以 `git rev-parse HEAD` 为准**，不要相信文档里写死的 hash。本次更新前 `HEAD = origin/main = 20fd99a`（第二十九 / 三十轮）、工作区含第三十一轮改动；本文随本轮一并提交后 `HEAD` 会前进，仍应与 `origin/main` 一致。
 > 本文件是**根目录速览入口**；详细权威交接包在 `HANDOFF/`，项目总结在 `PROJECT-SUMMARY.md`。三者随仓库一起提交推送，clone 即得。
@@ -15,7 +15,7 @@
 | 2 | 读本文件第 1、2、5、6 节（产品口径、现状、红线、边界） |
 | 3 | 读 `HANDOFF/00-START-HERE.md`（环境、端口、8 个已知坑）与 `HANDOFF/06-CURRENT-STATE-AND-NEXT.md`（现状与下一步） |
 | 4 | 动手前读 `docs/PRD-v0.6.md` §10C（C-P1~C-P8）、`HANDOFF/07-RULES-AND-BOUNDARIES.md`、`HANDOFF/08-OPEN-DECISIONS.md` |
-| 5 | 跑 `npm test`（629/629）与 `npm run console:smoke`（7 视图 + 28 单元验收矩阵）确认基线，再按 `HANDOFF/05-VALIDATION-AND-COMMANDS.md` 跑全套回归 |
+| 5 | 跑 `npm test`（639/639）、`npm run audit:layers`（40 条）与 `npm run console:smoke`（7 视图 + 28 单元验收矩阵）确认基线，再按 `HANDOFF/05-VALIDATION-AND-COMMANDS.md` 跑全套回归 |
 | 6 | 要动某块代码时查 `HANDOFF/04-CODE-MAP.md` / `HANDOFF/FILE-INVENTORY.md` |
 | 7 | 拿不准的产品/隐私选择**问用户**，不要自己拍板 |
 

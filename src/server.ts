@@ -508,7 +508,9 @@ const server = createServer(async (req, res) => {
             const task = store.get(String(payload.taskId ?? ''));
             if (!task || task.kind === 'collaboration') throw new Error('创建知识需要一个本项目内非协作的挂靠任务');
             const visibility = (['personal', 'team', 'org'].includes(String(payload.visibility)) ? payload.visibility : 'org') as 'personal' | 'team' | 'org';
-            const gate = canCreateKnowledge(actor, visibility);
+            // 第四十轮：新建也要按条目自己的业务域校验 agent 范围（与改已有条目一致）。
+            const gate = canCreateKnowledge(actor, visibility,
+              { domains: Array.isArray(payload.domains) ? payload.domains.map(String) : undefined });
             if (!gate.allowed) throw new Error('未授权：' + gate.reason);
             const { actorUser: _a, taskId: _t, ...input } = payload; // visibility 留在 input（knowledgeInput 校验归属分区）
             const created = await knowledge.propose(task, input, sub);
@@ -521,7 +523,8 @@ const server = createServer(async (req, res) => {
             const gate = canWriteKnowledge(actor, record.value, 'update');
             if (!gate.allowed) throw new Error('未授权：' + gate.reason);
             if (payload.visibility && String(payload.visibility) !== (record.value.visibility ?? 'org')) {
-              const reGate = canCreateKnowledge(actor, String(payload.visibility) as 'personal' | 'team' | 'org');
+              const reGate = canCreateKnowledge(actor, String(payload.visibility) as 'personal' | 'team' | 'org',
+                { domains: Array.isArray(payload.domains) ? payload.domains.map(String) : record.value.domains });
               if (!reGate.allowed) throw new Error('未授权变更归属域：' + reGate.reason);
             }
             const { actorUser: _a, taskId: _t, ...input } = payload; // key 留在 input（revise 校验与条目一致）
@@ -792,7 +795,8 @@ const server = createServer(async (req, res) => {
           const agentActor: KnowledgeActor = { kind: 'agent', key: actor.agent ?? 'local-operator',
             agent: getAgentRegistry().agents.find(a => a.key === actor.agent) };
           const visibility = (['personal', 'team', 'org'].includes(String(data.visibility)) ? data.visibility : 'org') as 'personal' | 'team' | 'org';
-          const gate = canCreateKnowledge(agentActor, visibility);
+          const gate = canCreateKnowledge(agentActor, visibility,
+            { domains: Array.isArray(data.domains) ? data.domains.map(String) : undefined });
           if (!gate.allowed) throw new Error('未授权：' + gate.reason);
         }
         return knowledge.propose(store.get(task.id), data, actor.agent ?? 'local-operator', reader);

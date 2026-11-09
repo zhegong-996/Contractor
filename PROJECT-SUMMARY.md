@@ -1,7 +1,7 @@
 # SuitMe 协作台 · 项目总结
 
-> 日期：2026-11-08（北京时间）｜仓库：`/Users/gong.zhe/Developer/ai-native-collab`｜远端：`github.com/zhegong-996/suitme-collab`（`main`）
-> 代码基线以 `git rev-parse HEAD` 为准；本文成稿时 `HEAD = origin/main = 8756bcf`（第三十二轮）、工作区含第三十三轮待提交改动；本文随本轮一并提交后 `HEAD` 会前进，仍应与 `origin/main` 一致。
+> 日期：2026-11-09（北京时间）｜仓库：`/Users/gong.zhe/Developer/ai-native-collab`｜远端：`github.com/zhegong-996/suitme-collab`（`main`）
+> 代码基线以 `git rev-parse HEAD` 为准；本文更新于第四十轮，随本轮一并提交后 `HEAD` 会前进，仍应与 `origin/main` 一致。
 > 本文是**总览**，不是设计定稿、也不是实现清单的替代品。权威口径见文末第 8 节。
 
 ---
@@ -10,9 +10,9 @@
 
 **产品定位**：小规模、高信任、以知识与软件产出为主的团队，需求从飞书 IM 发起，按用途授权专业资料、连续交接，成果交付到本机 Git 或专业知识空间，**由人验收**。系统要回答的不只是「这单跑完没有」，还有「谁对什么负责、凭什么算做对了、AI 依据什么做的」。
 
-**当前阶段**：A 收敛整合 → B1 记忆主干 → B2 读取链 → C-0 ~ C-6 分步方案 → 生产项 P-1 / P-5 / P-6 / P-7 / P-8 / P-9 / P-10 / P-11，以及 P-12（casbin RBAC + 用户级配置 + Vue 前端重写）与 P-13（知识分区 CRUD），以及第三十一轮 ③c（记忆写入链四项：证据锚点 / wiki 投影 / 注入索引分工 / Dreaming 接 C-6）与 ③d（OpenMausBot 五项：Skill 能力包 / 对外动作不重跑 / 委托树血缘 + generation / 升级只通知不代批 / 团队包审查），**全部完成并收口**，严格分步不并行。共 34 轮迭代，代码与文档随 `main` 同步推送。第三十二轮把默认底座切到 local-pg + step（显式配 paperclip / loop 即回退）；第三十三轮接入 DeepSeek v4 flash（用户给 key，LLM 外部抽取、embedding 本机 fastembed）；第三十四轮修复四缺口（cognify 自动接入图谱投影链路、key 持久化到 .runtime/cognee-env.json、语义检索进 console UI、CLI 参数）并修复两个界面断点（服务页永远「已停止」的字段错配、vision 健康探测契约缺口），服务全套在线展示给用户。第三十一轮把知识写入链接上事实源挂靠与读分区，人审 `inject` 成为知识提升的唯一路径；执行队列具备对外副作用不重跑与委托树血缘能力；全部只借思想、7 个上游不变。
+**当前阶段**：A 收敛整合 → B1 记忆主干 → B2 读取链 → C-0 ~ C-6 分步方案 → 生产项 P-1 / P-5 / P-6 / P-7 / P-8 / P-9 / P-10 / P-11，以及 P-12（casbin RBAC + 用户级配置 + Vue 前端重写）与 P-13（知识分区 CRUD），以及第三十一轮 ③c（记忆写入链四项：证据锚点 / wiki 投影 / 注入索引分工 / Dreaming 接 C-6）与 ③d（OpenMausBot 五项：Skill 能力包 / 对外动作不重跑 / 委托树血缘 + generation / 升级只通知不代批 / 团队包审查），**全部完成并收口**，严格分步不并行。共 40 轮迭代，代码与文档随 `main` 同步推送。第三十六至三十九轮：自动化四件套（定时 / GitHub 监听 / 钉钉企微 / 唤醒复查）、cron 排班、验收工作台与三层组织视图、通用事件源与事件收件箱、独立审码、7 视图 × 2 主题 × 2 宽度验收矩阵、通道体检。第四十轮：分层契约体检（40 条）、直通契约化、知识创建范围口径修正、三上游架构面对标与三张架构图。第三十二轮把默认底座切到 local-pg + step（显式配 paperclip / loop 即回退）；第三十三轮接入 DeepSeek v4 flash（用户给 key，LLM 外部抽取、embedding 本机 fastembed）；第三十四轮修复四缺口（cognify 自动接入图谱投影链路、key 持久化到 .runtime/cognee-env.json、语义检索进 console UI、CLI 参数）并修复两个界面断点（服务页永远「已停止」的字段错配、vision 健康探测契约缺口），服务全套在线展示给用户。第三十一轮把知识写入链接上事实源挂靠与读分区，人审 `inject` 成为知识提升的唯一路径；执行队列具备对外副作用不重跑与委托树血缘能力；全部只借思想、7 个上游不变。
 
-**最后一轮验证**（第三十四轮）：`npm test` **563/563**、`console:smoke` **55/55**（登录制 / casbin RBAC 边界 / 知识分区正负例 / 读分区 / 证据锚点 / wiki / 注入索引纪律 / 六视图 / 主题 / 425px / 零海外文案）、`loop:smoke` **18/18**、`guard:smoke` **22/22**（golden 基线已人审重冻结）、`memory:hierarchy` 16/16、`steps:smoke` **61/61**（含 B21~B24 对外动作 / 血缘 / generation）、`host:pg` **24/24**、`tsc`、两个构建、425px 响应式、真实浏览器走查 11/11、`router:smoke` 31/31、`agents:smoke` 43/43、`shapes:smoke` 36/36、`evolution:smoke` 45/45、`atlas:check` 11/11、记忆重放与 checkpoint、`audit:upstream clean:true`、`git diff --check`；**DeepSeek 真实调用通过**（key 直连 + cognify 抽取 + console 语义检索召回准确 + 图谱投影后自动 cognify 审计落账；bridge 无 env 重启后凭据文件自动装载）。
+**最后一轮验证**（第四十轮）：`npm test` **639/639**、`audit:layers` **40 条（ok 39 / partial 1 / gap 0）**、`console:smoke` **ok:true / failed:[]**（7 视图 + 28 单元验收矩阵 + 键盘逐键）、`guard:smoke` **22/22**、`steps:smoke` **61/61**、`agents:smoke` **43/43**、`loop:smoke` **ok:true**、`tsc` 0 错、`audit:upstream` clean；唯一 partial 是知识读不按业务域收窄，已在体检与文档里写明。
 
 **最需要注意的三条边界**（不要因为「系统全绿」而误读）：
 1. 默认底座已是 `local-pg` + `step`（第三十二轮用户拍板切换；显式配 `paperclip` / `loop` 即逐字回退）；真实业务单在 step 模式的全链验证仍待用户飞书发起一单。

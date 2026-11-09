@@ -479,3 +479,14 @@
 | `tests/channel-health.test.ts` | 89 | 体检契约 7 例：全绿、白名单空、断开、connecting、GitHub 单入口与双缺、无真实工单、事件源未登记。 |
 
 > 条目合计：364 + 2 = **366** 条手工补记；`git ls-files` 实际以命令输出为准，完整文件面以 `git ls-files` 为准。
+
+## 第四十轮新增文件（4）
+
+| 路径 | 行数 | 说明 |
+|---|---|---|
+| `src/pass-through.ts` | 98 | 直通契约：同会话补充说明直接接续原任务的纯函数判定（direct / explicit-command / no-binding / ambiguous / accepted / ownership）。返回结构不含 scope / permissions，鉴权失败与路由失败分开。 |
+| `src/layers-audit.ts` | 626 | 分层契约体检：七层 37 条纯判定（路由 8 / 直通 6 / Agent 6 / 权限 5 / 知识 3 / 验收 6 / 个性化 3），直接调用真实实现，零模型调用。 |
+| `scripts/layers-audit.ts` | 150 | 体检 CLI：追加 3 条运行时检查（派活点接线 / 策略文件未放宽 / 配置与编制自洽），表格与 `--json` 两种输出，gap 退出码 1。 |
+| `tests/layers-audit.test.ts` | 116 | 体检与直通回归 10 例：七层无 gap、证据非空、直通不扩权、知识创建口径、验收就绪判据、个性化校验。 |
+
+> 条目合计：366 + 4 = **370** 条手工补记；同前，完整文件面以 `git ls-files` 为准。

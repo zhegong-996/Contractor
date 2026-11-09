@@ -50,6 +50,7 @@
     "vision:start": "node --import tsx scripts/vision-server.ts",
     "acceptance:export": "node --import tsx scripts/export-acceptance.ts",
     "audit:upstream": "node --import tsx scripts/audit-upstream.ts",
+    "audit:layers": "node --import tsx scripts/layers-audit.ts",
     "typecheck": "tsc --noEmit",
     "build": "tsc --noEmit",
     "org:preview": "node --import tsx scripts/org-mapping.ts preview",
