@@ -178,10 +178,12 @@ let feishuState = config.feishu.enabled ? 'connecting' : 'disabled';
 let tail: Promise<unknown> = Promise.resolve();
 const serialize = <T>(job: () => Promise<T>): Promise<T> => { const work = () => withFeishuReads(job); const next = tail.then(work, work); tail = next.catch(() => {}); return next; };
 function equal(a: string, b: string) { const x = Buffer.from(a), y = Buffer.from(b); return x.length === y.length && timingSafeEqual(x, y); }
-function identity(req: IncomingMessage): { admin: boolean; agent?: string } {
+function identity(req: IncomingMessage): { admin: boolean; agent?: string; userId?: string } {
   const credentials=secrets();
   const token = req.headers.authorization?.replace(/^Bearer /, '') ?? '';
-  if (equal(token, credentials.adminToken)) return { admin: true };
+  // authenticated 模式下，adminToken 代表 board owner（龚哲）：
+  // 带上真实 userId，飞书配对、职能登记等「要落到具体人」的动作才有着落。
+  if (equal(token, credentials.adminToken)) return { admin: true, userId: credentials.adminUserId };
   const agent = Object.entries(credentials.agentTokens).find(([, value]) => equal(token, value))?.[0];
   if (!agent || !config.agents[agent]?.enabled) throw new Error('Unauthorized'); return { admin: false, agent };
 }
