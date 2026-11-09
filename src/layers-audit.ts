@@ -22,6 +22,7 @@ import { reconcile, isReconcileRequest } from './reconcile.ts';
 import { diffSnapshot, patrolCard, type PatrolSnapshot } from './patrol.ts';
 import { artifactRevisionByTask, continueArtifact, readArtifact, registerArtifact } from './artifact.ts';
 import { renderTopicWorkbench } from './topic-workbench.ts';
+import { canDecide, decide, openDecision, REQUIRED_CAPABILITY } from './decision-point.ts';
 import { attachChannel, attachTask, createTopic, readTopic, topicDigest } from './topic.ts';
 import type { RouterConfig } from './config.ts';
 import {
@@ -696,6 +697,22 @@ export function auditLayerContracts(options: LayerAuditOptions = {}): LayerRepor
           `无产物可比=${!nothing.comparable}`, '清单未被对账改写'])
         : miss([`漏验=${drifted.counts.missing}`, `清单外=${drifted.counts.extra}`,
           `无产物可比=${!nothing.comparable}`, `改清单不入对账=${detects}`, `清单未被改写=${untouched}`]);
+    }));
+
+  checks.push(run('decision.cross-domain-delegates-not-escalates', 'permission', '跨域判断权委派，不放行给本域 admin',
+    '跨域决策点要求对方域资格；本域 admin 也过不了；委派留痕', () => {
+      const dp = openDecision({ subject: 'task:1', kind: 'cross-domain', domain: 'growth' });
+      const expert = { userId: 'expert-g', domain: 'growth', capabilities: ['domain-expert'] as const };
+      const admin = { userId: 'admin-p', domain: 'product', admin: true };
+      const okExpert = canDecide(expert, dp).ok === true;
+      const denyAdmin = canDecide(admin, dp).ok === false;
+      const blocked = decide(dp, { actor: admin, outcome: 'allow' });
+      const delegated = decide(dp, { actor: expert, outcome: 'allow', reason: '增长口径确认' });
+      const ok = okExpert && denyAdmin && blocked.ok === false && delegated.ok === true
+        && delegated.point.status === 'decided' && delegated.point.decidedBy === 'expert-g';
+      return ok
+        ? pass([`本域专家可判=${okExpert}`, `本域 admin 被拒=${denyAdmin}`, `资格=${dp.requiredCapability}`])
+        : miss([`专家可判=${okExpert}`, `admin 被拒=${denyAdmin}`]);
     }));
 
   checks.push(run('artifact.continuation-keeps-history', 'acceptance', '续改接在旧版上，不复制也不覆盖',

@@ -9,7 +9,7 @@
 > 并修掉 4 个运行层缺陷 + 补 cron 排班。差异清单见 5.1 与
 > [RE-AUDIT-2026-11-09.md](RE-AUDIT-2026-11-09.md)。
 
-审计时间：2026-11-09（第三十五轮）；第三十六轮落地；第三十七轮复盘；第三十八/三十九轮收口；第四十轮补分层契约体检与架构面对标；第四十一轮收口五项差距；第四十二轮回群对账 + 主题聚合。运行基线：`npm test` **699/699**。
+审计时间：2026-11-09（第三十五轮）；第三十六轮落地；第三十七轮复盘；第三十八/三十九轮收口；第四十轮补分层契约体检与架构面对标；第四十一轮收口五项差距；第四十二轮回群对账 + 主题聚合。运行基线：`npm test` **704/704**。
 
 ## 1. Agent Autoloop（KKKKhazix/agent-autoloop · MIT · 国内开源）
 
@@ -108,7 +108,7 @@ RE-AUDIT 第 6 节列的 5 项待补**全部补上**，并把 Acceptance 从「�
 ## 6. 验证命令（全部真跑）
 
 ```sh
-npm test            # 699/699（含三个上游装载的契约测试 + 自动化四件套 + cron + 事件收件箱 + 审码 + 重试健康 + 通道体检 + 分层契约 + 准入/订阅/讨论/规则视图/安装）
+npm test            # 704/704（含三个上游装载的契约测试 + 自动化四件套 + cron + 事件收件箱 + 审码 + 重试健康 + 通道体检 + 分层契约 + 准入/订阅/讨论/规则视图/安装）
 npm run steps:smoke # 61/61：step 模式 + HITL 闭环 + 送达证据
 npm run agents:smoke    # 43/43：Agent 编制与 adapter
 npm run loop:smoke  # 18/18：双向协作回路
@@ -148,4 +148,4 @@ npm run service -- status  # 常驻状态（launchd 安装见 docs/RE-AUDIT-2026
 | 一条命令安装（Autoloop） | ✅（有边界） | `src/bootstrap.ts` + `npm run bootstrap`；建管理员与飞书授权仍需人做 |
 | 知识读按域收窄（自身体检 partial） | ✅ | `canReadKnowledge` 第 4 参 `readerDomains`；读方域未知按档位兜底 |
 
-体检基线：`npm run audit:layers` → **50 条：ok 50 / partial 0 / gap 0**。
+体检基线：`npm run audit:layers` → **51 条：ok 51 / partial 0 / gap 0**。

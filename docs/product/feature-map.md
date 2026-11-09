@@ -65,7 +65,7 @@ SuitMe 协作台
 │  ├─ 8.3 成本账本 …………… PG 成本账本 + 工作台可视化
 │  ├─ 8.4 服务体检 …………… src/service-status.ts（实时探测）
 │  ├─ 8.5 通道体检 …………… src/channel-health.ts（零外部请求）★39
-│  ├─ 8.6 分层契约体检 ……… src/layers-audit.ts · npm run audit:layers（50 条）★44
+│  ├─ 8.6 分层契约体检 ……… src/layers-audit.ts · npm run audit:layers（51 条）★45
 │  ├─ 8.7 金丝雀与自演进 …… src/evolution.ts（自查闸门默认强制）
 │  ├─ 8.8 规则视图 …………… src/rules-view.ts · npm run rules:view（只读）★41
 │  └─ 8.9 一条命令安装 ……… src/bootstrap.ts · npm run bootstrap ★41
@@ -144,7 +144,7 @@ HTTP 端点：
 | 入口 | 覆盖 |
 |---|---|
 | `npm test` | 681 例：契约 + 上游装载 + 自动化 + 收件箱 + 审码 + 体检 + 分层 + 准入/订阅/讨论/规则视图/安装 |
-| `npm run audit:layers` | 50 条分层契约（ok 50 / partial 0 / gap 0） |
+| `npm run audit:layers` | 51 条分层契约（ok 51 / partial 0 / gap 0） |
 | `npm run rules:view` | 七段配置读成一份人话视图（只读） |
 | `npm run bootstrap -- --dry-run` | 安装计划（不执行） |
 | `npm run console:smoke` | 7 视图 + 28 单元矩阵 + 键盘 + 权限越权用例 |
