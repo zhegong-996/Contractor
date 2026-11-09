@@ -30,6 +30,9 @@ import { ExternalVisionAdapter } from './visual-review.ts';
 import { parseExternalEvent, describeForPrompt } from './instruction-data.ts';
 import { MAX_HOPS, hopsOf, nextHops, fuseDecision } from './hop-fuse.ts';
 import { laneOf, groupEvents } from './event-merge.ts';
+import { delegate, narrowMandate, narrowBudget, ROLE_SPECS } from './agent-delegation.ts';
+import { budgetStatus, DEFAULT_ACCEPTANCE_BUDGET } from './acceptance-budget.ts';
+import { isProgrammaticGate, requiredEvidenceSatisfied } from './acceptance-evidence.ts';
 import { attachChannel, attachTask, createTopic, readTopic, topicDigest } from './topic.ts';
 import type { RouterConfig } from './config.ts';
 import {
@@ -948,6 +951,40 @@ export function auditLayerContracts(options: LayerAuditOptions = {}): LayerRepor
       return ok
         ? pass([`并行分组=${runs.length}`, `同 lane 合并=${merged?.eventIds.length}`, `串行=${serial.length}`])
         : miss([`分组=${runs.length}`, `串行=${serial.length}`]);
+    }));
+
+  checks.push(run('collaboration.agent-delegation-chain', 'agent', 'Agent 委托链：授权不可变、预算只减、深度熔断',
+    '子委托越权拒、预算超父拒、第 9 层熔断、acquire-once handoff', () => {
+      const parent = { scope: ['/repo'], grant: 'edit' } as const;
+      const narrow = narrowMandate(parent, { scope: ['/etc'], grant: 'edit' }).ok === false
+        && narrowBudget({ maxContextChars: 1000, maxToolCalls: 10, maxDurationMs: 1000 },
+          { maxContextChars: 2000, maxToolCalls: 5, maxDurationMs: 500 }).ok === false;
+      let seq = 0; const makeId = () => `a${++seq}`;
+      const root = delegate({ task: 't', role: 'coordinator', mandate: { scope: [], grant: 'full' }, budget: ROLE_SPECS.coordinator.budget }, makeId);
+      let cur = root.ok ? root.assignment : null; let fused = false;
+      for (let i = 0; i < 10 && cur; i++) {
+        const r = delegate({ task: 'sub', parent: cur, role: 'worker', mandate: { scope: [], grant: 'edit' }, budget: ROLE_SPECS.worker.budget }, makeId);
+        if (!r.ok) { fused = r.state === 'fused'; break; } cur = r.assignment;
+      }
+      const ok = narrow && fused && root.ok;
+      return ok ? pass([`越权拒=${narrow}`, `第 9 层熔断=${fused}`, `根委托=${root.ok}`]) : miss([`越权拒=${narrow}`, `熔断=${fused}`]);
+    }));
+
+  checks.push(run('acceptance.budget-red-blocks', 'acceptance', '成本闸 red 只留证不 pass',
+    'green 继续、yellow 预警、red 阻断不静默跳过', () => {
+      const red = budgetStatus({ images: 21, tokens: 0, durationMs: 0 }, DEFAULT_ACCEPTANCE_BUDGET);
+      const green = budgetStatus({ images: 1, tokens: 1, durationMs: 1 }, DEFAULT_ACCEPTANCE_BUDGET);
+      const ok = red.tier === 'red' && red.blocked && green.tier === 'green';
+      return ok ? pass([`red=${red.tier}`, `阻断=${red.blocked}`, `green=${green.tier}`]) : miss([`tier=${red.tier}`]);
+    }));
+
+  checks.push(run('acceptance.program-gate-not-check', 'acceptance', '程序 gate 永远不是验收检查',
+    '单测/tsc/CI 绿/覆盖率是 gate，人看到的交付结果才是 check；requiredEvidence 缺了不 pass', () => {
+      const gate = isProgrammaticGate({ title: '单测通过' }) && isProgrammaticGate({ title: 'CI 绿了' })
+        && isProgrammaticGate({ title: '覆盖率 90%' }) && !isProgrammaticGate({ title: '用户点登录看到主页' });
+      const missing = requiredEvidenceSatisfied(['screenshot', 'recording'], ['screenshot']).satisfied === false;
+      const ok = gate && missing;
+      return ok ? pass([`程序 gate 识别=${gate}`, `证据缺失不 pass=${missing}`]) : miss([`gate=${gate}`, `缺失=${missing}`]);
     }));
 
   /* -------------------------------------------------------------- 汇总 */
