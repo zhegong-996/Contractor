@@ -14,6 +14,21 @@ import type { AgentServices } from './agent-services.ts';
 import type { Workspaces } from './workspaces.ts';
 import type { WorkspaceAssistant } from './assistant.ts';
 
+/** 第五十三轮 · 自然语言协作意图识别（保守：只认显式祈使，宁可漏不可误）。 */
+function collaborationIntentOf(text: string): string | null {
+  const value = String(text ?? '').replace(/@[^\s]+\s*/g, '').trim();
+  if (!value || value.startsWith('/')) return null;
+  const patterns = [
+    /^(?:帮我|请帮我|麻烦帮我|帮忙)(?:做|写|实现|开发|整理|分析|设计|生成|查|解决|看看)([\s\S]+)$/,
+    /^(?:让|请让)?(?:agent|机器人|你)(?:帮我)?(?:做|写|实现|开发|整理|分析|设计|生成|查)([\s\S]+)$/i,
+  ];
+  for (const pattern of patterns) {
+    const match = pattern.exec(value);
+    if (match && match[1]?.trim() && match[1]!.trim().length >= 2) return match[1]!.trim();
+  }
+  return null;
+}
+
 // Uses Super-agent's actual event normalization and the existing event/outbox store.
 // IM can resume a pre-bound task; it cannot choose sources, identities or permissions.
 export class CollaborationIntake {
@@ -109,13 +124,7 @@ export class CollaborationIntake {
     if (doRequest) {
       const task = doRequest[1]!.trim();
       if (!task) throw new Error('/do 需要任务描述');
-      this.w.store.notify('collab-do:' + trigger.id, '', `已收到协作任务「${task.slice(0, 60)}」，正在走 拆解→执行→会签评审 闭环，完成后回你。`);
-      void import('./collaboration-runtime.ts').then(({ runCollaboration }) =>
-        runCollaboration(task, { id: trigger.id, type: 'im', detail: task })
-          .then(outcome => this.w.store.notify('collab-do-done:' + trigger.id, '',
-            `✅「${task.slice(0, 60)}」会签结果：\n${outcome.checkerVerdict.slice(0, 600)}`))
-          .catch(error => this.w.store.notify('collab-do-fail:' + trigger.id, '',
-            `❌ 协作执行失败：${String(error).slice(0, 300)}`)));
+      this.startCollaboration(trigger, task);
       return { taskId: null, collaborationStarted: true, task };
     }
 
@@ -128,6 +137,13 @@ export class CollaborationIntake {
     // 「回答 <问题编号> <选项>」不是指令词表里的动作，仍由本 intake 路由。
     const explicit = parseUserCommand(trigger.text.replace(/@[^\s]+\s*/g, '').trim());
     if (explicit && ['task', 'status', 'accept', 'reject', 'handoff'].includes(explicit.action)) return;
+    // 第五十三轮 · 自然语言协作触发：「帮我做 X / 让 Agent 做 X」不敲 /do 也走协作闭环。
+    // 刻意保守：只认显式祈使，不抢「任务/派单」等既有指令、不误伤补充说明（宁可漏不可误）。
+    const naturalTask = collaborationIntentOf(trigger.text);
+    if (naturalTask && !match) {
+      this.startCollaboration(trigger, naturalTask);
+      return { taskId: null, collaborationStarted: true, task: naturalTask };
+    }
     // 准入已在上方按三档判定：走到这里的只有 explicit（成员身份或单负责人白名单）。
     if (!match) {
       // 直通：同一会话的补充说明直接接续原任务，不建新单、不过 Router。
@@ -251,6 +267,17 @@ export class CollaborationIntake {
    * 拿锁定清单和本轮逐项判定比一遍，把差异写进讨论（advisory）并回一张卡片。
    * 没有清单或没有判定时如实说「没得比」，不拿「暂无差异」冒充核对通过。
    */
+  /** 第五十二/五十三轮 · 启动协作闭环（fire-and-forget，先回「已启动」再回会签结果）。 */
+  private startCollaboration(trigger: NativeTrigger, task: string): void {
+    this.w.store.notify('collab-do:' + trigger.id, '', `已收到协作任务「${task.slice(0, 60)}」，正在走 拆解→执行→会签评审 闭环，完成后回你。`);
+    void import('./collaboration-runtime.ts').then(({ runCollaboration }) =>
+      runCollaboration(task, { id: trigger.id, type: 'im', detail: task })
+        .then(outcome => this.w.store.notify('collab-do-done:' + trigger.id, '',
+          `✅「${task.slice(0, 60)}」会签结果：\n${outcome.checkerVerdict.slice(0, 600)}`))
+        .catch(error => this.w.store.notify('collab-do-fail:' + trigger.id, '',
+          `❌ 协作执行失败：${String(error).slice(0, 300)}`)));
+  }
+
   private async reconcileCard(taskId: string) {
     try {
       const [{ readPlan }, { readRound }] = await Promise.all([
