@@ -1,5 +1,5 @@
 import {TeamMembers} from './members.ts';
-import { feishuTrigger } from './upstream.ts';
+import { feishuTrigger, type NativeTrigger } from './upstream.ts';
 import { mapFollowupToAnswer } from './collaboration-loop.ts';
 import { createHash } from 'node:crypto';
 import type { HitlSink } from './step-hitl.ts';
@@ -27,13 +27,37 @@ export class CollaborationIntake {
   async ingest(input: unknown) {
     const f = this.w.config.feishu, trigger = feishuTrigger(input, f.botId, f.appId);
     if (!trigger?.human || !trigger.addressed) return;
+    return this.ingestTrigger(trigger);
+  }
+
+  /**
+   * 第三十六轮拆分：飞书 / 钉钉 / 企微入站共用这条「已归一化触发」链路。
+   * 白名单按 trigger.meta.source 分流：飞书维持 sender + chat 双白名单（行为
+   * 逐字不变）；钉钉 / 企微只认各自通道的 allowedSenders（默认空 = 拒绝所有
+   * 入站），会话不限（'*' 通配，回调会话 ID 无法预登记）。
+   */
+  private admissionFor(trigger: NativeTrigger): { senders: string[]; chats: string[]; label: string } {
+    const source = typeof trigger.meta.source === 'string' ? trigger.meta.source : '';
+    if (source === 'dingtalk') { const d = this.w.config.dingtalk; return { senders: d?.allowedSenders ?? [], chats: ['*'], label: 'dingtalk' }; }
+    if (source === 'wecom') { const w = this.w.config.wecom; return { senders: w?.allowedSenders ?? [], chats: ['*'], label: 'wecom' }; }
+    const f = this.w.config.feishu; return { senders: f.allowedSenders, chats: f.allowedChats, label: 'feishu' };
+  }
+
+  async ingestTrigger(trigger: NativeTrigger) {
+    const origin = this.admissionFor(trigger);
     const pairing=/^\/member-pair\s+([a-f0-9]{32})$/.exec(trigger.text.trim());
     if(pairing){if(!trigger.meta.direct)throw new Error('请在机器人单聊中配对');return new TeamMembers(this.w).acceptPair(pairing[1]!,trigger.actor.id,String(trigger.meta.chatId));}
     const member=this.w.catalog?.().imMembers?.[trigger.actor.id];
     const memberActor=member&&member.chatId===trigger.meta.chatId?await new TeamMembers(this.w).resolve(member.userId):undefined;
     const serviceRequest = /^\/agent\s+([a-z][a-z0-9-]+)\s+([\s\S]+)$/.exec(trigger.text.trim());
     if (serviceRequest && this.services) {
-      if (!memberActor&&(f.allowedSenders.length !== 1 || !f.allowedSenders.includes(trigger.actor.id) || !f.allowedChats.includes(String(trigger.meta.chatId)))) throw new Error('Unauthorized: personal Agent caller requires the configured owner binding');
+      if (!memberActor) {
+        if (origin.label === 'feishu') {
+          if (origin.senders.length !== 1 || !origin.senders.includes(trigger.actor.id) || !origin.chats.includes(String(trigger.meta.chatId))) throw new Error('Unauthorized: personal Agent caller requires the configured owner binding');
+        } else if (!origin.senders.includes(trigger.actor.id)) {
+          throw new Error('Unauthorized: personal Agent caller is not in the ' + origin.label + ' allowlist');
+        }
+      }
       const seen = this.w.store.db.prepare('SELECT state,value FROM events WHERE id=?').get(trigger.id) as any;
       if (seen?.state === 'done') return { duplicate: true, ...JSON.parse(seen.value) };
       const profile = await this.services.profile(serviceRequest[1]!);
@@ -55,7 +79,7 @@ export class CollaborationIntake {
     // 「回答 <问题编号> <选项>」不是指令词表里的动作，仍由本 intake 路由。
     const explicit = parseUserCommand(trigger.text.replace(/@[^\s]+\s*/g, '').trim());
     if (explicit && ['task', 'status', 'accept', 'reject', 'handoff'].includes(explicit.action)) return;
-    if (!memberActor&&(!f.allowedSenders.includes(trigger.actor.id) || !f.allowedChats.includes(String(trigger.meta.chatId)))) throw new Error('Unauthorized: IM origin');
+    if (!memberActor && (!origin.senders.includes(trigger.actor.id) || !(origin.chats.includes('*') || origin.chats.includes(String(trigger.meta.chatId))))) throw new Error('Unauthorized: ' + origin.label + ' origin');
     if (!match) {
       const candidates = [];
       for (const t of this.w.store.list().filter(t => t.kind === 'collaboration' && t.phase !== 'accepted')) {

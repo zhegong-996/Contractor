@@ -2,6 +2,8 @@
 
 个人与公共 Agent 的产品模型见[Agent 服务网](docs/AGENT-SERVICE-NETWORK.md)，事件、判断、工具执行与恢复见[自主协作运行](docs/AUTONOMOUS-COLLABORATION.md)。
 
+**产品文档套件（2026-11-09 · 第三十六轮）**：[产品功能介绍](docs/product/README.md) · [系统架构](docs/product/system-architecture.md) · [产品架构](docs/product/product-architecture.md) · [功能架构](docs/product/feature-map.md) · [业务流程](docs/product/business-flows.md)——五份文档覆盖「是什么、怎么搭、怎么分层、哪个功能在哪、流程怎么走」，新读者从 [产品功能介绍](docs/product/README.md) 进入。
+
 最新的功能、系统架构与技术架构说明见[架构总览](docs/SYSTEM-ARCHITECTURE.md)（2026-11-08 重写为第二十七轮 P-9 版本，取代旧版）。后台主入口包含知识库和设置；轻量模型配置按用户选择保留为预备策略，暂不启用新服务。
 
 ## 架构与方案导航（先看这里）

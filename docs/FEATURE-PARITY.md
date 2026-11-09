@@ -1,9 +1,12 @@
-# 上游功能实现对照（第三十五轮审计）
+# 上游功能实现对照（第三十五轮审计 · 第三十六轮更新）
 
 > 用户问题：是否把 Agent Autoloop、Super Agent、LobeHub（结合 acceptance）的功能全部实现出来了？
-> 本文按三个上游的公开功能面逐项对照本仓库实现位置与验证证据。**结论先说：核心功能全部落地且在生产链上真实接通；四个「未做」项均为产品拍板过的边界（飞书唯一入口等），不是遗漏。**
+> 本文按三个上游的公开功能面逐项对照本仓库实现位置与验证证据。**结论先说：核心功能全部落地且在生产链上真实接通。**
+>
+> **第三十六轮更新**：用户 2026-11-09 拍板「这几个也都要做」，第 5 节的四个未做项
+> （定时调度器、GitHub 监听、钉钉/企微通道、定时唤醒复查）**全部实现**，见第 5 节新表。
 
-审计时间：2026-11-09（第三十五轮）。运行基线：`1b484e8`，`npm test` 563/563。
+审计时间：2026-11-09（第三十五轮）；第三十六轮更新。运行基线：第三十六轮提交，`npm test` 585/585。
 
 ## 1. Agent Autoloop（KKKKhazix/agent-autoloop · MIT · 国内开源）
 
@@ -15,11 +18,11 @@
 | **事件溯源**（断电不丢、每步可追溯） | append-only 事件主干 + 四类投影 + checkpoint 增量应用（checksum 与全量逐字节对照） | `src/event-stream.ts`、`src/memory-log.ts`、`npm run memory:checkpoint` |
 | **指令数据分离**（Issue 的话进不了提示词、改不了目录权限） | `runtimeGuard.enforce` 生产链开启；指令与数据红线（R 系列） | `src/runtime-guard.ts`、契约测试 |
 | **跳数熔断**（Agent 互相触发超限自动停） | `maxStepsPerRun` 步数上限（默认 60，可配 20000）+ mission 六态守门（failed 不重放） | `src/config.ts`、`src/mission-state.ts`、`src/step-execution.ts` |
-| **事件插件**（定时 / GitHub / 业务系统 / 轮询） | 飞书唯一发起入口（上游 `feishuTrigger` 原版）+ 插件工作台发起；**定时调度器与 GitHub 监听未接，见第 5 节** | `src/upstream.ts`、`src/collaboration-intake.ts` |
+| **事件插件**（定时 / GitHub / 业务系统 / 轮询） | 飞书（上游 `feishuTrigger` 原版）+ 插件工作台 + **定时调度器 + GitHub 监听（第三十六轮实现，见第 5 节）** | `src/upstream.ts`、`src/collaboration-intake.ts`、`src/scheduler.ts`、`src/github-watch.ts` |
 | **Agent 插件**（一行配置接任意 CLI Agent） | 上游 `worker/agents.ts` `adapterFor` 原版装载（codex / claude / command / acp 四 adapter） | `src/upstream.ts`、`agents:smoke` 43/43；3100 代理页 13 agents |
-| **通道插件**（飞书 / 钉钉 / 企微 / 桌面通知） | 飞书通道（上游 `feishu-channel` 原版，长键 sha256 幂等）+ 桌面通知 + 升级限速静音（1 小时 3 次）；**钉钉/企微未接，见第 5 节** | `src/channels.ts`、`src/escalation.ts` |
+| **通道插件**（飞书 / 钉钉 / 企微 / 桌面通知） | 飞书通道（上游 `feishu-channel` 原版，长键 sha256 幂等）+ 桌面通知 + 升级限速静音（1 小时 3 次）+ **钉钉/企微补充通道（第三十六轮实现，见第 5 节）** | `src/channels.ts`、`src/escalation.ts`、`src/im-outbound.ts` |
 | **拍板卡片 → 点一下接着干完** | HITL 台账 `askHuman`/`answerHuman` 成对留痕 + 第二十九轮「回答后自动续跑」授权代办 | `src/step-hitl.ts`、`src/auto-resume.ts`、`scripts/step-answer.ts` |
-| **自动闭环：到点复查** | 「later」送达证据 + 步进队列推进；**定时唤醒未部署**，见第 5 节 | `src/step-delivery.ts` |
+| **自动闭环：到点复查** | 「later」送达证据 + 步进队列推进 + **到点唤醒复查（第三十六轮实现，见第 5 节）** | `src/step-delivery.ts`、`src/scheduler.ts` |
 | **代码交付流水线**（审代码→检查→合并→上线→核对） | 本机 Git 自动合并 / 自动发布（第八轮起 GitHub 主链路换本机 Git），上线核对走平台证据 | `src/local-git.ts`、`src/platform-evidence.ts` |
 | **Token / 费用统计** | PG 成本账本逐调用入账 + 3100 总览「本月花费 / Run Activity」可视化 | `src/pg-host.ts` 成本账本、3100 dashboard |
 
@@ -55,19 +58,24 @@
 
 作为任务真源、调度核心与 3100 工作台宿主原版复用；SuitMe 插件（`plugins/knowledge-workspaces`）经 Plugin SDK 挂载。本输出就是它的 UI（中文壳 + 国内适配层）。
 
-## 5. 如实未做（均为拍板过的产品边界，不是遗漏）
+## 5. 原四个未做项 → 第三十六轮全部实现
 
-| 项 | 上游 | 不做的原因 |
+用户 2026-11-09 拍板「定时调度器、GitHub 监听、钉钉/企微通道、定时唤醒复查，这几个也都要做」，放宽
+「飞书唯一发起入口」旧边界（自动化 actor 全程留痕；验收/核可/放行红线不放宽）：
+
+| 项 | 上游来源 | 实现（位置与证据） |
 |---|---|---|
-| 定时调度器（cron 事件源） | Autoloop 事件插件 | 「飞书是唯一发起入口」为用户拍板红线；例行任务能力在 Paperclip Routines 中保留 |
-| GitHub 监听接单 | Super-agent | 第八轮起 GitHub 主链路换本机 Git 交付台（用户主动取消 4194） |
-| 钉钉 / 企微 / Slack / Discord 通道 | Autoloop 通道插件 | 国内以飞书为主；通道层 `channels.ts` 是适配器架构，接新通道是配置工作不是改造 |
-| 定时唤醒复查（scheduled follow-up） | Autoloop 自动闭环 | 「later」送达证据与队列推进已留痕；定时唤醒需常驻调度进程，与挂起零消耗的取舍尚未拍板 |
+| **定时调度器** | Autoloop 事件插件 | `src/scheduler.ts`：例程（interval/daily）+ 时间槽幂等 + 审计 `routine.triggered`；bridge action `scheduler-status`；运行配置已启用每日晨报/每周健康检查两个例程 |
+| **GitHub 监听接单** | Super-agent | `src/github-watch.ts`：轮询（gh api 优先/REST 兜底，60s 节流，首次只记基线）+ webhook（HMAC-SHA256 验签）；事件指纹幂等；审计 `github.event-observed`；正在监听 `zhegong-996/desktop-tutorial` |
+| **钉钉 / 企微通道** | Autoloop 通道插件 | `src/im-outbound.ts` + `src/channels.ts`：出站 webhook（钉钉加签/企微 markdown，与飞书共享注意力预算）；入站端点 `/im/dingtalk`、`/im/wecom`（明文；企微加密模式如实报未支持）；出站需配置 `DINGTALK_WEBHOOK_URL`/`WECOM_WEBHOOK_URL` 环境变量后启用 |
+| **定时唤醒复查** | Autoloop 自动闭环 | `src/scheduler.ts`：`wake-schedule`/`wake-cancel`/`wake-list` action + 到点自动触发复查委托（审计 `wake.review-triggered`）；已对真实任务预约次日 09:00 复查验证 |
+
+如实边界（仍未做，非遗漏）：Slack/Discord 通道（无国内需求）；企微回调加密模式（EncodingAESKey 解密）；webhook 端点的公网暴露（需自行反代）。
 
 ## 6. 验证命令（全部真跑）
 
 ```sh
-npm test            # 563/563（含三个上游装载的契约测试）
+npm test            # 585/585（含三个上游装载的契约测试 + 第三十六轮自动化四件套 21 例）
 npm run steps:smoke # 61/61：step 模式 + HITL 闭环 + 送达证据
 npm run agents:smoke    # 43/43：Agent 编制与 adapter
 npm run loop:smoke  # 18/18：双向协作回路

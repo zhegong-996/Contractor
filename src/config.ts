@@ -3,6 +3,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import { agentRegistrySchema, defaultAgentRegistry } from './agent-registry.ts';
+import { schedulerConfigSchema, defaultSchedulerConfig } from './scheduler.ts';
+import { githubWatchConfigSchema, defaultGithubWatchConfig } from './github-watch.ts';
+import { dingtalkConfigSchema, defaultDingtalkConfig, wecomConfigSchema, defaultWecomConfig } from './im-outbound.ts';
 
 export const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -224,6 +227,18 @@ export const configSchema = z.object({
       .default(() => ({ enabled: true as const })),
     canaryPercent: z.number().int().min(1).max(100).default(20),
   }).default(() => ({ selfCheckGate: { enabled: true as const }, canaryPercent: 20 })),
+  /**
+   * 第三十六轮 · 自动化四件套（用户 2026-11-09 拍板「这几个也都要做」，放宽
+   * 「飞书唯一发起入口」的旧边界；验收 / 核可 / 放行红线不放宽）：
+   *   - scheduler：定时调度器（例行任务）+ 定时唤醒复查（wakes）；
+   *   - githubWatch：GitHub 仓库事件监听（轮询 + 可选 webhook），只产生任务；
+   *   - dingtalk / wecom：钉钉 / 企业微信补充送达通道（出站 webhook 立即可用，
+   *     入站端点需公网回调；凭据一律走环境变量，绝不进 config / 仓库）。
+   */
+  scheduler: schedulerConfigSchema.default(() => defaultSchedulerConfig()),
+  githubWatch: githubWatchConfigSchema.default(() => defaultGithubWatchConfig()),
+  dingtalk: dingtalkConfigSchema.default(() => defaultDingtalkConfig()),
+  wecom: wecomConfigSchema.default(() => defaultWecomConfig()),
   /**
    * P-1：长程执行形态。第三十二轮起默认 step（状态外置、崩溃可接棒）；step 要求
    * host.provider 必须是 local-pg（真实状态外置队列），否则 superRefine 拒绝启动。

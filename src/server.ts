@@ -22,6 +22,11 @@ import { z } from 'zod';
 import { withFeishuReads } from './feishu-sources.ts';
 import { cogneeNativeStatus, runCogneeNative, loadPersistedCogneeEnvIntoProcess } from './cognee-native.ts';
 import { CollaborationIntake } from './collaboration-intake.ts';
+// 第三十六轮 · 自动化四件套（用户拍板「这几个也都要做」）：定时调度器 +
+// 定时唤醒复查（scheduler）、GitHub 监听（github-watch）、钉钉/企微通道（im-outbound）。
+import { Scheduler, automationTrigger } from './scheduler.ts';
+import { GithubWatcher } from './github-watch.ts';
+import { sendDingtalk, sendWecom, dingtalkEndpoint, wecomEndpoint, dingtalkToTrigger, wecomPlainXmlToTrigger, wecomIsEncrypted, type ImSendResult } from './im-outbound.ts';
 import { ModelSettingsService } from './model-settings.ts';
 import { KnowledgeGraph, CogneeL1Reader, cogneeCommit } from './graph.ts';
 import { createIndependentReviewer } from './visual-review.ts';
@@ -127,6 +132,10 @@ const teamMembers = new TeamMembers(workspaces);
 const serviceNetwork = new ServiceNetwork(workspaces, assistant);
 const teamMemory = new TeamMemory(workspaces);
 const collaborationIntake = new CollaborationIntake(workspaces, assistant, agentServices);
+// 第三十六轮 · 自动化四件套实例：调度器 / GitHub 监听挂进主循环 tick（见下方
+// tick()），出站镜像挂进 deliver()；入站端点见 /github/webhook 与 /im/*。
+const scheduler = new Scheduler(workspaces, assistant, config);
+const githubWatcher = new GithubWatcher(workspaces, assistant, config);
 const modelSettings = new ModelSettingsService(workspaces);
 const graph = new KnowledgeGraph(workspaces);
 const ontology = new OntologyService(workspaces);
@@ -169,6 +178,8 @@ function identity(req: IncomingMessage): { admin: boolean; agent?: string } {
   if (!agent || !config.agents[agent]?.enabled) throw new Error('Unauthorized'); return { admin: false, agent };
 }
 async function body(req: IncomingMessage): Promise<any> { let data = ''; for await (const chunk of req) { data += chunk; if (Buffer.byteLength(data) > 512000) throw new Error('Request too large'); } return data ? JSON.parse(data) : {}; }
+/** webhook / 通道回调需要原始字节（HMAC 验签按原文算），不能走 JSON.parse 通道。 */
+async function readRawBody(req: IncomingMessage): Promise<string> { let data = ''; for await (const chunk of req) { data += chunk; if (Buffer.byteLength(data) > 512000) throw new Error('Request too large'); } return data; }
 const server = createServer(async (req, res) => {
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
   try {
@@ -183,6 +194,40 @@ const server = createServer(async (req, res) => {
       res.setHeader('Content-Type', match[3] === 'index.html' ? 'text/html; charset=utf-8' : 'application/json');
       res.setHeader('Cache-Control', 'no-store'); res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; form-action 'none'; frame-ancestors 'none'");
       res.end(await readFile(file)); return;
+    }
+    // 第三十六轮 · GitHub webhook（可选入站；HMAC 验签，密钥在环境变量
+    // GITHUB_WEBHOOK_SECRET）。bridge 只绑 127.0.0.1，公网暴露需自行反代。
+    if (req.method === 'POST' && url.pathname === '/github/webhook') {
+      const raw = await readRawBody(req);
+      const result = await serialize(() => githubWatcher.handleWebhook(raw,
+        req.headers['x-hub-signature-256'] as string | undefined,
+        req.headers['x-github-event'] as string | undefined));
+      res.end(JSON.stringify(result)); return;
+    }
+    // 第三十六轮 · 钉钉 / 企微入站端点（可选；需公网回调，本地经反代可达）。
+    // 消息转 NativeTrigger 走与飞书相同的 ingestTrigger 链；白名单按通道
+    // 独立配置（allowedSenders，默认空 = 拒绝所有）。
+    if (url.pathname === '/im/dingtalk' && req.method === 'POST') {
+      let parsed: Record<string, unknown> | undefined; try { parsed = JSON.parse(await readRawBody(req)) as Record<string, unknown>; } catch { parsed = undefined; }
+      const trigger = parsed ? dingtalkToTrigger(parsed) : undefined;
+      if (!trigger) { res.statusCode = 400; res.end(JSON.stringify({ error: '无法解析钉钉回调（需要明文 JSON，含 conversationId / senderStaffId / text.content / msgId）' })); return; }
+      const result = await serialize(() => collaborationIntake.ingestTrigger(automationTrigger(trigger)));
+      res.end(JSON.stringify({ ok: true, result })); return;
+    }
+    if (url.pathname === '/im/wecom') {
+      if (req.method === 'GET') {
+        // 企微回调 URL 验证（明文模式）：原样回显 echostr。
+        res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+        res.end(url.searchParams.get('echostr') ?? ''); return;
+      }
+      if (req.method === 'POST') {
+        const raw = await readRawBody(req);
+        if (wecomIsEncrypted(raw)) { res.statusCode = 400; res.end(JSON.stringify({ error: '企微加密模式（EncodingAESKey）尚未支持，请配置明文模式' })); return; }
+        const trigger = wecomPlainXmlToTrigger(raw);
+        if (!trigger) { res.statusCode = 400; res.end(JSON.stringify({ error: '无法解析企微明文回调（需要 <xml> 包裹的 text 消息）' })); return; }
+        const result = await serialize(() => collaborationIntake.ingestTrigger(automationTrigger(trigger)));
+        res.end(JSON.stringify({ ok: true, result })); return;
+      }
     }
     if (req.headers.origin) throw new Error('Browser mutations are not accepted by this local bridge');
     if (req.method === 'POST' && url.pathname.startsWith('/workspace/')) {
@@ -202,7 +247,7 @@ const server = createServer(async (req, res) => {
       // Reads recheck their own scope and revisions. They need not wait behind
       // indexing or native process reconciliation; mutations keep the single lane.
       const v06Reads=['roles-view','role-route','role-hints','role-snapshot','transfer-view','transfer-policy','dispatch-guard','grant-widen','grant-check','edges-view','edge-impact','label-check','policy-view','verification-level','topology-advice','inflight-policy','signals','review-readiness','ontology-meta','ontology-view','ontology-query','attention-policy','attention-filter','watchdog-policy','watchdog-inspect','plan-view','round-view','acceptance-export','acceptance-report-view','org-overview','org-mapping-view','context-pack','l2-status','l2-edges-view','l2-graph-view','agent-registry-view','acceptance-crew','evolution-view','execution-view'];
-      const readOnly=['view','view-summary','team-members','agent-services','agent-build','development-view','delivery-status','service-status','routing-status','memory-replay','memory-guard','loop-guard','network-view','memory-status','memory-search','memory-annotations','context-pack','context-record','context-search','ontology-view','model-settings','system-status','trace-view','knowledge-list','knowledge-get','knowledge-wiki','cognee-search'].includes(action)||action==='knowledge-graph'&&payload.project!==true||action.startsWith('v06-')&&v06Reads.includes(action.slice(4));
+      const readOnly=['view','view-summary','team-members','agent-services','agent-build','development-view','delivery-status','service-status','routing-status','memory-replay','memory-guard','loop-guard','network-view','memory-status','memory-search','memory-annotations','context-pack','context-record','context-search','ontology-view','model-settings','system-status','trace-view','knowledge-list','knowledge-get','knowledge-wiki','cognee-search','scheduler-status','wake-list','github-watch-status'].includes(action)||action==='knowledge-graph'&&payload.project!==true||action.startsWith('v06-')&&v06Reads.includes(action.slice(4));
       const runWorkspace=readOnly?<T>(job:()=>Promise<T>)=>withFeishuReads(job):serialize;
       res.end(JSON.stringify(await runWorkspace(async () => {
         workspaceActor = await teamMembers.gate(action, payload, workspaceActor);
@@ -435,6 +480,12 @@ const server = createServer(async (req, res) => {
         }
         if (action === 'ontology-view') return ontology.read(payload.space, workspaceActor);
         if (action === 'ontology-save') return ontology.save(payload.space, payload.schema, payload.revision ?? null, workspaceActor);
+        // 第三十六轮 · 自动化四件套的 bridge 动作（写操作走 serialize 单车道）。
+        if (action === 'scheduler-status') { workspaces.manager(workspaceActor); return scheduler.status(); }
+        if (action === 'wake-list') { workspaces.manager(workspaceActor); return scheduler.listWakes(); }
+        if (action === 'wake-schedule') { workspaces.manager(workspaceActor); return scheduler.scheduleWake(payload); }
+        if (action === 'wake-cancel') { workspaces.manager(workspaceActor); return scheduler.cancelWakes(String(payload.taskId ?? '')); }
+        if (action === 'github-watch-status') { workspaces.manager(workspaceActor); return githubWatcher.status(); }
         if (action === 'save-model-settings') return modelSettings.save(payload.settings, payload.revision ?? null, workspaceActor);
         if (action === 'system-status') {
           workspaces.manager(workspaceActor);
@@ -467,7 +518,14 @@ const server = createServer(async (req, res) => {
               runtimeGuardEnforced: config.runtimeGuard.enforce,
               l2OrganisationExtraction: { enabled: config.orgExtraction.enabled, mode: config.orgExtraction.mode,
                 autoRunOnIndex: config.orgExtraction.autoRunOnIndex, modelCalls: 0 } },
-            upstream: { name: 'Paperclip', version: health.version, commit: health.commit } };
+            upstream: { name: 'Paperclip', version: health.version, commit: health.commit },
+            automation: { // 第三十六轮 · 自动化四件套
+              scheduler: { enabled: config.scheduler?.enabled === true, routines: config.scheduler?.routines?.length ?? 0,
+                wake: config.scheduler?.wake?.enabled !== false },
+              githubWatch: githubWatcher.status(),
+              imChannels: { dingtalk: dingtalkEndpoint(config).enabled ? '已接通（webhook 出站）' : (config.dingtalk?.enabled ? '已启用但缺 webhook 环境变量' : '未启用'),
+                wecom: wecomEndpoint(config).enabled ? '已接通（webhook 出站）' : (config.wecom?.enabled ? '已启用但缺 webhook 环境变量' : '未启用') },
+              note: '定时任务 / GitHub 事件 / 钉钉企微入站都只产生任务与通知；验收、核可、放行仍由原发起人在原会话确认' } };
         }
         if (action === 'enable-collaboration-im') return collaborationIntake.enable(payload.taskId, workspaceActor);
         if (action === 'assistant-tool') return assistant.tool(payload.jobId, payload.runId, payload.callId, payload.input, workspaceActor);
@@ -694,21 +752,49 @@ const server = createServer(async (req, res) => {
   }
 });
 
+/**
+ * 第三十六轮 · 钉钉 / 企微镜像送达：与飞书共享 v0.6 注意力预算（只有过了
+ * 护栏、人类必须知晓的通知才镜像），单通道失败不影响其它通道，全部留审计。
+ */
+async function mirrorToImChannels(row: { id: string; text: string }, task: { id: string; identifier?: string }): Promise<boolean> {
+  const results: ImSendResult[] = [];
+  const ding = dingtalkEndpoint(config), wec = wecomEndpoint(config);
+  const title = `任务 ${task.identifier ?? task.id}`;
+  if (ding.enabled && ding.webhook) results.push(await sendDingtalk({ webhook: ding.webhook, secret: ding.secret, title, text: row.text }));
+  if (wec.enabled && wec.webhook) results.push(await sendWecom({ webhook: wec.webhook, title, text: row.text }));
+  for (const r of results) store.audit('im-outbound.' + (r.ok ? 'sent' : 'failed'), task.id,
+    { channel: r.channel, notificationId: row.id, ...(r.error ? { error: r.error } : {}) });
+  return results.some(r => r.ok);
+}
+
 async function deliver() {
   const rows = store.db.prepare("SELECT * FROM outbox WHERE state='pending'").all() as { id: string; issue_id: string; text: string }[];
-  if (!config.feishu.enabled) return;
+  const mirrorOn = dingtalkEndpoint(config).enabled || wecomEndpoint(config).enabled;
+  if (!config.feishu.enabled && !mirrorOn) return;
   for (const row of rows) {
     const task = store.get(row.issue_id);
-    if (!task.messageId.startsWith('om_')) { store.db.prepare("UPDATE outbox SET state='local_only' WHERE id=?").run(row.id); continue; }
+    const feishuReachable = config.feishu.enabled && task.messageId.startsWith('om_');
     // v0.6 FR-22: attention budget is enforced on the real IM outbox. Human
     // questions / acceptance / grant requests always bypass the filter.
     let gate: Awaited<ReturnType<typeof guard.gateNotification>>;
     try {
       gate = await guard.gateNotification({ taskId: row.issue_id, notificationId: row.id, summary: row.text });
     } catch { gate = { deliver: true, reason: '护栏不可用，安全起见照常发送', mustDeliver: true } as any; }
-    if (!gate.deliver) {
+    if (!gate.deliver && (feishuReachable || mirrorOn)) {
       store.db.prepare("UPDATE outbox SET state='suppressed' WHERE id=?").run(row.id);
       store.audit('v06.notification-suppressed', row.issue_id, { notificationId: row.id, reason: gate.reason });
+      continue;
+    }
+    // 钉钉 / 企微补充送达（同一预算；飞书不可达时作为人类必达消息的兜底）。
+    let mirrored = false;
+    if (mirrorOn && gate.deliver) {
+      try { mirrored = await mirrorToImChannels(row, task); } catch { /* 镜像失败不阻断主通道 */ }
+    }
+    if (!feishuReachable) {
+      // 飞书关停时保持原「堆积等恢复」语义：只有镜像已达才离开 pending；
+      // 飞书开着但消息没有 om_ 地址（本地任务）维持 local_only 口径。
+      if (config.feishu.enabled) store.db.prepare("UPDATE outbox SET state=? WHERE id=?").run(mirrored ? 'mirrored' : 'local_only', row.id);
+      else if (mirrored) store.db.prepare("UPDATE outbox SET state='mirrored' WHERE id=?").run(row.id);
       continue;
     }
     await sendFeishu({ commands: { lark: async (args: string[]) => {
@@ -734,6 +820,10 @@ async function tick() {
       await workspaces.tick();
       await teamMemory.tick();
       await serviceNetwork.tick(); await assistant.tick();
+      // 第三十六轮 · 自动化四件套：定时调度器（例行任务 + 到点唤醒复查）与
+      // GitHub 监听轮询。失败只写审计，不阻断主循环。
+      try { await scheduler.tick(); } catch (error) { store.audit('scheduler.tick-failed', null, { error: String(error instanceof Error ? error.message : error).slice(0, 300) }); }
+      try { await githubWatcher.tick(); } catch (error) { store.audit('github.tick-failed', null, { error: String(error instanceof Error ? error.message : error).slice(0, 300) }); }
     });
   } catch (error) { console.error('Background check:', String(error).slice(0, 500)); }
   if (!stopping) setTimeout(tick, config.pollMs).unref();

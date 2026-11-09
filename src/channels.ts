@@ -9,13 +9,15 @@
 // Degradation must never drop semantic fields — a Transfer card sent as text
 // still states who authorized it, its scope, who wrote the standard, etc.
 //
-// Honest boundary: today the ONLY wired conversational channel is Feishu.
-// CLI / MCP / A2A / workspace are execution or delegation endpoints, not IM
-// channels. They are listed here so adding a second IM never rewrites the
-// business objects.
+// Honest boundary (updated 第三十六轮): Feishu remains the primary wired
+// conversational channel. DingTalk / WeCom join as **supplementary delivery
+// channels** (outbound webhook mirror + optional inbound HTTP endpoints, see
+// src/im-outbound.ts); their inbound traffic reuses this registry so a second
+// IM never rewrites the business objects.
 import { feishuTrigger, feishuThreadId } from './upstream.ts';
+import { dingtalkToTrigger, wecomPlainXmlToTrigger } from './im-outbound.ts';
 
-export type ChannelId = 'feishu' | 'cli' | 'mcp' | 'a2a' | 'workspace';
+export type ChannelId = 'feishu' | 'cli' | 'mcp' | 'a2a' | 'workspace' | 'dingtalk' | 'wecom';
 
 export interface ChannelContext { botId: string; appId: string; workbenchUrl: string }
 
@@ -55,6 +57,8 @@ export const endpointCapabilities = {
   mcp: { cards: true, threads: false, reactions: false, richText: true },
   a2a: { cards: true, threads: true, reactions: false, richText: true },
   workspace: { cards: true, threads: true, reactions: false, richText: true },
+  dingtalk: PLAIN_TEXT,
+  wecom: PLAIN_TEXT,
 } satisfies Record<Exclude<ChannelId, 'feishu'>, ChannelCapabilities>;
 
 export const feishuAdapter: ChannelAdapter = {
@@ -88,6 +92,38 @@ export function workspaceEnvelope(input: { requestKey: string; text: string; act
     human: true, addressed: true, direct: true, meta: { source: 'workspace' },
   };
 }
+
+// —— 第三十六轮 · 钉钉 / 企微入站 adapter（明文回调；见 src/im-outbound.ts）——
+
+export const dingtalkAdapter: ChannelAdapter = {
+  id: 'dingtalk',
+  capabilities: { cards: false, threads: false, reactions: false, richText: false },
+  normalize(input, _ctx) {
+    if (typeof input !== 'object' || input === null || !('conversationId' in input)) return undefined;
+    const trigger = dingtalkToTrigger(input as Record<string, unknown>);
+    if (!trigger) return undefined;
+    return {
+      channel: 'dingtalk', triggerId: trigger.id, actorId: trigger.actorId, chatId: trigger.chatId,
+      messageId: trigger.messageId, text: trigger.text, human: true, addressed: true,
+      direct: trigger.direct, meta: { source: 'dingtalk', chatId: trigger.chatId, messageId: trigger.messageId, direct: trigger.direct },
+    };
+  },
+};
+
+export const wecomAdapter: ChannelAdapter = {
+  id: 'wecom',
+  capabilities: { cards: false, threads: false, reactions: false, richText: false },
+  normalize(input, _ctx) {
+    if (typeof input !== 'string' || !input.includes('<xml')) return undefined;
+    const trigger = wecomPlainXmlToTrigger(input);
+    if (!trigger) return undefined;
+    return {
+      channel: 'wecom', triggerId: trigger.id, actorId: trigger.actorId, chatId: trigger.chatId,
+      messageId: trigger.messageId, text: trigger.text, human: true, addressed: true,
+      direct: trigger.direct, meta: { source: 'wecom', chatId: trigger.chatId, messageId: trigger.messageId, direct: trigger.direct },
+    };
+  },
+};
 
 /** The v0.6 objects that need to reach a human in the conversation. */
 export type SemanticObject =
@@ -181,4 +217,6 @@ export class ChannelRegistry {
   }
 }
 
-export function defaultRegistry(): ChannelRegistry { return new ChannelRegistry().register(feishuAdapter); }
+export function defaultRegistry(): ChannelRegistry {
+  return new ChannelRegistry().register(feishuAdapter).register(dingtalkAdapter).register(wecomAdapter);
+}

@@ -40,7 +40,37 @@ test('bot messages and non-Feishu payloads are ignored without throwing', () => 
   const registry = defaultRegistry();
   assert.equal(registry.normalize(feishuEvent, ctx)?.adapter.id, 'feishu');
   assert.equal(registry.normalize({}, ctx), undefined);
-  assert.deepEqual(registry.list().map(a => a.id), ['feishu']);
+  // 第三十六轮：钉钉 / 企微作为补充会话通道注册（出站 webhook + 可选入站端点）。
+  assert.deepEqual(registry.list().map(a => a.id), ['feishu', 'dingtalk', 'wecom']);
+});
+
+// —— 第三十六轮 · 钉钉 / 企微入站 adapter ——
+
+test('dingtalk callbacks normalize to envelopes that keep routing metadata', () => {
+  const registry = defaultRegistry();
+  const normalized = registry.normalize({
+    conversationId: 'cid001', conversationType: '1', senderStaffId: 'staff-9',
+    msgId: 'msg-77', text: { content: '/collab SUI-42 接续' },
+  }, ctx);
+  assert.ok(normalized);
+  assert.equal(normalized.adapter.id, 'dingtalk');
+  assert.equal(normalized.envelope.channel, 'dingtalk');
+  assert.equal(normalized.envelope.actorId, 'staff-9');
+  assert.equal(normalized.envelope.text, '/collab SUI-42 接续');
+  assert.equal(normalized.envelope.direct, true);
+  assert.equal(normalized.envelope.meta.chatId, 'cid001');
+  assert.equal(registry.normalize({ conversationId: 'cid001', msgId: 'm', text: {} }, ctx), undefined);
+});
+
+test('wecom plain XML callbacks normalize; encrypted payloads do not guess', () => {
+  const registry = defaultRegistry();
+  const xml = '<xml><ToUserName><![CDATA[toUser]]></ToUserName><FromUserName><![CDATA[fromUser]]></FromUserName><MsgType><![CDATA[text]]></MsgType><Content><![CDATA[/collab SUI-42 接续]]></Content><MsgId>123</MsgId></xml>';
+  const normalized = registry.normalize(xml, ctx);
+  assert.ok(normalized);
+  assert.equal(normalized.adapter.id, 'wecom');
+  assert.equal(normalized.envelope.actorId, 'fromUser');
+  assert.equal(registry.normalize('<xml><Encrypt><![CDATA[b64]]></Encrypt></xml>', ctx), undefined);
+  assert.equal(registry.normalize('plain text', ctx), undefined);
 });
 
 test('a Transfer card degraded to Feishu text keeps every responsibility field', () => {
