@@ -79,6 +79,15 @@ export interface FeishuOrgMember {
   appId: string | null;
 }
 
+/** 部门树节点；根部门不在此列（根用 id '0' 单独读）。 */
+export interface DepartmentNode {
+  id: string;
+  name: string;
+  parentId: string | null;
+}
+
+export type DepartmentStructure = 'tree' | 'flat' | 'unknown';
+
 export interface OrgMappingDraft {
   schemaVersion: 1;
   generatedAt: string;
@@ -86,7 +95,16 @@ export interface OrgMappingDraft {
   reason?: string;
   source: string;
   appId: string | null;
+  /**
+   * 只在「确实缺部门读取 scope 且一个人都读不到部门」时为 true。
+   * 空部门不等于缺权限：租户可以根本没建子部门，成员都挂根部门下。
+   * 两种情况必须分开报，否则会推着管理员去重复授权一个已经到位的权限。
+   */
   departmentScopeMissing: boolean;
+  /** 部门结构实况：tree 有子部门、flat 全员挂根、unknown 读不到（含失败原因）。 */
+  departmentStructure?: DepartmentStructure;
+  /** 对 departmentStructure 的中文解释，给工作台直接显示。 */
+  departmentNote?: string;
   /** 简短提示，保持既有调用方兼容；真正可执行的全量命令见 authorizationCommand。 */
   authorizationHint: string;
   /** 携带当前全部已授权 scope + 缺失 scope 的登录命令，不会冲掉已有权限。 */
@@ -134,21 +152,46 @@ export class FeishuOrgService {
 
     const members = new Map<string, FeishuOrgMember>();
     let lastFailure = '';
+    /** 后写入的同一个人不覆盖已有部门名：部门接口比聊天记录更权威。 */
+    const remember = (openId: string, name: string, activated: boolean, department: string | null) => {
+      const previous = members.get(openId);
+      members.set(openId, {
+        openId, name, activated,
+        department: department ?? previous?.department ?? null,
+        idScope: 'app-open-id', appId,
+      });
+    };
     for (const args of calls) {
       try {
         const response = await this.command(args);
         if (response?.ok !== true) { lastFailure = String(response?.error?.message ?? '飞书成员读取失败'); continue; }
         for (const user of response?.data?.users ?? []) {
           if (!user?.open_id || user.is_cross_tenant) continue;
-          members.set(user.open_id, {
-            openId: String(user.open_id), name: String(user.localized_name || user.open_id),
-            activated: user.is_activated !== false,
-            department: user.department ? String(user.department) : null,
-            idScope: 'app-open-id', appId,
-          });
+          remember(String(user.open_id), String(user.localized_name || user.open_id),
+            user.is_activated !== false, user.department ? String(user.department) : null);
         }
       } catch (error) { lastFailure = String((error as Error).message ?? error); }
     }
+
+    // 部门接口比「聊过天的人」更全：拿到部门 scope 后，通讯录里没聊过的同事也能读到。
+    // 读不到不算失败——没有部门权限时这条路本来就该空着，由下面的判据如实说明。
+    const tree = await this.readDepartments();
+    const structures: DepartmentStructure = !tree.ok
+      ? 'unknown' : tree.nodes.length === 0 ? 'flat' : 'tree';
+    if (tree.ok) {
+      for (const node of tree.nodes) {
+        for (const person of await this.readDepartmentMembers(node.id)) {
+          if (person.crossTenant) continue;
+          remember(person.openId, person.name, person.activated, node.name);
+        }
+      }
+      // 根部门直属成员（扁平租户的全部成员都在这里），部门名留空而不是编一个。
+      for (const person of await this.readDepartmentMembers('0')) {
+        if (person.crossTenant) continue;
+        remember(person.openId, person.name, person.activated, null);
+      }
+    }
+    if (!tree.ok && tree.error) lastFailure ||= tree.error;
 
     // 组织 owner 已确认不在组织内的成员（例如已离职）不再出现在草案里，
     // 否则 --has-chatted 会把历史会话里的人反复带回来。
@@ -159,21 +202,83 @@ export class FeishuOrgService {
     const list = all.filter(member => !matchesExclusion(member));
     const excludedByOwner = excluded.filter(item => all.some(member =>
       (item.openId && item.openId === member.openId) || item.name === member.name));
-    const departmentScopeMissing = list.length > 0 && list.every(member => !member.department);
+    const scopeMissing = missingOrgScopes(grantedScopes);
+    /**
+     * 空部门有两种原因，不能混为一谈：
+     * - 缺 scope：确实没权限，给授权命令；
+     * - 权限齐了但租户没建子部门：全员挂根部门，这是组织事实，不该催人重复授权。
+     */
+    const nobodyHasDepartment = list.length > 0 && list.every(member => !member.department);
+    const departmentScopeMissing = scopeMissing.length > 0 && nobodyHasDepartment;
     return {
       schemaVersion: 1, generatedAt, available: list.length > 0,
       ...(list.length === 0 && lastFailure ? { reason: lastFailure } : {}),
-      source: 'lark-cli contact +search-user（当前已授权的 user 身份，最小可见范围）',
+      source: 'lark-cli contact（通讯录部门树 + 聊过的人，当前已授权的 user 身份，最小可见范围）',
       appId, departmentScopeMissing,
+      departmentStructure: structures,
+      departmentNote: departmentNoteOf(structures, tree.nodes.length, tree.error),
       authorizationHint: departmentScopeMissing ? ORG_AUTH_HINT : '',
       authorizationCommand: orgAuthCommand(grantedScopes),
       grantedScopes,
-      missingScopes: missingOrgScopes(grantedScopes),
+      missingScopes: scopeMissing,
       ...(excludedByOwner.length ? { excludedByOwner } : {}),
       members: list,
       note: '只读取当前授权范围可见的成员；open_id 按应用隔离，跨应用需管理员按姓名/工号确认后再绑定。草案不参与派单，必须人工确认才写入职能注册表；成员映射不等于真人登录。',
     };
   }
+
+  /** 部门树（不含根部门）。失败不抛出：返回 ok:false 与原因，由调用方如实写进草案。 */
+  private async readDepartments(): Promise<{ ok: boolean; nodes: DepartmentNode[]; error: string }> {
+    try {
+      const response = await this.command(['api', 'GET', '/open-apis/contact/v3/departments', '--params',
+        JSON.stringify({ parent_department_id: '0', fetch_child: true, page_size: 50,
+          department_id_type: 'open_department_id', user_id_type: 'open_id' }),
+        '--as', 'user', '--format', 'json']);
+      if (response?.ok !== true)
+        return { ok: false, nodes: [], error: String(response?.error?.message ?? '部门树读取失败') };
+      const nodes = (response?.data?.items ?? [])
+        .filter((item: any) => item?.open_department_id)
+        .map((item: any) => ({
+          id: String(item.open_department_id),
+          name: String(item.name ?? item.open_department_id),
+          parentId: item.parent_department_id ? String(item.parent_department_id) : null,
+        }));
+      return { ok: true, nodes, error: '' };
+    } catch (error) {
+      return { ok: false, nodes: [], error: String((error as Error).message ?? error) };
+    }
+  }
+
+  /** 某部门的直属成员；'0' 是根部门。读失败返回空数组，不阻断其它来源。 */
+  private async readDepartmentMembers(departmentId: string): Promise<{
+    openId: string; name: string; activated: boolean; crossTenant: boolean;
+  }[]> {
+    try {
+      const response = await this.command(['api', 'GET', '/open-apis/contact/v3/users/find_by_department',
+        '--params', JSON.stringify({ department_id: departmentId, department_id_type: 'open_department_id',
+          user_id_type: 'open_id', page_size: 50 }), '--as', 'user', '--format', 'json']);
+      if (response?.ok !== true) return [];
+      return (response?.data?.items ?? [])
+        .filter((item: any) => item?.open_id)
+        .map((item: any) => ({
+          openId: String(item.open_id),
+          name: String(item.name ?? item.open_id),
+          activated: item.is_activated !== false,
+          crossTenant: item.is_cross_tenant === true,
+        }));
+    } catch { return []; }
+  }
+}
+
+/** 部门结构的中文说明：把「没权限」和「没建部门」说成两句不同的话。 */
+export function departmentNoteOf(
+  structure: DepartmentStructure, nodeCount: number, error: string,
+): string {
+  if (structure === 'tree') return `读到 ${nodeCount} 个部门，成员按部门归位。`;
+  if (structure === 'flat') return '这个租户没有建子部门，所有成员都挂在根部门下；部门字段为空是组织现状，不是权限缺失。';
+  return error
+    ? `部门树读不到：${error}；成员按其它来源读取，部门字段留空。`
+    : '部门树读不到；成员按其它来源读取，部门字段留空。';
 }
 
 /** 管理员导出的组织表：没有通讯录 scope 时的正式离线路径，字段严格校验。 */

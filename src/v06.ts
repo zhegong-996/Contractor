@@ -639,6 +639,8 @@ export class V06Services {
       applied: applied?.value ?? null,
       draft: draft ? { generatedAt: draft.value.generatedAt, members: draft.value.members.length,
         departmentScopeMissing: draft.value.departmentScopeMissing,
+        departmentStructure: draft.value.departmentStructure,
+        departmentNote: draft.value.departmentNote,
         authorizationHint: draft.value.authorizationHint, note: draft.value.note } : null,
       registryVersion: current.registry.version,
       registeredMembers: current.registry.members.length,

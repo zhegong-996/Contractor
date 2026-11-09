@@ -20,6 +20,8 @@ if (action === 'preview') {
     file, available: draft.available, appId: draft.appId,
     members: draft.members.map((m: any) => ({ name: m.name, openId: m.openId, department: m.department })),
     departmentScopeMissing: draft.departmentScopeMissing,
+    departmentStructure: draft.departmentStructure,
+    departmentNote: draft.departmentNote,
     authorizationHint: draft.authorizationHint,
     missingScopes: draft.missingScopes ?? [],
     scopeLogin: draft.missingScopes?.length

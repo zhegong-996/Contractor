@@ -1012,3 +1012,27 @@ POST /workspace/channel-health  200  verdict=degraded
 - `inferred` 不自动推断身份放行（自动推断 = 自动授权）；越界识别只认四类明确说法，可能漏判（漏判沿用原链路）。
 - 区域底板按坐标缩放，事件流不存图片字节，因此不内嵌截图。
 - 安装的建管理员 / 飞书授权 / 真实业务单仍需人做；Node 版本声明与实际可跑版本不一致（按警告处理，未改 `engines`）。
+
+### 同日补记：飞书部门授权真跑 + 组织映射误报修复
+
+**背景**：第四十一轮的边界里写着「飞书授权仍需人做」。用户当日下午直接说「飞书授权下」，
+于是把这条挂在待拍板里的动作真做了一次。
+
+**授权结果（真实，非模拟）**
+- 授权前：用户身份 162 个 scope，缺 `contact:contact.base:readonly`、`contact:department.organize:readonly`。
+- 用 `npm run org:auth -- --execute` 发起（携带 162 + 2 = 164 个 scope），本人在飞书扫码确认。
+- 授权后：`newly_granted` 正好这两个、`missing: []`、162 个既有权限全部保留在 `already_granted`。
+- `lark-cli auth check` → `ok: true`。
+
+**顺带修掉的两处实现问题**
+- `src/feishu-org.ts`：成员来源从「只问聊过天的人」改为「先读部门树 → 按部门列成员」，`--has-chatted` 降为补充。真实租户下成员数 3 → **4**（补上从未聊过天的同事）。
+- `src/feishu-org.ts`：`departmentScopeMissing` 判据改为「确实缺 scope **且** 无人有部门」；新增 `departmentStructure`（`tree` / `flat` / `unknown`）与 `departmentNote`。原因：该租户没建子部门，旧判据会把「组织现状」误报成「缺权限」，推着管理员重复授权一个已经到位的权限。
+- `src/v06.ts`、`scripts/org-mapping.ts`：把 `departmentStructure` / `departmentNote` 透传到工作台与 CLI 输出。
+
+**回归**
+- `npm test` **676/676**（673 + 3：部门接口补全成员 / 扁平租户不误报 / 部门树读不到标 unknown）
+- `npx tsc --noEmit` 0 错
+- 真实 `npm run org:preview`：4 名成员、`departmentStructure: flat`、`departmentScopeMissing: false`、`missingScopes: []`
+- bridge `/health` → `feishu: ready`（发现此前已连续 185 次重连失效，重启后恢复）
+
+**边界（未变）**：读到部门也不改派单、不写职能注册表；草案仍需人工确认并携带注册表修订号导入。

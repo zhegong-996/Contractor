@@ -117,3 +117,40 @@
 4. 安装的建管理员 / 飞书授权 / 真实业务单仍需人做；
 5. Node 版本声明与实际可跑版本不一致（按警告处理，未改 `engines`）；
 6. 体检不探测网络（通道可用性见 `channel-health`）。
+
+## 10. 飞书部门授权：真跑一次，并修掉一处误报（同日补记）
+
+用户指令：「飞书授权下」（随后「再来一次」「A」「好了」）——把一直挂在待拍板里的
+「飞书部门 scope 需本人扫码」真做一次。
+
+**过程与结论**
+
+| 步骤 | 结果 |
+|---|---|
+| 查现状 | 用户身份 162 个 scope，只有 `contact:user.*`，缺 `contact:contact.base:readonly` / `contact:department.organize:readonly`；`departmentScopeMissing: true` |
+| 第一次发起 | 照 `ORG_AUTH_HINT` 字面只传了两个新 scope（**错误**，见下） |
+| 纠正后发起 | `npm run org:auth -- --execute`：读当前 token 拼出 162 + 2 = 164 个 scope |
+| 扫码完成 | `newly_granted` 正好两个、`missing: []`、162 个既有权限全在 `already_granted` |
+| 重跑预览 | 成员 3 → **4**（补上从没聊过天的林恒昌），`departmentScopeMissing: false`，`missingScopes: []` |
+
+**踩到自己埋的坑**：`ORG_AUTH_HINT` 是一个裸命令，照它执行会**整体替换** scope、
+清掉 100+ 既有权限（`scripts/org-auth.ts` 文件头早就写明了这点，是我没先读）。
+用户那次刚好遇到链接过期没扫成，才没造成实际损失。已把这条差异记在这里，
+下一个人应当使用 `npm run org:auth`，不要照 `ORG_AUTH_HINT` 抄。
+
+**顺带修掉的两处实现问题**
+
+1. **成员读不全**：原实现只调 `contact +search-user --has-chatted`，等于「只认识聊过天的人」。
+   授权后改为先读部门树、再按部门列成员，`--has-chatted` 降为补充。实测多认出 1 人。
+2. **误报缺权限**：原判据是「所有人都没有 department → 判定缺 scope」。
+   但这个租户**根本没建子部门**（根部门 4 人、`departments` 返回空），
+   于是权限已经到位却仍提示去重新授权。现在拆成两个字段：
+   - `departmentScopeMissing`：只在「确实缺 scope **且** 无人有部门」时为 true；
+   - `departmentStructure`：`tree` / `flat` / `unknown` + `departmentNote` 中文说明。
+   扁平租户如实说「成员都挂根部门下，部门为空是组织现状，不是权限缺失」，不催人重复授权。
+
+**验证**：`npm test` **676/676**（+3 例新增契约）、`tsc` 0 错、真实 `npm run org:preview`
+读到 4 名成员、`departmentStructure: flat`、`departmentScopeMissing: false`。
+`/health` 返回 `feishu: ready`（顺带发现 bridge 已连续 185 次重连失效，重启后恢复）。
+
+**边界不变**：部门读到了也不改派单、不写职能注册表；草案仍需人工确认 + 携带注册表修订号导入。

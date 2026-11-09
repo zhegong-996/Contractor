@@ -17,6 +17,8 @@ const opts = { workbenchUrl: 'http://127.0.0.1:4180', channel: 'workspace' as co
 const admin = { admin: true, userId: 'org-owner' };
 const member = { admin: false, userId: 'someone' };
 const read = (file: string) => readFileSync(path.join(root, file), 'utf8');
+/** 部门权限已补齐时的 scope 集合（既有 + 两个新增）。 */
+const scopes = ['contact:user.base:readonly', ...ORG_SCOPE_ADDITIONS];
 
 function stubReader(users: any[] = [], fail = false) {
   return new FeishuOrgService(async (args: string[]) => {
@@ -73,6 +75,65 @@ test('部门字段可用时不报缺 scope；读取失败时返回结构化空�
   assert.equal(failed.available, false);
   assert.match(failed.reason ?? '', /scope missing/);
   assert.deepEqual(failed.members, []);
+});
+
+test('部门接口能补全没聊过的同事；部门权限到位后不再误报缺授权', async () => {
+  // 真实形态：通讯录里 4 个人，只有 2 个聊过天。只靠 --has-chatted 会漏人。
+  const full = new FeishuOrgService(async (args: string[]) => {
+    if (args[0] === 'auth') return { appId: 'cli_test', identities: { user: { scope: scopes.join(' ') } } };
+    if (args[0] === 'api') {
+      const params = JSON.parse(args[4]);
+      if (args[2].endsWith('/departments')) return { ok: true, data: { items: [{ open_department_id: 'od_p', name: '产品部' }] } };
+      return params.department_id === 'od_p'
+        ? { ok: true, data: { items: [{ open_id: 'ou_a', name: '甲' }] } }
+        : { ok: true, data: { items: [{ open_id: 'ou_me', name: '我' }] } };
+    }
+    return { ok: true, data: { users: [{ open_id: 'ou_me', localized_name: '我', is_activated: true, department: '' }] } };
+  });
+  const draft = await full.preview();
+  assert.equal(draft.departmentStructure, 'tree');
+  assert.equal(draft.departmentScopeMissing, false);
+  assert.equal(draft.authorizationHint, '');
+  assert.deepEqual(draft.missingScopes, []);
+  // 甲没聊过天，靠部门接口读出来；部门名按树归位。
+  assert.deepEqual(draft.members.map(m => m.name).sort(), ['我', '甲']);
+  assert.equal(draft.members.find(m => m.openId === 'ou_a')?.department, '产品部');
+  // 根部门成员没有子部门，department 保持 null；不能被编造成某个部门。
+  assert.equal(draft.members.find(m => m.openId === 'ou_me')?.department, null);
+  assert.match(draft.departmentNote ?? '', /2 个部门|1 个部门/);
+});
+
+test('租户没建子部门时如实说「组织现状」，不催人重复授权', async () => {
+  // 真实形态：scope 齐了，但部门树为空、全员挂根部门。这不是缺权限。
+  const flat = new FeishuOrgService(async (args: string[]) => {
+    if (args[0] === 'auth') return { appId: 'cli_test', identities: { user: { scope: scopes.join(' ') } } };
+    if (args[0] === 'api') {
+      const params = JSON.parse(args[4]);
+      if (args[2].endsWith('/departments')) return { ok: true, data: { items: [] } };
+      return { ok: true, data: { items: [{ open_id: 'ou_a', name: '甲' }, { open_id: 'ou_b', name: '乙' }] } };
+    }
+    return { ok: true, data: { users: [] } };
+  });
+  const draft = await flat.preview();
+  assert.equal(draft.departmentStructure, 'flat');
+  assert.equal(draft.departmentScopeMissing, false, '缺权限和没建部门必须分开报');
+  assert.equal(draft.authorizationHint, '');
+  assert.match(draft.departmentNote ?? '', /不是权限缺失/);
+  assert.deepEqual(draft.members.map(m => m.name), ['甲', '乙']);
+  // 部门名留空，不编一个「未分组」之类的假部门。
+  assert.ok(draft.members.every(m => m.department === null));
+});
+
+test('部门树读不到时如实标 unknown，成员仍按其它来源给出', async () => {
+  const broken = new FeishuOrgService(async (args: string[]) => {
+    if (args[0] === 'auth') return { appId: 'cli_test', identities: { user: { scope: scopes.join(' ') } } };
+    if (args[0] === 'api') return { ok: false, error: { message: 'no permission' } };
+    return { ok: true, data: { users: [{ open_id: 'ou_me', localized_name: '我', is_activated: true, department: '' }] } };
+  });
+  const draft = await broken.preview();
+  assert.equal(draft.departmentStructure, 'unknown');
+  assert.match(draft.departmentNote ?? '', /no permission/);
+  assert.deepEqual(draft.members.map(m => m.name), ['我']);
 });
 
 test('补部门权限时携带现有全部 scope，不会把已有授权清空', () => {
