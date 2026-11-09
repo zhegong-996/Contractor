@@ -165,3 +165,21 @@ export function listDecisions(base: string, filter?: { status?: DecisionStatus; 
 export function pendingDecisions(base: string): DecisionPoint[] {
   return listDecisions(base, { status: 'pending' });
 }
+
+/**
+ * 统一决策审计的落点：把一个已发生的决策转成一条可聚合的审计记录。
+ * 各模块保留自己原有的 audit 事件不变，这里只追加一条同构的 `decision`，
+ * 让「系统今天做过哪些判断、谁拍的、什么结论」能跨模块聚合查询。
+ */
+export function decisionRecord(input: {
+  kind: DecisionKind; subject: string; domain?: string;
+  decidedBy: string; outcome: string; reason?: string;
+}): { kind: DecisionKind; domain: string; decidedBy: string; outcome: string; reason: string } {
+  return {
+    kind: input.kind,
+    domain: input.domain?.trim() || 'default',
+    decidedBy: input.decidedBy,
+    outcome: input.outcome,
+    reason: input.reason?.trim() || '',
+  };
+}

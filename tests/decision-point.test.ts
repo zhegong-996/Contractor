@@ -5,8 +5,8 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import {
-  canDecide, decide, delegateDecision, openDecision, pendingDecisions, persistDecision,
-  listDecisions, REQUIRED_CAPABILITY, DECISION_KINDS,
+  canDecide, decide, delegateDecision, decisionRecord, openDecision, pendingDecisions,
+  persistDecision, listDecisions, REQUIRED_CAPABILITY, DECISION_KINDS,
 } from '../src/decision-point.ts';
 
 const dir = () => mkdtempSync(path.join(tmpdir(), 'dp-'));
@@ -71,4 +71,13 @@ test('决策点追加式落盘，能列出悬而未决的', () => {
   assert.equal(pendingDecisions(base).length, 1);
   assert.equal(pendingDecisions(base)[0]!.id, p2.id);
   assert.equal(listDecisions(base, { domain: 'growth' }).length, 1);
+});
+
+test('decisionRecord 把已发生的决策转成可聚合的审计记录', () => {
+  const record = decisionRecord({ kind: 'transfer', subject: 't1', decidedBy: 'ou_owner',
+    outcome: 'transfer', reason: 'role-growth → role-product' });
+  assert.equal(record.kind, 'transfer');
+  assert.equal(record.domain, 'default');
+  assert.equal(record.decidedBy, 'ou_owner');
+  assert.match(record.reason, /role-product/);
 });

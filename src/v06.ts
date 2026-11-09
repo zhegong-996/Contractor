@@ -134,6 +134,11 @@ export class V06Services {
       ? input.capabilityBasis : [`职能注册表：${input.fromRoleId} → ${input.toRoleId}`] });
     const rendered = this.render(toTransferCard(result.transfer), opts);
     this.localStore.audit('v06.transfer-rendered', result.transfer.taskId, { channel: opts.channel, degraded: rendered.degraded });
+    // 统一决策审计（G1 收尾）：转交也并入同一张「决策账」。
+    const { decisionRecord } = await import('./decision-point.ts');
+    this.localStore.audit('decision', result.transfer.taskId, decisionRecord({
+      kind: 'transfer', subject: result.transfer.taskId, decidedBy: input.grantorUserId,
+      outcome: 'transfer', reason: `${input.fromRoleId} → ${input.toRoleId}` }));
     // The existing outbox feeds the connected conversation channel (feishu today).
     // No new frontend route and no ad-hoc message assembly.
     this.localStore.notify(`v06:transfer:${result.transfer.id}`, result.transfer.taskId, rendered.text);
@@ -256,6 +261,10 @@ export class V06Services {
     const next = decision === 'approved' ? approveGrant(grant, actorUserId) : denyGrant(grant, actorUserId, reason);
     await this.store.writeTaskDoc(taskId, 'context-grant', next);
     this.localStore.audit('v06.grant-decided', taskId, { id: next.id, decision, actorUserId });
+    // 统一决策审计（G1 收尾）：授权这类决策点并入同一张「决策账」，可跨模块聚合。
+    const { decisionRecord } = await import('./decision-point.ts');
+    this.localStore.audit('decision', taskId, decisionRecord({
+      kind: 'authorization', subject: taskId, decidedBy: actorUserId, outcome: decision, reason }));
     return next;
   }
   async grantRevoke(taskId: string, reason: string) {
