@@ -270,8 +270,9 @@ export class CollaborationIntake {
   /** 第五十二/五十三轮 · 启动协作闭环（fire-and-forget，先回「已启动」再回会签结果）。 */
   private startCollaboration(trigger: NativeTrigger, task: string): void {
     this.w.store.notify('collab-do:' + trigger.id, '', `已收到协作任务「${task.slice(0, 60)}」，正在走 拆解→执行→会签评审 闭环，完成后回你。`);
+    const audit = this.w.store.audit.bind(this.w.store);
     void import('./collaboration-runtime.ts').then(({ runCollaboration }) =>
-      runCollaboration(task, { id: trigger.id, type: 'im', detail: task })
+      runCollaboration(task, { id: trigger.id, type: 'im', detail: task }, audit)
         .then(outcome => this.w.store.notify('collab-do-done:' + trigger.id, '',
           `✅「${task.slice(0, 60)}」会签结果：\n${outcome.checkerVerdict.slice(0, 600)}`))
         .catch(error => this.w.store.notify('collab-do-fail:' + trigger.id, '',

@@ -56,7 +56,8 @@ export interface CollaborationOutcome {
 /**
  * 真跑一次三角色协作。`task` 是外部来的任务文字（模拟飞书消息），先进护栏再进委托链。
  */
-export async function runCollaboration(task: string, external: { id: string; type: string; detail: string }): Promise<CollaborationOutcome> {
+export async function runCollaboration(task: string, external: { id: string; type: string; detail: string },
+  audit?: (action: string, issueId: string | null, value: unknown) => void): Promise<CollaborationOutcome> {
   const logs: CollaborationLog[] = [];
 
   // —— 护栏 1：外部文字先进字段白名单，subject 不得含指令文字 ——
@@ -112,8 +113,15 @@ export async function runCollaboration(task: string, external: { id: string; typ
   const checkerVerdict = `会签：${sign.verdict === 'allow' ? '通过' : sign.verdict === 'deny' ? '否决' : '分歧待仲裁'}\n`
     + checkerVerdicts.map((v, i) => `  · checker-${i === 0 ? 'A' : 'B'}: ${v.slice(0, 120)}`).join('\n');
 
+  // 融入正式执行链：委托链 + 会签登记进审计账，不再是无记录的「外挂」。
+  const chain = [coordinator, worker, checker].map(r => {
+    const a = (r as any).assignment as Assignment;
+    return { role: a.role, agentId: a.agentId ?? '未分配', depth: a.depth, task: a.task, grant: a.mandate.grant };
+  });
+  audit?.('collaboration.delegation', null, { task, chain });
+  audit?.('collaboration.countersigned', null, { task, verdict: sign.verdict, allows: sign.allows, denies: sign.denies });
+
   return {
-    chain: [coordinator, worker, checker].map(r => { const a = (r as any).assignment as Assignment; return { role: a.role, agentId: a.agentId ?? '未分配(模拟)', depth: a.depth, task: a.task }; }),
-    workerOutput, checkerVerdict, logs,
+    chain, workerOutput, checkerVerdict, logs,
   };
 }

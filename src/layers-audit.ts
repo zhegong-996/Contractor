@@ -35,6 +35,7 @@ import { budgetStatus, DEFAULT_ACCEPTANCE_BUDGET } from './acceptance-budget.ts'
 import { isProgrammaticGate, requiredEvidenceSatisfied } from './acceptance-evidence.ts';
 import { attachChannel, attachTask, createTopic, readTopic, topicDigest } from './topic.ts';
 import type { RouterConfig } from './config.ts';
+import { defaultExecutionConfig, configSchema } from './config.ts';
 import {
   agentInstanceSchema, agentRegistrySchema, defaultAgentRegistry, resolveAssignment,
   reviewCrew, handoffEnvelope, selfReviewConflict, registryRevision, agentVersion,
@@ -985,6 +986,16 @@ export function auditLayerContracts(options: LayerAuditOptions = {}): LayerRepor
       const missing = requiredEvidenceSatisfied(['screenshot', 'recording'], ['screenshot']).satisfied === false;
       const ok = gate && missing;
       return ok ? pass([`程序 gate 识别=${gate}`, `证据缺失不 pass=${missing}`]) : miss([`gate=${gate}`, `缺失=${missing}`]);
+    }));
+
+  checks.push(run('runtime.step-is-default', 'router', '执行默认走 step + local-pg',
+    'execution.mode 默认 step、host.provider 默认 local-pg；legacy 是兜底不是并重', () => {
+      const exec = defaultExecutionConfig();
+      const host = configSchema.shape.host.parse(undefined);
+      const ok = exec.mode === 'step' && host.provider === 'local-pg';
+      return ok
+        ? pass([`execution.mode=${exec.mode}`, `host.provider=${host.provider}`])
+        : miss([`mode=${exec.mode}`, `provider=${host.provider}`]);
     }));
 
   /* -------------------------------------------------------------- 汇总 */
