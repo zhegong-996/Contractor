@@ -272,6 +272,27 @@
                 这条任务被做过哪些判定、每次凭什么——只收判定，不收流水。
                 <template v-if="ledger.summary">共 {{ ledger.summary.total }} 条，其中需人签字 {{ ledger.summary.humanRequired }} 条。</template>
               </div>
+              <div v-if="ledger.assignment" class="assign-compare">
+                <div class="assign-head">
+                  <span class="assign-title">分配对账</span>
+                  <el-tag size="small" :type="ledger.assignment.agree ? 'success' : 'warning'" effect="light">
+                    {{ ledger.assignment.agree ? '建议与实派一致' : '建议与实派不一致' }}
+                  </el-tag>
+                </div>
+                <div class="assign-row">
+                  <span class="assign-label">平台实派</span>
+                  <span class="assign-value">{{ ledger.assignment.actual || '（无）' }}</span>
+                </div>
+                <div class="assign-row">
+                  <span class="assign-label">编制建议</span>
+                  <span class="assign-value">{{ ledger.assignment.suggested || '（算不出来）' }}</span>
+                </div>
+                <div class="field-hint" style="margin-top:4px">
+                  {{ ledger.assignment.reason }}<template v-if="ledger.assignment.candidates && ledger.assignment.candidates.length">
+                  · 合格候选 {{ ledger.assignment.candidates.join('、') }}</template>
+                  · 在岗编制 {{ ledger.assignment.registryOnDuty }} 个 · 零模型调用
+                </div>
+              </div>
               <div v-for="(e, i) in ledgerEntries" :key="e.id + i" class="ledger-item">
                 <div class="ledger-head">
                   <el-tag size="small" :type="ledgerTag(e.kind)" effect="light">{{ ledgerKind(e.kind) }}</el-tag>
@@ -361,7 +382,7 @@
           safe('context-pack', { taskId: id }),
           safe('trace-view', { taskId: id }),
           safe('ontology-view', { taskId: id }),
-          safe('decision-ledger', { taskId: id, limit: 120 }),
+          safe('decision-ledger', { taskId: id, limit: 120, withAssignment: true }),
           safe('group-view', { intent: groupIntent.value, maxRounds: 6 }),
         ]);
         timeline.value = t; ctx.value = c; trace.value = tr; graph.value = g;
@@ -1297,6 +1318,9 @@
             <el-tab-pane label="图谱" name="graph">
               <div class="hint-text">这条知识在图谱里的关系边。草稿边不可作依据，只有人验收后才生效。</div>
               <div v-if="viewEdges.length">
+                <div class="hint-text" v-if="!viewEdgesMatched">
+                  没有与这条知识直接关联的边，下面是同一任务下的全部 {{ viewEdgesTotal }} 条关系（供参考，不代表直接关联）。
+                </div>
                 <div v-for="e in viewEdges" :key="e.id" class="list-row">
                   <div class="list-row-head">
                     <span class="list-row-title">{{ e.from }} → {{ e.to }}</span>
@@ -1331,6 +1355,7 @@
       // 第六十四轮：知识文档「查看」——打开正文只读阅读（后端 knowledge-get 已有）。
       const viewDialog = ref(false); const viewing = ref({});
       const viewTab = ref('body'); const viewEdges = ref([]);
+      const viewEdgesTotal = ref(0); const viewEdgesMatched = ref(false);
       const viewFacts = computed(() => Object.entries(viewing.value.facts || {}).map(([key, value]) => ({ key, value: String(value) })));
       // 第三十四轮：原生知识管线语义检索（所有者/管理员；跨分区数据集故收口）。
       const search = reactive({ query: '', dataset: 'suitme-knowledge', busy: false, error: '', results: null, datasetUsed: '' });
@@ -1389,8 +1414,12 @@
         viewTab.value = hasFacts ? 'facts' : 'body';
         viewing.value = { title: row.title, kind: row.kind, body: '正文加载中…', sources: [],
           meta: row, facts: {}, appliesTo: '', domains: row.domains ?? [] };
+        viewEdges.value = []; viewEdgesTotal.value = 0; viewEdgesMatched.value = false;
         viewDialog.value = true;
-        const d = await safe('knowledge-get', { taskId: row.taskId, key: row.key });
+        const [d, eg] = await Promise.all([
+          safe('knowledge-get', { taskId: row.taskId, key: row.key }),
+          safe('knowledge-edges', { taskId: row.taskId, key: row.key }),
+        ]);
         if (d.value) {
           viewing.value.body = d.value.body ?? '（无正文）';
           viewing.value.sources = d.value.sources ?? [];
@@ -1399,6 +1428,12 @@
           viewing.value.domains = d.value.domains ?? [];
         } else if (d.__error) {
           viewing.value.body = '读取失败：' + d.__error;
+        }
+        // 图谱层：优先显示与这条知识直接相关的边；没有则退回该任务的全部边（并标明未直接关联）。
+        if (Array.isArray(eg.edges)) {
+          viewEdges.value = eg.edges;
+          viewEdgesTotal.value = eg.total ?? eg.edges.length;
+          viewEdgesMatched.value = eg.matched === true;
         }
       };
       const openEdit = async row => {
@@ -1478,7 +1513,7 @@
         sediment, sedimentLoading, sedimentList, loadSediment, layerStats,
         activeLib, kbQuery, sedimentVisible, searchOpen, libraries, libItems,
         visLabel, visTag, stateLabel, canEdit, canDelete, canChangeVis, canWriteSome, load, runGuard, openCreate, openEdit, save, remove, fmtTime,
-        viewDialog, viewing, viewTab, viewEdges, viewFacts, openView, search, canSearch, runSearch, resultText, kindLabel };
+        viewDialog, viewing, viewTab, viewEdges, viewEdgesTotal, viewEdgesMatched, viewFacts, openView, search, canSearch, runSearch, resultText, kindLabel };
     },
   };
 
@@ -2105,6 +2140,38 @@
             </el-button>
           </template>
         </el-card>
+
+        <el-card shadow="never" class="contract-card" style="margin-top:14px">
+          <template #header>
+            <div class="card-head">
+              <span>Skill 生效体检</span>
+              <div style="display:flex;gap:8px;align-items:center">
+                <el-tag v-if="skillSummary" size="small" :type="skillSummary.degraded ? 'warning' : 'success'" effect="plain">
+                  {{ skillSummary.totalEffective }}/{{ skillSummary.totalDeclared }} 条生效
+                </el-tag>
+                <el-button size="small" @click="loadSkillAudit" :loading="skillLoading">重新体检</el-button>
+              </div>
+            </div>
+          </template>
+          <div class="hint-text">
+            判定只认一件事：最终 prompt 里有没有那段指令。配置写了不算生效，日志写了也不算。
+            <b>编译一次要几秒</b>，所以只在点「重新体检」时跑。
+          </div>
+          <el-alert v-if="skill.__error" :title="'体检失败：' + skill.__error" type="warning" :closable="false" />
+          <div v-for="a in skillAudits" :key="a.agentKey" class="exec-row">
+            <div class="exec-row-main">
+              <span class="exec-name">{{ a.name }}</span>
+              <el-tag size="small" :type="a.missing.length || a.unknown.length ? 'warning' : 'success'" effect="light">
+                {{ a.missing.length || a.unknown.length ? '有缺口' : '全部生效' }}
+              </el-tag>
+              <span class="exec-ver">{{ a.verdict }}</span>
+            </div>
+            <div class="exec-row-act">
+              <span class="exec-ready-hint">{{ a.promptLength }} 字 · {{ a.toolCount }} 工具</span>
+            </div>
+          </div>
+          <div v-if="!skillAudits.length && !skillLoading" class="field-hint">还没有体检结果，点右上角「重新体检」。</div>
+        </el-card>
       </div>`,
     setup() {
       const data = ref({}), system = ref({}), retry = ref(null), inbox = ref(null), channels = ref(null);
@@ -2152,8 +2219,16 @@
         probe.value = await safe('agent-onboarding-probe');
         scanning.value = false;
       };
-      const onbText = s => ({ ready: '就绪', 'needs-enable': '待启用', 'needs-binding': '待注册', 'needs-register': '待接入', 'not-installed': '未安装' }[s] || s || '未知');
-      const onbTag = s => ({ ready: 'success', 'needs-enable': 'warning', 'needs-binding': 'warning', 'needs-register': 'primary', 'not-installed': 'info' }[s] || 'info');
+      // 第七十一轮 · Skill 生效体检：编译一次几秒，只在按钮触发时跑，不随页面加载。
+      const skill = ref({}); const skillLoading = ref(false);
+      const skillAudits = computed(() => Array.isArray(skill.value.audits) ? skill.value.audits : []);
+      const skillSummary = computed(() => skill.value.summary ?? null);
+      const loadSkillAudit = async () => {
+        skillLoading.value = true;
+        skill.value = await safe('skill-audit', {});
+        skillLoading.value = false;
+      };
+      const onbText = s => ({ ready: '就绪', 'needs-enable': '待启用', 'needs-binding': '待注册', 'needs-register': '待接入', 'not-installed': '未安装' }[s] || s || '未知');      const onbTag = s => ({ ready: 'success', 'needs-enable': 'warning', 'needs-binding': 'warning', 'needs-register': 'primary', 'not-installed': 'info' }[s] || 'info');
       const openDoc = e => { if (e && e.docs) window.open(e.docs, '_blank', 'noopener'); };
       const enable = async e => {
         busy.value = e.key;
@@ -2183,7 +2258,8 @@
       return { data, services, text, retry, inbox, channels, clean, stateText, stateTag,
         retryText, retryTag, channelText, channelTag, directionText,
         network, scheduler, serviceProfiles, routines, wakes, fmtTime,
-        probe, scanning, showAll, busy, shownEntries, hiddenCount, rescan, onbText, onbTag, enable, register, openDoc };
+        probe, scanning, showAll, busy, shownEntries, hiddenCount, rescan, onbText, onbTag, enable, register, openDoc,
+        skill, skillLoading, skillAudits, skillSummary, loadSkillAudit };
     },
   };
 

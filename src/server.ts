@@ -30,7 +30,8 @@ import { EventInbox } from './event-inbox.ts';
 import { readRetryHealth } from './retry-health.ts';
 import { buildChannelHealth } from './channel-health.ts';
 import { GithubWatcher } from './github-watch.ts';
-import { sendDingtalk, sendWecom, dingtalkEndpoint, wecomEndpoint, dingtalkToTrigger, wecomPlainXmlToTrigger, wecomIsEncrypted, type ImSendResult } from './im-outbound.ts';
+import { sendDingtalk, sendWecom, dingtalkEndpoint, wecomEndpoint, dingtalkToTrigger, wecomPlainXmlToTrigger, wecomIsEncrypted,
+  verifyDingtalkCallback, verifyWecomCallback, type ImSendResult } from './im-outbound.ts';
 import { ModelSettingsService } from './model-settings.ts';
 import { KnowledgeGraph, CogneeL1Reader, cogneeCommit } from './graph.ts';
 import { createIndependentReviewer } from './visual-review.ts';
@@ -265,7 +266,18 @@ const server = createServer(async (req, res) => {
     // 第三十六轮 · 钉钉 / 企微入站端点（可选；需公网回调，本地经反代可达）。
     // 消息转 NativeTrigger 走与飞书相同的 ingestTrigger 链；白名单按通道
     // 独立配置（allowedSenders，默认空 = 拒绝所有）。
+    // 第七十一轮：补验签，且 fail-closed——没配密钥一律拒收（与 /events/ 一致）。
     if (url.pathname === '/im/dingtalk' && req.method === 'POST') {
+      const headerOf = (name: string): string | undefined => {
+        const value = req.headers[name];
+        return Array.isArray(value) ? value[0] : value;
+      };
+      const verify = verifyDingtalkCallback({
+        secret: dingtalkEndpoint(config).secret ?? '',
+        timestamp: headerOf('timestamp'),
+        sign: headerOf('sign'),
+      });
+      if (!verify.ok) { res.statusCode = 401; res.end(JSON.stringify({ error: verify.reason })); return; }
       let parsed: Record<string, unknown> | undefined; try { parsed = JSON.parse(await readRawBody(req)) as Record<string, unknown>; } catch { parsed = undefined; }
       const trigger = parsed ? dingtalkToTrigger(parsed) : undefined;
       if (!trigger) { res.statusCode = 400; res.end(JSON.stringify({ error: '无法解析钉钉回调（需要明文 JSON，含 conversationId / senderStaffId / text.content / msgId）' })); return; }
@@ -273,14 +285,38 @@ const server = createServer(async (req, res) => {
       res.end(JSON.stringify({ ok: true, result })); return;
     }
     if (url.pathname === '/im/wecom') {
+      const wecomCfg = config.wecom;
+      const callbackToken = process.env[wecomCfg?.tokenEnv ?? 'WECOM_CALLBACK_TOKEN'] ?? '';
       if (req.method === 'GET') {
-        // 企微回调 URL 验证（明文模式）：原样回显 echostr。
+        // 企微回调 URL 验证：先按 msg_signature 验签，通过才回显 echostr——
+        // 之前是无条件回显，等于谁都能把回调地址验通过。
+        const echostr = url.searchParams.get('echostr') ?? '';
+        const verify = verifyWecomCallback({
+          token: callbackToken,
+          timestamp: url.searchParams.get('timestamp') ?? undefined,
+          nonce: url.searchParams.get('nonce') ?? undefined,
+          signature: url.searchParams.get('msg_signature') ?? undefined,
+          body: echostr, encrypted: true,
+        });
+        if (!verify.ok) { res.statusCode = 401; res.end(JSON.stringify({ error: verify.reason })); return; }
         res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-        res.end(url.searchParams.get('echostr') ?? ''); return;
+        res.end(echostr); return;
       }
       if (req.method === 'POST') {
         const raw = await readRawBody(req);
         if (wecomIsEncrypted(raw)) { res.statusCode = 400; res.end(JSON.stringify({ error: '企微加密模式（EncodingAESKey）尚未支持，请配置明文模式' })); return; }
+        // 明文消息体企微不提供签名，无法验签。默认拒收；只有显式开启
+        // allowUnsignedPlaintext 且配置了发送人白名单才放行——两道闸缺一不可。
+        if (wecomCfg?.allowUnsignedPlaintext !== true) {
+          res.statusCode = 401;
+          res.end(JSON.stringify({ error: '明文入站无法验签，已按默认策略拒收；如确需启用，请设置 wecom.allowUnsignedPlaintext=true 并配置 allowedSenders' }));
+          return;
+        }
+        if (!(wecomCfg.allowedSenders ?? []).length) {
+          res.statusCode = 401;
+          res.end(JSON.stringify({ error: '已允许无签名明文入站，但 allowedSenders 为空——拒绝所有来源' }));
+          return;
+        }
         const trigger = wecomPlainXmlToTrigger(raw);
         if (!trigger) { res.statusCode = 400; res.end(JSON.stringify({ error: '无法解析企微明文回调（需要 <xml> 包裹的 text 消息）' })); return; }
         const result = await serialize(() => collaborationIntake.ingestTrigger(automationTrigger(trigger)));
@@ -424,6 +460,24 @@ const server = createServer(async (req, res) => {
         if (action === 'team-members') return teamMembers.view(workspaceActor);
         if (action === 'bind-member-agent') return teamMembers.bind(payload, workspaceActor);
         if (action === 'provision-member-agent') return teamMembers.provision(payload, workspaceActor);
+        // 第七十一轮 · Skill 生效体检：把「声明了几条、实际进 prompt 几条」变成可核对的事实。
+        if (action === 'skill-audit') {
+          const { auditSkills, summarizeSkillAudit } = await import('./skill-audit.ts');
+          const { compileAgent } = await import('./harness-composition.ts');
+          const svc = await agentServices.view(workspaceActor) as {
+            profiles?: { key: string; name: string; responsibilities?: string; definition?: unknown }[];
+          };
+          const supervisorKey = config.assistant?.agentKey ?? 'workspace-assistant';
+          const profiles = [
+            { key: supervisorKey, name: String(config.agents[supervisorKey]?.name ?? supervisorKey),
+              responsibilities: '协作事务整理与交接准备', definition: undefined },
+            ...(svc.profiles ?? []).map(p => ({
+              key: p.key, name: p.name, responsibilities: p.responsibilities ?? '', definition: p.definition as never,
+            })),
+          ];
+          const audits = await auditSkills(profiles, compileAgent);
+          return { audits, summary: summarizeSkillAudit(audits) };
+        }
         if (action === 'agent-services') return agentServices.view(workspaceActor);
         // 第六十八轮 · 群组编排（对标 LobeHub GroupOrchestration）：
         // 主持人 + 服务成员，按 intent 给出下一轮该怎么协作。只产决策，不派单、不改任务。
@@ -519,6 +573,18 @@ const server = createServer(async (req, res) => {
               bodyPreview: body.trim().slice(0, 120),
               injected: r.value.injected === true };
           }) };
+        }
+        if (action === 'knowledge-edges') {
+          // 第七十一轮 · 单条知识在图谱里的边。
+          // 之前只有 v06.edgesView(taskId) 这个方法，没有对外读接口，所以知识详情的「图谱」
+          // 页签只能标缺口。现在暴露出来，并按知识 key 过滤；过滤不到时如实返回该任务的全部边，
+          // 由调用方决定怎么展示——不凭空造边。
+          const taskId = String(payload?.taskId ?? '');
+          if (!taskId) throw new Error('需要 taskId');
+          const key = typeof payload?.key === 'string' ? payload.key.trim() : '';
+          const edges = await v06.edgesView(taskId);
+          const related = key ? edges.filter(e => e.from === key || e.to === key) : edges;
+          return { edges: related, total: edges.length, taskId, key: key || null, matched: Boolean(key && related.length) };
         }
         if (action === 'knowledge-get') {
           const record = await knowledge.read({ taskId: String(payload.taskId ?? ''), key: String(payload.key ?? '') });
@@ -867,7 +933,27 @@ const server = createServer(async (req, res) => {
           const limit = Math.min(Math.max(Number(payload?.limit ?? 120) || 120, 1), 300);
           const rows = store.auditByActions(LEDGER_ACTIONS, limit, taskId || null);
           const entries = buildDecisionLedger(rows);
-          return { entries, summary: summarizeLedger(entries), taskId: taskId || null, limit };
+          // 第七十一轮 · 补上协作三件套的第三环（分配）。
+          // 分配本来由 platform 定，我方不派单；这里做的是**对账**：用组织编制算一次「该派给谁」，
+          // 与实派对照。编制为空时如实说「算不出来」，而不是假装一致。
+          let assignment = null;
+          if (payload?.withAssignment === true && taskId) {
+            const { resolveAssignment, getAgentRegistry } = await import('./agent-registry.ts');
+            const task = store.list().find(t => t.id === taskId || t.identifier?.toLowerCase() === taskId.toLowerCase());
+            if (task) {
+              const registry = getAgentRegistry();
+              const result = resolveAssignment(registry, { taskId: task.id, responsibility: 'worker' });
+              assignment = {
+                taskId: task.id, identifier: task.identifier,
+                actual: task.agent ?? null, suggested: result.agentKey,
+                agree: result.agentKey === (task.agent ?? null),
+                candidates: result.candidates, reason: result.reason,
+                registryOnDuty: registry.agents.filter(a => a.enabled).length,
+                registryRevision: result.registryRevision, modelCalls: result.modelCalls,
+              };
+            }
+          }
+          return { entries, summary: summarizeLedger(entries), taskId: taskId || null, limit, assignment };
         }
         // 第五十六轮 · 任务时间线：把某任务的审计事件翻译成「人 / Agent / 系统」三类。
         if (action === 'task-timeline') {

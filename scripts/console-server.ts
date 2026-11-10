@@ -58,6 +58,10 @@ export const CONSOLE_READ_ACTIONS: readonly string[] = [
   'group-view',
   // 第六十九轮 · 判定沉淀：账本 → 三层知识候选（只读；写库仍走人审）。
   'knowledge-sediment',
+  // 第七十一轮 · 单条知识在图谱里的边（只读；按知识 key 过滤，不造边）。
+  'knowledge-edges',
+  // 第七十一轮 · Skill 生效体检（只读；编译一次 prompt 核对指纹，不写盘）。
+  'skill-audit',
 ] as const;
 
 /** P-13 知识写入动作：登录即可调，分区权限由 bridge 端 casbin 统一判定。 */

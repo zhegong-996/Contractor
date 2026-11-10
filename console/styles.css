@@ -239,6 +239,17 @@ html.dark .kb-layer.on { background: rgba(0, 187, 127, .14); border-color: rgba(
 .sediment-layers { display: flex; gap: 4px; flex: none; }
 .sediment-meta { font-size: 11.5px; color: var(--el-text-color-secondary); margin-top: 4px; }
 
+/* ---- 第七十一轮 · 分配对账（协作三件套第三环） ------------------------- */
+.assign-compare {
+  margin: 10px 0 12px; padding: 10px 12px; border-radius: var(--card-radius);
+  background: var(--el-fill-color-light); border: 1px solid var(--el-border-color-lighter);
+}
+.assign-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+.assign-title { font-size: 13px; font-weight: 600; color: var(--el-text-color-primary); }
+.assign-row { display: flex; gap: 8px; font-size: 12px; line-height: 1.8; }
+.assign-label { color: var(--el-text-color-secondary); min-width: 62px; }
+.assign-value { color: var(--el-text-color-primary); font-family: var(--brand-mono); }
+
 .kb-layer-audit {
   font-size: 12px; color: var(--el-text-color-secondary); margin: 2px 0 10px;
   padding: 7px 10px; border-radius: 8px; background: var(--el-fill-color-light);
