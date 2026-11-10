@@ -149,13 +149,19 @@
           <div class="welcome-title">你好，{{ session.username || '同事' }}</div>
           <div class="welcome-sub">发起任务请回飞书、直接对你的助手说；这里是查看进度、授权与确认验收的地方。</div>
         </div>
-        <el-row :gutter="14" style="margin-bottom:14px">
-          <el-col v-for="card in statCards" :key="card.label" :xs="12" :sm="8" :md="6">
-            <el-card shadow="never"><el-skeleton :loading="loading" :rows="1" animated>
-              <div class="stat"><div class="stat-num">{{ card.value }}</div><div class="stat-label">{{ card.label }}</div></div>
-            </el-skeleton></el-card>
-          </el-col>
-        </el-row>
+        <div class="metric-grid">
+          <div v-for="card in statCards" :key="card.label" class="metric-card">
+            <div class="metric-ico" :class="'tone-' + card.tone">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" v-html="card.icon"></svg>
+            </div>
+            <div class="metric-body">
+              <el-skeleton :loading="loading" :rows="1" animated>
+                <div class="metric-num">{{ card.value }}</div>
+                <div class="metric-label">{{ card.label }}</div>
+              </el-skeleton>
+            </div>
+          </div>
+        </div>
         <el-card shadow="never">
           <template #header>{{ mode === 'collaboration' ? '任务与责任链' : '最近任务' }}</template>
           <el-alert v-if="summary.__error" :title="'读取失败：' + summary.__error" type="warning" :closable="false" />
@@ -195,10 +201,14 @@
         const need = { blocked: 0, review: 0, waiting: 0, ready: 0, running: 0, in_progress: 0, dispatched: 0, intake: 0, todo: 0, delivered: 0, accepted: 0, closed: 0 };
         for (const t of tasks.value) if (t.phase in need) need[t.phase] += 1;
         return [
-          { label: '待我拍板', value: need.blocked + need.review + need.waiting + need.ready },
-          { label: '进行中', value: need.running + need.in_progress + need.dispatched + need.intake + need.todo },
-          { label: '待验收', value: need.delivered },
-          { label: '已完成', value: need.accepted + need.closed },
+          { label: '待我拍板', value: need.blocked + need.review + need.waiting + need.ready, tone: 'blue',
+            icon: '<path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/><path d="M9 14l2 2 4-4"/>' },
+          { label: '进行中', value: need.running + need.in_progress + need.dispatched + need.intake + need.todo, tone: 'violet',
+            icon: '<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>' },
+          { label: '待验收', value: need.delivered, tone: 'amber',
+            icon: '<path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><path d="M22 4L12 14.01l-3-3"/>' },
+          { label: '已完成', value: need.accepted + need.closed, tone: 'green',
+            icon: '<path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><path d="M4 22v-7"/>' },
         ];
       });
       const phaseLabel = p => ({ running: '进行中', waiting: '等待', delivered: '已交付', failed: '失败', todo: '待办', blocked: '受阻',
@@ -1484,25 +1494,36 @@
     template: `
       <login-view v-if="!session" @ok="loadSession" />
       <el-container v-else class="app-shell">
-        <el-aside width="216px" class="app-aside">
+        <el-aside width="228px" class="app-aside">
           <div class="brand">
             <div class="logo">S</div>
-            <span>SuitMe 协作台</span>
+            <div class="brand-name">
+              <span class="t">SuitMe 协作台</span>
+              <span class="s">AI-native 协作</span>
+            </div>
           </div>
           <el-menu :default-active="view" @select="switchView" class="app-menu">
             <!-- 第三十八轮 · 键盘可达：菜单项默认 tabindex=-1（只靠方向键），
                  而菜单根节点又不可聚焦，结果键盘用户根本进不了侧栏。显式给
                  tabindex=0 让每一项都能 Tab 到，并在样式里补 :focus-visible 环。 -->
             <el-menu-item v-for="v in visibleViews" :key="v.id" :index="v.id" tabindex="0">
-              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="margin-right:10px;flex:none" v-html="v.icon"></svg>
+              <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="margin-right:11px;flex:none" v-html="v.icon"></svg>
               <span>{{ v.title }}</span>
             </el-menu-item>
             <el-menu-item v-if="hasAdminArea" index="admin" tabindex="0">
-              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="margin-right:10px;flex:none"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/></svg>
+              <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="margin-right:11px;flex:none"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/></svg>
               <span>管理</span>
             </el-menu-item>
           </el-menu>
-          <div class="aside-foot">发起任务请回到飞书</div>
+          <div class="aside-foot">
+            <div class="user-card" tabindex="0" @click="view = 'settings'" @keyup.enter="view = 'settings'" :title="'打开' + session.username + '的配置'">
+              <div class="avatar">{{ initial }}</div>
+              <div class="who">
+                <div class="n">{{ session.username }}</div>
+                <div class="r">{{ session.roleLabel }}</div>
+              </div>
+            </div>
+          </div>
         </el-aside>
         <el-container>
           <el-header class="app-header">
@@ -1511,13 +1532,14 @@
               <div class="view-sub">{{ currentView.subtitle }}</div>
             </div>
             <div class="header-right">
-              <el-button circle size="small" @click="toggleTheme" :title="theme === 'dark' ? '切到浅色' : '切到深色'">
-                {{ theme === 'dark' ? '☀' : '☾' }}
-              </el-button>
+              <button class="icon-btn" @click="toggleTheme" :title="theme === 'dark' ? '切到浅色' : '切到深色'">
+                <svg v-if="theme === 'dark'" viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+                <svg v-else viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8z"/></svg>
+              </button>
               <el-dropdown @command="onUserCommand">
                 <span class="user-chip">
-                  <el-tag size="small" effect="light" type="primary">{{ session.roleLabel }}</el-tag>
-                  <b>{{ session.username }}</b>
+                  <div class="avatar" style="width:26px;height:26px;font-size:12px;border-radius:50%">{{ initial }}</div>
+                  <b style="font-size:13px">{{ session.username }}</b>
                 </span>
                 <template #dropdown>
                   <el-dropdown-menu>
@@ -1529,14 +1551,16 @@
             </div>
           </el-header>
           <el-main class="app-main">
-            <tasks-view v-if="view === 'overview'" :session="session" mode="overview" />
-            <collaboration-view v-else-if="view === 'collaboration'" :session="session" />
-            <organization-view v-else-if="view === 'organization'" />
-            <knowledge-view v-else-if="view === 'knowledge'" :session="session" />
-            <acceptance-view v-else-if="view === 'acceptance'" />
-            <services-view v-else-if="view === 'services'" :session="session" />
-            <settings-view v-else-if="view === 'settings'" :session="session" @theme="saveTheme" />
-            <admin-view v-else-if="view === 'admin' && hasAdminArea" :session="session" />
+            <div class="main-inner">
+              <tasks-view v-if="view === 'overview'" :session="session" mode="overview" />
+              <collaboration-view v-else-if="view === 'collaboration'" :session="session" />
+              <organization-view v-else-if="view === 'organization'" />
+              <knowledge-view v-else-if="view === 'knowledge'" :session="session" />
+              <acceptance-view v-else-if="view === 'acceptance'" />
+              <services-view v-else-if="view === 'services'" :session="session" />
+              <settings-view v-else-if="view === 'settings'" :session="session" @theme="saveTheme" />
+              <admin-view v-else-if="view === 'admin' && hasAdminArea" :session="session" />
+            </div>
           </el-main>
         </el-container>
       </el-container>`,
@@ -1552,6 +1576,7 @@
         const p = session.value?.permissions ?? [];
         return p.some(x => ['accounts-manage', 'services-control', 'knowledge-review', 'audit-view', 'feishu-auth', 'task-control'].includes(x));
       });
+      const initial = computed(() => (session.value?.username || 'S').charAt(0).toUpperCase());
 
       const applyTheme = value => { theme.value = value; document.documentElement.classList.toggle('dark', value === 'dark'); };
       const toggleTheme = () => { applyTheme(theme.value === 'dark' ? 'light' : 'dark'); void api('settings-set', { theme: theme.value }).catch(() => {}); };
@@ -1578,7 +1603,7 @@
         }
       };
       onMounted(loadSession);
-      return { session, view, theme, visibleViews, currentView, hasAdminArea, toggleTheme, saveTheme, switchView, onUserCommand, loadSession };
+      return { session, view, theme, visibleViews, currentView, hasAdminArea, initial, toggleTheme, saveTheme, switchView, onUserCommand, loadSession };
     },
   };
 

@@ -1,13 +1,13 @@
-/* SuitMe 协作台 · 补充样式（第三十轮 P-12 重写）
- * 主视觉来自 Element Plus（MIT）；这里只做布局与品牌微调。
+/* SuitMe 协作台 · 补充样式
+ * 主视觉来自 Element Plus（MIT）；这里做布局、品牌与 LobeHub 风格的精致化。
  * 深色模式由 html.dark + element-plus.dark.css 提供。 */
 
 * { box-sizing: border-box; }
 
 /* =====================================================================
- * 品牌主题 · 对标 paperclip 视觉语言（第五十六轮）
- * 主蓝 #3080ff · 成功 #00bb7f · 危险 #fb2c36 · 强调 #8d54ff · 暖色 #fffbeb
- * 8px 圆角 · expo-out 缓动 · 精致卡片
+ * 品牌主题 · 对标 paperclip 视觉语言 + LobeHub 层次感（第五十九轮打磨）
+ * 主蓝 #3080ff · 成功 #00bb7f · 危险 #fb2c36 · 强调 #8d54ff
+ * 8~12px 圆角 · expo-out 缓动 · 侧栏浅灰层次
  * ===================================================================== */
 :root {
   --el-color-primary: #3080ff;
@@ -26,6 +26,13 @@
   --el-border-radius-small: 6px;
   --brand-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
   --brand-ease: cubic-bezier(.16, 1, .3, 1);
+
+  /* LobeHub 层次：侧栏独立浅灰、主区纯白、柔和阴影 */
+  --aside-bg: #f6f7f9;
+  --aside-border: #e9ebef;
+  --card-radius: 12px;
+  --shadow-soft: 0 1px 2px rgba(16, 24, 40, .04), 0 4px 16px rgba(16, 24, 40, .06);
+  --shadow-hover: 0 2px 4px rgba(16, 24, 40, .05), 0 10px 28px rgba(16, 24, 40, .10);
 }
 html.dark {
   --el-color-primary: #5b9bff;
@@ -38,6 +45,10 @@ html.dark {
   --el-color-success: #00bb7f;
   --el-color-danger: #ff5a62;
   --el-color-warning: #f5a623;
+  --aside-bg: #14161b;
+  --aside-border: #23262d;
+  --shadow-soft: 0 1px 2px rgba(0, 0, 0, .3), 0 4px 16px rgba(0, 0, 0, .35);
+  --shadow-hover: 0 2px 4px rgba(0, 0, 0, .35), 0 10px 28px rgba(0, 0, 0, .5);
 }
 
 html, body { margin: 0; padding: 0; height: 100%; }
@@ -54,44 +65,103 @@ body {
   background: linear-gradient(160deg, var(--el-color-primary-light-9, #ecf5ff) 0%, var(--el-bg-color, #fff) 55%);
 }
 html.dark .login-wrap { background: linear-gradient(160deg, #141a24 0%, var(--el-bg-color, #141414) 55%); }
-.login-card { width: min(400px, 100%); border-radius: 14px; }
+.login-card { width: min(400px, 100%); border-radius: var(--card-radius); }
 .login-brand { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
 .login-title { font-size: 17px; font-weight: 700; }
 .login-sub { font-size: 12px; color: var(--el-text-color-secondary); margin-top: 2px; }
 .login-note { margin-top: 16px; font-size: 11.5px; color: var(--el-text-color-secondary); line-height: 1.7; }
 
-/* ---- 应用布局 ---------------------------------------------------------- */
+/* ---- 应用布局（LobeHub 风格：侧栏灰层次 + 主区留白） ---------------------- */
 .app-shell { height: 100vh; }
 .app-aside {
   display: flex; flex-direction: column;
-  border-right: 1px solid var(--el-border-color-light);
-  background: var(--el-bg-color);
+  background: var(--aside-bg);
+  border-right: 1px solid var(--aside-border);
 }
 .brand {
-  display: flex; align-items: center; gap: 10px;
-  padding: 18px 20px 14px; font-weight: 700; font-size: 15px;
+  display: flex; align-items: center; gap: 11px;
+  padding: 20px 20px 16px; font-weight: 700; font-size: 15px;
   color: var(--el-text-color-primary);
 }
-.app-menu { border-right: 0; flex: 1; padding: 4px 8px; }
-.aside-foot {
-  padding: 14px 20px; font-size: 11px; color: var(--el-text-color-placeholder);
-  border-top: 1px solid var(--el-border-color-lighter);
+.brand .logo {
+  width: 30px; height: 30px; border-radius: 9px; flex: none;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: linear-gradient(135deg, #3080ff, #8d54ff);
+  color: #fff; font-weight: 700; font-size: 15px;
+  box-shadow: 0 3px 10px rgba(48, 128, 255, .32);
 }
+.brand-name { line-height: 1.2; }
+.brand-name .t { display: block; font-size: 14.5px; font-weight: 700; letter-spacing: .2px; }
+.brand-name .s { display: block; font-size: 11px; color: var(--el-text-color-secondary); font-weight: 400; margin-top: 2px; }
+
+.app-menu { border-right: 0; flex: 1; padding: 6px 10px; background: transparent; }
+/* 菜单项：圆角 + 过渡 + 选中指示条，对标 LobeHub 侧栏项 */
+.app-menu .el-menu-item {
+  height: 42px; line-height: 42px; margin: 2px 0; padding: 0 12px !important;
+  border-radius: 10px; color: var(--el-text-color-regular);
+  transition: background .16s var(--brand-ease), color .16s var(--brand-ease);
+}
+.app-menu .el-menu-item:hover { background: var(--el-fill-color-light); color: var(--el-text-color-primary); }
+.app-menu .el-menu-item.is-active {
+  background: var(--el-color-primary-light-9, #eaf3ff);
+  color: var(--el-color-primary); font-weight: 600;
+  position: relative;
+}
+.app-menu .el-menu-item.is-active::before {
+  content: ''; position: absolute; left: 0; top: 9px; bottom: 9px; width: 3px;
+  border-radius: 3px; background: var(--el-color-primary);
+}
+
+/* 侧栏底部：用户信息卡（LobeHub 底部用户区） */
+.aside-foot {
+  padding: 12px; border-top: 1px solid var(--aside-border);
+}
+.user-card {
+  display: flex; align-items: center; gap: 10px; padding: 9px 10px;
+  border-radius: 11px; cursor: pointer;
+  transition: background .16s var(--brand-ease);
+}
+.user-card:hover { background: var(--el-fill-color-light); }
+.avatar {
+  width: 34px; height: 34px; border-radius: 50%; flex: none;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: #fff; font-weight: 600; font-size: 15px;
+  background: linear-gradient(135deg, #3080ff, #8d54ff);
+}
+.user-card .who { flex: 1; min-width: 0; line-height: 1.25; }
+.user-card .who .n { font-size: 13px; font-weight: 600; color: var(--el-text-color-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.user-card .who .r { font-size: 11px; color: var(--el-text-color-secondary); margin-top: 1px; }
+
+/* ---- 顶栏 --------------------------------------------------------------- */
 .app-header {
   display: flex; align-items: center; justify-content: space-between;
   border-bottom: 1px solid var(--el-border-color-light);
-  height: 64px;
+  height: 64px; background: var(--el-bg-color);
+  padding: 0 22px;
 }
-.view-title { margin: 0; font-size: 17px; }
+.view-title { margin: 0; font-size: 18px; font-weight: 700; letter-spacing: .2px; }
 .view-sub { font-size: 12px; color: var(--el-text-color-secondary); margin-top: 3px; }
 .header-right { display: flex; align-items: center; gap: 12px; }
+.icon-btn {
+  width: 34px; height: 34px; border-radius: 9px; border: 1px solid var(--el-border-color-light);
+  background: var(--el-fill-color-blank); color: var(--el-text-color-regular);
+  display: inline-flex; align-items: center; justify-content: center; cursor: pointer;
+  transition: background .16s var(--brand-ease), border-color .16s var(--brand-ease), color .16s var(--brand-ease);
+}
+.icon-btn:hover { background: var(--el-fill-color-light); color: var(--el-text-color-primary); border-color: var(--el-border-color); }
 .user-chip {
   display: inline-flex; align-items: center; gap: 8px; cursor: pointer;
-  padding: 5px 12px; border-radius: 999px;
+  padding: 4px 12px 4px 5px; border-radius: 999px;
   border: 1px solid var(--el-border-color-light);
   background: var(--el-fill-color-blank);
+  transition: border-color .16s var(--brand-ease);
 }
-.app-main { background: var(--el-bg-color-page); overflow-y: auto; }
+.user-chip:hover { border-color: var(--el-border-color); }
+
+/* ---- 主区 --------------------------------------------------------------- */
+.app-main { background: var(--el-bg-color); overflow-y: auto; padding: 22px; }
+/* 内容居中 + 最大宽度，LobeHub 的呼吸感 */
+.main-inner { max-width: 1080px; margin: 0 auto; }
 
 /* ---- 通用 -------------------------------------------------------------- */
 .card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
@@ -118,11 +188,11 @@ html.dark .login-wrap { background: linear-gradient(160deg, #141a24 0%, var(--el
 }
 .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; word-break: break-all; }
 
-/* 第三十八轮 · 键盘可见焦点：侧栏项补 tabindex 之后，必须看得见焦点落在哪。
-   只在 :focus-visible 时出现，鼠标点击不闪框。 */
+/* 第三十八轮 · 键盘可见焦点 */
 .app-menu .el-menu-item:focus-visible,
 .app-header button:focus-visible,
-.el-button:focus-visible {
+.el-button:focus-visible,
+.icon-btn:focus-visible, .user-card:focus-visible {
   outline: 2px solid var(--el-color-primary);
   outline-offset: 2px;
   border-radius: 6px;
@@ -130,12 +200,15 @@ html.dark .login-wrap { background: linear-gradient(160deg, #141a24 0%, var(--el
 
 @media (max-width: 768px) {
   .app-aside { width: 64px !important; }
-  .brand span, .aside-foot { display: none; }
+  .brand-name, .aside-foot .who, .brand span { display: none; }
   .view-sub { display: none; }
+  .app-menu .el-menu-item { padding: 0 !important; justify-content: center; }
+  .app-menu .el-menu-item span { display: none; }
+  .user-card { justify-content: center; padding: 8px 6px; }
+  .user-card .who { display: none; }
 }
 
 /* ---- 第四十一轮 · 验收证据区域点选 + 报告内讨论 ------------------------- */
-/* 区域只是定位信息：底板按本项坐标范围等比缩放，点框只做选中，不产生判定。 */
 .region-chips { display: flex; flex-wrap: wrap; gap: 2px; }
 .region-board {
   position: relative; width: 100%; aspect-ratio: 16 / 10; overflow: hidden;
@@ -161,34 +234,31 @@ html.dark .login-wrap { background: linear-gradient(160deg, #141a24 0%, var(--el
 }
 .thread-item.resolved { opacity: .62; }
 
-/* 任务看板：任务号 + 人话标题（第五十五轮「能看懂」改造） */
+/* 任务看板：任务号 + 人话标题 */
 .task-cell { display: flex; flex-direction: column; gap: 2px; align-items: flex-start; }
 .task-id { font-size: 11px; color: var(--el-text-color-secondary); font-family: ui-monospace, "SF Mono", Menlo, monospace; }
 .task-title { font-size: 13px; justify-content: flex-start; }
 
 /* =====================================================================
- * 品牌细节（第五十六轮）
+ * 品牌细节（第五十六轮 + 第五十九轮 LobeHub 打磨）
  * ===================================================================== */
-/* 数字/标识用等宽字体，对标 paperclip 的 Paper Mono */
 .stat-num { font-family: var(--brand-mono); font-variant-numeric: tabular-nums; }
 .task-id, .mono { font-family: var(--brand-mono); }
-.brand { letter-spacing: .2px; }
-.brand .logo {
-  width: 26px; height: 26px; border-radius: 7px; flex: none;
-  display: inline-flex; align-items: center; justify-content: center;
-  background: linear-gradient(135deg, #3080ff, #8d54ff);
-  color: #fff; font-weight: 700; font-size: 13px;
+
+/* 卡片：统一圆角 + 柔和阴影 + 轻 hover 微动效 */
+.el-card {
+  border-radius: var(--card-radius);
+  border: 1px solid var(--el-border-color-lighter);
+  box-shadow: var(--shadow-soft);
+  transition: box-shadow .22s var(--brand-ease), transform .22s var(--brand-ease);
 }
-/* 卡片：轻 hover 微动效，静默且精致 */
-.el-card { transition: box-shadow .22s var(--brand-ease); }
-.el-card:not(.is-always-shadow):hover { box-shadow: 0 6px 18px rgba(48, 128, 255, .09); }
+.el-card:not(.is-always-shadow):hover { box-shadow: var(--shadow-hover); }
+.el-card__header { font-weight: 600; }
 /* 表格行 hover 更轻 */
 .el-table tbody tr:hover td { background: var(--el-color-primary-light-9, #eaf3ff) !important; }
 /* 主按钮质感 */
 .el-button--primary { box-shadow: 0 2px 8px rgba(48, 128, 255, .28); }
 .el-button--primary:hover { box-shadow: 0 4px 14px rgba(48, 128, 255, .34); }
-/* 侧栏选中态 */
-.app-menu .el-menu-item.is-active { background: var(--el-color-primary-light-9, #eaf3ff); color: var(--el-color-primary); border-radius: 8px; font-weight: 600; }
 
 /* ---- 第五十六轮 · 任务时间线（人 / Agent / 系统） ------------------------- */
 .tl-head { display: flex; align-items: center; gap: 8px; margin-bottom: 2px; }
@@ -199,6 +269,9 @@ html.dark .login-wrap { background: linear-gradient(160deg, #141a24 0%, var(--el
 .tl-human { color: #2666cc; background: #eaf3ff; }
 .tl-agent { color: #00825a; background: #e6f7f1; }
 .tl-system { color: #6b7280; background: #f1f2f4; }
+html.dark .tl-human { color: #8ab4ff; background: #162641; }
+html.dark .tl-agent { color: #4fd6a8; background: #123c2e; }
+html.dark .tl-system { color: #a6aab4; background: #26292f; }
 .tl-label { font-size: 13px; font-weight: 500; color: var(--el-text-color-primary); }
 .tl-detail { font-size: 12px; color: var(--el-text-color-regular); line-height: 1.6; margin-top: 2px; word-break: break-word; }
 
@@ -211,12 +284,41 @@ html.dark .login-wrap { background: linear-gradient(160deg, #141a24 0%, var(--el
 .kb-body { font-size: 12px; color: var(--el-text-color-secondary); line-height: 1.6; height: 40px; overflow: hidden; }
 .kb-meta { margin-top: 10px; font-size: 11px; color: var(--el-text-color-placeholder); font-family: var(--brand-mono); }
 
-/* ---- 第五十八轮 · 概览欢迎条 + 侧栏图标 -------------------------------- */
+/* ---- 第五十八轮 · 概览欢迎条 ------------------------------------------ */
 .welcome-bar {
-  padding: 18px 22px; border-radius: 12px; margin-bottom: 16px;
+  padding: 20px 24px; border-radius: 14px; margin-bottom: 18px;
   background: linear-gradient(135deg, #eaf3ff 0%, #fffbeb 100%);
   border: 1px solid var(--el-color-primary-light-7, #c1d9ff);
 }
-.welcome-title { font-size: 17px; font-weight: 600; color: var(--el-text-color-primary); }
-.welcome-sub { font-size: 12px; color: var(--el-text-color-secondary); margin-top: 4px; line-height: 1.6; }
-.app-menu .el-menu-item { height: 42px; line-height: 42px; }
+html.dark .welcome-bar { background: linear-gradient(135deg, #162641 0%, #2a2114 100%); border-color: #2b56a3; }
+.welcome-title { font-size: 18px; font-weight: 700; color: var(--el-text-color-primary); }
+.welcome-sub { font-size: 12.5px; color: var(--el-text-color-secondary); margin-top: 5px; line-height: 1.7; }
+
+/* ---- 第五十九轮 · metric 统计卡（LobeHub 风格：图标 + 分色） ------------ */
+.metric-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 16px; }
+.metric-card {
+  display: flex; align-items: center; gap: 12px;
+  padding: 16px; border-radius: var(--card-radius);
+  background: var(--el-bg-color); border: 1px solid var(--el-border-color-lighter);
+  box-shadow: var(--shadow-soft);
+  transition: box-shadow .22s var(--brand-ease), transform .22s var(--brand-ease);
+}
+.metric-card:hover { box-shadow: var(--shadow-hover); transform: translateY(-1px); }
+.metric-ico {
+  width: 42px; height: 42px; border-radius: 11px; flex: none;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.metric-ico.tone-blue   { color: #3080ff; background: #eaf3ff; }
+.metric-ico.tone-violet { color: #8d54ff; background: #f1eaff; }
+.metric-ico.tone-green  { color: #00825a; background: #e6f7f1; }
+.metric-ico.tone-amber  { color: #d97706; background: #fef3e2; }
+.metric-ico.tone-slate  { color: #64748b; background: #f1f2f4; }
+html.dark .metric-ico.tone-blue   { color: #8ab4ff; background: #162641; }
+html.dark .metric-ico.tone-violet { color: #c1a2ff; background: #231a3d; }
+html.dark .metric-ico.tone-green  { color: #4fd6a8; background: #123c2e; }
+html.dark .metric-ico.tone-amber  { color: #f5b453; background: #3a2a10; }
+html.dark .metric-ico.tone-slate  { color: #a6aab4; background: #26292f; }
+.metric-body { flex: 1; min-width: 0; }
+.metric-num { font-size: 24px; font-weight: 700; line-height: 1.1; color: var(--el-text-color-primary); font-family: var(--brand-mono); font-variant-numeric: tabular-nums; }
+.metric-label { font-size: 12px; color: var(--el-text-color-secondary); margin-top: 4px; }
+@media (max-width: 768px) { .metric-grid { grid-template-columns: repeat(2, 1fr); } }
