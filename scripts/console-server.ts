@@ -68,6 +68,7 @@ const ADMIN_ACTIONS: Record<string, string> = {
   'admin-knowledge-review': 'knowledge-review',
   'admin-task-control': 'task-control',
   'admin-hitl': 'read',
+  'admin-hitl-answer': 'read', // 真人回答 Agent 提出的人工问题；登录即可，回答≠验收
   'admin-audit': 'audit-view',
   'admin-feishu-auth': 'feishu-auth',
 };
@@ -271,9 +272,55 @@ async function handleAdmin(action: string, payload: Record<string, unknown>, ses
         ? read(proposalPath, 'utf8').split('\n').filter(Boolean).slice(-20)
           .flatMap(line => { try { return [JSON.parse(line)]; } catch { return []; } }) : [];
       return { pending: pending.map(q => ({ id: q.id, at: q.at, prompt: q.payload?.prompt,
-          choices: q.payload?.choices, runId: q.payload?.run_id })), badLines: health.badLines,
+          choices: q.payload?.choices, runId: q.payload?.run_id, asker: q.payload?.asker,
+          stepNo: q.payload?.step_no })), badLines: health.badLines,
         proposals: proposals.map(p => ({ id: p.id, questionId: p.questionId, choice: p.choice,
           actor: p.actor, at: p.at, requiresHumanApproval: p.requiresHumanApproval })) };
+    }
+    case 'admin-hitl-answer': {
+      // 第六十轮：真人在协作台网页回答 Agent 提出的人工问题。
+      // 与 scripts/step-answer.ts 走同一条判据链（routeAnswerToHitl → persistHitlAnswer
+      // → autoResumeAfterAnswer），actor 取当前登录用户，不再依赖 CLI 环境变量。
+      const questionId = String(payload.questionId ?? '').trim();
+      const choice = String(payload.choice ?? '').trim();
+      const note = String(payload.note ?? '').slice(0, 200);
+      if (!questionId || !choice) throw new Error('需要 questionId 与 choice');
+      const { resolveHitlSink, FileHitlSink } = await import('../src/step-hitl.ts');
+      const { routeAnswerToHitl, persistHitlAnswer } = await import('../src/hitl-bridge.ts');
+      const { autoResumeAfterAnswer } = await import('../src/auto-resume.ts');
+      const sink = resolveHitlSink();
+      const health = sink instanceof FileHitlSink
+        ? sink.readWithHealth() : { events: sink.read(), badLines: 0 };
+      const events = health.events;
+      const routed = routeAnswerToHitl({
+        inbound: { accepted: true, questionId, choice },
+        actor: session.username, events, at: Date.now(), via: 'console', note,
+      });
+      if (!routed.ok) throw new Error(routed.reason);
+      const persisted = persistHitlAnswer(routed, sink);
+      // step 模式下按用户授权（AUTO_RESUME_MANDATE）自动排续跑闸；失败如实上报。
+      let autoResume: Record<string, unknown> | null = null;
+      const config = loadConfig();
+      if (config.execution.mode === 'step') {
+        const { PgStepQueue } = await import('../src/step-execution.ts');
+        const queue = PgStepQueue.fromConfig(config);
+        try {
+          // routed.ok 已保证该问题存在；非空断言只给类型系统，运行时不会走到 undefined。
+          const question = events.find(e => e.type === 'human_question' && e.id === questionId)!;
+          const resumed = await autoResumeAfterAnswer({ routed, question,
+            enqueue: (runId, specs) => queue.enqueueReadySteps(runId, specs) });
+          autoResume = resumed.ok
+            ? { ok: true, runId: resumed.runId, enqueued: resumed.enqueued, questionId: resumed.questionId }
+            : { ok: false, reason: resumed.reason };
+        } catch (error) {
+          autoResume = { ok: false, reason: String(error instanceof Error ? error.message : error).slice(0, 200) };
+        } finally { await queue.close(); }
+      }
+      auth.audit('hitl.answer', session.username, { questionId, choice, status: 'ok' });
+      return { ok: true, questionId, choice, actor: session.username, responseId: routed.response.id,
+        pending: routed.pending, ledgerBadLines: health.badLines,
+        proposalPersisted: persisted.proposalPersisted, autoResume,
+        note: '回答已成对留痕；回答不等于验收，最终核可仍在原会话' };
     }
     case 'admin-audit': {
       return { entries: auth.readAudit(150).reverse() };

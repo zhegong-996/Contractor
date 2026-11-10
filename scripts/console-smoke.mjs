@@ -336,9 +336,9 @@ try {
   }
   check('allViewsRendered', rendered === views.length, { rendered, total: views.length });
 
-  // 主题切换（Element Plus dark：html.dark）。
+  // 主题切换（Element Plus dark：html.dark）。第五十九轮起主题按钮改为 .icon-btn（SVG 太阳/月亮）。
   const darkBefore = await evaluate(`document.documentElement.classList.contains('dark')`);
-  await evaluate(`[...document.querySelectorAll('.app-header button')].find(b => b.textContent.includes('☾') || b.textContent.includes('☀'))?.click()`);
+  await evaluate(`document.querySelector('.app-header .icon-btn')?.click()`);
   await delay(300);
   const darkAfter = await evaluate(`document.documentElement.classList.contains('dark')`);
   check('themeToggle', darkBefore !== darkAfter, { darkBefore, darkAfter });

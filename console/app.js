@@ -231,6 +231,33 @@
     template: `
       <div>
         <el-card shadow="never" style="margin-bottom:14px">
+          <template #header>
+            <div class="card-head">
+              <span>待答问题 · Agent 在等你</span>
+              <el-button size="small" @click="loadHitl" :loading="hitlLoading">刷新</el-button>
+            </div>
+          </template>
+          <el-alert v-if="hitl.__error" :title="'读取失败：' + hitl.__error" type="warning" :closable="false" />
+          <template v-else>
+            <div v-if="!hitl.pending || !hitl.pending.length" class="field-hint">当前没有待你回答的问题。Agent 卡在人工确认步骤时，问题会出现在这里，你选一个选项回答即可。</div>
+            <div v-for="q in hitl.pending" :key="q.id" class="hitl-item">
+              <div class="hitl-q">
+                <span class="tl-kind tl-human">待回答</span>
+                <span class="hitl-prompt">{{ q.prompt }}</span>
+              </div>
+              <div class="hitl-meta">{{ fmtTime(q.at) }} · 问题号 {{ (q.id || '').slice(0, 12) }}<template v-if="q.asker"> · 由 {{ q.asker }} 提问</template></div>
+              <div class="hitl-actions">
+                <el-radio-group v-model="astate(q).choice">
+                  <el-radio-button v-for="c in (q.choices || [])" :key="c" :value="c">{{ c }}</el-radio-button>
+                </el-radio-group>
+                <el-input v-model="astate(q).note" placeholder="补充说明（可选）" size="small" style="max-width:220px" />
+                <el-button type="primary" size="small" :loading="astate(q).busy" :disabled="!astate(q).choice" @click="answer(q)">提交回答</el-button>
+              </div>
+              <div class="field-hint">回答只是把答案送回提问方并留痕，不等于验收；最终核可仍在原会话完成。</div>
+            </div>
+          </template>
+        </el-card>
+        <el-card shadow="never" style="margin-bottom:14px">
           <template #header>任务与责任链</template>
           <el-alert v-if="summary.__error" :title="'读取失败：' + summary.__error" type="warning" :closable="false" />
           <el-table v-else :data="tasks" size="default" @row-click="openTask">
@@ -247,6 +274,12 @@
             </el-table-column>
             <el-table-column label="阶段" width="110">
               <template #default="{ row }"><el-tag :type="phaseTag(row.phase)" effect="light">{{ phaseLabel(row.phase) }}</el-tag></template>
+            </el-table-column>
+            <el-table-column v-if="canControlTask" label="操作" width="150" fixed="right">
+              <template #default="{ row }">
+                <el-button v-if="resumable(row)" size="small" type="primary" plain @click.stop="controlTask(row, '接续')">接续</el-button>
+                <el-button v-else-if="pausable(row)" size="small" type="warning" plain @click.stop="controlTask(row, '暂停')">暂停</el-button>
+              </template>
             </el-table-column>
           </el-table>
         </el-card>
@@ -370,10 +403,14 @@
           <div v-else class="field-hint">这条任务还没有时间线记录</div>
         </el-drawer>
       </div>`,
-    setup() {
+    setup(props) {
       const summary = ref({}), routing = ref({}), registry = ref({}), evolution = ref({}), execution = ref({});
       const taskDrawer = ref(false); const current = ref(null);
       const timeline = ref({}); const timelineLoading = ref(false);
+      // 第六十轮：待答问题操作区（真人回答 Agent 提出的人工问题）+ 任务接续/暂停。
+      const hitl = ref({}); const hitlLoading = ref(false);
+      const answerState = reactive({});
+      const canControlTask = computed(() => (props.session?.permissions ?? []).includes('task-control'));
       const tasks = computed(() => Array.isArray(summary.value.tasks) ? summary.value.tasks : []);
       const router = computed(() => routing.value.router ?? {});
       const coverage = computed(() => routing.value.routerCoverage ?? {});
@@ -396,15 +433,46 @@
         timeline.value = await safe('task-timeline', { taskId: row.id || row.identifier }); timelineLoading.value = false; };
       const tlType = k => ({ human: 'primary', agent: 'success', system: 'info' }[k] || 'info');
       const tlKind = k => ({ human: '人', agent: 'Agent', system: '系统' }[k] || '系统');
+      const load = async () => { summary.value = await safe('view-summary'); };
+      const loadHitl = async () => { hitlLoading.value = true; hitl.value = await safe('admin-hitl'); hitlLoading.value = false; };
+      const astate = q => {
+        if (!answerState[q.id]) answerState[q.id] = { choice: '', note: '', busy: false };
+        return answerState[q.id];
+      };
+      const answer = async q => {
+        const st = astate(q);
+        if (!st.choice || st.busy) return;
+        st.busy = true;
+        try {
+          const r = await api('admin-hitl-answer', { questionId: q.id, choice: st.choice, note: st.note });
+          ElementPlus.ElMessage.success('已回答（' + (r.autoResume && r.autoResume.ok ? '已自动排续跑闸' : '留痕完成，待续跑') + '）');
+          await loadHitl();
+        } catch (e) { ElementPlus.ElMessage.error(String(e.message || e)); }
+        finally { st.busy = false; }
+      };
+      const resumable = row => ['blocked', 'waiting', 'ready', 'failed'].includes(row.phase);
+      const pausable = row => ['running', 'in_progress', 'dispatched', 'intake', 'todo'].includes(row.phase);
+      const controlTask = async (row, command) => {
+        try {
+          await ElementPlus.ElMessageBox.confirm(`对任务「${row.title || row.identifier || row.id}」执行「${command}」？这会通过本机协作服务把指令送回该任务。`, '确认操作', { type: 'warning' });
+        } catch { return; }
+        try {
+          const r = await api('admin-task-control', { taskId: row.id || row.identifier, command });
+          ElementPlus.ElMessage.success(r.ok ? ('已' + command) : ('操作未成功：' + (r.response?.error || '未知原因')));
+          await load();
+        } catch (e) { ElementPlus.ElMessage.error(String(e.message || e)); }
+      };
       onMounted(async () => {
         const [s, r, g, e, x] = await Promise.all([
           safe('view-summary'), safe('routing-status'), safe('v06-agent-registry-view'),
           safe('v06-evolution-view'), safe('v06-execution-view')]);
         summary.value = s; routing.value = r; registry.value = g; evolution.value = e; execution.value = x;
+        loadHitl();
       });
       return { summary, tasks, routing, router, coverage, threeTier, shapeReady, registry, agents, evolution, candidates,
         comparison, execution, missing, missingText, domainText, phaseLabel, phaseTag, openTask, taskDrawer, current,
-        clean, dutyText, fmtTime, agentLabel, timeline, timelineLoading, tlType, tlKind };
+        clean, dutyText, fmtTime, agentLabel, timeline, timelineLoading, tlType, tlKind,
+        hitl, hitlLoading, astate, answer, loadHitl, canControlTask, resumable, pausable, controlTask };
     },
   };
 
@@ -454,6 +522,10 @@
             <el-row :gutter="14" v-loading="loading">
               <el-col v-for="item in filteredItems" :key="item.key" :xs="24" :sm="12" :md="8" style="margin-bottom:14px">
                 <el-card shadow="hover" class="kb-card" @click="openEdit(item)">
+                  <div class="kb-ops" v-if="canEdit(item) || canDelete(item)">
+                    <el-button v-if="canEdit(item)" size="small" text type="primary" @click.stop="openEdit(item)">编辑</el-button>
+                    <el-button v-if="canDelete(item)" size="small" text type="danger" @click.stop="remove(item)">撤回</el-button>
+                  </div>
                   <div class="kb-card-head">
                     <el-tag :type="visTag(item.visibility)" effect="light" size="small">{{ visLabel(item.visibility) }}</el-tag>
                     <el-tag v-if="item.state !== 'confirmed'" :type="item.state === 'withdrawn' ? 'info' : 'warning'" effect="plain" size="small">{{ stateLabel(item.state) }}</el-tag>
@@ -1523,6 +1595,7 @@
                 <div class="r">{{ session.roleLabel }}</div>
               </div>
             </div>
+            <div class="aside-hint">发起任务请回到飞书</div>
           </div>
         </el-aside>
         <el-container>
