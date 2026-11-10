@@ -6,6 +6,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import readline from 'node:readline';
 import path from 'node:path';
 import { loadConfig, runtime, secrets } from './config.ts';
+import { executionsOf, executionRollup } from './agent-execution.ts';
 import{Development}from'./development.ts';
 import { Github } from './github.ts';
 import { LocalGitDelivery } from './local-git.ts';
@@ -763,7 +764,21 @@ const server = createServer(async (req, res) => {
             : assistant.available()
               ? { key: assistant.key, label: String(config.agents[assistant.key]?.name ?? assistant.key), kind: 'assistant' }
               : null;
-          return { ...summary, myAgent };
+          // 第六十七轮：把 mode 接成真实语义——每个任务标出承接人是「自动执行」还是「人工接单」，
+          // 「我的助手」也带上同口径的执行语义，供前端如实展示，不再让 mode 停在配置里空转。
+          const executions = executionsOf(config.agents);
+          const execByKey = new Map(executions.map(e => [e.key, e] as const));
+          const myExec = myAgent ? execByKey.get(myAgent.key) ?? null : null;
+          return {
+            ...summary,
+            myAgent: myAgent
+              ? { ...myAgent, execution: myExec
+                  ? { kind: myExec.kind, readOnly: myExec.readOnly, reason: myExec.reason }
+                  : null }
+              : null,
+            tasks: summary.tasks.map(t => ({ ...t, agentKind: execByKey.get(t.agent ?? '')?.kind ?? null })),
+            agentRollup: executionRollup(executions),
+          };
         }
         // 第五十六轮 · 任务时间线：把某任务的审计事件翻译成「人 / Agent / 系统」三类。
         if (action === 'task-timeline') {

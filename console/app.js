@@ -341,15 +341,29 @@
           <el-col :xs="24" :md="12" style="margin-bottom:14px">
             <el-card shadow="never" class="contract-card">
               <template #header>
-                <div class="card-head"><span>执行负载</span><el-tag size="small" type="primary" effect="plain">{{ registry.onDuty || 0 }} 个 Agent 在岗</el-tag></div>
+                <div class="card-head">
+                  <span>执行负载</span>
+                  <el-tag v-if="registry.onDuty" size="small" type="primary" effect="plain">{{ registry.onDuty }} 个编制在岗</el-tag>
+                  <el-tag v-else size="small" type="info" effect="plain" title="组织编制（谁担什么职责）还没配，但执行端可派单">
+                    编制未配置 · {{ (summary.agentRollup?.auto ?? 0) + (summary.agentRollup?.human ?? 0) }} 个执行端可用
+                  </el-tag>
+                </div>
               </template>
               <el-descriptions :column="2" border size="small">
                 <el-descriptions-item label="执行形态">{{ execution.modeLabel || '常驻循环' }}</el-descriptions-item>
                 <el-descriptions-item label="单步模式">{{ execution.steppedReady ? '已启用' : '未启用' }}</el-descriptions-item>
                 <el-descriptions-item label="状态队列">{{ execution.queue || '未接入' }}</el-descriptions-item>
                 <el-descriptions-item label="单任务最多步数">{{ execution.maxStepsPerRun ?? 60 }}</el-descriptions-item>
+                <el-descriptions-item label="执行构成">
+                  <span class="exec-mix"><b class="exec-auto">{{ summary.agentRollup?.auto ?? 0 }}</b> 自动 ·
+                    <b class="exec-human">{{ summary.agentRollup?.human ?? 0 }}</b> 人工</span>
+                </el-descriptions-item>
+                <el-descriptions-item label="配置缺口">
+                  <el-tag v-if="summary.agentRollup?.problems" size="small" type="warning" effect="plain">{{ summary.agentRollup.problems }} 条</el-tag>
+                  <span v-else class="hint-text">无</span>
+                </el-descriptions-item>
               </el-descriptions>
-              <div class="hint-text" style="margin-top:8px">Agent 编制与长程执行形态，来自组织配置；点侧栏「协作」看完整编制与红线。</div>
+              <div class="hint-text" style="margin-top:8px">「自动」= 平台起进程自己跑完；「人工」= 派给人在外部接单。编制与执行形态来自组织配置，点侧栏「协作」看完整编制与红线。</div>
             </el-card>
           </el-col>
         </el-row>
@@ -365,8 +379,12 @@
                 </div>
               </template>
             </el-table-column>
-            <el-table-column prop="agent" label="负责" width="120">
-              <template #default="{ row }"><el-tag size="small" effect="plain">{{ agentLabel(row.agent) }}</el-tag></template>
+            <el-table-column prop="agent" label="负责" width="150">
+              <template #default="{ row }">
+                <el-tag size="small" effect="plain">{{ agentLabel(row.agent) }}</el-tag>
+                <el-tag v-if="row.agentKind === 'human'" size="small" type="info" effect="plain" style="margin-left:4px"
+                  title="人工接单：等人在外部完成，平台不自动推进">人工</el-tag>
+              </template>
             </el-table-column>
             <el-table-column label="阶段" width="110">
               <template #default="{ row }"><el-tag :type="phaseTag(row.phase)" effect="light">{{ phaseLabel(row.phase) }}</el-tag></template>
@@ -462,7 +480,11 @@
               <template #default="{ row }"><div class="task-cell"><div class="task-id">{{ row.identifier }}</div><el-link type="primary" class="task-title">{{ row.title }}</el-link></div></template>
             </el-table-column>
             <el-table-column label="阶段" width="110"><template #default="{ row }"><el-tag :type="phaseTag(row.phase)" size="small" effect="light">{{ phaseLabel(row.phase) }}</el-tag></template></el-table-column>
-            <el-table-column label="负责" width="120"><template #default="{ row }"><el-tag size="small" effect="plain">{{ agentLabel(row.agent) }}</el-tag></template></el-table-column>
+            <el-table-column label="负责" width="150"><template #default="{ row }">
+              <el-tag size="small" effect="plain">{{ agentLabel(row.agent) }}</el-tag>
+              <el-tag v-if="row.agentKind === 'human'" size="small" type="info" effect="plain" style="margin-left:4px"
+                title="人工接单：等人在外部完成，平台不自动推进">人工</el-tag>
+            </template></el-table-column>
           </el-table>
         </el-card>
         <el-empty v-if="nothing" description="当前没有等你处理的事，一切都在自动推进中" />
@@ -561,6 +583,11 @@
             <div class="feed-avatar fa-human" style="width:26px;height:26px;font-size:12px">我</div>
             <span class="my-agent-label">我的助手</span>
             <el-tag size="small" effect="light" type="primary">{{ myAgent.label }}</el-tag>
+            <el-tag v-if="myAgent.execution" size="small" effect="plain"
+              :type="myAgent.execution.kind === 'auto' ? 'success' : 'info'"
+              :title="myAgent.execution.reason">
+              {{ myAgent.execution.kind === 'auto' ? (myAgent.execution.readOnly ? '自动执行 · 只读' : '自动执行') : '人工接单' }}
+            </el-tag>
           </div>
           <div class="my-agent" v-else>
             <span class="my-agent-label">未绑定个人 Agent · 请管理员在「组织」里为你开通</span>
@@ -760,6 +787,29 @@
                 <el-descriptions-item label="验收">仍走本机服务与逐项报告</el-descriptions-item>
                 <el-descriptions-item label="红线">独立评审者不等于产出方；最终由原发起人确认验收</el-descriptions-item>
               </el-descriptions>
+              <div v-if="execRollup" class="exec-block">
+                <div class="exec-block-head">
+                  <span class="exec-block-title">执行端</span>
+                  <span class="exec-mix">
+                    <b class="exec-auto">{{ execRollup.auto }}</b> 自动 ·
+                    <b class="exec-human">{{ execRollup.human }}</b> 人工 ·
+                    <span class="exec-off">{{ execRollup.disabled }} 停用</span>
+                  </span>
+                </div>
+                <div class="hint-text" style="margin-bottom:8px">编制回答「谁有资格接」，执行端回答「跑不跑得起来」——两套 key 空间，不互相覆写。</div>
+                <div v-for="e in liveExecs" :key="e.key" class="list-row">
+                  <div class="list-row-head">
+                    <span class="list-row-title">{{ e.name }}</span>
+                    <el-tag size="small" :type="e.kind === 'auto' ? 'success' : 'info'" effect="plain"
+                      :title="e.reason">{{ e.kind === 'auto' ? (e.readOnly ? '自动·只读' : '自动') : '人工' }}</el-tag>
+                  </div>
+                  <div class="list-row-detail">{{ e.reason }}</div>
+                </div>
+                <div v-if="problemExecs.length" class="exec-problem">
+                  <span class="exec-problem-title">配置缺口</span>
+                  <div v-for="p in problemExecs" :key="p.key" class="list-row-detail">{{ p.key }} · {{ p.problem }}</div>
+                </div>
+              </div>
             </el-card>
           </el-col>
           <el-col :xs="24" :md="12" style="margin-bottom:14px">
@@ -845,8 +895,12 @@
                 </div>
               </template>
             </el-table-column>
-            <el-table-column prop="agent" label="负责" width="120">
-              <template #default="{ row }"><el-tag size="small" effect="plain">{{ agentLabel(row.agent) }}</el-tag></template>
+            <el-table-column prop="agent" label="负责" width="150">
+              <template #default="{ row }">
+                <el-tag size="small" effect="plain">{{ agentLabel(row.agent) }}</el-tag>
+                <el-tag v-if="row.agentKind === 'human'" size="small" type="info" effect="plain" style="margin-left:4px"
+                  title="人工接单：等人在外部完成，平台不自动推进">人工</el-tag>
+              </template>
             </el-table-column>
             <el-table-column label="阶段" width="110">
               <template #default="{ row }"><el-tag :type="phaseTag(row.phase)" effect="light">{{ phaseLabel(row.phase) }}</el-tag></template>
@@ -941,11 +995,18 @@
         summary.value = s; routing.value = r; registry.value = g; evolution.value = e; execution.value = x;
         loadHitl();
       });
+      // 第六十七轮：执行端语义（auto / human）来自 v06-agent-registry-view 的 executions，
+      // 与「编制」分开呈现——编制空不等于没有执行引擎，反之亦然。
+      const execRollup = computed(() => registry.value?.executionRollup ?? null);
+      const liveExecs = computed(() => (Array.isArray(registry.value?.executions) ? registry.value.executions : [])
+        .filter(e => e.enabled));
+      const problemExecs = computed(() => (Array.isArray(registry.value?.executions) ? registry.value.executions : [])
+        .filter(e => e.problem));
       return { summary, tasks, routing, router, coverage, threeTier, shapeReady, registry, agents, evolution, candidates,
         comparison, execution, missing, missingText, domainText, phaseLabel, phaseTag, openTask, taskDrawer, current,
         clean, dutyText, fmtTime, agentLabel, timeline, timelineLoading, tlType, tlKind,
         hitl, hitlLoading, astate, answer, loadHitl, canControlTask, resumable, pausable, controlTask,
-        activeTab, taskQuery, taskFilter, filteredTasks, phaseOptions };
+        activeTab, taskQuery, taskFilter, filteredTasks, phaseOptions, execRollup, liveExecs, problemExecs };
     },
   };
 

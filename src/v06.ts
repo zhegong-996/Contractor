@@ -35,6 +35,7 @@ import { signatureFor } from './routing-decision.ts';
 import { getRouter } from './router.ts';
 import { getAgentRegistry, registrySummary, onDuty, agentVersion, reviewCrew,
   type ReviewCrewQuery } from './agent-registry.ts';
+import { executionsOf, executionRollup } from './agent-execution.ts';
 import { recordMemory, readBridgedEvents, sourceEventId, sourceKey } from './memory-log.ts';
 import { replayMemory } from './memory-projections.ts';
 import { EvolutionService, defaultEvolutionDeps, isEvolutionAction } from './evolution.ts';
@@ -399,12 +400,16 @@ export class V06Services {
   /** 展示在岗 Agent、职责槽位、生效范围与版本；内部标识不外露给用户层。 */
   agentRegistryView() {
     const registry = getAgentRegistry();
+    // 第六十七轮：编制（谁有资格接）与执行语义（跑不跑得起来）是两套 key 空间，
+    // 分开返回、各自诚实——组织编制默认空不代表没有执行引擎，反之亦然。
+    const executions = executionsOf(loadConfig().agents);
     return { ...registrySummary(registry),
       agents: onDuty(registry).map(agent => ({
         key: agent.key, label: agent.label,
         responsibilities: [...agent.responsibilities], domains: [...agent.domains],
         version: agentVersion(agent),
-      })) };
+      })),
+      executions, executionRollup: executionRollup(executions) };
   }
   /** 按配置解析这一单的验收协作编组；空编制如实降级，不硬造验收 Agent。 */
   acceptanceCrew(query: Partial<ReviewCrewQuery> = {}) {
