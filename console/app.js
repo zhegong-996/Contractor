@@ -164,6 +164,36 @@
             </div>
           </div>
         </div>
+        <el-row v-if="mode !== 'collaboration'" :gutter="14" style="margin-bottom:14px">
+          <el-col :xs="24" :md="12" style="margin-bottom:14px">
+            <el-card shadow="never" class="contract-card">
+              <template #header>
+                <div class="card-head"><span>系统健康</span><el-tag :type="healthTag" size="small" effect="light">{{ healthLabel }}</el-tag></div>
+              </template>
+              <div class="sys-chips">
+                <span class="sys-chip sys-ok">{{ health.connected }} 接通</span>
+                <span class="sys-chip sys-warn">{{ health.degraded }} 降级</span>
+                <span class="sys-chip sys-bad">{{ health.unavailable }} 未接通</span>
+                <span class="sys-chip sys-muted">共 {{ health.total }} 项</span>
+              </div>
+              <div class="hint-text" style="margin-top:8px">本机协作服务与出站通道的实时健康；点侧栏「服务」看逐项明细与实时探测。</div>
+            </el-card>
+          </el-col>
+          <el-col :xs="24" :md="12" style="margin-bottom:14px">
+            <el-card shadow="never" class="contract-card">
+              <template #header>
+                <div class="card-head"><span>执行负载</span><el-tag size="small" type="primary" effect="plain">{{ registry.onDuty || 0 }} 个 Agent 在岗</el-tag></div>
+              </template>
+              <el-descriptions :column="2" border size="small">
+                <el-descriptions-item label="执行形态">{{ execution.modeLabel || '常驻循环' }}</el-descriptions-item>
+                <el-descriptions-item label="单步模式">{{ execution.steppedReady ? '已启用' : '未启用' }}</el-descriptions-item>
+                <el-descriptions-item label="状态队列">{{ execution.queue || '未接入' }}</el-descriptions-item>
+                <el-descriptions-item label="单任务最多步数">{{ execution.maxStepsPerRun ?? 60 }}</el-descriptions-item>
+              </el-descriptions>
+              <div class="hint-text" style="margin-top:8px">Agent 编制与长程执行形态，来自组织配置；点侧栏「协作」看完整编制与红线。</div>
+            </el-card>
+          </el-col>
+        </el-row>
         <el-card shadow="never">
           <template #header>{{ mode === 'collaboration' ? '任务与责任链' : '最近任务' }}</template>
           <el-alert v-if="summary.__error" :title="'读取失败：' + summary.__error" type="warning" :closable="false" />
@@ -198,6 +228,15 @@
     setup(props) {
       const summary = ref({}); const loading = ref(true); const taskDrawer = ref(false); const current = ref(null);
       const timeline = ref({}); const timelineLoading = ref(false);
+      // 第六十四轮：概览加「系统健康 / 执行负载」机器维度。
+      const services = ref({}); const registry = ref({}); const execution = ref({});
+      const health = computed(() => {
+        const list = Array.isArray(services.value.services) ? services.value.services : [];
+        const count = state => list.filter(s => s.state === state).length;
+        return { connected: count('connected'), degraded: count('degraded'), unavailable: count('unavailable'), total: list.length };
+      });
+      const healthTag = computed(() => health.value.unavailable ? 'danger' : health.value.degraded ? 'warning' : 'success');
+      const healthLabel = computed(() => health.value.unavailable ? '有服务未接通' : health.value.degraded ? '有服务降级' : '全部正常');
       const tasks = computed(() => Array.isArray(summary.value.tasks) ? summary.value.tasks : []);
       const statCards = computed(() => {
         const need = { blocked: 0, review: 0, waiting: 0, ready: 0, running: 0, in_progress: 0, dispatched: 0, intake: 0, todo: 0, delivered: 0, accepted: 0, closed: 0 };
@@ -217,13 +256,18 @@
         intake: '待接入', dispatched: '已派单', in_progress: '进行中', review: '待评审', ready: '待人处理', accepted: '已验收', closed: '已结束', draft: '草稿' }[p] || p || '—');
       const phaseTag = p => ({ running: 'primary', waiting: 'warning', delivered: 'success', failed: 'danger', blocked: 'danger',
         ready: 'warning', accepted: 'success', review: 'warning', closed: 'info', draft: 'info', dispatched: 'primary', intake: 'info', in_progress: 'primary', todo: 'info' }[p] || 'info');
-      const load = async () => { loading.value = true; summary.value = await safe('view-summary'); loading.value = false; };
+      const load = async () => {
+        loading.value = true;
+        const [s, sv, rg, ex] = await Promise.all([safe('view-summary'), safe('service-status'), safe('v06-agent-registry-view'), safe('v06-execution-view')]);
+        summary.value = s; services.value = sv; registry.value = rg; execution.value = ex; loading.value = false;
+      };
       const openTask = async row => { current.value = row; taskDrawer.value = true; timeline.value = {}; timelineLoading.value = true;
         timeline.value = await safe('task-timeline', { taskId: row.id || row.identifier }); timelineLoading.value = false; };
       const tlType = k => ({ human: 'primary', agent: 'success', system: 'info' }[k] || 'info');
       const tlKind = k => ({ human: '人', agent: 'Agent', system: '系统' }[k] || '系统');
       onMounted(load);
-      return { summary, loading, tasks, statCards, phaseLabel, phaseTag, load, openTask, taskDrawer, current, fmtTime, agentLabel, timeline, timelineLoading, tlType, tlKind };
+      return { summary, loading, tasks, statCards, phaseLabel, phaseTag, load, openTask, taskDrawer, current, fmtTime, agentLabel, timeline, timelineLoading, tlType, tlKind,
+        services, registry, execution, health, healthTag, healthLabel };
     },
   };
 
@@ -234,62 +278,92 @@
       <div>
         <div class="welcome-bar">
           <div class="welcome-title">协作现场</div>
-          <div class="welcome-sub">这里把人和 Agent 最近的往来串成一条对话流；发起新任务仍请回飞书、直接对你的助手说。</div>
+          <div class="welcome-sub">左侧选任务，右侧看它的人 / Agent 往来；发起新任务仍请回飞书、直接对你的助手说。</div>
         </div>
+        <el-card v-if="hitl.pending && hitl.pending.length" shadow="never" style="margin-bottom:14px">
+          <template #header>
+            <div class="card-head"><span>待答问题 · Agent 在等你</span><el-button size="small" @click="loadHitl" :loading="hitlLoading">刷新</el-button></div>
+          </template>
+          <div v-for="q in hitl.pending" :key="q.id" class="hitl-item">
+            <div class="hitl-q"><span class="tl-kind tl-human">待回答</span><span class="hitl-prompt">{{ q.prompt }}</span></div>
+            <div class="hitl-meta">{{ fmtTime(q.at) }} · 问题号 {{ (q.id || '').slice(0, 12) }}<template v-if="q.asker"> · 由 {{ q.asker }} 提问</template></div>
+            <div class="hitl-actions">
+              <el-radio-group v-model="astate(q).choice">
+                <el-radio-button v-for="c in (q.choices || [])" :key="c" :value="c">{{ c }}</el-radio-button>
+              </el-radio-group>
+              <el-button type="primary" size="small" :loading="astate(q).busy" :disabled="!astate(q).choice" @click="answer(q)">回答</el-button>
+            </div>
+            <div class="field-hint">回答不等于验收，最终核可仍在原会话。</div>
+          </div>
+        </el-card>
         <el-card shadow="never">
           <template #header>
-            <div class="card-head">
-              <span>对话现场</span>
-              <el-button size="small" @click="load" :loading="loading">刷新</el-button>
-            </div>
+            <div class="card-head"><span>按任务看协作往来</span><el-button size="small" @click="loadSummary" :loading="loading">刷新</el-button></div>
           </template>
-          <el-alert v-if="feed.__error" :title="'读取失败：' + feed.__error" type="warning" :closable="false" />
-          <el-skeleton v-else-if="loading" :rows="6" animated style="padding:4px 0" />
-          <div v-else class="feed">
-            <div v-for="q in hitl.pending" :key="'q' + q.id" class="feed-item feed-agent">
-              <div class="feed-avatar fa-agent">A</div>
-              <div class="feed-bubble">
-                <div class="feed-meta"><span class="tl-kind tl-agent">Agent</span><span class="feed-label">需要你回答</span></div>
-                <div class="feed-title">{{ q.prompt }}</div>
-                <div class="feed-actions">
-                  <el-radio-group v-model="astate(q).choice">
-                    <el-radio-button v-for="c in (q.choices || [])" :key="c" :value="c">{{ c }}</el-radio-button>
-                  </el-radio-group>
-                  <el-button type="primary" size="small" :loading="astate(q).busy" :disabled="!astate(q).choice" @click="answer(q)">回答</el-button>
+          <el-row :gutter="14">
+            <el-col :xs="24" :md="7">
+              <el-input v-model="query" placeholder="搜索任务号 / 标题" aria-label="搜索任务" size="small" clearable style="margin-bottom:8px" />
+              <div class="conv-list">
+                <div v-for="t in filteredTasks" :key="t.id" class="conv-item" :class="{ active: t.id === activeId }" tabindex="0" @click="open(t)" @keyup.enter="open(t)">
+                  <div class="task-id">{{ t.identifier || t.id }}</div>
+                  <div class="conv-title">{{ t.title || '（无标题）' }}</div>
+                  <el-tag :type="phaseTag(t.phase)" size="small" effect="light">{{ phaseLabel(t.phase) }}</el-tag>
                 </div>
-                <div class="field-hint">回答不等于验收，最终核可仍在原会话。</div>
+                <div v-if="!filteredTasks.length" class="field-hint">没有匹配的任务</div>
               </div>
-            </div>
-            <div v-for="(e, i) in entries" :key="i" class="feed-item" :class="'feed-' + e.kind">
-              <template v-if="e.kind === 'system'">
-                <span class="feed-system">{{ e.label }}<template v-if="e.detail"> · {{ e.detail }}</template><template v-if="e.taskTitle"> · {{ short(e.taskTitle, 40) }}</template></span>
-              </template>
-              <template v-else>
-                <div class="feed-avatar" :class="'fa-' + e.kind">{{ e.kind === 'human' ? '我' : 'A' }}</div>
-                <div class="feed-bubble">
-                  <div class="feed-meta">
-                    <span class="tl-kind" :class="'tl-' + e.kind">{{ kindLabel(e.kind) }}</span>
-                    <span class="feed-label">{{ e.label }}</span>
-                    <span class="feed-time">{{ e.at ? fmtTime(e.at) : '' }}</span>
-                  </div>
-                  <div class="feed-title" v-if="e.taskTitle">{{ e.taskTitle }}</div>
-                  <div class="feed-detail" v-if="e.detail">{{ e.detail }}</div>
+            </el-col>
+            <el-col :xs="24" :md="17">
+              <div v-if="!activeId" class="field-hint" style="padding:20px 0">从左侧选一个任务，看它的人 / Agent 往来。</div>
+              <div v-else-if="timelineLoading" class="field-hint">正在加载这条任务的对话…</div>
+              <div v-else class="feed">
+                <div v-for="(e, i) in entries" :key="i" class="feed-item" :class="'feed-' + e.kind">
+                  <template v-if="e.kind === 'system'">
+                    <span class="feed-system">{{ e.label }}<template v-if="e.detail"> · {{ e.detail }}</template></span>
+                  </template>
+                  <template v-else>
+                    <div class="feed-avatar" :class="'fa-' + e.kind">{{ e.kind === 'human' ? '我' : 'A' }}</div>
+                    <div class="feed-bubble">
+                      <div class="feed-meta">
+                        <span class="tl-kind" :class="'tl-' + e.kind">{{ kindLabel(e.kind) }}</span>
+                        <span class="feed-label">{{ e.label }}</span>
+                        <span class="feed-time">{{ e.at ? fmtTime(e.at) : '' }}</span>
+                      </div>
+                      <div class="feed-detail" v-if="e.detail">{{ e.detail }}</div>
+                    </div>
+                  </template>
                 </div>
-              </template>
-            </div>
-            <div v-if="!hitl.pending.length && !entries.length" class="field-hint">还没有协作动态。任务跑起来后，这里会串起人和 Agent 的往来。</div>
-          </div>
+                <div v-if="!entries.length" class="field-hint">这条任务还没有对话记录</div>
+              </div>
+            </el-col>
+          </el-row>
         </el-card>
       </div>`,
     setup() {
-      const feed = ref({}); const loading = ref(true);
-      const hitl = ref({}); const answerState = reactive({});
-      const entries = computed(() => Array.isArray(feed.value.entries) ? feed.value.entries : []);
-      const load = async () => {
-        loading.value = true;
-        const [f, h] = await Promise.all([safe('conversation-feed'), safe('admin-hitl')]);
-        feed.value = f; hitl.value = h; loading.value = false;
+      const summary = ref({}); const loading = ref(true);
+      const hitl = ref({}); const hitlLoading = ref(false);
+      const answerState = reactive({});
+      const activeId = ref(''); const timeline = ref({}); const timelineLoading = ref(false);
+      const query = ref('');
+      const tasks = computed(() => Array.isArray(summary.value.tasks) ? summary.value.tasks : []);
+      const filteredTasks = computed(() => {
+        const q = query.value.trim().toLowerCase();
+        if (!q) return tasks.value;
+        return tasks.value.filter(t => ((t.identifier ?? '') + ' ' + (t.title ?? '')).toLowerCase().includes(q));
+      });
+      const entries = computed(() => Array.isArray(timeline.value.entries) ? timeline.value.entries : []);
+      const openTimeline = async t => {
+        timelineLoading.value = true; timeline.value = {};
+        timeline.value = await safe('task-timeline', { taskId: t.id || t.identifier });
+        timelineLoading.value = false;
       };
+      const open = t => { activeId.value = t.id; openTimeline(t); };
+      const loadSummary = async () => {
+        loading.value = true;
+        summary.value = await safe('view-summary', { limit: 50 });
+        if (!activeId.value && tasks.value.length) { activeId.value = tasks.value[0].id; await openTimeline(tasks.value[0]); }
+        loading.value = false;
+      };
+      const loadHitl = async () => { hitlLoading.value = true; hitl.value = await safe('admin-hitl'); hitlLoading.value = false; };
       const astate = q => { if (!answerState[q.id]) answerState[q.id] = { choice: '', busy: false }; return answerState[q.id]; };
       const answer = async q => {
         const st = astate(q);
@@ -298,14 +372,18 @@
         try {
           await api('admin-hitl-answer', { questionId: q.id, choice: st.choice });
           ElementPlus.ElMessage.success('已回答');
-          await load();
+          await loadHitl();
         } catch (e) { ElementPlus.ElMessage.error(String(e.message || e)); }
         finally { st.busy = false; }
       };
       const kindLabel = k => ({ human: '人', agent: 'Agent', system: '系统' }[k] || '系统');
-      const short = (v, n) => { const s = String(v ?? ''); return s.length > n ? s.slice(0, n) + '…' : s; };
-      onMounted(load);
-      return { feed, entries, loading, load, hitl, astate, answer, kindLabel, short, fmtTime };
+      const phaseLabel = p => ({ running: '进行中', waiting: '等待', delivered: '已交付', failed: '失败', todo: '待办', blocked: '受阻',
+        intake: '待接入', dispatched: '已派单', in_progress: '进行中', review: '待评审', ready: '待人处理', accepted: '已验收', closed: '已结束', draft: '草稿' }[p] || p || '—');
+      const phaseTag = p => ({ running: 'primary', waiting: 'warning', delivered: 'success', failed: 'danger', blocked: 'danger',
+        ready: 'warning', accepted: 'success', review: 'warning', closed: 'info', draft: 'info', dispatched: 'primary', intake: 'info', in_progress: 'primary', todo: 'info' }[p] || 'info');
+      onMounted(async () => { await loadSummary(); await loadHitl(); });
+      return { summary, tasks, filteredTasks, loading, loadSummary, hitl, hitlLoading, loadHitl, astate, answer,
+        activeId, timeline, timelineLoading, entries, open, query, kindLabel, phaseLabel, phaseTag, fmtTime };
     },
   };
 
@@ -837,8 +915,11 @@
                         <div class="list-row-detail">{{ row.criteria }}</div>
                       </template>
                     </el-table-column>
-                    <el-table-column label="证据" width="96">
-                      <template #default="{ row }">{{ evidenceText(row.evidenceKind) }}</template>
+                    <el-table-column label="证据" width="130">
+                      <template #default="{ row }">
+                        <span class="ev-media" :class="'ev-' + evidenceMedia(row.evidenceKind).tone">{{ evidenceMedia(row.evidenceKind).label }}</span>
+                        <span v-if="row.evidenceRefs.length" class="ev-count" :title="row.evidenceRefs.length + ' 条证据引用'">{{ row.evidenceRefs.length }} 条</span>
+                      </template>
                     </el-table-column>
                     <el-table-column label="判定" width="88">
                       <template #default="{ row }"><el-tag size="small" :type="statusTag(row.status)" effect="light">{{ statusText(row.status) }}</el-tag></template>
@@ -991,7 +1072,10 @@
       const statusText = s => ({ passed: '通过', failed: '打回', blocked: '阻断', pending: '待评审' }[s] || s);
       const statusTag = s => ({ passed: 'success', failed: 'danger', blocked: 'warning', pending: 'info' }[s] || 'info');
       const overallText = s => ({ passed: '全部通过', partial: '部分打回', blocked: '受阻' }[s] || s);
-      const evidenceText = s => ({ captured: '实跑捕获', imported: '导入', authored: '自撰' }[s] || s);
+      // 第六十四轮：证据媒体徽标（截图 / 日志 / 自撰，带颜色区分）。
+      const evidenceMedia = s => ({
+        captured: { label: '截图', tone: 'blue' }, imported: { label: '日志', tone: 'slate' }, authored: { label: '自撰', tone: 'amber' },
+      }[s] || { label: s || '无', tone: 'info' });
       // ---- 第四十一轮：区域点选 + 报告内讨论 -------------------------------
       // 区域只是定位信息，讨论只是旁听席：两者都不参与就绪判定与人签。
       const picked = ref(null);          // { itemId, index }；index 为 null 表示挂在整项
@@ -1081,7 +1165,7 @@
         if (tasks.value.length) { taskId.value = tasks.value[0].id; await load(); }
       });
       return { summary, data, taskId, tasks, errorText, statCards, planLine, shortHash, crewRows,
-        statusText, statusTag, overallText, evidenceText, load, fmtTime, dutyText,
+        statusText, statusTag, overallText, evidenceMedia, load, fmtTime, dutyText,
         picked, pickedItem, pickedRegions, pickedLabel, pickedRegionNote, boxStyle,
         thread, threadDigest, draft, posting, targetLabel, targetText,
         pickRegion, pickItem, pickReport, addComment, resolveComment };
