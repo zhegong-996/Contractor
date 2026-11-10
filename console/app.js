@@ -1107,9 +1107,13 @@
           <template #header>
             <div class="card-head">
               <span>语义检索（原生知识管线）</span>
-              <el-tag size="small" effect="plain" type="warning">外部模型调用</el-tag>
+              <div style="display:flex;gap:8px;align-items:center">
+                <el-tag size="small" effect="plain" type="warning">外部模型调用</el-tag>
+                <el-button size="small" text @click="searchOpen = !searchOpen">{{ searchOpen ? '收起' : '展开' }}</el-button>
+              </div>
             </div>
           </template>
+          <div v-show="searchOpen">
           <div class="field-hint" style="margin-bottom:10px">对已进入原生知识管线（cognify）的材料做语义检索：知识条目「生成图谱」后自动抽取，或命令行手动喂入。提问会发往所配置的外部模型服务汇总；结果为机器生成摘要，请核对原始资料。仅所有者与管理员可用。</div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
             <el-input v-model="search.query" placeholder="例如：支付模块有什么风险？谁负责前端？" style="max-width:420px" clearable @keyup.enter="runSearch" />
@@ -1122,21 +1126,89 @@
             <div v-if="!search.results.length" class="field-hint">没有召回结果——此数据集可能还没有 cognify 过材料；先在知识工作台对来源「生成图谱」（凭据就绪时会自动 cognify）。</div>
             <pre v-for="(r, i) in search.results" :key="i" class="code-block" style="margin-top:8px">{{ resultText(r) }}</pre>
           </template>
+          </div>
         </el-card>
-        <el-card shadow="never" style="margin-bottom:14px">
-          <template #header>
-            <div class="card-head">
-              <span>沉淀候选 · 从判定模式提炼</span>
-              <div style="display:flex;gap:8px;align-items:center">
-                <el-tag v-if="sediment.summary" size="small" type="success" effect="plain">{{ sediment.summary.complete }} 三层齐备</el-tag>
-                <el-tag v-if="sediment.summary && sediment.summary.incomplete" size="small" type="warning" effect="plain">{{ sediment.summary.incomplete }} 缺层</el-tag>
-                <el-button size="small" @click="loadSediment" :loading="sedimentLoading">重新提炼</el-button>
+        <div class="kb-layout">
+          <aside class="kb-side">
+            <div class="kb-side-head"><span>知识库</span></div>
+            <div v-for="lib in libraries" :key="lib.id" class="kb-lib" :class="{ active: activeLib === lib.id }" @click="activeLib = lib.id">
+              <div class="kb-lib-name">{{ lib.name }}</div>
+              <div class="kb-lib-meta">{{ lib.count }} 条 · 三层齐 {{ lib.complete }}</div>
+            </div>
+            <div class="kb-side-foot">
+              <el-button text size="small" @click="sedimentVisible = true">沉淀候选 {{ sedimentList.length }}</el-button>
+            </div>
+            <div class="kb-side-note">按归属分区（个人 / 协作 / 组织）。每条知识都该落满结构化、正文、图谱三层。</div>
+          </aside>
+          <section class="kb-main">
+            <div class="kb-toolbar">
+              <el-input v-model="kbQuery" placeholder="按标题或标识筛选" size="small" clearable style="max-width:240px" aria-label="筛选知识条目" />
+              <div style="display:flex;gap:8px">
+                <el-button size="small" @click="runGuard">知识体检</el-button>
+                <el-button type="primary" size="small" @click="openCreate" v-if="canWriteSome">新建知识</el-button>
               </div>
             </div>
-          </template>
+            <el-alert v-if="list.__error" :title="'读取失败：' + list.__error" type="warning" :closable="false" />
+            <template v-else>
+              <div v-if="libItems.length" class="kb-layer-audit">
+                当前库 {{ libItems.length }} 条 · 结构化 <b>{{ layerStats.structured }}</b> · 正文达标 <b>{{ layerStats.narrative }}</b>
+                <span v-if="layerStats.mostGap" class="kb-layer-gap">· 最缺「{{ layerStats.mostGap }}」{{ layerStats.mostGapCount }} 条</span>
+                <span v-else class="kb-layer-ok">· 全部三层齐备</span>
+              </div>
+              <el-table :data="libItems" v-loading="loading" size="default" @row-click="openView">
+                <el-table-column label="知识" min-width="200">
+                  <template #default="{ row }">
+                    <div class="task-cell">
+                      <div class="task-id">{{ row.key }}</div>
+                      <el-link type="primary" class="task-title">{{ row.title || '（无标题）' }}</el-link>
+                    </div>
+                  </template>
+                </el-table-column>
+                <el-table-column label="类型" width="72"><template #default="{ row }">{{ kindLabel(row.kind) }}</template></el-table-column>
+                <el-table-column label="状态" width="84">
+                  <template #default="{ row }">
+                    <el-tag size="small" :type="row.state === 'confirmed' ? 'success' : row.state === 'withdrawn' ? 'info' : 'warning'" effect="light">{{ stateLabel(row.state) }}</el-tag>
+                  </template>
+                </el-table-column>
+                <el-table-column label="三层" width="150">
+                  <template #default="{ row }">
+                    <span class="kb-layer" :class="{ on: row.factsCount > 0 }" :title="'结构化层 ' + (row.factsCount || 0) + ' 个字段'">结构化</span>
+                    <span class="kb-layer" :class="{ on: (row.bodyLength || 0) >= 80 }" :title="'非结构化层 ' + (row.bodyLength || 0) + ' 字'">正文</span>
+                    <span v-if="row.injected" class="kb-layer on" title="已提升到注入索引">注入</span>
+                  </template>
+                </el-table-column>
+                <el-table-column prop="owner" label="归属" width="120" show-overflow-tooltip />
+                <el-table-column label="更新" width="122"><template #default="{ row }">{{ fmtTime(row.updatedAt) }}</template></el-table-column>
+                <el-table-column label="操作" width="80" fixed="right">
+                  <template #default="{ row }">
+                    <el-dropdown trigger="click" @command="c => c === 'edit' ? openEdit(row) : remove(row)">
+                      <el-button size="small" text>操作</el-button>
+                      <template #dropdown>
+                        <el-dropdown-menu>
+                          <el-dropdown-item v-if="canEdit(row)" command="edit">编辑</el-dropdown-item>
+                          <el-dropdown-item v-if="canDelete(row)" command="remove">撤回</el-dropdown-item>
+                          <el-dropdown-item v-if="!canEdit(row) && !canDelete(row)" disabled>只读</el-dropdown-item>
+                        </el-dropdown-menu>
+                      </template>
+                    </el-dropdown>
+                  </template>
+                </el-table-column>
+              </el-table>
+              <div v-if="!libItems.length" class="field-hint">{{ kbQuery ? '没有匹配的知识条目' : '这个库还没有知识条目' }}</div>
+            </template>
+          </section>
+        </div>
+
+        <el-drawer v-model="sedimentVisible" title="沉淀候选 · 从判定模式提炼" size="620px">
           <div class="hint-text">
             从最近的判定账本里找出<b>重复出现</b>的模式，提炼成三层知识候选——结构化字段 + 叙事正文 + 图谱草稿边。孤例不算知识。
             这里只产候选，写进知识库仍要你审。
+          </div>
+          <div class="card-head" style="margin-bottom:10px">
+            <span style="font-size:12.5px;color:var(--el-text-color-secondary)">
+              共 {{ sedimentList.length }} 条<template v-if="sediment.summary"> · {{ sediment.summary.complete }} 条三层齐备</template>
+            </span>
+            <el-button size="small" @click="loadSediment" :loading="sedimentLoading">重新提炼</el-button>
           </div>
           <el-alert v-if="sediment.__error" :title="'提炼失败：' + sediment.__error" type="warning" :closable="false" />
           <div v-for="c in sedimentList" :key="c.id" class="sediment-item">
@@ -1158,58 +1230,7 @@
           <div v-if="!sedimentList.length && !sediment.__error" class="field-hint">
             最近的判定还不够多——同类判定出现 2 次以上才会成为候选。
           </div>
-        </el-card>
-        <el-card shadow="never" style="margin-bottom:14px">
-          <template #header>
-            <div class="card-head">
-              <span>知识条目（{{ items.length }}）</span>
-              <div>
-                <el-button size="small" @click="runGuard">跑知识体检（只读）</el-button>
-                <el-button type="primary" size="small" @click="openCreate" v-if="canWriteSome">新建知识</el-button>
-              </div>
-            </div>
-          </template>
-          <el-alert v-if="list.__error" :title="'读取失败：' + list.__error" type="warning" :closable="false" />
-          <template v-else>
-            <div v-if="items.length" class="kb-layer-audit">
-              三层体检：结构化 <b>{{ layerStats.structured }}</b>/{{ items.length }} 条 ·
-              正文达标 <b>{{ layerStats.narrative }}</b>/{{ items.length }} 条
-              <span v-if="layerStats.mostGap" class="kb-layer-gap">· 最缺「{{ layerStats.mostGap }}」{{ layerStats.mostGapCount }} 条</span>
-              <span v-else class="kb-layer-ok">· 全部三层齐备</span>
-            </div>
-            <el-tabs v-model="activeVis" style="margin-bottom:6px">
-              <el-tab-pane label="全部" name="all" />
-              <el-tab-pane label="个人区" name="personal" />
-              <el-tab-pane label="协作区" name="team" />
-              <el-tab-pane label="组织区" name="org" />
-            </el-tabs>
-            <el-row :gutter="14" v-loading="loading">
-              <el-col v-for="item in filteredItems" :key="item.key" :xs="24" :sm="12" :md="8" style="margin-bottom:14px">
-                <el-card shadow="hover" class="kb-card" @click="openView(item)">
-                  <div class="kb-ops">
-                    <el-button size="small" text @click.stop="openView(item)">查看</el-button>
-                    <el-button v-if="canEdit(item)" size="small" text type="primary" @click.stop="openEdit(item)">编辑</el-button>
-                    <el-button v-if="canDelete(item)" size="small" text type="danger" @click.stop="remove(item)">撤回</el-button>
-                  </div>
-                  <div class="kb-card-head">
-                    <el-tag :type="visTag(item.visibility)" effect="light" size="small">{{ visLabel(item.visibility) }}</el-tag>
-                    <el-tag v-if="item.state !== 'confirmed'" :type="item.state === 'withdrawn' ? 'info' : 'warning'" effect="plain" size="small">{{ stateLabel(item.state) }}</el-tag>
-                    <span class="kb-kind">{{ kindLabel(item.kind) }}</span>
-                  </div>
-                  <div class="kb-title">{{ item.title || item.key }}</div>
-                  <div class="kb-body">{{ item.bodyPreview || '（无正文）' }}</div>
-                  <div class="kb-layers">
-                    <span class="kb-layer" :class="{ on: item.factsCount > 0 }" :title="'结构化层：' + (item.factsCount || 0) + ' 个字段'">结构化 {{ item.factsCount || 0 }}</span>
-                    <span class="kb-layer" :class="{ on: item.bodyLength > 0 }" :title="'非结构化层：' + (item.bodyLength || 0) + ' 字正文'">正文 {{ item.bodyLength || 0 }} 字</span>
-                    <span v-if="item.injected" class="kb-layer on" title="已提升到注入索引">已注入</span>
-                  </div>
-                  <div class="kb-meta">{{ item.owner }} · {{ fmtTime(item.updatedAt) }}</div>
-                </el-card>
-              </el-col>
-            </el-row>
-            <div v-if="!filteredItems.length" class="field-hint">这个分区还没有知识条目</div>
-          </template>
-        </el-card>
+        </el-drawer>
         <el-card shadow="never">
           <template #header>知识体检（只读 advisory）</template>
           <pre class="code-block">{{ guardText }}</pre>
@@ -1249,20 +1270,50 @@
           </template>
         </el-dialog>
 
-        <el-dialog v-model="viewDialog" :title="viewing.title || '知识详情'" width="720px" top="6vh">
+        <el-dialog v-model="viewDialog" :title="viewing.title || '知识详情'" width="760px" top="6vh">
           <div class="kb-view-head">
             <el-tag size="small" effect="light">{{ kindLabel(viewing.kind) }}</el-tag>
             <el-tag v-if="viewing.meta" size="small" effect="plain" :type="visTag(viewing.meta.visibility)">{{ visLabel(viewing.meta.visibility) }}</el-tag>
             <el-tag v-if="viewing.meta && viewing.meta.state !== 'confirmed'" size="small" effect="plain" :type="viewing.meta.state === 'withdrawn' ? 'info' : 'warning'">{{ stateLabel(viewing.meta.state) }}</el-tag>
             <span class="list-row-meta">{{ viewing.meta ? viewing.meta.owner + ' · ' + fmtTime(viewing.meta.updatedAt) : '' }}</span>
           </div>
-          <div class="kb-view-body">{{ viewing.body || '（无正文）' }}</div>
-          <div v-if="viewing.sources && viewing.sources.length" class="kb-view-sources">
-            <div class="list-row-title" style="margin-bottom:4px">来源</div>
-            <div v-for="s in viewing.sources" :key="s" class="list-row-detail">· {{ s }}</div>
-          </div>
+          <el-tabs v-model="viewTab">
+            <el-tab-pane label="结构化" name="facts">
+              <div class="hint-text">字段化的事实，可被查询与校验；空表示这条知识只有叙述、没有可计算的部分。</div>
+              <el-descriptions v-if="viewFacts.length" :column="2" border size="small">
+                <el-descriptions-item v-for="f in viewFacts" :key="f.key" :label="f.key">{{ f.value }}</el-descriptions-item>
+              </el-descriptions>
+              <div v-else class="field-hint">没有结构化字段 —— 缺一层。</div>
+              <div class="hint-text" style="margin-top:10px">适用范围：{{ viewing.appliesTo || '（未声明）' }}</div>
+              <div class="hint-text" v-if="viewing.domains && viewing.domains.length">归属域：{{ viewing.domains.join('、') }}</div>
+            </el-tab-pane>
+            <el-tab-pane label="正文" name="body">
+              <div class="kb-view-body">{{ viewing.body || '（无正文）' }}</div>
+              <div v-if="viewing.sources && viewing.sources.length" class="kb-view-sources">
+                <div class="list-row-title" style="margin-bottom:4px">来源</div>
+                <div v-for="s in viewing.sources" :key="s" class="list-row-detail">· {{ s }}</div>
+              </div>
+            </el-tab-pane>
+            <el-tab-pane label="图谱" name="graph">
+              <div class="hint-text">这条知识在图谱里的关系边。草稿边不可作依据，只有人验收后才生效。</div>
+              <div v-if="viewEdges.length">
+                <div v-for="e in viewEdges" :key="e.id" class="list-row">
+                  <div class="list-row-head">
+                    <span class="list-row-title">{{ e.from }} → {{ e.to }}</span>
+                    <el-tag size="small" :type="e.state === 'reusable' ? 'success' : e.state === 'accepted' ? 'primary' : 'info'" effect="light">{{ e.kind }}</el-tag>
+                  </div>
+                  <div class="list-row-detail">{{ e.state === 'draft' ? '草稿（未验收）' : e.state === 'accepted' ? '已验收' : '可复用' }} · 证据 {{ (e.evidenceRefs || []).length }} 条</div>
+                </div>
+              </div>
+              <div v-else class="field-hint">
+                单条知识的边查询还没接入——知识边由 knowledge-edges 管理（belongs_to_role / verified_by / responsible_for …），
+                目前只有全局图谱，没有按知识 key 回查的读接口。这是缺口，不编造边。
+              </div>
+            </el-tab-pane>
+          </el-tabs>
           <template #footer>
             <el-button @click="viewDialog = false">关闭</el-button>
+            <el-button v-if="viewing.meta && canEdit(viewing.meta)" type="primary" @click="viewDialog = false; openEdit(viewing.meta)">编辑</el-button>
           </template>
         </el-dialog>
       </div>`,
@@ -1279,6 +1330,8 @@
       };
       // 第六十四轮：知识文档「查看」——打开正文只读阅读（后端 knowledge-get 已有）。
       const viewDialog = ref(false); const viewing = ref({});
+      const viewTab = ref('body'); const viewEdges = ref([]);
+      const viewFacts = computed(() => Object.entries(viewing.value.facts || {}).map(([key, value]) => ({ key, value: String(value) })));
       // 第三十四轮：原生知识管线语义检索（所有者/管理员；跨分区数据集故收口）。
       const search = reactive({ query: '', dataset: 'suitme-knowledge', busy: false, error: '', results: null, datasetUsed: '' });
       const canSearch = computed(() => props.session?.role === 'owner' || props.session?.role === 'admin');
@@ -1330,12 +1383,20 @@
         dialog.value = true;
       };
       const openView = async row => {
-        viewing.value = { title: row.title, kind: row.kind, body: '正文加载中…', sources: [], meta: row };
+        // 第七十轮 · 详情按三层展开（对标 LobeHub 的文件详情：分块预览 → 我们这里是结构化/正文/图谱）。
+        // 默认落在「正文」，因为它是最常看的一层；结构化与图谱作为并列页签。
+        const hasFacts = (row.factsCount || 0) > 0;
+        viewTab.value = hasFacts ? 'facts' : 'body';
+        viewing.value = { title: row.title, kind: row.kind, body: '正文加载中…', sources: [],
+          meta: row, facts: {}, appliesTo: '', domains: row.domains ?? [] };
         viewDialog.value = true;
         const d = await safe('knowledge-get', { taskId: row.taskId, key: row.key });
         if (d.value) {
           viewing.value.body = d.value.body ?? '（无正文）';
           viewing.value.sources = d.value.sources ?? [];
+          viewing.value.facts = d.value.facts ?? {};
+          viewing.value.appliesTo = d.value.appliesTo ?? '';
+          viewing.value.domains = d.value.domains ?? [];
         } else if (d.__error) {
           viewing.value.body = '读取失败：' + d.__error;
         }
@@ -1377,12 +1438,32 @@
       };
       // 知识列表要逐个任务拉文档，慢；沉淀候选与它并行，不要串在它后面。
       onMounted(() => { load(); loadSediment(); });
-      const activeVis = ref('all');
-      const filteredItems = computed(() => activeVis.value === 'all'
-        ? items.value : items.value.filter(i => (i.visibility || 'org') === activeVis.value));
-      // 第六十九轮 · 三层体检：结构化（facts）/ 非结构化（正文 ≥80 字）逐条算，最缺哪层直接点名。
-      const layerStats = computed(() => {
+      // 第七十轮 · 前台对标 LobeHub 资源库：左栏知识库列表 + 右栏文件列表。
+      // 我们的「库」= 归属分区（个人 / 协作 / 组织）；「文件」= 知识条目。
+      const activeLib = ref('all'); const kbQuery = ref(''); const sedimentVisible = ref(false); const searchOpen = ref(false);
+      const threeLayerComplete = i => (i.factsCount || 0) > 0 && (i.bodyLength || 0) >= 80;
+      const libraries = computed(() => {
         const list = items.value;
+        const build = (id, name, keep) => {
+          const sub = list.filter(keep);
+          return { id, name, count: sub.length, complete: sub.filter(threeLayerComplete).length };
+        };
+        return [
+          build('all', '全部知识', () => true),
+          build('personal', '个人区', i => (i.visibility || 'org') === 'personal'),
+          build('team', '协作区', i => (i.visibility || 'org') === 'team'),
+          build('org', '组织区', i => (i.visibility || 'org') === 'org'),
+        ];
+      });
+      const libItems = computed(() => {
+        const q = kbQuery.value.trim().toLowerCase();
+        return items.value
+          .filter(i => activeLib.value === 'all' || (i.visibility || 'org') === activeLib.value)
+          .filter(i => !q || String(i.title || '').toLowerCase().includes(q) || String(i.key || '').toLowerCase().includes(q));
+      });
+      // 三层体检：只看当前库，结构化（facts）/ 非结构化（正文 ≥80 字）逐条算，最缺哪层直接点名。
+      const layerStats = computed(() => {
+        const list = libItems.value;
         const structured = list.filter(i => (i.factsCount || 0) > 0).length;
         const narrative = list.filter(i => (i.bodyLength || 0) >= 80).length;
         const missingFacts = list.length - structured;
@@ -1395,8 +1476,9 @@
         procedure: '流程', experiment: '实验', feedback: '反馈' }[k] || k || '参考');
       return { list, items, loading, guardText, dialog, saving, form, kinds, visibilities, anchorTasks,
         sediment, sedimentLoading, sedimentList, loadSediment, layerStats,
+        activeLib, kbQuery, sedimentVisible, searchOpen, libraries, libItems,
         visLabel, visTag, stateLabel, canEdit, canDelete, canChangeVis, canWriteSome, load, runGuard, openCreate, openEdit, save, remove, fmtTime,
-        viewDialog, viewing, openView, search, canSearch, runSearch, resultText, activeVis, filteredItems, kindLabel };
+        viewDialog, viewing, viewTab, viewEdges, viewFacts, openView, search, canSearch, runSearch, resultText, kindLabel };
     },
   };
 
