@@ -51,6 +51,21 @@ export class Store {
     return this.db.prepare('SELECT at, action, issue_id, value FROM audit ORDER BY id DESC LIMIT ?')
       .all(limit) as { at: string; action: string; issue_id: string | null; value: string }[];
   }
+  /**
+   * 按动作白名单取审计（跨任务，倒序）。
+   *
+   * 决策账本专用：audit 表里 member.action 一类流水占绝大多数，先过滤再取
+   * 才不会把判定淹没在流水里。空白名单直接返回空，不做全表扫描。
+   */
+  auditByActions(actions: readonly string[], limit = 200,
+    issueId?: string | null): { at: string; action: string; issue_id: string | null; value: string }[] {
+    if (!actions.length) return [];
+    const marks = actions.map(() => '?').join(',');
+    const where = issueId ? `action IN (${marks}) AND issue_id=?` : `action IN (${marks})`;
+    const args = issueId ? [...actions, issueId, limit] : [...actions, limit];
+    return this.db.prepare(`SELECT at, action, issue_id, value FROM audit WHERE ${where} ORDER BY id DESC LIMIT ?`)
+      .all(...args) as { at: string; action: string; issue_id: string | null; value: string }[];
+  }
   /** 某任务的 Agent 回执（倒序，最新在前）。 */
   receipts(issueId: string, limit = 50): { summary: string; outcome: string }[] {
     const rows = this.db.prepare('SELECT value FROM receipts WHERE issue_id=? ORDER BY rowid DESC LIMIT ?')

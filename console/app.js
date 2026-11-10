@@ -264,6 +264,69 @@
               <div v-if="!graphNodes.length && !graphEdges.length" class="field-hint">这条任务还没有组织关系图。</div>
             </template>
           </el-tab-pane>
+          <el-tab-pane label="决策" name="ledger">
+            <div v-if="ledgerLoading" class="field-hint">正在加载决策账本…</div>
+            <el-alert v-else-if="ledger.__error" :title="'读取失败：' + ledger.__error" type="warning" :closable="false" />
+            <template v-else>
+              <div class="hint-text">
+                这条任务被做过哪些判定、每次凭什么——只收判定，不收流水。
+                <template v-if="ledger.summary">共 {{ ledger.summary.total }} 条，其中需人签字 {{ ledger.summary.humanRequired }} 条。</template>
+              </div>
+              <div v-for="(e, i) in ledgerEntries" :key="e.id + i" class="ledger-item">
+                <div class="ledger-head">
+                  <el-tag size="small" :type="ledgerTag(e.kind)" effect="light">{{ ledgerKind(e.kind) }}</el-tag>
+                  <span class="ledger-verdict">{{ e.verdict }}</span>
+                  <span class="ledger-time">{{ e.at ? fmtTime(e.at) : '' }}</span>
+                </div>
+                <div class="ledger-meta">
+                  由 {{ e.actor }}（{{ ledgerActor(e.actorKind) }}）· 依据 {{ e.basis }}
+                  <el-tag v-if="e.requiresHuman" size="small" type="warning" effect="plain" style="margin-left:6px">需人签字</el-tag>
+                </div>
+                <ul class="ledger-reasons" v-if="e.reasons && e.reasons.length">
+                  <li v-for="r in e.reasons" :key="r.code">{{ r.text }}</li>
+                </ul>
+                <div v-else class="field-hint">这条判定没有留下依据——本身就是沉淀缺口。</div>
+              </div>
+              <div v-if="!ledgerEntries.length" class="field-hint">这条任务还没有判定记录。</div>
+            </template>
+          </el-tab-pane>
+          <el-tab-pane label="协作组" name="group">
+            <div v-if="groupLoading" class="field-hint">正在加载协作组…</div>
+            <el-alert v-else-if="group.__error" :title="'读取失败：' + group.__error" type="warning" :closable="false" />
+            <template v-else>
+              <div class="hint-text">
+                主持人与服务成员来自当前编制。这里只给「下一轮该怎么协作」的决策——<b>不派单、不改任务</b>，派活仍归平台，授权与验收仍归人。
+              </div>
+              <el-alert v-if="group.problem" :title="group.problem" type="warning" :closable="false" style="margin-bottom:10px" />
+              <el-radio-group v-model="groupIntent" size="small" style="margin-bottom:10px" @change="replan">
+                <el-radio-button value="opinions">征询意见</el-radio-button>
+                <el-radio-button value="handoff">转交</el-radio-button>
+                <el-radio-button value="execute">派执行</el-radio-button>
+                <el-radio-button value="answer">单问</el-radio-button>
+              </el-radio-group>
+              <el-card shadow="never" class="drawer-block">
+                <template #header>成员（{{ groupMembers.length }}）</template>
+                <div v-for="m in groupMembers" :key="m.key" class="list-row">
+                  <div class="list-row-head">
+                    <span class="list-row-title">{{ m.name }}</span>
+                    <el-tag size="small" :type="m.role === 'supervisor' ? 'primary' : 'info'" effect="plain">{{ m.role === 'supervisor' ? '主持人' : '成员' }}</el-tag>
+                  </div>
+                  <div class="list-row-detail">{{ (m.offers || []).map(offerText).join(' / ') || '未声明能力' }}<span v-if="!m.enabled"> · 已停用</span></div>
+                </div>
+              </el-card>
+              <el-card shadow="never" class="drawer-block" v-if="groupDecision">
+                <template #header>下一轮决策</template>
+                <div class="ledger-head">
+                  <el-tag size="small" type="success" effect="light">{{ modeText(groupDecision.mode) }}</el-tag>
+                  <span class="ledger-verdict">{{ group.decisionText }}</span>
+                </div>
+                <ul class="ledger-reasons" v-if="groupDecision.reasons && groupDecision.reasons.length">
+                  <li v-for="r in groupDecision.reasons" :key="r.code">{{ r.text }}</li>
+                </ul>
+                <div class="field-hint" style="margin-top:6px">四模式由意图决定，不是"模型觉得"：征询并行且禁工具，转交是单向终态，派执行只挑有出稿能力的人。</div>
+              </el-card>
+            </template>
+          </el-tab-pane>
         </el-tabs>
       </el-drawer>`,
     setup(props) {
@@ -274,17 +337,37 @@
       const graph = ref({}); const graphLoading = ref(false);
       const graphNodes = computed(() => Array.isArray(graph.value.nodes) ? graph.value.nodes : []);
       const graphEdges = computed(() => Array.isArray(graph.value.edges) ? graph.value.edges : []);
+      // 第六十八轮 · 决策账本（DSH Decision 模型）：只收判定，不收流水。
+      const ledger = ref({}); const ledgerLoading = ref(false);
+      const ledgerEntries = computed(() => Array.isArray(ledger.value.entries) ? ledger.value.entries : []);
+      // 第六十八轮 · 群组编排（LobeHub GroupOrchestration）：只产决策，不派单。
+      const group = ref({}); const groupLoading = ref(false); const groupIntent = ref('opinions');
+      const groupMembers = computed(() => Array.isArray(group.value.members) ? group.value.members : []);
+      const groupDecision = computed(() => group.value.decision ?? null);
+      const loadGroup = async () => {
+        groupLoading.value = true;
+        group.value = await safe('group-view', { intent: groupIntent.value, maxRounds: 6 });
+        groupLoading.value = false;
+      };
+      const replan = () => loadGroup();
+      const offerText = o => ({ feasibility: '评估可行性', draft: '出稿', review: '审阅' }[o] || o);
+      const modeText = m => ({ speak: '单人发言', broadcast: '并行征询', delegate: '转交承接', executeTask: '派异步执行', finish: '收敛结束' }[m] || m);
       const title = computed(() => (props.task && (props.task.identifier || props.task.title)) || '任务详情');
       const load = async id => {
         loading.value = true; ctxLoading.value = true; traceLoading.value = true; graphLoading.value = true;
-        const [t, c, tr, g] = await Promise.all([
+        ledgerLoading.value = true; groupLoading.value = true;
+        const [t, c, tr, g, lg, gp] = await Promise.all([
           safe('task-timeline', { taskId: id }),
           safe('context-pack', { taskId: id }),
           safe('trace-view', { taskId: id }),
           safe('ontology-view', { taskId: id }),
+          safe('decision-ledger', { taskId: id, limit: 120 }),
+          safe('group-view', { intent: groupIntent.value, maxRounds: 6 }),
         ]);
         timeline.value = t; ctx.value = c; trace.value = tr; graph.value = g;
-        loading.value = false; ctxLoading.value = false; traceLoading.value = false; graphLoading.value = false;
+        ledger.value = lg; group.value = gp;
+        loading.value = false; ctxLoading.value = false; traceLoading.value = false;
+        graphLoading.value = false; ledgerLoading.value = false; groupLoading.value = false;
       };
       watch(() => [props.visible, props.taskId], async ([v, id]) => {
         if (v && id) { tab.value = 'timeline'; await load(id); }
@@ -295,8 +378,13 @@
       const traceTone = k => ({ model: 'human', tool: 'agent', receipt: 'agent', ci: 'system', checkpoint: 'system', gate: 'system', acceptance: 'human' }[k] || 'system');
       const evidenceLabel = k => ({ captured: '实跑', imported: '导入', authored: '自撰' }[k] || k || '—');
       const evidenceTone = k => ({ captured: 'blue', imported: 'slate', authored: 'amber' }[k] || 'info');
+      const ledgerKind = k => ({ route: '派活', access: '授权', knowledge: '知识', delegation: '委托', acceptance: '验收', escalation: '升级', review: '评审' }[k] || k);
+      const ledgerTag = k => ({ route: 'primary', access: 'warning', knowledge: 'success', delegation: 'info', acceptance: 'primary', escalation: 'danger', review: 'info' }[k] || 'info');
+      const ledgerActor = k => ({ human: '人', agent: 'Agent', system: '系统' }[k] || '系统');
       return { tab, timeline, loading, ctx, ctxLoading, trace, traceLoading, title,
         graph, graphLoading, graphNodes, graphEdges,
+        ledger, ledgerLoading, ledgerEntries, ledgerKind, ledgerTag, ledgerActor,
+        group, groupLoading, groupIntent, groupMembers, groupDecision, replan, offerText, modeText,
         tlType, tlKind, traceLabel, traceTone, evidenceLabel, evidenceTone, fmtTime };
     },
   };
@@ -1827,6 +1915,45 @@
             </el-card>
           </el-col>
         </el-row>
+
+        <el-card shadow="never" class="contract-card">
+          <template #header>
+            <div class="card-head">
+              <span>接入台 · 本机执行端</span>
+              <div style="display:flex;gap:8px;align-items:center">
+                <el-tag v-if="probe.summary" size="small" type="success" effect="plain">{{ probe.summary.ready }} 就绪</el-tag>
+                <el-tag v-if="probe.summary && probe.summary.actionable" size="small" type="warning" effect="plain">{{ probe.summary.actionable }} 可接入</el-tag>
+                <el-button size="small" @click="rescan" :loading="scanning">重新扫描</el-button>
+              </div>
+            </div>
+          </template>
+          <el-alert v-if="probe.__error" :title="'扫描失败：' + probe.__error" type="warning" :closable="false" />
+          <template v-else>
+            <div class="hint-text">
+              扫描这台机器上已安装的执行端<template v-if="probe.device">（{{ probe.device.host }} · {{ probe.device.platform }}）</template>。
+              接入只登记「这台机器上有一个能跑的 CLI」，不改它的权限——<b>工作目录不是安全沙箱</b>，先跑只读任务再接写。
+            </div>
+            <div v-for="e in shownEntries" :key="e.key" class="exec-row">
+              <div class="exec-row-main">
+                <span class="exec-name">{{ e.name }}</span>
+                <el-tag size="small" :type="onbTag(e.state)" effect="light">{{ onbText(e.state) }}</el-tag>
+                <span class="exec-ver">{{ e.version || '—' }}</span>
+                <span v-if="e.signedIn === true" class="exec-sign">已登录</span>
+                <span v-else-if="e.signedIn === false" class="exec-sign exec-sign-quiet">未见登录</span>
+              </div>
+              <div class="exec-row-act">
+                <el-button v-if="e.state === 'needs-enable'" size="small" type="primary" plain :loading="busy === e.key" @click="enable(e)">启用</el-button>
+                <el-button v-else-if="e.state === 'needs-register'" size="small" type="primary" plain :loading="busy === e.key" @click="register(e)">接入</el-button>
+                <el-button v-else-if="e.state === 'needs-binding'" size="small" text type="warning" @click="openDoc(e)">去平台注册</el-button>
+                <el-button v-else-if="e.state === 'not-installed'" size="small" text @click="openDoc(e)">怎么装</el-button>
+                <span v-else class="exec-ready-hint">可派单</span>
+              </div>
+            </div>
+            <el-button v-if="hiddenCount" text size="small" style="margin-top:6px" @click="showAll = !showAll">
+              {{ showAll ? '收起未安装' : ('显示未安装（' + hiddenCount + '）') }}
+            </el-button>
+          </template>
+        </el-card>
       </div>`,
     setup() {
       const data = ref({}), system = ref({}), retry = ref(null), inbox = ref(null), channels = ref(null);
@@ -1854,10 +1981,58 @@
         // 第六十六轮：服务网络 + 定时调度（定时任务需 manager，viewer 如实 403）。
         network.value = await safe('agent-services');
         scheduler.value = await safe('scheduler-status');
+        await rescan();
       });
+      // 第六十八轮 · 接入台（对标 LobeHub Connect External Agents）：
+      // 已安装的排在前面，未安装的折叠——目录很长，噪声不该盖过可行动的项。
+      const probe = ref({}); const scanning = ref(false); const showAll = ref(false); const busy = ref('');
+      const shownEntries = computed(() => {
+        const list = Array.isArray(probe.value.entries) ? probe.value.entries : [];
+        if (showAll.value) return list;
+        return list.filter(e => e.state !== 'not-installed');
+      });
+      const hiddenCount = computed(() => {
+        if (showAll.value) return 0;
+        const list = Array.isArray(probe.value.entries) ? probe.value.entries : [];
+        return list.filter(e => e.state === 'not-installed').length;
+      });
+      const rescan = async () => {
+        scanning.value = true;
+        probe.value = await safe('agent-onboarding-probe');
+        scanning.value = false;
+      };
+      const onbText = s => ({ ready: '就绪', 'needs-enable': '待启用', 'needs-binding': '待注册', 'needs-register': '待接入', 'not-installed': '未安装' }[s] || s || '未知');
+      const onbTag = s => ({ ready: 'success', 'needs-enable': 'warning', 'needs-binding': 'warning', 'needs-register': 'primary', 'not-installed': 'info' }[s] || 'info');
+      const openDoc = e => { if (e && e.docs) window.open(e.docs, '_blank', 'noopener'); };
+      const enable = async e => {
+        busy.value = e.key;
+        try {
+          const r = await api('agent-onboarding-enable', { key: e.key, enabled: true });
+          ElementPlus.ElMessage.success((r.response && r.response.note) || '已启用');
+          await rescan();
+        } catch (err) { ElementPlus.ElMessage.error(String(err.message || err)); }
+        finally { busy.value = ''; }
+      };
+      const register = async e => {
+        let ok = true;
+        try {
+          await ElementPlus.ElMessageBox.confirm(
+            `把「${e.name}」登记进执行端编制？会写入 config.json（先自动备份）。登记后还需要到平台注册拿到 paperclipId 才能派单。`,
+            '接入执行端', { type: 'warning', confirmButtonText: '接入', cancelButtonText: '取消' });
+        } catch { ok = false; }
+        if (!ok) return;
+        busy.value = e.key;
+        try {
+          const r = await api('agent-onboarding-register', { key: e.key });
+          ElementPlus.ElMessage.success((r.response && r.response.note) || '已登记');
+          await rescan();
+        } catch (err) { ElementPlus.ElMessage.error(String(err.message || err)); }
+        finally { busy.value = ''; }
+      };
       return { data, services, text, retry, inbox, channels, clean, stateText, stateTag,
         retryText, retryTag, channelText, channelTag, directionText,
-        network, scheduler, serviceProfiles, routines, wakes, fmtTime };
+        network, scheduler, serviceProfiles, routines, wakes, fmtTime,
+        probe, scanning, showAll, busy, shownEntries, hiddenCount, rescan, onbText, onbTag, enable, register, openDoc };
     },
   };
 

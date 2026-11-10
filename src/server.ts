@@ -425,6 +425,37 @@ const server = createServer(async (req, res) => {
         if (action === 'bind-member-agent') return teamMembers.bind(payload, workspaceActor);
         if (action === 'provision-member-agent') return teamMembers.provision(payload, workspaceActor);
         if (action === 'agent-services') return agentServices.view(workspaceActor);
+        // 第六十八轮 · 群组编排（对标 LobeHub GroupOrchestration）：
+        // 主持人 + 服务成员，按 intent 给出下一轮该怎么协作。只产决策，不派单、不改任务。
+        if (action === 'group-view') {
+          const { decideGroupTurn, emptyGroupState, validateGroup, describeGroupDecision } =
+            await import('./group-orchestration.ts');
+          const svc = await agentServices.view(workspaceActor) as {
+            profiles?: { key: string; name: string; offers?: string[]; enabled?: boolean }[];
+          };
+          const supervisorKey = config.assistant?.agentKey ?? 'workspace-assistant';
+          const supervisor = config.agents[supervisorKey];
+          const offers = ['feasibility', 'draft', 'review'] as const;
+          const pickOffers = (list: unknown): ('feasibility' | 'draft' | 'review')[] =>
+            Array.isArray(list) ? list.filter((o): o is 'feasibility' | 'draft' | 'review' => (offers as readonly string[]).includes(String(o))) : [];
+          const members = [
+            { key: supervisorKey, name: String(supervisor?.name ?? supervisorKey), role: 'supervisor' as const,
+              offers: ['feasibility', 'review'] as ('feasibility' | 'draft' | 'review')[],
+              enabled: Boolean(supervisor?.enabled) },
+            ...(svc.profiles ?? []).filter(p => p.key !== supervisorKey).map(p => ({
+              key: p.key, name: p.name, role: 'member' as const,
+              offers: pickOffers(p.offers), enabled: Boolean(p.enabled),
+            })),
+          ];
+          const intents = ['opinions', 'handoff', 'execute', 'answer'] as const;
+          const intent = intents.includes(payload?.intent as typeof intents[number])
+            ? payload.intent as typeof intents[number] : 'opinions';
+          const rounds = Math.min(Math.max(Number(payload?.maxRounds ?? 6) || 6, 1), 12);
+          const state = emptyGroupState(rounds);
+          const decision = decideGroupTurn({ members, state, intent, from: workspaceActor.userId ?? 'local-board' });
+          return { supervisorKey, members, intent, state, decision,
+            decisionText: describeGroupDecision(decision), problem: validateGroup(members) };
+        }
         if (action === 'agent-build') return agentServices.build(payload.profile,workspaceActor);
         if (action === 'save-agent-services') return agentServices.save(payload.profiles, payload.revision ?? null, workspaceActor);
         if (action === 'invoke-agent-service') return agentServices.start(payload, workspaceActor, assistant);
@@ -779,6 +810,44 @@ const server = createServer(async (req, res) => {
             tasks: summary.tasks.map(t => ({ ...t, agentKind: execByKey.get(t.agent ?? '')?.kind ?? null })),
             agentRollup: executionRollup(executions),
           };
+        }
+        // 第六十八轮 · 接入台（对标 LobeHub Connect External Agents）：
+        // 先扫本机（只读），再接（写 config，强制备份），权限按 operator 判。
+        if (action === 'agent-onboarding-probe') {
+          const { probeDevice } = await import('./agent-onboarding.ts');
+          return probeDevice(config.agents);
+        }
+        if (action === 'agent-onboarding-check') {
+          const { checkExecution } = await import('./agent-onboarding.ts');
+          return checkExecution(String(payload?.key ?? ''));
+        }
+        if (action === 'agent-onboarding-enable') {
+          workspaces.manager(workspaceActor);
+          const { setExecutionEnabled } = await import('./agent-onboarding.ts');
+          const result = await setExecutionEnabled(String(payload?.key ?? ''), payload?.enabled !== false);
+          store.audit('agent.onboarding-enable', null, { key: result.key, changed: result.changed, backup: result.backup });
+          return result;
+        }
+        if (action === 'agent-onboarding-register') {
+          workspaces.manager(workspaceActor);
+          const { registerExecution } = await import('./agent-onboarding.ts');
+          const result = await registerExecution({
+            key: String(payload?.key ?? ''),
+            name: typeof payload?.name === 'string' ? payload.name : undefined,
+            command: Array.isArray(payload?.command) ? payload.command.map(String) : undefined,
+          });
+          store.audit('agent.onboarding-register', null, { key: result.key, changed: result.changed, backup: result.backup });
+          return result;
+        }
+        // 第六十八轮 · 决策账本（对标 DSH Decision）：只收「判定」，不收流水。
+        // 按动作白名单在 SQL 层过滤，避免被 member.action 一类流水淹没。
+        if (action === 'decision-ledger') {
+          const { buildDecisionLedger, summarizeLedger, LEDGER_ACTIONS } = await import('./decision-ledger.ts');
+          const taskId = typeof payload?.taskId === 'string' ? payload.taskId.trim() : '';
+          const limit = Math.min(Math.max(Number(payload?.limit ?? 120) || 120, 1), 300);
+          const rows = store.auditByActions(LEDGER_ACTIONS, limit, taskId || null);
+          const entries = buildDecisionLedger(rows);
+          return { entries, summary: summarizeLedger(entries), taskId: taskId || null, limit };
         }
         // 第五十六轮 · 任务时间线：把某任务的审计事件翻译成「人 / Agent / 系统」三类。
         if (action === 'task-timeline') {

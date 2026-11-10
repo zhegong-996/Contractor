@@ -49,6 +49,13 @@ export const CONSOLE_READ_ACTIONS: readonly string[] = [
   'team-members', // 成员目录 + Agent 绑定（组织视图）
   'agent-services', // Agent 服务网络
   'scheduler-status', 'wake-list', // 定时调度与唤醒队列（需 manager，viewer 如实 403）
+  // 第六十八轮 · 接入台（对标 LobeHub Connect External Agents）：扫描本机执行端 + 单端体检。
+  // 只读；enable/register 是写动作，走下面的 WRITE 映射并强制备份。
+  'agent-onboarding-probe', 'agent-onboarding-check',
+  // 第六十八轮 · 决策账本（对标 DSH Decision）：跨任务或按任务读「判定 + 依据」。
+  'decision-ledger',
+  // 第六十八轮 · 群组编排（对标 LobeHub GroupOrchestration）：只读预览下一轮决策。
+  'group-view',
 ] as const;
 
 /** P-13 知识写入动作：登录即可调，分区权限由 bridge 端 casbin 统一判定。 */
@@ -77,6 +84,10 @@ const ADMIN_ACTIONS: Record<string, string> = {
   'admin-hitl-answer': 'read', // 真人回答 Agent 提出的人工问题；登录即可，回答≠验收
   'admin-audit': 'audit-view',
   'admin-feishu-auth': 'feishu-auth',
+  // 第六十八轮 · 接入台写动作：改执行端编制会直接影响谁能在本机跑命令，
+  // 因此按 operator（services-control）判，不放开给普通登录用户。
+  'agent-onboarding-enable': 'services-control',
+  'agent-onboarding-register': 'services-control',
 };
 
 const STATIC: Record<string, { file: string; type: string }> = {
@@ -261,6 +272,21 @@ async function handleAdmin(action: string, payload: Record<string, unknown>, ses
       const result = await bridgeRequest('POST', `/tasks/${taskId}/reply`, { text: command });
       auth.audit('task.control', session.username, { taskId, command, status: result.status });
       return { ok: result.status === 200, response: safeParse(result.body) };
+    }
+    // 第六十八轮 · 接入台写动作：转发到 bridge，由 bridge 落盘（强制备份）。
+    case 'agent-onboarding-enable': {
+      const key = String(payload.key ?? '').trim();
+      if (!key) throw new Error('需要 key');
+      const result = await proxy('agent-onboarding-enable', JSON.stringify({ payload }), session.username);
+      auth.audit('agent.onboarding-enable', session.username, { key, status: result.status });
+      return { ok: result.status === 200, response: safeParse(result.payload) };
+    }
+    case 'agent-onboarding-register': {
+      const key = String(payload.key ?? '').trim();
+      if (!key) throw new Error('需要 key');
+      const result = await proxy('agent-onboarding-register', JSON.stringify({ payload }), session.username);
+      auth.audit('agent.onboarding-register', session.username, { key, status: result.status });
+      return { ok: result.status === 200, response: safeParse(result.payload) };
     }
     case 'admin-hitl': {
       // 只读：直接读本机 HITL 台账与续跑建议，不经过 bridge（避免新增白名单）。
