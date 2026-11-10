@@ -763,11 +763,15 @@ const server = createServer(async (req, res) => {
           const { buildTaskTimeline } = await import('./task-timeline.ts');
           let request = '';
           try { const c = JSON.parse(String(task.context ?? '{}')); if (c && typeof c.request === 'string') request = c.request.trim(); } catch { /* ignore */ }
-          return {
-            identifier: task.identifier, phase: task.phase, agent: task.agent,
-            entries: buildTaskTimeline({ audit: store.auditList(task.id, 100), request,
-              lastMessage: task.lastMessage ?? null, delivery: task.delivery ?? null }),
-          };
+          const entries = buildTaskTimeline({ audit: store.auditList(task.id, 100), request,
+            lastMessage: task.lastMessage ?? null, delivery: task.delivery ?? null });
+          // Agent 回执（receipts 表）作为额外的 agent 条目，插在「最后一句话」之前，
+          // 让「Agent 回了什么」有实际内容可看。
+          const receipts = store.receipts(task.id, 10);
+          const receiptEntries = receipts.map(r => ({ at: '', kind: 'agent' as const,
+            label: r.outcome === 'done' ? '完成回执' : '回执', detail: r.summary || r.outcome }));
+          if (receiptEntries.length) entries.splice(1, 0, ...receiptEntries);
+          return { identifier: task.identifier, phase: task.phase, agent: task.agent, entries };
         }
         const result = await workspaces.dispatch(action, payload, workspaceActor);
         if (action === 'view') {

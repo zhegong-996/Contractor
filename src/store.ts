@@ -46,6 +46,13 @@ export class Store {
       .all(issueId, limit) as { at: string; action: string; value: string }[];
     return rows;
   }
+  /** 某任务的 Agent 回执（倒序，最新在前）。 */
+  receipts(issueId: string, limit = 50): { summary: string; outcome: string }[] {
+    const rows = this.db.prepare('SELECT value FROM receipts WHERE issue_id=? ORDER BY rowid DESC LIMIT ?')
+      .all(issueId, limit) as { value: string }[];
+    return rows.map(r => { try { const v = JSON.parse(r.value); return { summary: String(v.summary ?? ''), outcome: String(v.outcome ?? '') }; } catch { return { summary: '', outcome: '' }; } })
+      .filter(r => r.summary || r.outcome);
+  }
   notify(id: string, issueId: string, text: string) {
     // 第三十八轮 · 出站队列加 at（投递时刻）：没有它就算不出「积压了多久」，
     // 重试健康只能看状态分布，看不出「卡住的是一条还是四条」。旧库原地补列。

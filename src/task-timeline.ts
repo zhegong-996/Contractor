@@ -56,9 +56,33 @@ function detailOf(action: string, value: string): string {
     const outcome = String(v.outcome ?? '');
     return outcome === 'committed' ? '已派单给执行 Agent' : `结论：${outcome || '未定'}`;
   }
-  if (action === 'loop.downstream') return String(v.kind || v.text || v.detail || '');
-  if (action === 'loop.upstream') return String(v.kind || v.text || v.detail || '');
-  if (action === 'task.handoff') return String(v.reason || v.detail || '任务已交接');
+  if (action === 'loop.downstream') {
+    const choice = String(v.choice ?? '');
+    if (choice) return choice;
+    const kind = String(v.kind ?? '');
+    if (kind === 'supplement') return '补充说明';
+    if (kind === 'answer') return `回答：${String(v.text ?? v.detail ?? '')}`;
+    return kind ? `类型：${kind}` : '';
+  }
+  if (action === 'loop.upstream') {
+    const events = Array.isArray(v.events) ? v.events : [];
+    const first = (events[0] ?? {}) as Record<string, unknown>;
+    const payload = (first.payload ?? {}) as Record<string, unknown>;
+    const outcome = String(payload.outcome ?? '');
+    const expects = String(first.expectsHumanAction ?? v.expectsHumanAction ?? '');
+    const parts: string[] = [];
+    if (outcome) parts.push(`结论：${outcome}`);
+    if (expects && expects !== 'none') parts.push(`期望人：${expects}`);
+    return parts.join('；');
+  }
+  if (action === 'trace.appended') {
+    return v.kind ? `证据：${String(v.kind)}` : '';
+  }
+  if (action === 'task.handoff') {
+    const next = String(v.next ?? '');
+    const generation = Number(v.generation ?? 0);
+    return next ? `交接给 ${next}（第 ${generation || 1} 代）` : '任务已交接';
+  }
   if (action === 'subscription.released') return String(v.reason || '任务已验收');
   if (action === 'collaboration.countersigned') {
     const verdict = String(v.verdict ?? '');

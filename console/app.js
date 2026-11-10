@@ -302,14 +302,22 @@
               <template #header>沉淀与自演进</template>
               <div class="hint-text">打回原因变成下次交付前的自查项；改进要过回放验证与真人批准，随时可回滚</div>
               <el-alert v-if="evolution.__error" :title="'读取失败：' + evolution.__error" type="warning" :closable="false" />
-              <el-descriptions v-else :column="1" border size="small">
-                <el-descriptions-item label="交付前自查">{{ evolution.selfCheckGateEnabled === false ? '闸门已按配置关闭（仍需人签）' : ('已强制 · ' + (evolution.standardsCount || 0) + ' 条沉淀标准') }}</el-descriptions-item>
-                <el-descriptions-item label="登记与放行">{{ evolution.selfCheckRuns || 0 }} 次自查登记 · {{ evolution.gatePasses || 0 }} 次闸门放行 }}</el-descriptions-item>
-                <el-descriptions-item label="候选改进">{{ candidates.length ? candidates.slice(0, 4).map(i => clean(i.title) + '（' + clean(i.stateLabel) + '）').join('；') : '暂无候选改进' }}</el-descriptions-item>
-                <el-descriptions-item label="当前生效版本">{{ evolution.activeVersion ? clean(String(evolution.activeVersion)) : '无（未启用任何改进）' }}</el-descriptions-item>
-                <el-descriptions-item label="效果对比">{{ comparison ? (comparison.comparable ? '前后窗口可对比' : '观测不齐，缺项逐条标不可比') : '尚未登记前后观测窗口，不可比' }}</el-descriptions-item>
-                <el-descriptions-item label="红线">{{ clean((evolution.redLines || [])[2] || 'Agent 不能自己让改进生效') }}</el-descriptions-item>
-              </el-descriptions>
+              <template v-else>
+                <el-descriptions :column="1" border size="small">
+                  <el-descriptions-item label="交付前自查">{{ evolution.selfCheckGateEnabled === false ? '闸门已按配置关闭（仍需人签）' : ('已强制 · ' + (evolution.standardsCount || 0) + ' 条沉淀标准') }}</el-descriptions-item>
+                  <el-descriptions-item label="登记与放行">{{ evolution.selfCheckRuns || 0 }} 次自查登记 · {{ evolution.gatePasses || 0 }} 次闸门放行 }}</el-descriptions-item>
+                  <el-descriptions-item label="候选改进">{{ candidates.length ? candidates.slice(0, 4).map(i => clean(i.title) + '（' + clean(i.stateLabel) + '）').join('；') : '暂无候选改进' }}</el-descriptions-item>
+                  <el-descriptions-item label="当前生效版本">{{ evolution.activeVersion ? clean(String(evolution.activeVersion)) : '无（未启用任何改进）' }}</el-descriptions-item>
+                  <el-descriptions-item label="效果对比">{{ comparison ? (comparison.comparable ? '前后窗口可对比' : '观测不齐，缺项逐条标不可比') : '尚未登记前后观测窗口，不可比' }}</el-descriptions-item>
+                  <el-descriptions-item label="红线">{{ clean((evolution.redLines || [])[2] || 'Agent 不能自己让改进生效') }}</el-descriptions-item>
+                </el-descriptions>
+                <div v-if="evolution.standards && evolution.standards.length" class="kb-standards">
+                  <div class="field-hint" style="margin:12px 0 4px">沉淀的自查标准（打回原因 → 下次必查）：</div>
+                  <div v-for="(s, i) in evolution.standards" :key="i" class="list-row">
+                    <div class="list-row-title">{{ i + 1 }}. {{ s }}</div>
+                  </div>
+                </div>
+              </template>
             </el-card>
           </el-col>
           <el-col :xs="24" :md="12" style="margin-bottom:14px">
@@ -416,30 +424,27 @@
           </template>
           <el-alert v-if="list.__error" :title="'读取失败：' + list.__error" type="warning" :closable="false" />
           <template v-else>
-            <el-table :data="items" size="default" v-loading="loading">
-              <el-table-column prop="key" label="标识" min-width="200" />
-              <el-table-column prop="title" label="标题" min-width="220" show-overflow-tooltip />
-              <el-table-column label="归属分区" width="150">
-                <template #default="{ row }">
-                  <el-tag :type="visTag(row.visibility)" effect="light">{{ visLabel(row.visibility) }}</el-tag>
-                </template>
-              </el-table-column>
-              <el-table-column label="状态" width="100">
-                <template #default="{ row }">
-                  <el-tag :type="row.state === 'confirmed' ? 'success' : row.state === 'withdrawn' ? 'info' : 'warning'" effect="plain">{{ stateLabel(row.state) }}</el-tag>
-                </template>
-              </el-table-column>
-              <el-table-column prop="owner" label="归属者" width="140" />
-              <el-table-column label="更新时间" width="170">
-                <template #default="{ row }">{{ fmtTime(row.updatedAt) }}</template>
-              </el-table-column>
-              <el-table-column label="操作" width="200" fixed="right">
-                <template #default="{ row }">
-                  <el-button size="small" text type="primary" @click="openEdit(row)">查看/编辑</el-button>
-                  <el-button v-if="canDelete(row)" size="small" text type="danger" @click="remove(row)">删除</el-button>
-                </template>
-              </el-table-column>
-            </el-table>
+            <el-tabs v-model="activeVis" style="margin-bottom:6px">
+              <el-tab-pane label="全部" name="all" />
+              <el-tab-pane label="个人区" name="personal" />
+              <el-tab-pane label="协作区" name="team" />
+              <el-tab-pane label="组织区" name="org" />
+            </el-tabs>
+            <el-row :gutter="14" v-loading="loading">
+              <el-col v-for="item in filteredItems" :key="item.key" :xs="24" :sm="12" :md="8" style="margin-bottom:14px">
+                <el-card shadow="hover" class="kb-card" @click="openEdit(item)">
+                  <div class="kb-card-head">
+                    <el-tag :type="visTag(item.visibility)" effect="light" size="small">{{ visLabel(item.visibility) }}</el-tag>
+                    <el-tag v-if="item.state !== 'confirmed'" :type="item.state === 'withdrawn' ? 'info' : 'warning'" effect="plain" size="small">{{ stateLabel(item.state) }}</el-tag>
+                    <span class="kb-kind">{{ kindLabel(item.kind) }}</span>
+                  </div>
+                  <div class="kb-title">{{ item.title || item.key }}</div>
+                  <div class="kb-body">{{ (item.body || '').slice(0, 120) || '（无正文）' }}</div>
+                  <div class="kb-meta">{{ item.owner }} · {{ fmtTime(item.updatedAt) }}</div>
+                </el-card>
+              </el-col>
+            </el-row>
+            <div v-if="!filteredItems.length" class="field-hint">这个分区还没有知识条目</div>
           </template>
         </el-card>
         <el-card shadow="never">
@@ -570,9 +575,13 @@
         catch (e) { ElementPlus.ElMessage.error(String(e.message || e)); }
       };
       onMounted(load);
+      const activeVis = ref('all');
+      const filteredItems = computed(() => activeVis.value === 'all'
+        ? items.value : items.value.filter(i => (i.visibility || 'org') === activeVis.value));
+      const kindLabel = k => ({ reference: '参考', decision: '决策', standard: '标准', note: '笔记', draft: '草稿' }[k] || k || '参考');
       return { list, items, loading, guardText, dialog, saving, form, kinds, visibilities, anchorTasks,
         visLabel, visTag, stateLabel, canEdit, canDelete, canChangeVis, canWriteSome, load, runGuard, openCreate, openEdit, save, remove, fmtTime,
-        search, canSearch, runSearch, resultText };
+        search, canSearch, runSearch, resultText, activeVis, filteredItems, kindLabel };
     },
   };
 
