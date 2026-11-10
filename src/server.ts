@@ -744,7 +744,7 @@ const server = createServer(async (req, res) => {
             } catch { /* advisory：缺一条标题也照常返回摘要 */ }
             finally { if (timer) clearTimeout(timer); }
           }));
-          return buildWorkspaceSummary({
+          const summary = buildWorkspaceSummary({
             tasks: visible, actor: workspaceActor,
             spaceCount: Object.keys(catalog.spaces).length, sourceCount: catalog.sources.length,
             feishuConnected: workspaceActor.admin && Boolean(catalog.feishuConnection),
@@ -754,6 +754,16 @@ const server = createServer(async (req, res) => {
               : 0,
             limit: page.limit, offset: page.offset, hostTitles,
           });
+          // 第六十四轮：当前用户的「主 Agent」——优先成员 → 个人 Agent 映射（真实绑定），
+          // 未绑定时退回协作助手（workspace-assistant），都如实标注来源，不硬编。
+          const myAgentKey = workspaceActor.userId ? (catalog.memberAgents?.[workspaceActor.userId] ?? null) : null;
+          const myAgentInst = myAgentKey ? getAgentRegistry().agents.find(a => a.key === myAgentKey) : undefined;
+          const myAgent = myAgentInst
+            ? { key: myAgentInst.key, label: myAgentInst.label ?? myAgentInst.key, kind: 'personal' }
+            : assistant.available()
+              ? { key: assistant.key, label: String(config.agents[assistant.key]?.name ?? assistant.key), kind: 'assistant' }
+              : null;
+          return { ...summary, myAgent };
         }
         // 第五十六轮 · 任务时间线：把某任务的审计事件翻译成「人 / Agent / 系统」三类。
         if (action === 'task-timeline') {
@@ -771,7 +781,17 @@ const server = createServer(async (req, res) => {
           const receiptEntries = receipts.map(r => ({ at: '', kind: 'agent' as const,
             label: r.outcome === 'done' ? '完成回执' : '回执', detail: r.summary || r.outcome }));
           if (receiptEntries.length) entries.splice(1, 0, ...receiptEntries);
-          return { identifier: task.identifier, phase: task.phase, agent: task.agent, entries };
+          // 第六十四轮：任务详情侧栏补「交付 / 产物 + 知识引用 + 文档」。
+          // 文档是 advisory 增强（单个宿主请求失败就降级空列表，不阻断时间线）。
+          let documents: { key: string; title: string }[] = [];
+          try {
+            const docs: unknown = await workspaces.pc.get('/issues/' + task.id + '/documents').catch(() => []);
+            documents = (Array.isArray(docs) ? docs : []).map((d: any) => ({ key: String(d.key ?? ''), title: String(d.title ?? d.key ?? '') })).filter(d => d.key);
+          } catch { /* advisory */ }
+          return { identifier: task.identifier, phase: task.phase, agent: task.agent, entries,
+            delivery: task.delivery ?? null,
+            knowledgeRefs: Array.isArray(task.knowledgeRefs) ? task.knowledgeRefs : [],
+            documents };
         }
         // 第六十三轮 · 对话流：把全局最近审计事件翻译成「人 / Agent / 系统」气泡时间线，
         // 供「对话」视图做通用 Agent 对话入口（只读投影，不提供网页发起任务）。

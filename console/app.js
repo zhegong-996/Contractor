@@ -216,13 +216,29 @@
         </el-card>
         <el-drawer v-model="taskDrawer" :title="timeline.identifier || (current && (current.title || current.id))" size="48%">
           <div v-if="timelineLoading" class="field-hint">正在加载这条任务的协作时间线…</div>
-          <el-timeline v-else-if="timeline.entries && timeline.entries.length" style="padding-left:4px">
-            <el-timeline-item v-for="(e, i) in timeline.entries" :key="i" :type="tlType(e.kind)" :timestamp="e.at ? fmtTime(e.at) : ''" placement="top">
-              <div class="tl-head"><span class="tl-kind" :class="'tl-' + e.kind">{{ tlKind(e.kind) }}</span><span class="tl-label">{{ e.label }}</span></div>
-              <div class="tl-detail" v-if="e.detail">{{ e.detail }}</div>
-            </el-timeline-item>
-          </el-timeline>
-          <div v-else class="field-hint">这条任务还没有时间线记录</div>
+          <template v-else>
+            <el-card v-if="timeline.delivery" shadow="never" class="drawer-block">
+              <template #header>交付 / 产物</template>
+              <div class="list-row-detail">
+                <template v-if="timeline.delivery.pr">PR #{{ timeline.delivery.pr }}</template>
+                <template v-if="timeline.delivery.ci"> · CI {{ timeline.delivery.ci === 'passed' ? '通过' : timeline.delivery.ci }}</template>
+                <template v-if="timeline.delivery.merged"> · 已合并</template>
+                <template v-if="timeline.delivery.previewUrl"> · <a :href="timeline.delivery.previewUrl" target="_blank" rel="noopener">预览</a></template>
+              </div>
+            </el-card>
+            <el-card v-if="timeline.documents && timeline.documents.length" shadow="never" class="drawer-block">
+              <template #header>任务文档（{{ timeline.documents.length }}）</template>
+              <div v-for="d in timeline.documents" :key="d.key" class="list-row-detail">· {{ d.title || d.key }}</div>
+            </el-card>
+            <div v-if="timeline.knowledgeRefs && timeline.knowledgeRefs.length" class="field-hint drawer-block">关联知识 {{ timeline.knowledgeRefs.length }} 条</div>
+            <el-timeline v-if="timeline.entries && timeline.entries.length" style="padding-left:4px">
+              <el-timeline-item v-for="(e, i) in timeline.entries" :key="i" :type="tlType(e.kind)" :timestamp="e.at ? fmtTime(e.at) : ''" placement="top">
+                <div class="tl-head"><span class="tl-kind" :class="'tl-' + e.kind">{{ tlKind(e.kind) }}</span><span class="tl-label">{{ e.label }}</span></div>
+                <div class="tl-detail" v-if="e.detail">{{ e.detail }}</div>
+              </el-timeline-item>
+            </el-timeline>
+            <div v-else class="field-hint">这条任务还没有时间线记录</div>
+          </template>
         </el-drawer>
       </div>`,
     setup(props) {
@@ -279,6 +295,14 @@
         <div class="welcome-bar">
           <div class="welcome-title">协作现场</div>
           <div class="welcome-sub">左侧选任务，右侧看它的人 / Agent 往来；发起新任务仍请回飞书、直接对你的助手说。</div>
+          <div class="my-agent" v-if="myAgent">
+            <div class="feed-avatar fa-human" style="width:26px;height:26px;font-size:12px">我</div>
+            <span class="my-agent-label">我的助手</span>
+            <el-tag size="small" effect="light" type="primary">{{ myAgent.label }}</el-tag>
+          </div>
+          <div class="my-agent" v-else>
+            <span class="my-agent-label">未绑定个人 Agent · 请管理员在「组织」里为你开通</span>
+          </div>
         </div>
         <el-card v-if="hitl.pending && hitl.pending.length" shadow="never" style="margin-bottom:14px">
           <template #header>
@@ -345,6 +369,7 @@
       const activeId = ref(''); const timeline = ref({}); const timelineLoading = ref(false);
       const query = ref('');
       const tasks = computed(() => Array.isArray(summary.value.tasks) ? summary.value.tasks : []);
+      const myAgent = computed(() => summary.value.myAgent ?? null);
       const filteredTasks = computed(() => {
         const q = query.value.trim().toLowerCase();
         if (!q) return tasks.value;
@@ -383,7 +408,7 @@
         ready: 'warning', accepted: 'success', review: 'warning', closed: 'info', draft: 'info', dispatched: 'primary', intake: 'info', in_progress: 'primary', todo: 'info' }[p] || 'info');
       onMounted(async () => { await loadSummary(); await loadHitl(); });
       return { summary, tasks, filteredTasks, loading, loadSummary, hitl, hitlLoading, loadHitl, astate, answer,
-        activeId, timeline, timelineLoading, entries, open, query, kindLabel, phaseLabel, phaseTag, fmtTime };
+        activeId, timeline, timelineLoading, entries, open, query, kindLabel, phaseLabel, phaseTag, fmtTime, myAgent };
     },
   };
 
@@ -575,13 +600,29 @@
 
         <el-drawer v-model="taskDrawer" :title="timeline.identifier || (current && (current.title || current.id))" size="48%">
           <div v-if="timelineLoading" class="field-hint">正在加载这条任务的协作时间线…</div>
-          <el-timeline v-else-if="timeline.entries && timeline.entries.length" style="padding-left:4px">
-            <el-timeline-item v-for="(e, i) in timeline.entries" :key="i" :type="tlType(e.kind)" :timestamp="e.at ? fmtTime(e.at) : ''" placement="top">
-              <div class="tl-head"><span class="tl-kind" :class="'tl-' + e.kind">{{ tlKind(e.kind) }}</span><span class="tl-label">{{ e.label }}</span></div>
-              <div class="tl-detail" v-if="e.detail">{{ e.detail }}</div>
-            </el-timeline-item>
-          </el-timeline>
-          <div v-else class="field-hint">这条任务还没有时间线记录</div>
+          <template v-else>
+            <el-card v-if="timeline.delivery" shadow="never" class="drawer-block">
+              <template #header>交付 / 产物</template>
+              <div class="list-row-detail">
+                <template v-if="timeline.delivery.pr">PR #{{ timeline.delivery.pr }}</template>
+                <template v-if="timeline.delivery.ci"> · CI {{ timeline.delivery.ci === 'passed' ? '通过' : timeline.delivery.ci }}</template>
+                <template v-if="timeline.delivery.merged"> · 已合并</template>
+                <template v-if="timeline.delivery.previewUrl"> · <a :href="timeline.delivery.previewUrl" target="_blank" rel="noopener">预览</a></template>
+              </div>
+            </el-card>
+            <el-card v-if="timeline.documents && timeline.documents.length" shadow="never" class="drawer-block">
+              <template #header>任务文档（{{ timeline.documents.length }}）</template>
+              <div v-for="d in timeline.documents" :key="d.key" class="list-row-detail">· {{ d.title || d.key }}</div>
+            </el-card>
+            <div v-if="timeline.knowledgeRefs && timeline.knowledgeRefs.length" class="field-hint drawer-block">关联知识 {{ timeline.knowledgeRefs.length }} 条</div>
+            <el-timeline v-if="timeline.entries && timeline.entries.length" style="padding-left:4px">
+              <el-timeline-item v-for="(e, i) in timeline.entries" :key="i" :type="tlType(e.kind)" :timestamp="e.at ? fmtTime(e.at) : ''" placement="top">
+                <div class="tl-head"><span class="tl-kind" :class="'tl-' + e.kind">{{ tlKind(e.kind) }}</span><span class="tl-label">{{ e.label }}</span></div>
+                <div class="tl-detail" v-if="e.detail">{{ e.detail }}</div>
+              </el-timeline-item>
+            </el-timeline>
+            <div v-else class="field-hint">这条任务还没有时间线记录</div>
+          </template>
         </el-drawer>
       </div>`,
     setup(props) {
@@ -716,8 +757,9 @@
             </el-tabs>
             <el-row :gutter="14" v-loading="loading">
               <el-col v-for="item in filteredItems" :key="item.key" :xs="24" :sm="12" :md="8" style="margin-bottom:14px">
-                <el-card shadow="hover" class="kb-card" @click="openEdit(item)">
-                  <div class="kb-ops" v-if="canEdit(item) || canDelete(item)">
+                <el-card shadow="hover" class="kb-card" @click="openView(item)">
+                  <div class="kb-ops">
+                    <el-button size="small" text @click.stop="openView(item)">查看</el-button>
                     <el-button v-if="canEdit(item)" size="small" text type="primary" @click.stop="openEdit(item)">编辑</el-button>
                     <el-button v-if="canDelete(item)" size="small" text type="danger" @click.stop="remove(item)">撤回</el-button>
                   </div>
@@ -773,10 +815,29 @@
             <el-button type="primary" :loading="saving" @click="save">{{ form.existing ? '保存修订' : '创建' }}</el-button>
           </template>
         </el-dialog>
+
+        <el-dialog v-model="viewDialog" :title="viewing.title || '知识详情'" width="720px" top="6vh">
+          <div class="kb-view-head">
+            <el-tag size="small" effect="light">{{ kindLabel(viewing.kind) }}</el-tag>
+            <el-tag v-if="viewing.meta" size="small" effect="plain" :type="visTag(viewing.meta.visibility)">{{ visLabel(viewing.meta.visibility) }}</el-tag>
+            <el-tag v-if="viewing.meta && viewing.meta.state !== 'confirmed'" size="small" effect="plain" :type="viewing.meta.state === 'withdrawn' ? 'info' : 'warning'">{{ stateLabel(viewing.meta.state) }}</el-tag>
+            <span class="list-row-meta">{{ viewing.meta ? viewing.meta.owner + ' · ' + fmtTime(viewing.meta.updatedAt) : '' }}</span>
+          </div>
+          <div class="kb-view-body">{{ viewing.body || '（无正文）' }}</div>
+          <div v-if="viewing.sources && viewing.sources.length" class="kb-view-sources">
+            <div class="list-row-title" style="margin-bottom:4px">来源</div>
+            <div v-for="s in viewing.sources" :key="s" class="list-row-detail">· {{ s }}</div>
+          </div>
+          <template #footer>
+            <el-button @click="viewDialog = false">关闭</el-button>
+          </template>
+        </el-dialog>
       </div>`,
     setup(props) {
       const list = ref({}); const loading = ref(false); const guardText = ref('尚未运行；点击「跑知识体检」获取只读报告。');
       const dialog = ref(false); const saving = ref(false);
+      // 第六十四轮：知识文档「查看」——打开正文只读阅读（后端 knowledge-get 已有）。
+      const viewDialog = ref(false); const viewing = ref({});
       // 第三十四轮：原生知识管线语义检索（所有者/管理员；跨分区数据集故收口）。
       const search = reactive({ query: '', dataset: 'suitme-knowledge', busy: false, error: '', results: null, datasetUsed: '' });
       const canSearch = computed(() => props.session?.role === 'owner' || props.session?.role === 'admin');
@@ -827,6 +888,17 @@
         Object.assign(form, { key: '', title: '', kind: 'reference', domainsText: '', visibility: perms.value.includes('knowledge-write-org') ? 'team' : 'personal', appliesTo: '', body: '', sourcesText: '', taskId: anchorTasks.value[0] ?? '', existing: null });
         dialog.value = true;
       };
+      const openView = async row => {
+        viewing.value = { title: row.title, kind: row.kind, body: '正文加载中…', sources: [], meta: row };
+        viewDialog.value = true;
+        const d = await safe('knowledge-get', { taskId: row.taskId, key: row.key });
+        if (d.value) {
+          viewing.value.body = d.value.body ?? '（无正文）';
+          viewing.value.sources = d.value.sources ?? [];
+        } else if (d.__error) {
+          viewing.value.body = '读取失败：' + d.__error;
+        }
+      };
       const openEdit = async row => {
         Object.assign(form, { key: row.key, title: row.title, kind: row.kind, domainsText: (row.domains ?? []).join(', '),
           visibility: row.visibility || 'org', appliesTo: '', body: '', sourcesText: '', taskId: row.taskId, existing: row });
@@ -869,7 +941,7 @@
       const kindLabel = k => ({ reference: '参考', decision: '决策', standard: '标准', note: '笔记', draft: '草稿' }[k] || k || '参考');
       return { list, items, loading, guardText, dialog, saving, form, kinds, visibilities, anchorTasks,
         visLabel, visTag, stateLabel, canEdit, canDelete, canChangeVis, canWriteSome, load, runGuard, openCreate, openEdit, save, remove, fmtTime,
-        search, canSearch, runSearch, resultText, activeVis, filteredItems, kindLabel };
+        viewDialog, viewing, openView, search, canSearch, runSearch, resultText, activeVis, filteredItems, kindLabel };
     },
   };
 
