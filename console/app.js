@@ -50,25 +50,20 @@
     try { return await api(action, payload); } catch (error) { return { __error: String(error.message || error) }; }
   }
 
+  // 第七十二轮 · 收敛：按「用户要做的事」重组导航，不再按技术模块平铺。
+  // 10 个一级入口压到 6 个——对话并入协作，概览并入待办，组织+服务合成团队，
+  // 产物暂不单列（等真有数据再放出来）。原来那些视图组件都还在，只是换了个门。
   const VIEWS = [
     { id: 'decisions', title: '待办', subtitle: '把散落在各处的「等你」收拢到一处',
       icon: '<path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11L2 12v6a2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z"/>' },
-    { id: 'conversation', title: '对话', subtitle: '人和 Agent 最近的往来，串成一条对话流',
-      icon: '<path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>' },
-    { id: 'overview', title: '概览', subtitle: '同一份共享现场，人和助手各看自己该看的',
-      icon: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>' },
     { id: 'collaboration', title: '协作', subtitle: '谁接、谁派、谁干，都在一条责任链上',
       icon: '<circle cx="9" cy="8" r="3.5"/><path d="M3 20a6 6 0 0112 0"/><circle cx="17" cy="9" r="2.5"/><path d="M15 14a5 5 0 016 6"/>' },
-    { id: 'organization', title: '组织', subtitle: '一份共享上下文，按职能配置三层座位',
-      icon: '<circle cx="12" cy="5" r="2.5"/><circle cx="5" cy="18" r="2.5"/><circle cx="19" cy="18" r="2.5"/><path d="M12 7.5V11M12 11l-5 4.5M12 11l5 4.5"/>' },
     { id: 'knowledge', title: '知识', subtitle: '资料与证据按归属分区管理：个人 / 协作 / 组织',
       icon: '<path d="M4 5a2 2 0 012-2h12v18H6a2 2 0 01-2-2V5z"/><path d="M8 7h8M8 11h8"/>' },
-    { id: 'artifacts', title: '产物', subtitle: '交付与文档的产物引用与修订',
-      icon: '<path d="M21 8V6a2 2 0 00-2-2H5a2 2 0 00-2 2v2"/><path d="M3 8v10a2 2 0 002 2h14a2 2 0 002-2V8"/><path d="M10 12h4"/>' },
+    { id: 'team', title: '团队', subtitle: '谁在岗、按什么编制、本机能不能跑',
+      icon: '<circle cx="12" cy="5" r="2.5"/><circle cx="5" cy="18" r="2.5"/><circle cx="19" cy="18" r="2.5"/><path d="M12 7.5V11M12 11l-5 4.5M12 11l5 4.5"/>' },
     { id: 'acceptance', title: '验收', subtitle: '开工前锁定清单，逐项判定后由发起人确认',
       icon: '<path d="M5 12l5 5L19 7"/>' },
-    { id: 'services', title: '服务', subtitle: '本机与国内服务的实时状态',
-      icon: '<circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/>' },
     { id: 'settings', title: '我的配置', subtitle: '界面、通知与模型偏好，只属于你自己',
       icon: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/>' },
   ];
@@ -816,6 +811,19 @@
     components: { TaskDetailDrawer },
     template: `
       <div>
+        <div class="my-agent" v-if="myAgent" style="margin-bottom:10px">
+          <div class="feed-avatar fa-human" style="width:26px;height:26px;font-size:12px">我</div>
+          <span class="my-agent-label">我的助手</span>
+          <el-tag size="small" effect="light" type="primary">{{ myAgent.label }}</el-tag>
+          <el-tag v-if="myAgent.execution" size="small" effect="plain"
+            :type="myAgent.execution.kind === 'auto' ? 'success' : 'info'"
+            :title="myAgent.execution.reason">
+            {{ myAgent.execution.kind === 'auto' ? (myAgent.execution.readOnly ? '自动执行 · 只读' : '自动执行') : '人工接单' }}
+          </el-tag>
+        </div>
+        <div class="my-agent" v-else style="margin-bottom:10px">
+          <span class="my-agent-label">未绑定个人 Agent · 请管理员在「团队」里为你开通</span>
+        </div>
         <el-tabs v-model="activeTab" class="collab-tabs">
           <el-tab-pane label="协作现场" name="现场" />
           <el-tab-pane label="任务跟进" name="任务" />
@@ -1034,6 +1042,7 @@
       const hitl = ref({}); const hitlLoading = ref(false);
       const answerState = reactive({});
       const canControlTask = computed(() => (props.session?.permissions ?? []).includes('task-control'));
+      const myAgent = computed(() => summary.value.myAgent ?? null);
       const tasks = computed(() => Array.isArray(summary.value.tasks) ? summary.value.tasks : []);
       // 第六十轮：协作视图分「协作现场 / 任务跟进」两个标签（对标 paperclip Coordinator 的 Chat + Tasks）。
       const activeTab = ref('现场');
@@ -1115,7 +1124,7 @@
         comparison, execution, missing, missingText, domainText, phaseLabel, phaseTag, openTask, taskDrawer, current,
         clean, dutyText, fmtTime, agentLabel, timeline, timelineLoading, tlType, tlKind,
         hitl, hitlLoading, astate, answer, loadHitl, canControlTask, resumable, pausable, controlTask,
-        activeTab, taskQuery, taskFilter, filteredTasks, phaseOptions, execRollup, liveExecs, problemExecs };
+        activeTab, taskQuery, taskFilter, filteredTasks, phaseOptions, execRollup, liveExecs, problemExecs, myAgent };
     },
   };
 
@@ -1968,8 +1977,14 @@
           </el-col>
           <el-col :xs="24" :md="12">
             <el-card shadow="never">
-              <template #header>系统状态</template>
-              <pre class="code-block">{{ text }}</pre>
+              <template #header>
+                <div class="card-head">
+                  <span>原始状态</span>
+                  <el-button size="small" text @click="rawOpen = !rawOpen">{{ rawOpen ? '收起' : '展开' }}</el-button>
+                </div>
+              </template>
+              <div class="hint-text">排障用的原始快照。日常判断看左边那张表就够了——这里保留是因为它含表里没列的存储与计数。</div>
+              <pre v-show="rawOpen" class="code-block">{{ text }}</pre>
             </el-card>
           </el-col>
         </el-row>
@@ -2220,6 +2235,7 @@
         scanning.value = false;
       };
       // 第七十一轮 · Skill 生效体检：编译一次几秒，只在按钮触发时跑，不随页面加载。
+      const rawOpen = ref(false);
       const skill = ref({}); const skillLoading = ref(false);
       const skillAudits = computed(() => Array.isArray(skill.value.audits) ? skill.value.audits : []);
       const skillSummary = computed(() => skill.value.summary ?? null);
@@ -2259,7 +2275,27 @@
         retryText, retryTag, channelText, channelTag, directionText,
         network, scheduler, serviceProfiles, routines, wakes, fmtTime,
         probe, scanning, showAll, busy, shownEntries, hiddenCount, rescan, onbText, onbTag, enable, register, openDoc,
-        skill, skillLoading, skillAudits, skillSummary, loadSkillAudit };
+        skill, skillLoading, skillAudits, skillSummary, loadSkillAudit, rawOpen };
+    },
+  };
+
+  // ---------------------------------------------------------------- 团队（组织 + 服务合一）
+  // 第七十二轮 · 收敛：这两页原来分列一级菜单，但用户问的都是同一个问题——
+  // "谁在岗、按什么编制、这台机器能不能跑"。合成一页两个标签，答案就在邻页。
+  const TeamView = {
+    props: ['session'],
+    components: { OrganizationView, ServicesView },
+    template: `
+      <div>
+        <el-tabs v-model="tab" class="collab-tabs">
+          <el-tab-pane label="组织与编制" name="org" />
+          <el-tab-pane label="运行与服务" name="svc" />
+        </el-tabs>
+        <organization-view v-if="tab === 'org'" />
+        <services-view v-else :session="session" />
+      </div>`,
+    setup() {
+      return { tab: ref('org') };
     },
   };
 
@@ -2605,7 +2641,7 @@
 
   // ---------------------------------------------------------------- 主壳
   const App = {
-    components: { LoginView, TasksView, ConversationView, CollaborationView, OrganizationView, KnowledgeView, AcceptanceView, ServicesView, SettingsView, AdminView, DecisionCenterView, ArtifactView },
+    components: { LoginView, TasksView, ConversationView, CollaborationView, OrganizationView, KnowledgeView, AcceptanceView, ServicesView, SettingsView, AdminView, DecisionCenterView, ArtifactView, TeamView },
     template: `
       <login-view v-if="!session" @ok="loadSession" />
       <el-container v-else class="app-shell">
@@ -2669,14 +2705,10 @@
           <el-main class="app-main">
             <div class="main-inner">
               <decision-center-view v-if="view === 'decisions'" :session="session" />
-              <conversation-view v-if="view === 'conversation'" :session="session" />
-              <tasks-view v-if="view === 'overview'" :session="session" mode="overview" />
               <collaboration-view v-else-if="view === 'collaboration'" :session="session" />
-              <organization-view v-else-if="view === 'organization'" />
               <knowledge-view v-else-if="view === 'knowledge'" :session="session" />
-              <artifact-view v-else-if="view === 'artifacts'" :session="session" />
+              <team-view v-else-if="view === 'team'" :session="session" />
               <acceptance-view v-else-if="view === 'acceptance'" />
-              <services-view v-else-if="view === 'services'" :session="session" />
               <settings-view v-else-if="view === 'settings'" :session="session" @theme="saveTheme" />
               <admin-view v-else-if="view === 'admin' && hasAdminArea" :session="session" />
             </div>
@@ -2708,7 +2740,9 @@
           const data = await r.json();
           session.value = data;
           applyTheme(data.settings?.theme === 'dark' ? 'dark' : 'light');
-          const target = ['decisions', 'conversation', 'overview', 'collaboration', 'organization', 'knowledge', 'artifacts', 'acceptance', 'services'].includes(data.settings?.defaultView)
+          // 已下线的旧 id（conversation / overview / organization / services / artifacts）
+          // 一律回落到待办，避免老配置把用户丢进一个不存在的页面。
+          const target = ['decisions', 'collaboration', 'knowledge', 'team', 'acceptance', 'settings'].includes(data.settings?.defaultView)
             ? data.settings.defaultView : 'decisions';
           view.value = target === 'admin' && !hasAdminArea.value ? 'overview' : target;
         } catch { session.value = null; }

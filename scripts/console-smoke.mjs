@@ -301,7 +301,7 @@ try {
   await screenshot('overview-1280');
 
   // 视图切换走查（知识视图含分区列）。
-  const views = ['待办', '对话', '概览', '协作', '组织', '知识', '产物', '验收', '服务', '我的配置'];
+  const views = ['待办', '协作', '知识', '团队', '验收', '我的配置'];
   let rendered = 0;
   for (const title of views) {
     const clicked = await evaluate(`(() => {
@@ -353,7 +353,7 @@ try {
   const matrix = [];
   const matrixProblems = [];
   // 第三十九轮：从三条抽样视图扩到全部七个 —— 抽样会漏掉没被抽到的那个。
-  const matrixViews = ['待办', '对话', '概览', '协作', '组织', '知识', '产物', '验收', '服务', '我的配置'];
+  const matrixViews = ['待办', '协作', '知识', '团队', '验收', '我的配置'];
   const tabKey = async () => {
     await cdp('Input.dispatchKeyEvent', { type: 'rawKeyDown', windowsVirtualKeyCode: 9, code: 'Tab', key: 'Tab' });
     await cdp('Input.dispatchKeyEvent', { type: 'keyUp', windowsVirtualKeyCode: 9, code: 'Tab', key: 'Tab' });
@@ -402,7 +402,7 @@ try {
           return Boolean(first);
         })()`);
         const stops = [];
-        for (let i = 0; i < 16; i++) {
+        for (let i = 0; i < 11; i++) {
           stops.push(await evaluate(`(() => {
             const node = document.activeElement;
             if (!node) return { tag: 'none', name: '' };

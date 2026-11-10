@@ -36,8 +36,15 @@ test('C-2 页面是中文、有深浅主题与六个协作视图', () => {
   // 运行时渲染，深浅两套样式来自 html.dark + element-plus.dark.css。
   assert.match(app, /toggleTheme/);
   assert.match(css, /html\.dark/);
-  for (const id of ['overview', 'collaboration', 'knowledge', 'acceptance', 'services', 'settings']) {
+  // 第七十二轮收敛：一级入口从 10 个压到 6 个——对话并入协作、概览并入待办、
+  // 组织+服务合成团队、产物暂不单列。视图组件都还在，只是不再各占一个菜单。
+  for (const id of ['decisions', 'collaboration', 'knowledge', 'team', 'acceptance', 'settings']) {
     assert.match(app, new RegExp(`id: '${id}'`), `缺少视图定义：${id}`);
+  }
+  // 被合并的视图不得再作为一级入口出现（防止有人把它们加回去）。
+  const viewsBlock = /const VIEWS = \[([\s\S]*?)\n  \];/.exec(app)?.[1] ?? '';
+  for (const retired of ['overview', 'conversation', 'organization', 'services', 'artifacts']) {
+    assert.ok(!viewsBlock.includes(`id: '${retired}'`), `已下线的入口不应回到菜单：${retired}`);
   }
   assert.match(css, /@media \(max-width: 768px\)/, '要有窄屏适配');
 });
