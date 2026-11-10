@@ -43,6 +43,7 @@ export const CONSOLE_READ_ACTIONS: readonly string[] = [
   'retry-health', 'event-inbox-status',
   'knowledge-list', 'knowledge-get', // P-13：知识条目列表与单条详情（读）
   'knowledge-wiki', // 13a ②③：知识地图投影与注入索引的只读体检
+  'conversation-feed', // 第六十三轮：全局协作事件流（「对话」视图，只读投影）
 ] as const;
 
 /** P-13 知识写入动作：登录即可调，分区权限由 bridge 端 casbin 统一判定。 */

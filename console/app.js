@@ -51,6 +51,8 @@
   }
 
   const VIEWS = [
+    { id: 'conversation', title: '对话', subtitle: '人和 Agent 最近的往来，串成一条对话流',
+      icon: '<path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>' },
     { id: 'overview', title: '概览', subtitle: '同一份共享现场，人和助手各看自己该看的',
       icon: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>' },
     { id: 'collaboration', title: '协作', subtitle: '谁接、谁派、谁干，都在一条责任链上',
@@ -222,6 +224,88 @@
       const tlKind = k => ({ human: '人', agent: 'Agent', system: '系统' }[k] || '系统');
       onMounted(load);
       return { summary, loading, tasks, statCards, phaseLabel, phaseTag, load, openTask, taskDrawer, current, fmtTime, agentLabel, timeline, timelineLoading, tlType, tlKind };
+    },
+  };
+
+  // ---------------------------------------------------------------- 对话视图（第六十三轮 · 通用 Agent 对话入口）
+  const ConversationView = {
+    props: ['session'],
+    template: `
+      <div>
+        <div class="welcome-bar">
+          <div class="welcome-title">协作现场</div>
+          <div class="welcome-sub">这里把人和 Agent 最近的往来串成一条对话流；发起新任务仍请回飞书、直接对你的助手说。</div>
+        </div>
+        <el-card shadow="never">
+          <template #header>
+            <div class="card-head">
+              <span>对话现场</span>
+              <el-button size="small" @click="load" :loading="loading">刷新</el-button>
+            </div>
+          </template>
+          <el-alert v-if="feed.__error" :title="'读取失败：' + feed.__error" type="warning" :closable="false" />
+          <el-skeleton v-else-if="loading" :rows="6" animated style="padding:4px 0" />
+          <div v-else class="feed">
+            <div v-for="q in hitl.pending" :key="'q' + q.id" class="feed-item feed-agent">
+              <div class="feed-avatar fa-agent">A</div>
+              <div class="feed-bubble">
+                <div class="feed-meta"><span class="tl-kind tl-agent">Agent</span><span class="feed-label">需要你回答</span></div>
+                <div class="feed-title">{{ q.prompt }}</div>
+                <div class="feed-actions">
+                  <el-radio-group v-model="astate(q).choice">
+                    <el-radio-button v-for="c in (q.choices || [])" :key="c" :value="c">{{ c }}</el-radio-button>
+                  </el-radio-group>
+                  <el-button type="primary" size="small" :loading="astate(q).busy" :disabled="!astate(q).choice" @click="answer(q)">回答</el-button>
+                </div>
+                <div class="field-hint">回答不等于验收，最终核可仍在原会话。</div>
+              </div>
+            </div>
+            <div v-for="(e, i) in entries" :key="i" class="feed-item" :class="'feed-' + e.kind">
+              <template v-if="e.kind === 'system'">
+                <span class="feed-system">{{ e.label }}<template v-if="e.detail"> · {{ e.detail }}</template><template v-if="e.taskTitle"> · {{ short(e.taskTitle, 40) }}</template></span>
+              </template>
+              <template v-else>
+                <div class="feed-avatar" :class="'fa-' + e.kind">{{ e.kind === 'human' ? '我' : 'A' }}</div>
+                <div class="feed-bubble">
+                  <div class="feed-meta">
+                    <span class="tl-kind" :class="'tl-' + e.kind">{{ kindLabel(e.kind) }}</span>
+                    <span class="feed-label">{{ e.label }}</span>
+                    <span class="feed-time">{{ e.at ? fmtTime(e.at) : '' }}</span>
+                  </div>
+                  <div class="feed-title" v-if="e.taskTitle">{{ e.taskTitle }}</div>
+                  <div class="feed-detail" v-if="e.detail">{{ e.detail }}</div>
+                </div>
+              </template>
+            </div>
+            <div v-if="!hitl.pending.length && !entries.length" class="field-hint">还没有协作动态。任务跑起来后，这里会串起人和 Agent 的往来。</div>
+          </div>
+        </el-card>
+      </div>`,
+    setup() {
+      const feed = ref({}); const loading = ref(true);
+      const hitl = ref({}); const answerState = reactive({});
+      const entries = computed(() => Array.isArray(feed.value.entries) ? feed.value.entries : []);
+      const load = async () => {
+        loading.value = true;
+        const [f, h] = await Promise.all([safe('conversation-feed'), safe('admin-hitl')]);
+        feed.value = f; hitl.value = h; loading.value = false;
+      };
+      const astate = q => { if (!answerState[q.id]) answerState[q.id] = { choice: '', busy: false }; return answerState[q.id]; };
+      const answer = async q => {
+        const st = astate(q);
+        if (!st.choice || st.busy) return;
+        st.busy = true;
+        try {
+          await api('admin-hitl-answer', { questionId: q.id, choice: st.choice });
+          ElementPlus.ElMessage.success('已回答');
+          await load();
+        } catch (e) { ElementPlus.ElMessage.error(String(e.message || e)); }
+        finally { st.busy = false; }
+      };
+      const kindLabel = k => ({ human: '人', agent: 'Agent', system: '系统' }[k] || '系统');
+      const short = (v, n) => { const s = String(v ?? ''); return s.length > n ? s.slice(0, n) + '…' : s; };
+      onMounted(load);
+      return { feed, entries, loading, load, hitl, astate, answer, kindLabel, short, fmtTime };
     },
   };
 
@@ -1595,7 +1679,7 @@
 
   // ---------------------------------------------------------------- 主壳
   const App = {
-    components: { LoginView, TasksView, CollaborationView, OrganizationView, KnowledgeView, AcceptanceView, ServicesView, SettingsView, AdminView },
+    components: { LoginView, TasksView, ConversationView, CollaborationView, OrganizationView, KnowledgeView, AcceptanceView, ServicesView, SettingsView, AdminView },
     template: `
       <login-view v-if="!session" @ok="loadSession" />
       <el-container v-else class="app-shell">
@@ -1658,6 +1742,7 @@
           </el-header>
           <el-main class="app-main">
             <div class="main-inner">
+              <conversation-view v-if="view === 'conversation'" :session="session" />
               <tasks-view v-if="view === 'overview'" :session="session" mode="overview" />
               <collaboration-view v-else-if="view === 'collaboration'" :session="session" />
               <organization-view v-else-if="view === 'organization'" />
@@ -1695,8 +1780,8 @@
           const data = await r.json();
           session.value = data;
           applyTheme(data.settings?.theme === 'dark' ? 'dark' : 'light');
-          const target = ['overview', 'collaboration', 'organization', 'knowledge', 'acceptance', 'services'].includes(data.settings?.defaultView)
-            ? data.settings.defaultView : 'overview';
+          const target = ['conversation', 'overview', 'collaboration', 'organization', 'knowledge', 'acceptance', 'services'].includes(data.settings?.defaultView)
+            ? data.settings.defaultView : 'conversation';
           view.value = target === 'admin' && !hasAdminArea.value ? 'overview' : target;
         } catch { session.value = null; }
       };

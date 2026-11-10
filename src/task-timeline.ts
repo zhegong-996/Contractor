@@ -44,6 +44,7 @@ const ACTION_MAP: Record<string, { kind: TimelineKind; label: string }> = {
   'artifact.registered': { kind: 'agent', label: '产物登记' },
   'v06.acceptance-confirmed': { kind: 'human', label: '确认验收' },
   'v06.acceptance-rejected': { kind: 'human', label: '退回' },
+  'member.action': { kind: 'human', label: '操作' },
 };
 
 /** 从 value JSON 里抽一句能看懂的摘要。 */
@@ -77,6 +78,9 @@ function detailOf(action: string, value: string): string {
   }
   if (action === 'trace.appended') {
     return v.kind ? `证据：${String(v.kind)}` : '';
+  }
+  if (action === 'member.action') {
+    return v.action ? `动作：${String(v.action)}` : '';
   }
   if (action === 'task.handoff') {
     const next = String(v.next ?? '');
@@ -122,6 +126,40 @@ export function buildTaskTimeline(input: TimelineInput): TimelineEntry[] {
   }
   if (input.request) {
     entries.push({ at: '', kind: 'human', label: '发起请求', detail: input.request });
+  }
+  return entries;
+}
+
+/** 全局对话流条目：跨任务聚合的「谁在动 + 说了什么」，供「对话」视图做气泡时间线。 */
+export interface FeedEntry {
+  at: string;
+  kind: TimelineKind;
+  taskId: string;
+  taskTitle: string;
+  label: string;
+  detail: string;
+}
+
+/**
+ * 组装全局对话流：把跨任务的审计事件翻译成「人 / Agent / 系统」三类，
+ * 附带所属任务标题。纯函数、零 IO、零模型调用，可复现。
+ */
+export function buildConversationFeed(input: {
+  audit: readonly { at: string; action: string; issue_id: string | null; value: string }[];
+  tasks: ReadonlyMap<string, { title: string }>;
+}): FeedEntry[] {
+  const entries: FeedEntry[] = [];
+  for (const item of input.audit) {
+    const mapped = ACTION_MAP[item.action] ?? { kind: 'system' as TimelineKind, label: item.action };
+    const task = item.issue_id ? input.tasks.get(item.issue_id) : undefined;
+    entries.push({
+      at: item.at,
+      kind: mapped.kind,
+      taskId: item.issue_id ?? '',
+      taskTitle: task?.title ?? '',
+      label: mapped.label,
+      detail: detailOf(item.action, item.value),
+    });
   }
   return entries;
 }

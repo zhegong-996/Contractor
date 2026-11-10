@@ -773,6 +773,20 @@ const server = createServer(async (req, res) => {
           if (receiptEntries.length) entries.splice(1, 0, ...receiptEntries);
           return { identifier: task.identifier, phase: task.phase, agent: task.agent, entries };
         }
+        // 第六十三轮 · 对话流：把全局最近审计事件翻译成「人 / Agent / 系统」气泡时间线，
+        // 供「对话」视图做通用 Agent 对话入口（只读投影，不提供网页发起任务）。
+        if (action === 'conversation-feed') {
+          const limit = Math.min(Number(payload?.limit ?? 80) || 80, 200);
+          const tasks = new Map<string, { title: string }>();
+          for (const t of store.list()) {
+            let title = '';
+            try { const c = JSON.parse(String(t.context ?? '{}')); if (c && typeof c.request === 'string') title = c.request.trim(); } catch { /* ignore */ }
+            const full = title || t.identifier;
+            tasks.set(t.id, { title: full.length > 64 ? full.slice(0, 64) + '…' : full });
+          }
+          const { buildConversationFeed } = await import('./task-timeline.ts');
+          return { entries: buildConversationFeed({ audit: store.globalAudit(limit), tasks }) };
+        }
         const result = await workspaces.dispatch(action, payload, workspaceActor);
         if (action === 'view') {
           const view = result as Awaited<ReturnType<Workspaces['view']>>;

@@ -46,6 +46,11 @@ export class Store {
       .all(issueId, limit) as { at: string; action: string; value: string }[];
     return rows;
   }
+  /** 全局审计流（跨任务，倒序，最新在前）——「对话」视图的聚合源。 */
+  globalAudit(limit = 100): { at: string; action: string; issue_id: string | null; value: string }[] {
+    return this.db.prepare('SELECT at, action, issue_id, value FROM audit ORDER BY id DESC LIMIT ?')
+      .all(limit) as { at: string; action: string; issue_id: string | null; value: string }[];
+  }
   /** 某任务的 Agent 回执（倒序，最新在前）。 */
   receipts(issueId: string, limit = 50): { summary: string; outcome: string }[] {
     const rows = this.db.prepare('SELECT value FROM receipts WHERE issue_id=? ORDER BY rowid DESC LIMIT ?')
