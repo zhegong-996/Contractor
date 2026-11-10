@@ -230,6 +230,11 @@
     props: ['session'],
     template: `
       <div>
+        <el-tabs v-model="activeTab" class="collab-tabs">
+          <el-tab-pane label="协作现场" name="现场" />
+          <el-tab-pane label="任务跟进" name="任务" />
+        </el-tabs>
+        <div v-show="activeTab === '现场'">
         <el-card shadow="never" style="margin-bottom:14px">
           <template #header>
             <div class="card-head">
@@ -256,32 +261,6 @@
               <div class="field-hint">回答只是把答案送回提问方并留痕，不等于验收；最终核可仍在原会话完成。</div>
             </div>
           </template>
-        </el-card>
-        <el-card shadow="never" style="margin-bottom:14px">
-          <template #header>任务与责任链</template>
-          <el-alert v-if="summary.__error" :title="'读取失败：' + summary.__error" type="warning" :closable="false" />
-          <el-table v-else :data="tasks" size="default" @row-click="openTask">
-            <el-table-column label="任务" min-width="300">
-              <template #default="{ row }">
-                <div class="task-cell">
-                  <div class="task-id">{{ row.identifier || row.id }}</div>
-                  <el-link type="primary" class="task-title">{{ row.title || '（无标题）' }}</el-link>
-                </div>
-              </template>
-            </el-table-column>
-            <el-table-column prop="agent" label="负责" width="120">
-              <template #default="{ row }"><el-tag size="small" effect="plain">{{ agentLabel(row.agent) }}</el-tag></template>
-            </el-table-column>
-            <el-table-column label="阶段" width="110">
-              <template #default="{ row }"><el-tag :type="phaseTag(row.phase)" effect="light">{{ phaseLabel(row.phase) }}</el-tag></template>
-            </el-table-column>
-            <el-table-column v-if="canControlTask" label="操作" width="150" fixed="right">
-              <template #default="{ row }">
-                <el-button v-if="resumable(row)" size="small" type="primary" plain @click.stop="controlTask(row, '接续')">接续</el-button>
-                <el-button v-else-if="pausable(row)" size="small" type="warning" plain @click.stop="controlTask(row, '暂停')">暂停</el-button>
-              </template>
-            </el-table-column>
-          </el-table>
         </el-card>
 
         <el-row :gutter="14">
@@ -391,6 +370,46 @@
             </el-card>
           </el-col>
         </el-row>
+        </div>
+
+        <div v-show="activeTab === '任务'">
+        <el-card shadow="never">
+          <template #header>
+            <div class="card-head">
+              <span>任务跟进</span>
+              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                <el-input v-model="taskQuery" placeholder="搜索任务号 / 标题" size="small" clearable style="max-width:200px" />
+                <el-select v-model="taskFilter" size="small" style="width:130px" clearable placeholder="全部阶段">
+                  <el-option v-for="(l, p) in phaseOptions" :key="p" :value="p" :label="l" />
+                </el-select>
+              </div>
+            </div>
+          </template>
+          <el-alert v-if="summary.__error" :title="'读取失败：' + summary.__error" type="warning" :closable="false" />
+          <el-table v-else :data="filteredTasks" size="default" @row-click="openTask">
+            <el-table-column label="任务" min-width="300">
+              <template #default="{ row }">
+                <div class="task-cell">
+                  <div class="task-id">{{ row.identifier || row.id }}</div>
+                  <el-link type="primary" class="task-title">{{ row.title || '（无标题）' }}</el-link>
+                </div>
+              </template>
+            </el-table-column>
+            <el-table-column prop="agent" label="负责" width="120">
+              <template #default="{ row }"><el-tag size="small" effect="plain">{{ agentLabel(row.agent) }}</el-tag></template>
+            </el-table-column>
+            <el-table-column label="阶段" width="110">
+              <template #default="{ row }"><el-tag :type="phaseTag(row.phase)" effect="light">{{ phaseLabel(row.phase) }}</el-tag></template>
+            </el-table-column>
+            <el-table-column v-if="canControlTask" label="操作" width="150" fixed="right">
+              <template #default="{ row }">
+                <el-button v-if="resumable(row)" size="small" type="primary" plain @click.stop="controlTask(row, '接续')">接续</el-button>
+                <el-button v-else-if="pausable(row)" size="small" type="warning" plain @click.stop="controlTask(row, '暂停')">暂停</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+        </el-card>
+        </div>
 
         <el-drawer v-model="taskDrawer" :title="timeline.identifier || (current && (current.title || current.id))" size="48%">
           <div v-if="timelineLoading" class="field-hint">正在加载这条任务的协作时间线…</div>
@@ -412,6 +431,19 @@
       const answerState = reactive({});
       const canControlTask = computed(() => (props.session?.permissions ?? []).includes('task-control'));
       const tasks = computed(() => Array.isArray(summary.value.tasks) ? summary.value.tasks : []);
+      // 第六十轮：协作视图分「协作现场 / 任务跟进」两个标签（对标 paperclip Coordinator 的 Chat + Tasks）。
+      const activeTab = ref('现场');
+      const taskQuery = ref(''); const taskFilter = ref('');
+      const phaseOptions = { running: '进行中', waiting: '等待', delivered: '已交付', failed: '失败', todo: '待办', blocked: '受阻',
+        intake: '待接入', dispatched: '已派单', in_progress: '进行中', review: '待评审', ready: '待人处理', accepted: '已验收', closed: '已结束', draft: '草稿' };
+      const filteredTasks = computed(() => {
+        const q = taskQuery.value.trim().toLowerCase();
+        return tasks.value.filter(t => {
+          if (taskFilter.value && t.phase !== taskFilter.value) return false;
+          if (q && !((t.identifier ?? '') + ' ' + (t.title ?? '') + ' ' + (t.id ?? '')).toLowerCase().includes(q)) return false;
+          return true;
+        });
+      });
       const router = computed(() => routing.value.router ?? {});
       const coverage = computed(() => routing.value.routerCoverage ?? {});
       const threeTier = computed(() => routing.value.threeTier ?? {});
@@ -472,7 +504,8 @@
       return { summary, tasks, routing, router, coverage, threeTier, shapeReady, registry, agents, evolution, candidates,
         comparison, execution, missing, missingText, domainText, phaseLabel, phaseTag, openTask, taskDrawer, current,
         clean, dutyText, fmtTime, agentLabel, timeline, timelineLoading, tlType, tlKind,
-        hitl, hitlLoading, astate, answer, loadHitl, canControlTask, resumable, pausable, controlTask };
+        hitl, hitlLoading, astate, answer, loadHitl, canControlTask, resumable, pausable, controlTask,
+        activeTab, taskQuery, taskFilter, filteredTasks, phaseOptions };
     },
   };
 

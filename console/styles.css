@@ -325,6 +325,9 @@ html.dark .metric-ico.tone-slate  { color: #a6aab4; background: #26292f; }
 @media (max-width: 768px) { .metric-grid { grid-template-columns: repeat(2, 1fr); } }
 
 /* ---- 第六十轮 · 待答问题操作区（Agent 协作） ---------------------------- */
+.collab-tabs { margin-bottom: 4px; }
+.collab-tabs .el-tabs__item { font-weight: 500; }
+.collab-tabs .el-tabs__nav-wrap::after { height: 1px; }
 .hitl-item {
   padding: 14px 16px; border: 1px solid var(--el-border-color-lighter);
   border-radius: 12px; background: var(--el-fill-color-blank); margin-bottom: 12px;
