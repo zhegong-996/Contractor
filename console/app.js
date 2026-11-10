@@ -1126,6 +1126,42 @@
         <el-card shadow="never" style="margin-bottom:14px">
           <template #header>
             <div class="card-head">
+              <span>沉淀候选 · 从判定模式提炼</span>
+              <div style="display:flex;gap:8px;align-items:center">
+                <el-tag v-if="sediment.summary" size="small" type="success" effect="plain">{{ sediment.summary.complete }} 三层齐备</el-tag>
+                <el-tag v-if="sediment.summary && sediment.summary.incomplete" size="small" type="warning" effect="plain">{{ sediment.summary.incomplete }} 缺层</el-tag>
+                <el-button size="small" @click="loadSediment" :loading="sedimentLoading">重新提炼</el-button>
+              </div>
+            </div>
+          </template>
+          <div class="hint-text">
+            从最近的判定账本里找出<b>重复出现</b>的模式，提炼成三层知识候选——结构化字段 + 叙事正文 + 图谱草稿边。孤例不算知识。
+            这里只产候选，写进知识库仍要你审。
+          </div>
+          <el-alert v-if="sediment.__error" :title="'提炼失败：' + sediment.__error" type="warning" :closable="false" />
+          <div v-for="c in sedimentList" :key="c.id" class="sediment-item">
+            <div class="sediment-head">
+              <el-tag size="small" type="primary" effect="light">{{ kindLabel(c.kind) }}</el-tag>
+              <span class="sediment-title">{{ c.title }}</span>
+              <span class="sediment-count">×{{ c.occurrences }}</span>
+              <span class="sediment-layers">
+                <span class="kb-layer" :class="{ on: !c.gaps.includes('facts') }">结构化</span>
+                <span class="kb-layer" :class="{ on: !c.gaps.includes('body') }">正文</span>
+                <span class="kb-layer" :class="{ on: !c.gaps.includes('edges') }">图谱</span>
+              </span>
+            </div>
+            <div class="sediment-meta">{{ c.appliesTo }} · 建议标识 {{ c.suggestedKey }}</div>
+            <ul class="ledger-reasons">
+              <li v-for="r in c.reasons" :key="r.code">{{ r.text }}</li>
+            </ul>
+          </div>
+          <div v-if="!sedimentList.length && !sediment.__error" class="field-hint">
+            最近的判定还不够多——同类判定出现 2 次以上才会成为候选。
+          </div>
+        </el-card>
+        <el-card shadow="never" style="margin-bottom:14px">
+          <template #header>
+            <div class="card-head">
               <span>知识条目（{{ items.length }}）</span>
               <div>
                 <el-button size="small" @click="runGuard">跑知识体检（只读）</el-button>
@@ -1135,6 +1171,12 @@
           </template>
           <el-alert v-if="list.__error" :title="'读取失败：' + list.__error" type="warning" :closable="false" />
           <template v-else>
+            <div v-if="items.length" class="kb-layer-audit">
+              三层体检：结构化 <b>{{ layerStats.structured }}</b>/{{ items.length }} 条 ·
+              正文达标 <b>{{ layerStats.narrative }}</b>/{{ items.length }} 条
+              <span v-if="layerStats.mostGap" class="kb-layer-gap">· 最缺「{{ layerStats.mostGap }}」{{ layerStats.mostGapCount }} 条</span>
+              <span v-else class="kb-layer-ok">· 全部三层齐备</span>
+            </div>
             <el-tabs v-model="activeVis" style="margin-bottom:6px">
               <el-tab-pane label="全部" name="all" />
               <el-tab-pane label="个人区" name="personal" />
@@ -1155,7 +1197,12 @@
                     <span class="kb-kind">{{ kindLabel(item.kind) }}</span>
                   </div>
                   <div class="kb-title">{{ item.title || item.key }}</div>
-                  <div class="kb-body">{{ (item.body || '').slice(0, 120) || '（无正文）' }}</div>
+                  <div class="kb-body">{{ item.bodyPreview || '（无正文）' }}</div>
+                  <div class="kb-layers">
+                    <span class="kb-layer" :class="{ on: item.factsCount > 0 }" :title="'结构化层：' + (item.factsCount || 0) + ' 个字段'">结构化 {{ item.factsCount || 0 }}</span>
+                    <span class="kb-layer" :class="{ on: item.bodyLength > 0 }" :title="'非结构化层：' + (item.bodyLength || 0) + ' 字正文'">正文 {{ item.bodyLength || 0 }} 字</span>
+                    <span v-if="item.injected" class="kb-layer on" title="已提升到注入索引">已注入</span>
+                  </div>
                   <div class="kb-meta">{{ item.owner }} · {{ fmtTime(item.updatedAt) }}</div>
                 </el-card>
               </el-col>
@@ -1222,6 +1269,14 @@
     setup(props) {
       const list = ref({}); const loading = ref(false); const guardText = ref('尚未运行；点击「跑知识体检」获取只读报告。');
       const dialog = ref(false); const saving = ref(false);
+      // 第六十九轮 · 沉淀候选：从决策账本提炼三层知识候选（只产候选，写库仍走人审）。
+      const sediment = ref({}); const sedimentLoading = ref(false);
+      const sedimentList = computed(() => Array.isArray(sediment.value.candidates) ? sediment.value.candidates : []);
+      const loadSediment = async () => {
+        sedimentLoading.value = true;
+        sediment.value = await safe('knowledge-sediment', { limit: 400, minOccurrences: 2 });
+        sedimentLoading.value = false;
+      };
       // 第六十四轮：知识文档「查看」——打开正文只读阅读（后端 knowledge-get 已有）。
       const viewDialog = ref(false); const viewing = ref({});
       // 第三十四轮：原生知识管线语义检索（所有者/管理员；跨分区数据集故收口）。
@@ -1320,12 +1375,26 @@
         try { await api('knowledge-delete', { taskId: row.taskId, key: row.key }); ElementPlus.ElMessage.success('已撤回'); await load(); }
         catch (e) { ElementPlus.ElMessage.error(String(e.message || e)); }
       };
-      onMounted(load);
+      // 知识列表要逐个任务拉文档，慢；沉淀候选与它并行，不要串在它后面。
+      onMounted(() => { load(); loadSediment(); });
       const activeVis = ref('all');
       const filteredItems = computed(() => activeVis.value === 'all'
         ? items.value : items.value.filter(i => (i.visibility || 'org') === activeVis.value));
-      const kindLabel = k => ({ reference: '参考', decision: '决策', standard: '标准', note: '笔记', draft: '草稿' }[k] || k || '参考');
+      // 第六十九轮 · 三层体检：结构化（facts）/ 非结构化（正文 ≥80 字）逐条算，最缺哪层直接点名。
+      const layerStats = computed(() => {
+        const list = items.value;
+        const structured = list.filter(i => (i.factsCount || 0) > 0).length;
+        const narrative = list.filter(i => (i.bodyLength || 0) >= 80).length;
+        const missingFacts = list.length - structured;
+        const missingBody = list.length - narrative;
+        const mostGap = missingFacts === 0 && missingBody === 0 ? ''
+          : missingFacts >= missingBody ? '结构化字段' : '正文';
+        return { structured, narrative, mostGap, mostGapCount: Math.max(missingFacts, missingBody) };
+      });
+      const kindLabel = k => ({ reference: '参考', decision: '决策', standard: '标准', note: '笔记', draft: '草稿',
+        procedure: '流程', experiment: '实验', feedback: '反馈' }[k] || k || '参考');
       return { list, items, loading, guardText, dialog, saving, form, kinds, visibilities, anchorTasks,
+        sediment, sedimentLoading, sedimentList, loadSediment, layerStats,
         visLabel, visTag, stateLabel, canEdit, canDelete, canChangeVis, canWriteSome, load, runGuard, openCreate, openEdit, save, remove, fmtTime,
         viewDialog, viewing, openView, search, canSearch, runSearch, resultText, activeVis, filteredItems, kindLabel };
     },

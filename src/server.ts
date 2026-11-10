@@ -506,10 +506,19 @@ const server = createServer(async (req, res) => {
               } catch { /* 非条目文档跳过 */ }
             }
           }
-          return { items: records.map(r => ({ taskId: r.ref.taskId, key: r.ref.key, revision: r.revision,
-            title: r.value.title, kind: r.value.kind, state: r.value.state, domains: r.value.domains,
-            visibility: r.value.visibility ?? 'org', owner: r.value.owner ?? '', proposedBy: r.value.proposedBy,
-            updatedAt: r.value.updatedAt })) };
+          return { items: records.map(r => {
+            const facts = (r.value.facts ?? {}) as Record<string, unknown>;
+            const body = String(r.value.body ?? '');
+            return { taskId: r.ref.taskId, key: r.ref.key, revision: r.revision,
+              title: r.value.title, kind: r.value.kind, state: r.value.state, domains: r.value.domains,
+              visibility: r.value.visibility ?? 'org', owner: r.value.owner ?? '', proposedBy: r.value.proposedBy,
+              updatedAt: r.value.updatedAt,
+              // 第六十九轮 · 三层构成：结构化（facts）/ 非结构化（正文）/ 图谱（由 knowledge-wiki 提供边数）。
+              factsCount: Object.keys(facts).length,
+              bodyLength: body.trim().length,
+              bodyPreview: body.trim().slice(0, 120),
+              injected: r.value.injected === true };
+          }) };
         }
         if (action === 'knowledge-get') {
           const record = await knowledge.read({ taskId: String(payload.taskId ?? ''), key: String(payload.key ?? '') });
@@ -838,6 +847,17 @@ const server = createServer(async (req, res) => {
           });
           store.audit('agent.onboarding-register', null, { key: result.key, changed: result.changed, backup: result.backup });
           return result;
+        }
+        // 第六十九轮 · 判定沉淀：把决策账本提炼成三层知识候选（结构化 / 非结构化 / 图谱）。
+        // 只产候选，写库仍走 knowledge-propose 与人审。
+        if (action === 'knowledge-sediment') {
+          const { buildDecisionLedger, LEDGER_ACTIONS } = await import('./decision-ledger.ts');
+          const { sedimentFromLedger, summarizeSediment } = await import('./knowledge-sediment.ts');
+          const limit = Math.min(Math.max(Number(payload?.limit ?? 400) || 400, 20), 800);
+          const minOccurrences = Math.min(Math.max(Number(payload?.minOccurrences ?? 2) || 2, 2), 10);
+          const entries = buildDecisionLedger(store.auditByActions(LEDGER_ACTIONS, limit));
+          const candidates = sedimentFromLedger(entries, { minOccurrences });
+          return { candidates, summary: summarizeSediment(candidates), scanned: entries.length, limit, minOccurrences };
         }
         // 第六十八轮 · 决策账本（对标 DSH Decision）：只收「判定」，不收流水。
         // 按动作白名单在 SQL 层过滤，避免被 member.action 一类流水淹没。

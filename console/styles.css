@@ -220,6 +220,32 @@ html.dark .exec-problem-title { color: #fbbf24; }
 .ledger-meta { font-size: 11.5px; color: var(--el-text-color-secondary); margin-top: 4px; display: flex; align-items: center; flex-wrap: wrap; gap: 2px; }
 .ledger-reasons { margin: 6px 0 0; padding-left: 18px; }
 .ledger-reasons li { font-size: 12px; color: var(--el-text-color-regular); line-height: 1.7; }
+
+/* ---- 第六十九轮 · 知识三层（结构化 / 非结构化 / 图谱）与沉淀候选 ------ */
+.kb-layers { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+.kb-layer {
+  font-size: 11px; line-height: 1.6; padding: 1px 6px; border-radius: 4px;
+  color: var(--el-text-color-placeholder); background: var(--el-fill-color-light);
+  border: 1px solid transparent;
+}
+.kb-layer.on { color: var(--el-color-success); background: var(--el-color-success-light-9); border-color: var(--el-color-success-light-7); }
+html.dark .kb-layer.on { background: rgba(0, 187, 127, .14); border-color: rgba(0, 187, 127, .32); }
+
+.sediment-item { padding: 10px 0; border-bottom: 1px dashed var(--el-border-color-lighter); }
+.sediment-item:last-child { border-bottom: 0; }
+.sediment-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.sediment-title { font-size: 13px; font-weight: 500; color: var(--el-text-color-primary); flex: 1; min-width: 0; }
+.sediment-count { font-family: var(--brand-mono); font-size: 12px; color: var(--el-color-primary); }
+.sediment-layers { display: flex; gap: 4px; flex: none; }
+.sediment-meta { font-size: 11.5px; color: var(--el-text-color-secondary); margin-top: 4px; }
+
+.kb-layer-audit {
+  font-size: 12px; color: var(--el-text-color-secondary); margin: 2px 0 10px;
+  padding: 7px 10px; border-radius: 8px; background: var(--el-fill-color-light);
+}
+.kb-layer-audit b { color: var(--el-color-primary); font-weight: 600; }
+.kb-layer-gap { color: var(--el-color-warning); }
+.kb-layer-ok { color: var(--el-color-success); }
 .layer-block { padding: 10px 0; border-bottom: 1px dashed var(--el-border-color-lighter); }
 .layer-block:last-child { border-bottom: 0; }
 .agent-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }

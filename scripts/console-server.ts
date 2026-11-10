@@ -56,6 +56,8 @@ export const CONSOLE_READ_ACTIONS: readonly string[] = [
   'decision-ledger',
   // 第六十八轮 · 群组编排（对标 LobeHub GroupOrchestration）：只读预览下一轮决策。
   'group-view',
+  // 第六十九轮 · 判定沉淀：账本 → 三层知识候选（只读；写库仍走人审）。
+  'knowledge-sediment',
 ] as const;
 
 /** P-13 知识写入动作：登录即可调，分区权限由 bridge 端 casbin 统一判定。 */
