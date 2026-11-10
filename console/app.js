@@ -51,6 +51,8 @@
   }
 
   const VIEWS = [
+    { id: 'decisions', title: '待办', subtitle: '把散落在各处的「等你」收拢到一处',
+      icon: '<path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11L2 12v6a2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z"/>' },
     { id: 'conversation', title: '对话', subtitle: '人和 Agent 最近的往来，串成一条对话流',
       icon: '<path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>' },
     { id: 'overview', title: '概览', subtitle: '同一份共享现场，人和助手各看自己该看的',
@@ -143,8 +145,137 @@
   };
 
   // ---------------------------------------------------------------- 概览 / 协作
+  // ---------------------------------------------------------------- 任务详情抽屉（第六十六轮 · 时间线 / 上下文 / 留痕）
+  // 三块数据全部来自后端真实 action：task-timeline / context-pack / trace-view。
+  const TaskDetailDrawer = {
+    props: ['visible', 'taskId', 'task'],
+    emits: ['update:visible'],
+    template: `
+      <el-drawer :model-value="visible" @update:model-value="$emit('update:visible', $event)" :title="title" size="52%">
+        <el-tabs v-model="tab" class="drawer-tabs">
+          <el-tab-pane label="时间线" name="timeline">
+            <div v-if="loading" class="field-hint">正在加载…</div>
+            <template v-else>
+              <el-card v-if="timeline.delivery" shadow="never" class="drawer-block">
+                <template #header>交付 / 产物</template>
+                <div class="list-row-detail">
+                  <template v-if="timeline.delivery.pr">PR #{{ timeline.delivery.pr }}</template>
+                  <template v-if="timeline.delivery.ci"> · CI {{ timeline.delivery.ci === 'passed' ? '通过' : timeline.delivery.ci }}</template>
+                  <template v-if="timeline.delivery.merged"> · 已合并</template>
+                  <template v-if="timeline.delivery.previewUrl"> · <a :href="timeline.delivery.previewUrl" target="_blank" rel="noopener">预览</a></template>
+                </div>
+              </el-card>
+              <el-card v-if="timeline.documents && timeline.documents.length" shadow="never" class="drawer-block">
+                <template #header>任务文档（{{ timeline.documents.length }}）</template>
+                <div v-for="d in timeline.documents" :key="d.key" class="list-row-detail">· {{ d.title || d.key }}</div>
+              </el-card>
+              <div v-if="timeline.knowledgeRefs && timeline.knowledgeRefs.length" class="field-hint drawer-block">关联知识 {{ timeline.knowledgeRefs.length }} 条</div>
+              <el-timeline v-if="timeline.entries && timeline.entries.length" style="padding-left:4px">
+                <el-timeline-item v-for="(e, i) in timeline.entries" :key="i" :type="tlType(e.kind)" :timestamp="e.at ? fmtTime(e.at) : ''" placement="top">
+                  <div class="tl-head"><span class="tl-kind" :class="'tl-' + e.kind">{{ tlKind(e.kind) }}</span><span class="tl-label">{{ e.label }}</span></div>
+                  <div class="tl-detail" v-if="e.detail">{{ e.detail }}</div>
+                </el-timeline-item>
+              </el-timeline>
+              <div v-else class="field-hint">这条任务还没有时间线记录</div>
+            </template>
+          </el-tab-pane>
+
+          <el-tab-pane label="上下文" name="context">
+            <div v-if="ctxLoading" class="field-hint">正在加载上下文包…</div>
+            <el-alert v-else-if="ctx.__error" :title="'读取失败：' + ctx.__error" type="warning" :closable="false" />
+            <template v-else>
+              <el-card v-if="ctx.layers && ctx.layers.goal" shadow="never" class="drawer-block">
+                <template #header>目标</template>
+                <div class="list-row-title">{{ ctx.layers.goal.title || '（无标题）' }}</div>
+                <div class="list-row-detail">{{ ctx.layers.goal.goal || '（无描述）' }}</div>
+                <div v-if="ctx.layers.goal.requirements && ctx.layers.goal.requirements.length" class="field-hint">需求：{{ ctx.layers.goal.requirements.join('；') }}</div>
+              </el-card>
+              <el-card v-if="ctx.coverage" shadow="never" class="drawer-block">
+                <template #header>覆盖度</template>
+                <div class="sys-chips">
+                  <span class="sys-chip sys-muted">已含 {{ ctx.coverage.includedChars }} / {{ ctx.coverage.limitBytes }} 字符</span>
+                  <span v-if="ctx.coverage.partialSources" class="sys-chip sys-warn">{{ ctx.coverage.partialSources }} 份被截断</span>
+                  <span v-if="ctx.coverage.missingCount" class="sys-chip sys-bad">缺 {{ ctx.coverage.missingCount }} 份</span>
+                  <span v-if="ctx.fullSources && ctx.fullSources.length" class="sys-chip sys-ok">已展开 {{ ctx.fullSources.length }} 份长资料</span>
+                </div>
+              </el-card>
+              <el-card v-if="ctx.layers && ctx.layers.sources && ctx.layers.sources.length" shadow="never" class="drawer-block">
+                <template #header>资料清单（{{ ctx.layers.sources.length }}）</template>
+                <div v-for="s in ctx.layers.sources" :key="s.id" class="list-row-detail">· {{ s.title || s.id }}<span class="list-row-meta"> · {{ s.includedChars }} 字{{ s.truncated ? '（截断）' : '' }}</span></div>
+              </el-card>
+              <el-card v-if="ctx.layers && ctx.layers.checkpoints && ctx.layers.checkpoints.length" shadow="never" class="drawer-block">
+                <template #header>检查点（{{ ctx.layers.checkpoints.length }}）</template>
+                <div v-for="c in ctx.layers.checkpoints" :key="c.id" class="list-row-detail">· {{ c.title || c.id }}<span class="list-row-meta"> · {{ c.includedChars }} 字</span></div>
+              </el-card>
+              <el-card v-if="ctx.layers && ctx.layers.missing && ctx.layers.missing.length" shadow="never" class="drawer-block">
+                <template #header>缺失资料（{{ ctx.layers.missing.length }}）</template>
+                <div v-for="(m, i) in ctx.layers.missing" :key="i" class="list-row-detail">· {{ typeof m === 'string' ? m : (m.title || JSON.stringify(m)) }}</div>
+              </el-card>
+              <el-card v-if="ctx.availableDeliveries && ctx.availableDeliveries.length" shadow="never" class="drawer-block">
+                <template #header>可关联的研发交付（{{ ctx.availableDeliveries.length }}）</template>
+                <div v-for="d in ctx.availableDeliveries" :key="d.id" class="list-row">
+                  <div class="list-row-head">
+                    <span class="list-row-title">{{ d.identifier }} · {{ d.title }}</span>
+                    <el-tag v-if="d.linked" size="small" type="success" effect="light">已关联</el-tag>
+                  </div>
+                </div>
+              </el-card>
+              <div v-if="!ctx.layers" class="field-hint">这条任务还没有可展示的上下文包。</div>
+            </template>
+          </el-tab-pane>
+
+          <el-tab-pane label="留痕" name="trace">
+            <div v-if="traceLoading" class="field-hint">正在加载留痕…</div>
+            <template v-else>
+              <el-alert v-if="trace.available === false" title="留痕存储暂不可用，未据此判定验收" type="info" :closable="false" style="margin-bottom:10px" />
+              <div v-if="trace.gaps && trace.gaps.length" class="field-hint" style="margin-bottom:10px">缺口：{{ trace.gaps.join('；') }}</div>
+              <div v-if="!trace.events || !trace.events.length" class="field-hint">这条任务还没有留痕事件。</div>
+              <div v-else class="trace-list">
+                <div v-for="(e, i) in trace.events" :key="i" class="trace-item">
+                  <span class="tl-kind" :class="'tl-' + traceTone(e.kind)">{{ traceLabel(e.kind) }}</span>
+                  <span class="trace-actor">{{ e.actor }}</span>
+                  <span class="trace-outcome" v-if="e.outcome">· {{ e.outcome }}</span>
+                  <span class="trace-time">{{ e.at ? fmtTime(e.at) : '' }}</span>
+                  <span class="ev-media" :class="'ev-' + evidenceTone(e.evidenceKind)">{{ evidenceLabel(e.evidenceKind) }}</span>
+                </div>
+              </div>
+            </template>
+          </el-tab-pane>
+        </el-tabs>
+      </el-drawer>`,
+    setup(props) {
+      const tab = ref('timeline');
+      const timeline = ref({}); const loading = ref(false);
+      const ctx = ref({}); const ctxLoading = ref(false);
+      const trace = ref({}); const traceLoading = ref(false);
+      const title = computed(() => (props.task && (props.task.identifier || props.task.title)) || '任务详情');
+      const load = async id => {
+        loading.value = true; ctxLoading.value = true; traceLoading.value = true;
+        const [t, c, tr] = await Promise.all([
+          safe('task-timeline', { taskId: id }),
+          safe('context-pack', { taskId: id }),
+          safe('trace-view', { taskId: id }),
+        ]);
+        timeline.value = t; ctx.value = c; trace.value = tr;
+        loading.value = false; ctxLoading.value = false; traceLoading.value = false;
+      };
+      watch(() => [props.visible, props.taskId], async ([v, id]) => {
+        if (v && id) { tab.value = 'timeline'; await load(id); }
+      }, { immediate: true });
+      const tlType = k => ({ human: 'primary', agent: 'success', system: 'info' }[k] || 'info');
+      const tlKind = k => ({ human: '人', agent: 'Agent', system: '系统' }[k] || '系统');
+      const traceLabel = k => ({ model: '模型', tool: '工具', receipt: '回执', ci: 'CI', checkpoint: '检查点', gate: '闸门', acceptance: '验收' }[k] || k);
+      const traceTone = k => ({ model: 'human', tool: 'agent', receipt: 'agent', ci: 'system', checkpoint: 'system', gate: 'system', acceptance: 'human' }[k] || 'system');
+      const evidenceLabel = k => ({ captured: '实跑', imported: '导入', authored: '自撰' }[k] || k || '—');
+      const evidenceTone = k => ({ captured: 'blue', imported: 'slate', authored: 'amber' }[k] || 'info');
+      return { tab, timeline, loading, ctx, ctxLoading, trace, traceLoading, title,
+        tlType, tlKind, traceLabel, traceTone, evidenceLabel, evidenceTone, fmtTime };
+    },
+  };
+
   const TasksView = {
     props: ['session', 'mode'],
+    components: { TaskDetailDrawer },
     template: `
       <div>
         <div class="welcome-bar" v-if="mode !== 'collaboration'">
@@ -214,32 +345,7 @@
             </el-table-column>
           </el-table>
         </el-card>
-        <el-drawer v-model="taskDrawer" :title="timeline.identifier || (current && (current.title || current.id))" size="48%">
-          <div v-if="timelineLoading" class="field-hint">正在加载这条任务的协作时间线…</div>
-          <template v-else>
-            <el-card v-if="timeline.delivery" shadow="never" class="drawer-block">
-              <template #header>交付 / 产物</template>
-              <div class="list-row-detail">
-                <template v-if="timeline.delivery.pr">PR #{{ timeline.delivery.pr }}</template>
-                <template v-if="timeline.delivery.ci"> · CI {{ timeline.delivery.ci === 'passed' ? '通过' : timeline.delivery.ci }}</template>
-                <template v-if="timeline.delivery.merged"> · 已合并</template>
-                <template v-if="timeline.delivery.previewUrl"> · <a :href="timeline.delivery.previewUrl" target="_blank" rel="noopener">预览</a></template>
-              </div>
-            </el-card>
-            <el-card v-if="timeline.documents && timeline.documents.length" shadow="never" class="drawer-block">
-              <template #header>任务文档（{{ timeline.documents.length }}）</template>
-              <div v-for="d in timeline.documents" :key="d.key" class="list-row-detail">· {{ d.title || d.key }}</div>
-            </el-card>
-            <div v-if="timeline.knowledgeRefs && timeline.knowledgeRefs.length" class="field-hint drawer-block">关联知识 {{ timeline.knowledgeRefs.length }} 条</div>
-            <el-timeline v-if="timeline.entries && timeline.entries.length" style="padding-left:4px">
-              <el-timeline-item v-for="(e, i) in timeline.entries" :key="i" :type="tlType(e.kind)" :timestamp="e.at ? fmtTime(e.at) : ''" placement="top">
-                <div class="tl-head"><span class="tl-kind" :class="'tl-' + e.kind">{{ tlKind(e.kind) }}</span><span class="tl-label">{{ e.label }}</span></div>
-                <div class="tl-detail" v-if="e.detail">{{ e.detail }}</div>
-              </el-timeline-item>
-            </el-timeline>
-            <div v-else class="field-hint">这条任务还没有时间线记录</div>
-          </template>
-        </el-drawer>
+        <task-detail-drawer v-model:visible="taskDrawer" :task-id="current && current.id" :task="current" />
       </div>`,
     setup(props) {
       const summary = ref({}); const loading = ref(true); const taskDrawer = ref(false); const current = ref(null);
@@ -277,13 +383,110 @@
         const [s, sv, rg, ex] = await Promise.all([safe('view-summary'), safe('service-status'), safe('v06-agent-registry-view'), safe('v06-execution-view')]);
         summary.value = s; services.value = sv; registry.value = rg; execution.value = ex; loading.value = false;
       };
-      const openTask = async row => { current.value = row; taskDrawer.value = true; timeline.value = {}; timelineLoading.value = true;
-        timeline.value = await safe('task-timeline', { taskId: row.id || row.identifier }); timelineLoading.value = false; };
+      const openTask = row => { current.value = row; taskDrawer.value = true; };
       const tlType = k => ({ human: 'primary', agent: 'success', system: 'info' }[k] || 'info');
       const tlKind = k => ({ human: '人', agent: 'Agent', system: '系统' }[k] || '系统');
       onMounted(load);
       return { summary, loading, tasks, statCards, phaseLabel, phaseTag, load, openTask, taskDrawer, current, fmtTime, agentLabel, timeline, timelineLoading, tlType, tlKind,
         services, registry, execution, health, healthTag, healthLabel };
+    },
+  };
+
+  // ---------------------------------------------------------------- 待你决定（第六十六轮 · 聚合散落的「等你」）
+  // 对标 paperclip 的 Needs You：把待回答 / 待拍板 / 待评审 / 待验收收拢成一个入口。
+  const DecisionCenterView = {
+    props: ['session'],
+    components: { TaskDetailDrawer },
+    template: `
+      <div>
+        <div class="welcome-bar">
+          <div class="welcome-title">待你决定</div>
+          <div class="welcome-sub">把散落在各处的「等你」收拢到一处：待回答、待拍板、待评审、待验收。</div>
+        </div>
+        <div class="metric-grid">
+          <div v-for="c in cards" :key="c.label" class="metric-card">
+            <div class="metric-ico" :class="'tone-' + c.tone">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" v-html="c.icon"></svg>
+            </div>
+            <div class="metric-body"><div class="metric-num">{{ c.value }}</div><div class="metric-label">{{ c.label }}</div></div>
+          </div>
+        </div>
+        <el-card v-if="hitl.pending && hitl.pending.length" shadow="never" style="margin-bottom:14px">
+          <template #header>
+            <div class="card-head"><span>等你回答（{{ hitl.pending.length }}）</span><el-button size="small" @click="load" :loading="loading">刷新</el-button></div>
+          </template>
+          <div v-for="q in hitl.pending" :key="q.id" class="hitl-item">
+            <div class="hitl-q"><span class="tl-kind tl-human">待回答</span><span class="hitl-prompt">{{ q.prompt }}</span></div>
+            <div class="hitl-meta">{{ fmtTime(q.at) }} · 问题号 {{ (q.id || '').slice(0, 12) }}<template v-if="q.asker"> · 由 {{ q.asker }} 提问</template></div>
+            <div class="hitl-actions">
+              <el-radio-group v-model="astate(q).choice">
+                <el-radio-button v-for="c in (q.choices || [])" :key="c" :value="c">{{ c }}</el-radio-button>
+              </el-radio-group>
+              <el-input v-model="astate(q).note" placeholder="补充说明（可选）" size="small" style="max-width:200px" />
+              <el-button type="primary" size="small" :loading="astate(q).busy" :disabled="!astate(q).choice" @click="answer(q)">提交回答</el-button>
+            </div>
+          </div>
+        </el-card>
+        <el-card v-for="group in groups" :key="group.key" v-show="group.tasks.length" shadow="never" style="margin-bottom:14px">
+          <template #header>{{ group.label }}（{{ group.tasks.length }}）</template>
+          <el-table :data="group.tasks" size="default" @row-click="openTask">
+            <el-table-column label="任务" min-width="280">
+              <template #default="{ row }"><div class="task-cell"><div class="task-id">{{ row.identifier }}</div><el-link type="primary" class="task-title">{{ row.title }}</el-link></div></template>
+            </el-table-column>
+            <el-table-column label="阶段" width="110"><template #default="{ row }"><el-tag :type="phaseTag(row.phase)" size="small" effect="light">{{ phaseLabel(row.phase) }}</el-tag></template></el-table-column>
+            <el-table-column label="负责" width="120"><template #default="{ row }"><el-tag size="small" effect="plain">{{ agentLabel(row.agent) }}</el-tag></template></el-table-column>
+          </el-table>
+        </el-card>
+        <el-empty v-if="nothing" description="当前没有等你处理的事，一切都在自动推进中" />
+        <task-detail-drawer v-model:visible="drawer" :task-id="current && current.id" :task="current" />
+      </div>`,
+    setup() {
+      const summary = ref({}); const hitl = ref({}); const loading = ref(true);
+      const drawer = ref(false); const current = ref(null);
+      const answerState = reactive({});
+      const tasks = computed(() => Array.isArray(summary.value.tasks) ? summary.value.tasks : []);
+      const blocked = computed(() => tasks.value.filter(t => ['blocked', 'waiting', 'ready'].includes(t.phase)));
+      const review = computed(() => tasks.value.filter(t => t.phase === 'review'));
+      const delivered = computed(() => tasks.value.filter(t => t.phase === 'delivered'));
+      const groups = computed(() => [
+        { key: 'blocked', label: '等你拍板', tasks: blocked.value },
+        { key: 'review', label: '等你评审', tasks: review.value },
+        { key: 'delivered', label: '等你验收', tasks: delivered.value },
+      ]);
+      const cards = computed(() => [
+        { label: '等你回答', value: (hitl.value.pending || []).length, tone: 'blue', icon: '<path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>' },
+        { label: '等你拍板', value: blocked.value.length, tone: 'violet', icon: '<path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/>' },
+        { label: '等你评审', value: review.value.length, tone: 'amber', icon: '<path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><path d="M22 4L12 14.01l-3-3"/>' },
+        { label: '等你验收', value: delivered.value.length, tone: 'green', icon: '<path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><path d="M4 22v-7"/>' },
+      ]);
+      const nothing = computed(() => !(hitl.value.pending || []).length && !blocked.value.length && !review.value.length && !delivered.value.length);
+      const load = async () => {
+        loading.value = true;
+        const [s, h] = await Promise.all([safe('view-summary', { limit: 50 }), safe('admin-hitl')]);
+        summary.value = s; hitl.value = h; loading.value = false;
+      };
+      const openTask = row => { current.value = row; drawer.value = true; };
+      const astate = q => { if (!answerState[q.id]) answerState[q.id] = { choice: '', note: '', busy: false }; return answerState[q.id]; };
+      const answer = async q => {
+        const st = astate(q);
+        if (!st.choice || st.busy) return;
+        st.busy = true;
+        try {
+          await api('admin-hitl-answer', { questionId: q.id, choice: st.choice, note: st.note });
+          ElementPlus.ElMessage.success('已回答');
+          await load();
+        } catch (e) { ElementPlus.ElMessage.error(String(e.message || e)); }
+        finally { st.busy = false; }
+      };
+      const phaseLabel = p => ({ running: '进行中', waiting: '等待', delivered: '已交付', failed: '失败', todo: '待办', blocked: '受阻',
+        intake: '待接入', dispatched: '已派单', in_progress: '进行中', review: '待评审', ready: '待人处理', accepted: '已验收', closed: '已结束', draft: '草稿' }[p] || p || '—');
+      const phaseTag = p => ({ running: 'primary', waiting: 'warning', delivered: 'success', failed: 'danger', blocked: 'danger',
+        ready: 'warning', accepted: 'success', review: 'warning', closed: 'info', draft: 'info', dispatched: 'primary', intake: 'info', in_progress: 'primary', todo: 'info' }[p] || 'info');
+      const agentLabel = id => ({ 'role-product': '产研', 'role-growth': '增长', 'role-ops': '运营',
+        'codex': '执行 · codex', 'claude': '执行 · claude', 'workbuddy': 'WorkBuddy' }[id] || id);
+      onMounted(load);
+      return { summary, hitl, loading, drawer, current, tasks, blocked, review, delivered, groups, cards, nothing,
+        load, openTask, astate, answer, phaseLabel, phaseTag, agentLabel, fmtTime };
     },
   };
 
@@ -415,6 +618,7 @@
   // ---------------------------------------------------------------- 协作视图（C-3 / C-4 / P-6 卡片）
   const CollaborationView = {
     props: ['session'],
+    components: { TaskDetailDrawer },
     template: `
       <div>
         <el-tabs v-model="activeTab" class="collab-tabs">
@@ -598,32 +802,7 @@
         </el-card>
         </div>
 
-        <el-drawer v-model="taskDrawer" :title="timeline.identifier || (current && (current.title || current.id))" size="48%">
-          <div v-if="timelineLoading" class="field-hint">正在加载这条任务的协作时间线…</div>
-          <template v-else>
-            <el-card v-if="timeline.delivery" shadow="never" class="drawer-block">
-              <template #header>交付 / 产物</template>
-              <div class="list-row-detail">
-                <template v-if="timeline.delivery.pr">PR #{{ timeline.delivery.pr }}</template>
-                <template v-if="timeline.delivery.ci"> · CI {{ timeline.delivery.ci === 'passed' ? '通过' : timeline.delivery.ci }}</template>
-                <template v-if="timeline.delivery.merged"> · 已合并</template>
-                <template v-if="timeline.delivery.previewUrl"> · <a :href="timeline.delivery.previewUrl" target="_blank" rel="noopener">预览</a></template>
-              </div>
-            </el-card>
-            <el-card v-if="timeline.documents && timeline.documents.length" shadow="never" class="drawer-block">
-              <template #header>任务文档（{{ timeline.documents.length }}）</template>
-              <div v-for="d in timeline.documents" :key="d.key" class="list-row-detail">· {{ d.title || d.key }}</div>
-            </el-card>
-            <div v-if="timeline.knowledgeRefs && timeline.knowledgeRefs.length" class="field-hint drawer-block">关联知识 {{ timeline.knowledgeRefs.length }} 条</div>
-            <el-timeline v-if="timeline.entries && timeline.entries.length" style="padding-left:4px">
-              <el-timeline-item v-for="(e, i) in timeline.entries" :key="i" :type="tlType(e.kind)" :timestamp="e.at ? fmtTime(e.at) : ''" placement="top">
-                <div class="tl-head"><span class="tl-kind" :class="'tl-' + e.kind">{{ tlKind(e.kind) }}</span><span class="tl-label">{{ e.label }}</span></div>
-                <div class="tl-detail" v-if="e.detail">{{ e.detail }}</div>
-              </el-timeline-item>
-            </el-timeline>
-            <div v-else class="field-hint">这条任务还没有时间线记录</div>
-          </template>
-        </el-drawer>
+        <task-detail-drawer v-model:visible="taskDrawer" :task-id="current && current.id" :task="current" />
       </div>`,
     setup(props) {
       const summary = ref({}), routing = ref({}), registry = ref({}), evolution = ref({}), execution = ref({});
@@ -664,8 +843,7 @@
         intake: '待接入', dispatched: '已派单', in_progress: '进行中', review: '待评审', accepted: '已验收', closed: '已结束', draft: '草稿' }[p] || p || '—');
       const phaseTag = p => ({ running: 'primary', waiting: 'warning', delivered: 'success', failed: 'danger', blocked: 'danger',
         accepted: 'success', review: 'warning', closed: 'info', draft: 'info', dispatched: 'primary', intake: 'info', in_progress: 'primary', todo: 'info' }[p] || 'info');
-      const openTask = async row => { current.value = row; taskDrawer.value = true; timeline.value = {}; timelineLoading.value = true;
-        timeline.value = await safe('task-timeline', { taskId: row.id || row.identifier }); timelineLoading.value = false; };
+      const openTask = row => { current.value = row; taskDrawer.value = true; };
       const tlType = k => ({ human: 'primary', agent: 'success', system: 'info' }[k] || 'info');
       const tlKind = k => ({ human: '人', agent: 'Agent', system: '系统' }[k] || '系统');
       const load = async () => { summary.value = await safe('view-summary'); };
@@ -1835,7 +2013,7 @@
 
   // ---------------------------------------------------------------- 主壳
   const App = {
-    components: { LoginView, TasksView, ConversationView, CollaborationView, OrganizationView, KnowledgeView, AcceptanceView, ServicesView, SettingsView, AdminView },
+    components: { LoginView, TasksView, ConversationView, CollaborationView, OrganizationView, KnowledgeView, AcceptanceView, ServicesView, SettingsView, AdminView, DecisionCenterView },
     template: `
       <login-view v-if="!session" @ok="loadSession" />
       <el-container v-else class="app-shell">
@@ -1898,6 +2076,7 @@
           </el-header>
           <el-main class="app-main">
             <div class="main-inner">
+              <decision-center-view v-if="view === 'decisions'" :session="session" />
               <conversation-view v-if="view === 'conversation'" :session="session" />
               <tasks-view v-if="view === 'overview'" :session="session" mode="overview" />
               <collaboration-view v-else-if="view === 'collaboration'" :session="session" />
@@ -1936,8 +2115,8 @@
           const data = await r.json();
           session.value = data;
           applyTheme(data.settings?.theme === 'dark' ? 'dark' : 'light');
-          const target = ['conversation', 'overview', 'collaboration', 'organization', 'knowledge', 'acceptance', 'services'].includes(data.settings?.defaultView)
-            ? data.settings.defaultView : 'conversation';
+          const target = ['decisions', 'conversation', 'overview', 'collaboration', 'organization', 'knowledge', 'acceptance', 'services'].includes(data.settings?.defaultView)
+            ? data.settings.defaultView : 'decisions';
           view.value = target === 'admin' && !hasAdminArea.value ? 'overview' : target;
         } catch { session.value = null; }
       };
