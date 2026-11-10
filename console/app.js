@@ -63,6 +63,8 @@
       icon: '<circle cx="12" cy="5" r="2.5"/><circle cx="5" cy="18" r="2.5"/><circle cx="19" cy="18" r="2.5"/><path d="M12 7.5V11M12 11l-5 4.5M12 11l5 4.5"/>' },
     { id: 'knowledge', title: '知识', subtitle: '资料与证据按归属分区管理：个人 / 协作 / 组织',
       icon: '<path d="M4 5a2 2 0 012-2h12v18H6a2 2 0 01-2-2V5z"/><path d="M8 7h8M8 11h8"/>' },
+    { id: 'artifacts', title: '产物', subtitle: '交付与文档的产物引用与修订',
+      icon: '<path d="M21 8V6a2 2 0 00-2-2H5a2 2 0 00-2 2v2"/><path d="M3 8v10a2 2 0 002 2h14a2 2 0 002-2V8"/><path d="M10 12h4"/>' },
     { id: 'acceptance', title: '验收', subtitle: '开工前锁定清单，逐项判定后由发起人确认',
       icon: '<path d="M5 12l5 5L19 7"/>' },
     { id: 'services', title: '服务', subtitle: '本机与国内服务的实时状态',
@@ -241,6 +243,27 @@
               </div>
             </template>
           </el-tab-pane>
+
+          <el-tab-pane label="关系图" name="graph">
+            <div v-if="graphLoading" class="field-hint">正在加载关系图…</div>
+            <el-alert v-else-if="graph.__error" :title="'读取失败：' + graph.__error" type="warning" :closable="false" />
+            <template v-else>
+              <div class="hint-text">组织关系图（跨来源）：谁负责什么、交付依赖哪些证据、哪些判断影响了哪些任务。</div>
+              <el-card v-if="graphNodes.length" shadow="never" class="drawer-block">
+                <template #header>节点（{{ graphNodes.length }}）</template>
+                <div v-for="n in graphNodes" :key="n.id" class="list-row">
+                  <div class="list-row-head"><span class="list-row-title">{{ n.label }}</span><el-tag size="small" effect="plain">{{ n.kind }}</el-tag></div>
+                </div>
+              </el-card>
+              <el-card v-if="graphEdges.length" shadow="never" class="drawer-block">
+                <template #header>关系（{{ graphEdges.length }}）</template>
+                <div v-for="e in graphEdges" :key="e.id" class="list-row">
+                  <div class="list-row-head"><span class="list-row-title">{{ e.from }} → {{ e.to }}</span><el-tag size="small" :type="e.state === 'accepted' ? 'success' : e.state === 'reusable' ? 'primary' : 'info'" effect="light">{{ e.family }}</el-tag></div>
+                </div>
+              </el-card>
+              <div v-if="!graphNodes.length && !graphEdges.length" class="field-hint">这条任务还没有组织关系图。</div>
+            </template>
+          </el-tab-pane>
         </el-tabs>
       </el-drawer>`,
     setup(props) {
@@ -248,16 +271,20 @@
       const timeline = ref({}); const loading = ref(false);
       const ctx = ref({}); const ctxLoading = ref(false);
       const trace = ref({}); const traceLoading = ref(false);
+      const graph = ref({}); const graphLoading = ref(false);
+      const graphNodes = computed(() => Array.isArray(graph.value.nodes) ? graph.value.nodes : []);
+      const graphEdges = computed(() => Array.isArray(graph.value.edges) ? graph.value.edges : []);
       const title = computed(() => (props.task && (props.task.identifier || props.task.title)) || '任务详情');
       const load = async id => {
-        loading.value = true; ctxLoading.value = true; traceLoading.value = true;
-        const [t, c, tr] = await Promise.all([
+        loading.value = true; ctxLoading.value = true; traceLoading.value = true; graphLoading.value = true;
+        const [t, c, tr, g] = await Promise.all([
           safe('task-timeline', { taskId: id }),
           safe('context-pack', { taskId: id }),
           safe('trace-view', { taskId: id }),
+          safe('ontology-view', { taskId: id }),
         ]);
-        timeline.value = t; ctx.value = c; trace.value = tr;
-        loading.value = false; ctxLoading.value = false; traceLoading.value = false;
+        timeline.value = t; ctx.value = c; trace.value = tr; graph.value = g;
+        loading.value = false; ctxLoading.value = false; traceLoading.value = false; graphLoading.value = false;
       };
       watch(() => [props.visible, props.taskId], async ([v, id]) => {
         if (v && id) { tab.value = 'timeline'; await load(id); }
@@ -269,6 +296,7 @@
       const evidenceLabel = k => ({ captured: '实跑', imported: '导入', authored: '自撰' }[k] || k || '—');
       const evidenceTone = k => ({ captured: 'blue', imported: 'slate', authored: 'amber' }[k] || 'info');
       return { tab, timeline, loading, ctx, ctxLoading, trace, traceLoading, title,
+        graph, graphLoading, graphNodes, graphEdges,
         tlType, tlKind, traceLabel, traceTone, evidenceLabel, evidenceTone, fmtTime };
     },
   };
@@ -487,6 +515,37 @@
       onMounted(load);
       return { summary, hitl, loading, drawer, current, tasks, blocked, review, delivered, groups, cards, nothing,
         load, openTask, astate, answer, phaseLabel, phaseTag, agentLabel, fmtTime };
+    },
+  };
+
+  // ---------------------------------------------------------------- 产物库（第六十六轮 · v06-artifact-list）
+  const ArtifactView = {
+    props: ['session'],
+    template: `
+      <div>
+        <el-card shadow="never">
+          <template #header>
+            <div class="card-head"><span>产物库（{{ total }}）</span><el-button size="small" @click="load" :loading="loading">刷新</el-button></div>
+          </template>
+          <div class="hint-text">产物只存引用与修订号，内容仍在原来的文档 / 报告 / 表里。</div>
+          <el-alert v-if="data.__error" :title="'读取失败：' + data.__error" type="warning" :closable="false" />
+          <el-table v-else :data="artifacts" size="default">
+            <el-table-column prop="ref" label="产物引用" min-width="220" show-overflow-tooltip />
+            <el-table-column prop="title" label="标题" min-width="200" />
+            <el-table-column label="当前修订" width="130"><template #default="{ row }"><span class="mono">{{ (row.current || '').slice(0, 12) }}</span></template></el-table-column>
+            <el-table-column prop="revisions" label="修订数" width="90" />
+            <el-table-column label="更新时间" width="170"><template #default="{ row }">{{ fmtTime(row.updatedAt) }}</template></el-table-column>
+          </el-table>
+          <div v-if="!loading && !artifacts.length && !data.__error" class="field-hint">还没有登记产物。</div>
+        </el-card>
+      </div>`,
+    setup() {
+      const data = ref({}); const loading = ref(true);
+      const artifacts = computed(() => Array.isArray(data.value.artifacts) ? data.value.artifacts : []);
+      const total = computed(() => data.value.total ?? 0);
+      const load = async () => { loading.value = true; data.value = await safe('v06-artifact-list'); loading.value = false; };
+      onMounted(load);
+      return { data, artifacts, total, loading, load, fmtTime };
     },
   };
 
@@ -1492,6 +1551,23 @@
               <div v-if="!agentRows.length" class="hint-text">当前可见范围内还没有承接中的任务。</div>
             </el-card>
             <el-card shadow="never" class="contract-card" style="margin-top:14px">
+              <template #header>
+                <div class="card-head"><span>成员与 Agent 绑定</span><el-tag v-if="!members.__error" size="small" effect="plain">{{ bindingRows.length }} 位成员</el-tag></div>
+              </template>
+              <el-alert v-if="members.__error" :title="'读取失败：' + members.__error" type="info" :closable="false" />
+              <template v-else>
+                <div v-for="u in bindingRows" :key="u.id" class="list-row">
+                  <div class="list-row-head">
+                    <span class="list-row-title">{{ u.name }}</span>
+                    <el-tag v-if="u.agent" size="small" type="success" effect="light">{{ u.agent }}</el-tag>
+                    <span v-else class="list-row-meta">未绑定个人 Agent</span>
+                  </div>
+                </div>
+                <div v-if="!bindingRows.length" class="hint-text">还没有可展示的成员。</div>
+                <div class="hint-text" style="margin-top:6px">每位成员绑定独立的个人 Agent 资料身份，不能复用他人身份。</div>
+              </template>
+            </el-card>
+            <el-card shadow="never" class="contract-card" style="margin-top:14px">
               <template #header>组织原则</template>
               <div v-for="note in notes" :key="note" class="list-row-detail">· {{ note }}</div>
             </el-card>
@@ -1516,8 +1592,17 @@
       });
       const phaseText = p => ({ intake: '待接入', dispatched: '已派单', in_progress: '进行中', review: '待评审',
         accepted: '已验收', closed: '已结束', draft: '草稿', waiting: '等待中' }[p] || p);
-      onMounted(async () => { data.value = await safe('organization-view'); });
-      return { data, layers, domains, notes, agentRows, phaseRows, statCards, phaseText, dutyText };
+      const members = ref({});
+      const bindingRows = computed(() => {
+        const users = Array.isArray(members.value.users) ? members.value.users : [];
+        const bindings = members.value.bindings || {};
+        return users.map(u => ({ id: u.id, name: u.name, agent: bindings[u.id] || '' }));
+      });
+      onMounted(async () => {
+        const [o, m] = await Promise.all([safe('organization-view'), safe('team-members')]);
+        data.value = o; members.value = m;
+      });
+      return { data, layers, domains, notes, agentRows, phaseRows, statCards, phaseText, dutyText, members, bindingRows };
     },
   };
 
@@ -1645,9 +1730,49 @@
             </el-card>
           </el-col>
         </el-row>
+        <el-row :gutter="14">
+          <el-col :xs="24" :md="12" style="margin-bottom:14px">
+            <el-card shadow="never" class="contract-card">
+              <template #header>
+                <div class="card-head"><span>Agent 服务网络</span><el-tag v-if="!network.__error" size="small" effect="plain">{{ serviceProfiles.length }} 个服务</el-tag></div>
+              </template>
+              <el-alert v-if="network.__error" :title="'读取失败：' + network.__error" type="info" :closable="false" />
+              <template v-else>
+                <div v-for="p in serviceProfiles" :key="p.id" class="list-row">
+                  <div class="list-row-head">
+                    <span class="list-row-title">{{ p.name || p.key }}</span>
+                    <el-tag size="small" :type="p.enabled ? 'success' : 'info'" effect="light">{{ p.kind === 'personal' ? '个人' : '公共' }}{{ p.enabled ? '' : ' · 停用' }}</el-tag>
+                  </div>
+                  <div class="list-row-detail">{{ p.actorKey || '' }}<template v-if="p.version"> · v{{ String(p.version).slice(0, 8) }}</template></div>
+                </div>
+                <div v-if="!serviceProfiles.length" class="hint-text">还没有登记 Agent 服务。</div>
+              </template>
+            </el-card>
+          </el-col>
+          <el-col :xs="24" :md="12" style="margin-bottom:14px">
+            <el-card shadow="never" class="contract-card">
+              <template #header>
+                <div class="card-head"><span>定时任务与唤醒</span><el-tag size="small" :type="scheduler.enabled ? 'success' : 'info'" effect="light">{{ scheduler.enabled ? '已启用' : '未启用' }}</el-tag></div>
+              </template>
+              <el-alert v-if="scheduler.__error" :title="String(scheduler.__error).includes('权限') ? '需要管理权限才能看定时任务' : ('读取失败：' + scheduler.__error)" type="info" :closable="false" />
+              <template v-else>
+                <div v-for="r in routines" :key="r.name || r.id" class="list-row">
+                  <div class="list-row-head"><span class="list-row-title">{{ r.name || r.id }}</span><span class="list-row-meta">{{ r.next ? fmtTime(r.next) : '' }}</span></div>
+                  <div class="list-row-detail" v-if="r.group">分组 {{ r.group }}</div>
+                </div>
+                <div v-if="!routines.length" class="hint-text">还没有定时任务。</div>
+                <div v-if="wakes.length" class="field-hint" style="margin-top:8px">等唤醒 {{ wakes.length }} 条</div>
+              </template>
+            </el-card>
+          </el-col>
+        </el-row>
       </div>`,
     setup() {
       const data = ref({}), system = ref({}), retry = ref(null), inbox = ref(null), channels = ref(null);
+      const network = ref({}); const scheduler = ref({});
+      const serviceProfiles = computed(() => (Array.isArray(network.value.profiles) ? network.value.profiles : []));
+      const routines = computed(() => (Array.isArray(scheduler.value.routines) ? scheduler.value.routines : []));
+      const wakes = computed(() => (Array.isArray(scheduler.value.wakes) ? scheduler.value.wakes : []));
       const services = computed(() => Array.isArray(data.value.services) ? data.value.services : []);
       const text = computed(() => system.value.__error ? '读取失败：' + system.value.__error : JSON.stringify(system.value, null, 2));
       // 第三十四轮修复：service-status 返回的是 state（connected / degraded / unavailable），
@@ -1665,9 +1790,13 @@
         retry.value = await safe('retry-health');
         inbox.value = await safe('event-inbox-status');
         channels.value = await safe('channel-health');
+        // 第六十六轮：服务网络 + 定时调度（定时任务需 manager，viewer 如实 403）。
+        network.value = await safe('agent-services');
+        scheduler.value = await safe('scheduler-status');
       });
       return { data, services, text, retry, inbox, channels, clean, stateText, stateTag,
-        retryText, retryTag, channelText, channelTag, directionText };
+        retryText, retryTag, channelText, channelTag, directionText,
+        network, scheduler, serviceProfiles, routines, wakes, fmtTime };
     },
   };
 
@@ -2013,7 +2142,7 @@
 
   // ---------------------------------------------------------------- 主壳
   const App = {
-    components: { LoginView, TasksView, ConversationView, CollaborationView, OrganizationView, KnowledgeView, AcceptanceView, ServicesView, SettingsView, AdminView, DecisionCenterView },
+    components: { LoginView, TasksView, ConversationView, CollaborationView, OrganizationView, KnowledgeView, AcceptanceView, ServicesView, SettingsView, AdminView, DecisionCenterView, ArtifactView },
     template: `
       <login-view v-if="!session" @ok="loadSession" />
       <el-container v-else class="app-shell">
@@ -2082,6 +2211,7 @@
               <collaboration-view v-else-if="view === 'collaboration'" :session="session" />
               <organization-view v-else-if="view === 'organization'" />
               <knowledge-view v-else-if="view === 'knowledge'" :session="session" />
+              <artifact-view v-else-if="view === 'artifacts'" :session="session" />
               <acceptance-view v-else-if="view === 'acceptance'" />
               <services-view v-else-if="view === 'services'" :session="session" />
               <settings-view v-else-if="view === 'settings'" :session="session" @theme="saveTheme" />
@@ -2115,7 +2245,7 @@
           const data = await r.json();
           session.value = data;
           applyTheme(data.settings?.theme === 'dark' ? 'dark' : 'light');
-          const target = ['decisions', 'conversation', 'overview', 'collaboration', 'organization', 'knowledge', 'acceptance', 'services'].includes(data.settings?.defaultView)
+          const target = ['decisions', 'conversation', 'overview', 'collaboration', 'organization', 'knowledge', 'artifacts', 'acceptance', 'services'].includes(data.settings?.defaultView)
             ? data.settings.defaultView : 'decisions';
           view.value = target === 'admin' && !hasAdminArea.value ? 'overview' : target;
         } catch { session.value = null; }

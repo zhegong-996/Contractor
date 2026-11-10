@@ -44,6 +44,11 @@ export const CONSOLE_READ_ACTIONS: readonly string[] = [
   'knowledge-list', 'knowledge-get', // P-13：知识条目列表与单条详情（读）
   'knowledge-wiki', // 13a ②③：知识地图投影与注入索引的只读体检
   'conversation-feed', // 第六十三轮：全局协作事件流（「对话」视图，只读投影）
+  // 第六十六轮：补齐「后端有、前端没接」的能力（bridge 侧本就支持，这里只放行）
+  'v06-artifact-list', // 产物库（全局产物 ref / 修订）
+  'team-members', // 成员目录 + Agent 绑定（组织视图）
+  'agent-services', // Agent 服务网络
+  'scheduler-status', 'wake-list', // 定时调度与唤醒队列（需 manager，viewer 如实 403）
 ] as const;
 
 /** P-13 知识写入动作：登录即可调，分区权限由 bridge 端 casbin 统一判定。 */
