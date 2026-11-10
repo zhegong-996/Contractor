@@ -165,18 +165,20 @@
             </el-table-column>
           </el-table>
         </el-card>
-        <el-drawer v-model="taskDrawer" :title="current && (current.title || current.id)" size="46%">
-          <el-descriptions v-if="current" :column="1" border>
-            <el-descriptions-item label="任务 ID">{{ current.id }}</el-descriptions-item>
-            <el-descriptions-item label="负责 Agent">{{ current.agent }}</el-descriptions-item>
-            <el-descriptions-item label="阶段">{{ phaseLabel(current.phase) }}</el-descriptions-item>
-            <el-descriptions-item label="创建">{{ fmtTime(current.createdAt || current.created_at) }}</el-descriptions-item>
-            <el-descriptions-item label="摘要"><div style="white-space:pre-wrap">{{ current.summary || current.context || '（无）' }}</div></el-descriptions-item>
-          </el-descriptions>
+        <el-drawer v-model="taskDrawer" :title="timeline.identifier || (current && (current.title || current.id))" size="48%">
+          <div v-if="timelineLoading" class="field-hint">正在加载这条任务的协作时间线…</div>
+          <el-timeline v-else-if="timeline.entries && timeline.entries.length" style="padding-left:4px">
+            <el-timeline-item v-for="(e, i) in timeline.entries" :key="i" :type="tlType(e.kind)" :timestamp="e.at ? fmtTime(e.at) : ''" placement="top">
+              <div class="tl-head"><span class="tl-kind" :class="'tl-' + e.kind">{{ tlKind(e.kind) }}</span><span class="tl-label">{{ e.label }}</span></div>
+              <div class="tl-detail" v-if="e.detail">{{ e.detail }}</div>
+            </el-timeline-item>
+          </el-timeline>
+          <div v-else class="field-hint">这条任务还没有时间线记录</div>
         </el-drawer>
       </div>`,
     setup(props) {
       const summary = ref({}); const loading = ref(true); const taskDrawer = ref(false); const current = ref(null);
+      const timeline = ref({}); const timelineLoading = ref(false);
       const tasks = computed(() => Array.isArray(summary.value.tasks) ? summary.value.tasks : []);
       const statCards = computed(() => {
         const need = { blocked: 0, review: 0, waiting: 0, ready: 0, running: 0, in_progress: 0, dispatched: 0, intake: 0, todo: 0, delivered: 0, accepted: 0, closed: 0 };
@@ -193,9 +195,12 @@
       const phaseTag = p => ({ running: 'primary', waiting: 'warning', delivered: 'success', failed: 'danger', blocked: 'danger',
         ready: 'warning', accepted: 'success', review: 'warning', closed: 'info', draft: 'info', dispatched: 'primary', intake: 'info', in_progress: 'primary', todo: 'info' }[p] || 'info');
       const load = async () => { loading.value = true; summary.value = await safe('view-summary'); loading.value = false; };
-      const openTask = row => { current.value = row; taskDrawer.value = true; };
+      const openTask = async row => { current.value = row; taskDrawer.value = true; timeline.value = {}; timelineLoading.value = true;
+        timeline.value = await safe('task-timeline', { taskId: row.id || row.identifier }); timelineLoading.value = false; };
+      const tlType = k => ({ human: 'primary', agent: 'success', system: 'info' }[k] || 'info');
+      const tlKind = k => ({ human: '人', agent: 'Agent', system: '系统' }[k] || '系统');
       onMounted(load);
-      return { summary, loading, tasks, statCards, phaseLabel, phaseTag, load, openTask, taskDrawer, current, fmtTime, agentLabel };
+      return { summary, loading, tasks, statCards, phaseLabel, phaseTag, load, openTask, taskDrawer, current, fmtTime, agentLabel, timeline, timelineLoading, tlType, tlKind };
     },
   };
 
@@ -325,19 +330,21 @@
           </el-col>
         </el-row>
 
-        <el-drawer v-model="taskDrawer" :title="current && (current.title || current.id)" size="46%">
-          <el-descriptions v-if="current" :column="1" border>
-            <el-descriptions-item label="任务 ID">{{ current.id }}</el-descriptions-item>
-            <el-descriptions-item label="负责 Agent">{{ current.agent }}</el-descriptions-item>
-            <el-descriptions-item label="阶段">{{ phaseLabel(current.phase) }}</el-descriptions-item>
-            <el-descriptions-item label="创建">{{ fmtTime(current.createdAt || current.created_at) }}</el-descriptions-item>
-            <el-descriptions-item label="摘要"><div style="white-space:pre-wrap">{{ current.summary || current.context || '（无）' }}</div></el-descriptions-item>
-          </el-descriptions>
+        <el-drawer v-model="taskDrawer" :title="timeline.identifier || (current && (current.title || current.id))" size="48%">
+          <div v-if="timelineLoading" class="field-hint">正在加载这条任务的协作时间线…</div>
+          <el-timeline v-else-if="timeline.entries && timeline.entries.length" style="padding-left:4px">
+            <el-timeline-item v-for="(e, i) in timeline.entries" :key="i" :type="tlType(e.kind)" :timestamp="e.at ? fmtTime(e.at) : ''" placement="top">
+              <div class="tl-head"><span class="tl-kind" :class="'tl-' + e.kind">{{ tlKind(e.kind) }}</span><span class="tl-label">{{ e.label }}</span></div>
+              <div class="tl-detail" v-if="e.detail">{{ e.detail }}</div>
+            </el-timeline-item>
+          </el-timeline>
+          <div v-else class="field-hint">这条任务还没有时间线记录</div>
         </el-drawer>
       </div>`,
     setup() {
       const summary = ref({}), routing = ref({}), registry = ref({}), evolution = ref({}), execution = ref({});
       const taskDrawer = ref(false); const current = ref(null);
+      const timeline = ref({}); const timelineLoading = ref(false);
       const tasks = computed(() => Array.isArray(summary.value.tasks) ? summary.value.tasks : []);
       const router = computed(() => routing.value.router ?? {});
       const coverage = computed(() => routing.value.routerCoverage ?? {});
@@ -356,7 +363,10 @@
         intake: '待接入', dispatched: '已派单', in_progress: '进行中', review: '待评审', accepted: '已验收', closed: '已结束', draft: '草稿' }[p] || p || '—');
       const phaseTag = p => ({ running: 'primary', waiting: 'warning', delivered: 'success', failed: 'danger', blocked: 'danger',
         accepted: 'success', review: 'warning', closed: 'info', draft: 'info', dispatched: 'primary', intake: 'info', in_progress: 'primary', todo: 'info' }[p] || 'info');
-      const openTask = row => { current.value = row; taskDrawer.value = true; };
+      const openTask = async row => { current.value = row; taskDrawer.value = true; timeline.value = {}; timelineLoading.value = true;
+        timeline.value = await safe('task-timeline', { taskId: row.id || row.identifier }); timelineLoading.value = false; };
+      const tlType = k => ({ human: 'primary', agent: 'success', system: 'info' }[k] || 'info');
+      const tlKind = k => ({ human: '人', agent: 'Agent', system: '系统' }[k] || '系统');
       onMounted(async () => {
         const [s, r, g, e, x] = await Promise.all([
           safe('view-summary'), safe('routing-status'), safe('v06-agent-registry-view'),
@@ -365,7 +375,7 @@
       });
       return { summary, tasks, routing, router, coverage, threeTier, shapeReady, registry, agents, evolution, candidates,
         comparison, execution, missing, missingText, domainText, phaseLabel, phaseTag, openTask, taskDrawer, current,
-        clean, dutyText, fmtTime, agentLabel };
+        clean, dutyText, fmtTime, agentLabel, timeline, timelineLoading, tlType, tlKind };
     },
   };
 

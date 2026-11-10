@@ -755,6 +755,20 @@ const server = createServer(async (req, res) => {
             limit: page.limit, offset: page.offset, hostTitles,
           });
         }
+        // 第五十六轮 · 任务时间线：把某任务的审计事件翻译成「人 / Agent / 系统」三类。
+        if (action === 'task-timeline') {
+          const taskId = String(payload?.taskId ?? '');
+          const task = store.list().find(t => t.id === taskId || t.identifier?.toLowerCase() === taskId.toLowerCase());
+          if (!task) return { entries: [], error: '任务不存在' };
+          const { buildTaskTimeline } = await import('./task-timeline.ts');
+          let request = '';
+          try { const c = JSON.parse(String(task.context ?? '{}')); if (c && typeof c.request === 'string') request = c.request.trim(); } catch { /* ignore */ }
+          return {
+            identifier: task.identifier, phase: task.phase, agent: task.agent,
+            entries: buildTaskTimeline({ audit: store.auditList(task.id, 100), request,
+              lastMessage: task.lastMessage ?? null, delivery: task.delivery ?? null }),
+          };
+        }
         const result = await workspaces.dispatch(action, payload, workspaceActor);
         if (action === 'view') {
           const view = result as Awaited<ReturnType<Workspaces['view']>>;

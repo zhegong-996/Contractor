@@ -40,6 +40,12 @@ export class Store {
       task.lease = lease; task.phase = 'running'; this.save(task); return task; });
   }
   audit(action: string, issueId: string | null, value: unknown) { this.db.prepare('INSERT INTO audit(at,action,issue_id,value) VALUES(?,?,?,?)').run(new Date().toISOString(), action, issueId, JSON.stringify(value)); }
+  /** 某任务的审计时间线（倒序，最新在前）。limit=0 表示不限。 */
+  auditList(issueId: string, limit = 200): { at: string; action: string; value: string }[] {
+    const rows = this.db.prepare('SELECT at, action, value FROM audit WHERE issue_id=? ORDER BY id DESC LIMIT ?')
+      .all(issueId, limit) as { at: string; action: string; value: string }[];
+    return rows;
+  }
   notify(id: string, issueId: string, text: string) {
     // 第三十八轮 · 出站队列加 at（投递时刻）：没有它就算不出「积压了多久」，
     // 重试健康只能看状态分布，看不出「卡住的是一条还是四条」。旧库原地补列。
