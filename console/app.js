@@ -51,13 +51,20 @@
   }
 
   const VIEWS = [
-    { id: 'overview', title: '概览', subtitle: '同一份共享现场，人和助手各看自己该看的' },
-    { id: 'collaboration', title: '协作', subtitle: '谁接、谁派、谁干，都在一条责任链上' },
-    { id: 'organization', title: '组织', subtitle: '一份共享上下文，按职能配置三层座位' },
-    { id: 'knowledge', title: '知识', subtitle: '资料与证据按归属分区管理：个人 / 协作 / 组织' },
-    { id: 'acceptance', title: '验收', subtitle: '开工前锁定清单，逐项判定后由发起人确认' },
-    { id: 'services', title: '服务', subtitle: '本机与国内服务的实时状态' },
-    { id: 'settings', title: '我的配置', subtitle: '界面、通知与模型偏好，只属于你自己' },
+    { id: 'overview', title: '概览', subtitle: '同一份共享现场，人和助手各看自己该看的',
+      icon: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>' },
+    { id: 'collaboration', title: '协作', subtitle: '谁接、谁派、谁干，都在一条责任链上',
+      icon: '<circle cx="9" cy="8" r="3.5"/><path d="M3 20a6 6 0 0112 0"/><circle cx="17" cy="9" r="2.5"/><path d="M15 14a5 5 0 016 6"/>' },
+    { id: 'organization', title: '组织', subtitle: '一份共享上下文，按职能配置三层座位',
+      icon: '<circle cx="12" cy="5" r="2.5"/><circle cx="5" cy="18" r="2.5"/><circle cx="19" cy="18" r="2.5"/><path d="M12 7.5V11M12 11l-5 4.5M12 11l5 4.5"/>' },
+    { id: 'knowledge', title: '知识', subtitle: '资料与证据按归属分区管理：个人 / 协作 / 组织',
+      icon: '<path d="M4 5a2 2 0 012-2h12v18H6a2 2 0 01-2-2V5z"/><path d="M8 7h8M8 11h8"/>' },
+    { id: 'acceptance', title: '验收', subtitle: '开工前锁定清单，逐项判定后由发起人确认',
+      icon: '<path d="M5 12l5 5L19 7"/>' },
+    { id: 'services', title: '服务', subtitle: '本机与国内服务的实时状态',
+      icon: '<circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/>' },
+    { id: 'settings', title: '我的配置', subtitle: '界面、通知与模型偏好，只属于你自己',
+      icon: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/>' },
   ];
   const KNOWLEDGE_KINDS = [
     ['decision', '决策'], ['procedure', '流程'], ['experiment', '实验'], ['feedback', '反馈'], ['reference', '参考'],
@@ -101,7 +108,7 @@
       <div class="login-wrap">
         <el-card class="login-card">
           <div class="login-brand">
-            <svg viewBox="0 0 48 48" width="44" height="44"><circle cx="24" cy="24" r="21" fill="none" stroke="var(--el-color-primary)" stroke-width="3"/><path d="M14 30c3-8 7-12 10-12s7 4 10 12" fill="none" stroke="var(--el-color-primary)" stroke-width="3" stroke-linecap="round"/><circle cx="24" cy="33" r="3" fill="var(--el-color-primary)"/></svg>
+            <div class="logo" style="width:44px;height:44px;border-radius:12px;font-size:20px">S</div>
             <div><div class="login-title">SuitMe 协作台</div><div class="login-sub">登录后按你的权限查看与管理</div></div>
           </div>
           <el-form @submit.prevent="submit">
@@ -138,6 +145,10 @@
     props: ['session', 'mode'],
     template: `
       <div>
+        <div class="welcome-bar" v-if="mode !== 'collaboration'">
+          <div class="welcome-title">你好，{{ session.username || '同事' }}</div>
+          <div class="welcome-sub">发起任务请回飞书、直接对你的助手说；这里是查看进度、授权与确认验收的地方。</div>
+        </div>
         <el-row :gutter="14" style="margin-bottom:14px">
           <el-col v-for="card in statCards" :key="card.label" :xs="12" :sm="8" :md="6">
             <el-card shadow="never"><el-skeleton :loading="loading" :rows="1" animated>
@@ -1475,7 +1486,7 @@
       <el-container v-else class="app-shell">
         <el-aside width="216px" class="app-aside">
           <div class="brand">
-            <svg viewBox="0 0 48 48" width="30" height="30"><circle cx="24" cy="24" r="21" fill="none" stroke="var(--el-color-primary)" stroke-width="3"/><path d="M14 30c3-8 7-12 10-12s7 4 10 12" fill="none" stroke="var(--el-color-primary)" stroke-width="3" stroke-linecap="round"/><circle cx="24" cy="33" r="3" fill="var(--el-color-primary)"/></svg>
+            <div class="logo">S</div>
             <span>SuitMe 协作台</span>
           </div>
           <el-menu :default-active="view" @select="switchView" class="app-menu">
@@ -1483,9 +1494,13 @@
                  而菜单根节点又不可聚焦，结果键盘用户根本进不了侧栏。显式给
                  tabindex=0 让每一项都能 Tab 到，并在样式里补 :focus-visible 环。 -->
             <el-menu-item v-for="v in visibleViews" :key="v.id" :index="v.id" tabindex="0">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="margin-right:10px;flex:none" v-html="v.icon"></svg>
               <span>{{ v.title }}</span>
             </el-menu-item>
-            <el-menu-item v-if="hasAdminArea" index="admin" tabindex="0"><span>管理</span></el-menu-item>
+            <el-menu-item v-if="hasAdminArea" index="admin" tabindex="0">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="margin-right:10px;flex:none"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/></svg>
+              <span>管理</span>
+            </el-menu-item>
           </el-menu>
           <div class="aside-foot">发起任务请回到飞书</div>
         </el-aside>
