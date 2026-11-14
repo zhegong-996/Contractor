@@ -24,6 +24,9 @@ const discussion = z.object({
 const project = z.object({
   id, title, parent: id.optional(), members: z.array(member).min(1),
   maintainers: z.array(member).min(1),
+  relatedProjects: z.array(id).default([]),
+  decisionOwner: member.optional(),
+  dispatch: z.array(z.object({ topic: id.optional(), function: id, agent: id, decider: member.optional() }).strict()).default([]),
   responsibilities: z.array(z.object({ member, function: id }).strict()).default([]),
   topics: z.array(topicInputSchema).default([]),
   resources: z.array(resourceSchema).default([]),
@@ -62,6 +65,19 @@ export const settingsSchema = z.object({
   const refs = new Set<string>();
   for (const p of value.projects) {
     if (p.maintainers.some(name => !p.members.includes(name))) flag('项目维护人必须是项目成员');
+    if (p.decisionOwner && !p.maintainers.includes(p.decisionOwner)) flag('项目接单决策人须是项目维护人');
+    if (new Set(p.relatedProjects).size !== p.relatedProjects.length
+      || p.relatedProjects.some(related => related === p.id || !projectById.has(related))) flag('关联项目必须存在且不能重复或关联自身');
+    const duties = new Set<string>();
+    for (const duty of p.dispatch) {
+      const key = [duty.topic ?? '', duty.function].join('/');
+      if (duties.has(key)) flag('同一项目主题下的同一职责只能配置一位牵头 Agent');
+      duties.add(key);
+      if (duty.topic && !p.topics.some(topic => topic.id === duty.topic)) flag('派工主题必须属于当前项目');
+      if (duty.decider && !p.members.includes(duty.decider)) flag('执行决策人必须是项目成员');
+      if (!value.agents.some(agent => agent.id === duty.agent && agent.function === duty.function && agent.projects.includes(p.id)))
+        flag('派工规则必须引用当前项目内承担该职责的 Agent');
+    }
     if (p.responsibilities.some(r => !p.members.includes(r.member) || !value.functions.some(fn => fn.id === r.function)))
       flag('项目职责须由项目成员承担，并引用已定义的职责');
     if (p.discussion && (!value.feishu || !value.crossChannel || !p.resources.some(ref => ref.digest)
@@ -102,6 +118,7 @@ export const settingsSchema = z.object({
     }
   }
   for (const service of value.agents) {
+    if (service.id === 'auto') flag('auto 保留给自动派工');
     if (value.projects.some(p => p.discussion && service.id === digestAgentId(p.id)))
       flag('Agent 标识与群整理执行端冲突');
     if (!value.functions.some(x => x.id === service.function)) flag('Agent 的职能不存在');

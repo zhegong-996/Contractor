@@ -37,7 +37,10 @@ const accountRef = z.object({ provider, namespace: z.string().min(1).max(180), i
 const githubUrl = z.url({ protocol: /^https$/, hostname: /^github\.com$/ });
 const channelDecision = z.discriminatedUnion('action', [
   z.object({ action: z.literal('link'), ticket: id }),
-  z.object({ action: z.literal('create'), topic: id.optional(), agent: id.optional() }),
+  z.object({ action: z.literal('create'), project: id.optional(), topic: id.optional(), agent: id.optional(), parent: id.optional(),
+    brief: prose.optional(), separate: z.boolean().optional() }),
+  z.object({ action: z.literal('project') }),
+  z.object({ action: z.literal('topic'), topic: id }),
   z.object({ action: z.literal('dismiss') }),
 ]);
 const selectedMessage = { message: id.optional() };
@@ -45,7 +48,7 @@ const discussionDecision = z.discriminatedUnion('action', [
   z.object({ action: z.literal('project'), ...selectedMessage }).strict(),
   z.object({ action: z.literal('topic'), topic: id, ...selectedMessage }).strict(),
   z.object({ action: z.literal('link'), ticket: id, ...selectedMessage }).strict(),
-  z.object({ action: z.literal('create'), agent: id, topic: id.optional(), ...selectedMessage }).strict(),
+  z.object({ action: z.literal('create'), agent: id.optional(), topic: id.optional(), ...selectedMessage }).strict(),
   z.object({ action: z.literal('dismiss'), ...selectedMessage }).strict(),
 ]);
 const settingsRoutes = {
@@ -123,6 +126,14 @@ async function serve() {
       let output: unknown;
       if (post && view === 'logout') auth.logout(req.headers.cookie);
       else if (get && view === 'overview') output = work.overview(actor);
+      else if (get && view === 'needs-you') output = work.needsYou(actor);
+      else if (post && view === 'intake' && item && action === 'resolve') {
+        const input = z.discriminatedUnion('action', [
+          z.object({ action: z.literal('create'), agent: id.optional() }).strict(),
+          z.object({ action: z.literal('dismiss') }).strict(),
+        ]).parse(await body(req));
+        output = work.resolveIntake(actor, item, input);
+      }
       else if (get && view === 'discussion' && item && action === 'revisions' && reference)
         output = await work.discussionRevisions(actor, item, reference);
       else if (get && view === 'discussion' && item) output = work.discussionView(actor, item);
@@ -154,6 +165,8 @@ async function serve() {
       else if (post && view === 'ticket' && !item) output = work.start(actor, settingsRoutes.start.parse(await body(req)));
       else if (post && view === 'ticket' && action === 'answer') work.reply(actor, item, settingsRoutes.answer.parse(await body(req)));
       else if (post && view === 'ticket' && action === 'stop') work.stop(actor, item);
+      else if (post && view === 'ticket' && action === 'handoff')
+        output = work.handoff(actor, item, z.object({ agent: id, reason: prose }).strict().parse(await body(req)));
       else if (post && view === 'ticket' && action === 'topic') work.setTopic(actor, item, z.object({ topic: id.optional() }).parse(await body(req)).topic);
       else if (post && view === 'ticket' && action === 'related') work.relateWork(actor, item, z.object({ ticket: id }).parse(await body(req)).ticket);
       else if (post && view === 'ticket' && action === 'branch') {
@@ -192,8 +205,13 @@ async function serve() {
   });
   try {
     await prepareAuth();
-    const collaboration = await openCollaboration(config, auth, feishu && (message =>
-      sendFeishu({ commands: { lark: (args: string[]) => command('lark-cli', ['--profile', feishu.profile, ...args, '--as', 'bot']) } }, message)));
+    const collaboration = await openCollaboration(config, auth, feishu && (async message => {
+      const lark = (args: string[]) => command('lark-cli', ['--profile', feishu.profile, ...args, '--as', 'bot']);
+      const userId = message.channel.address.userId;
+      if (!userId) return sendFeishu({ commands: { lark } }, message);
+      await lark(['im', '+messages-send', '--user-id', userId, '--text', message.text, '--idempotency-key', message.id]);
+      return 'sent';
+    }));
     work = collaboration;
     const processChannel = async (text: string, trigger: Trigger, sender: PlatformActor, origin: ChannelRef, project?: string, topic?: string,
       revision?: string) => {
@@ -203,17 +221,31 @@ async function serve() {
         collaboration.proveAccount(action.code, sender, trigger.url);
         return;
       }
-      if (!project || !collaboration.channelMember(sender, trigger.at) || collaboration.channelEventSeen(trigger.id)) return;
+      const actor = collaboration.channelMember(sender, trigger.at);
+      if (!actor) return;
+      if (action.kind === 'answer') {
+        collaboration.answerDecision(actor, action.id, action.response, trigger);
+        return;
+      }
+      if (!project || collaboration.channelEventSeen(trigger.id)) return;
       let reference: ChannelRef | string | null | undefined;
       if (action.reference) {
         if (/^[0-9a-f]{32}$/.test(action.reference)) reference = action.reference;
         else if (sender.provider === 'github' && action.reference === origin.url) reference = origin;
         else {
-          try { reference = await githubReference(action.reference, collaboration.githubRepositories(project)) ?? null; }
+          try {
+            const scope = collaboration.githubRouteScope(project, actor);
+            const match = await githubReference(action.reference, scope.map(item => item.repository));
+            const repository = match && new URL(match.url!).pathname.split('/').slice(1, 3).join('/').toLowerCase();
+            const target = scope.find(item => item.repository.toLowerCase() === repository);
+            reference = match && target ? { ...match, project: target.project } : null;
+          }
           catch { reference = null; }
         }
       }
-      collaboration.receiveChannel({ project, origin, sender, trigger, agent: action.agent, request: action.request, topic, revision }, reference);
+      const parent = sender.provider === 'feishu' && trigger.meta.parentId;
+      collaboration.receiveChannel({ project, origin, sender, trigger, agent: action.agent, request: action.request, topic, revision,
+        parentMessage: typeof parent === 'string' ? messageRef(feishuTriggerId(parent)) : undefined }, reference);
       if (sender.provider === 'feishu' && feishu) collaboration.rememberDiscussion(discussionInput(trigger, feishu.appId));
     };
 
@@ -225,9 +257,7 @@ async function serve() {
       refresh: collaboration.refreshGithubEvidence,
       log: message => console.error(message),
       async consume(input) {
-        const explicit = !input.note && !input.evidence ? channelCommand(input.text) : undefined;
-        const id = explicit?.kind === 'work' && /^[a-f0-9]{32}$/.test(explicit.reference ?? '') ? explicit.reference : undefined;
-        const project = collaboration.githubProject(input.repository.name, input.origin, id);
+        const project = collaboration.githubProject(input.repository.name, input.origin);
         if (!project) return;
         if (input.evidence === 'pull') {
           if (collaboration.channelTicket(input.origin)) await collaboration.refreshDelivery(input.origin, project.id);
@@ -267,7 +297,7 @@ async function serve() {
           const { sender, origin } = input;
           const chat = String(trigger.meta.chatId);
           const action = config.crossChannel && channelCommand(text);
-          if (action && ((action.kind === 'proof' && trigger.meta.direct) || (action.kind === 'work' && trigger.addressed && project))) {
+          if (action && ((['proof', 'answer'].includes(action.kind) && trigger.meta.direct) || (action.kind === 'work' && trigger.addressed && project))) {
             void processChannel(text, trigger, sender, origin, project?.id,
               project?.resources.find(ref => ref.source === 'feishu' && ref.externalId === chat)?.topic)
               .catch(error => console.error('飞书协作未受理：', (error as Error).name));

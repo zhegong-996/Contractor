@@ -4,7 +4,7 @@ import type { Trigger } from '../../upstream/superagent/src/core/index.ts';
 
 export type Provider = 'feishu' | 'github';
 export type PlatformActor = { provider: Provider; namespace: string; id: string; label: string };
-export type ChannelRef = { key: string; url?: string; label: string };
+export type ChannelRef = { key: string; url?: string; label: string; project?: string };
 export type ChannelRequest = {
   trigger: Trigger;
   sender: PlatformActor;
@@ -15,6 +15,7 @@ export type ChannelRequest = {
   note?: boolean;
   topic?: string;
   reference?: ChannelRef | string;
+  parentMessage?: ChannelRef;
   revision?: string;
 };
 
@@ -41,6 +42,8 @@ export function feishuCommandText(content: string, mention?: { key?: string; nam
 export function channelCommand(text: string) {
   const proof = /^\/绑定协作\s+([a-f0-9]{32})$/.exec(text.trim());
   if (proof) return { kind: 'proof' as const, code: proof[1]! };
+  const answer = /^\/答\s+([a-f0-9]{32})\s+([\s\S]{1,3500})$/.exec(text.trim());
+  if (answer) return { kind: 'answer' as const, id: answer[1]!, response: answer[2]! };
   const work = /^\/协作\s+([a-z][a-z0-9-]{0,47})(?:\s+\[([^\]\r\n]{1,350})\])?\s+([\s\S]+)$/.exec(text.trim());
   if (work && work[3]!.trim().length <= 3500)
     return { kind: 'work' as const, agent: work[1]!, reference: work[2]?.trim(), request: work[3]!.trim() };
@@ -71,6 +74,9 @@ export class ChannelLinks {
       CREATE TABLE IF NOT EXISTS workbench_channel_revision (
         event TEXT NOT NULL, at TEXT NOT NULL, hash TEXT NOT NULL, text TEXT,
         PRIMARY KEY(event,at,hash), FOREIGN KEY(event) REFERENCES workbench_channel_event(id)
+      );
+      CREATE TABLE IF NOT EXISTS workbench_channel_archive (
+        event TEXT PRIMARY KEY, topic TEXT, FOREIGN KEY(event) REFERENCES workbench_channel_event(id)
       );
     `);
   }
@@ -196,6 +202,22 @@ export class ChannelLinks {
 
   history(ticket: string) {
     return this.db.prepare('SELECT * FROM workbench_channel_event WHERE ticket=? ORDER BY rowid').all(ticket).map(row => this.read(row));
+  }
+
+  recent(ticket: string, project: string) {
+    return this.db.prepare('SELECT * FROM workbench_channel_event WHERE ticket=? AND project=? ORDER BY rowid DESC LIMIT 12')
+      .all(ticket, project).reverse().map(row => this.read(row));
+  }
+
+  archive(id: string, topic?: string) {
+    this.db.prepare('INSERT INTO workbench_channel_archive VALUES (?,?)').run(id, topic ?? null);
+    this.settle(id);
+  }
+
+  archived(project: string) {
+    return this.db.prepare(`SELECT event.*, archive.topic FROM workbench_channel_archive archive
+      JOIN workbench_channel_event event ON event.id=archive.event WHERE event.project=? ORDER BY archive.rowid DESC LIMIT 100`)
+      .all(project).map(row => ({ ...this.read(row), topic: typeof row.topic === 'string' ? row.topic : undefined }));
   }
 
   settle(id: string, ticket?: string) {

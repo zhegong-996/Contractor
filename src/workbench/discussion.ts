@@ -208,6 +208,10 @@ export class Discussions {
     return typeof raw === 'string' ? JSON.parse(raw) as Observation : undefined;
   }
 
+  withdrawn(id: string) {
+    return !!this.store.db.prepare('SELECT 1 FROM workbench_discussion_message WHERE id=? AND withdrawn=1').get(id);
+  }
+
   watchMessages(project: string, chat: string) {
     // Fetch older known messages by ID to catch edits after their creation window. Rotate the read budget.
     return this.store.db.prepare(`SELECT id,COALESCE(source,body) AS source FROM workbench_discussion_message WHERE project=? AND chat=?

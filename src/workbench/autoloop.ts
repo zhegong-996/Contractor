@@ -1,4 +1,6 @@
 import { mkdir, writeFile } from 'node:fs/promises';
+import { existsSync, readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { WorkerHub } from '../../upstream/autoloop/worker/worker.ts';
@@ -15,9 +17,11 @@ export const assignmentEvent = (id: string) => 'assigned.' + id;
 export type Run = { id: number; lane: string; state: string; session: string | null; usage: string | null; summary: string | null; cancel_at: string | null };
 export type Card = { id: number; title: string; text: string; options: string; state: string; choice: number | null; answer: string | null; lane: string };
 type Started = Parameters<WorkerHub['started']>[2];
+type Receipt = Awaited<ReturnType<WorkerHub['result']>>;
 export interface Autoloop {
   ingest(source: string, event: { id: string; type: string; subject: string; summary: string; detail: string }): { routed: string[] };
   answer(id: number, answer: { choice?: number; text?: string; by: string; ref: string }): { changed: boolean; state: string };
+  resolve(id: number, reason: string, by: string): boolean;
   all<T>(sql: string, params?: (string | number)[]): T[];
   one<T>(sql: string, params?: (string | number)[]): T | undefined;
   heartbeat(name: string, ids: number[]): void;
@@ -25,9 +29,26 @@ export interface Autoloop {
   claimNext(name: string, claim: string): Job | null;
   cancel(run: number): void;
   started(id: number, token: string, value: Started): unknown;
-  finish(id: number, token: string, result: Result): unknown;
+  finish(id: number, token: string, result: Result): Receipt;
   tick(): void;
   db: { close(): void };
+}
+
+/** The native worker hands in its receipt before removing this entry. Verify its process group on hand-in. */
+export function workerStopped(run: number, attempt: number, token: string) {
+  try {
+    const file = runtime('autoloop', 'worker', 'runs', run + '-' + attempt, 'entry.json');
+    const entry = JSON.parse(readFileSync(file, 'utf8'));
+    if (entry.run !== run || entry.attempt !== attempt || entry.token !== token || !entry.result) return false;
+    if (!entry.pid) return entry.turn === 0 || !existsSync(path.join(path.dirname(file), 'command-' + entry.turn + '.sh'));
+    const members = execFileSync('ps', ['-ax', '-o', 'pgid=', '-o', 'stat='], { encoding: 'utf8', timeout: 3000 });
+    return !members.split('\n').some(line => {
+      const [group, state] = line.trim().split(/\s+/);
+      return Number(group) === entry.pid && state && !state.startsWith('Z');
+    });
+  } catch {
+    return false;
+  }
 }
 
 export async function openExecution(agents: Agent[], projects: Project[]) {
@@ -51,6 +72,7 @@ export async function openExecution(agents: Agent[], projects: Project[]) {
   });
   const rules = {
     timezone: discussionZone,
+    askFirst: ['需求范围或验收口径有冲突', '需要新增权限或超出已委托的改动范围', '需要人决定是否继续或交接'],
     sources: { suitme: { name: 'SuitMe 协作台' } },
     agents: Object.fromEntries([...agents.map(a => ({ ...a, effort: undefined })), ...digestAgents].map(a => [a.id, {
       name: a.title, worker: workerName, use: a.engine, access: 'read', timeout: 8,
