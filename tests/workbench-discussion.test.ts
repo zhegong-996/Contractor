@@ -3,7 +3,7 @@ import test from 'node:test';
 import { DatabaseSync } from 'node:sqlite';
 import { nextRun, parseCron } from '../upstream/autoloop/kernel/cron.ts';
 import { feishuTriggerId } from '../src/upstream.ts';
-import { digestProposals, Discussions, discussionText, discussionZone, type DigestScope, type Observation } from '../src/workbench/discussion.ts';
+import { confirmedDiscussionDestination, digestProposals, Discussions, discussionText, discussionZone, type DigestScope, type Observation } from '../src/workbench/discussion.ts';
 import { readDiscussionHistory, refreshDiscussionMessages } from '../src/workbench/discussion-intake.ts';
 import { FeishuSources } from '../src/feishu-sources.ts';
 import type { SuperAgentStore } from '../src/superagent-ports.ts';
@@ -24,6 +24,10 @@ test('群整理按上海时间在半天结束运行，回执须覆盖本批且�
   assert.equal(digestProposals(scope, [event('first', 'topic', { topic: 'reason', title: '密码：测试', reason: '私密内容' }), ignore]), undefined);
   assert.equal(digestProposals({ ...scope, matches: { second: null } }, [review, ignore])?.[1]?.action, 'review');
   assert.equal(digestProposals({ ...scope, unavailable: ['second'] }, [review, ignore])?.[1]?.action, 'review');
+  const suggestion = { message: 'first', action: 'create' as const, title: '换行问题', reason: '模型推测要开新单' };
+  const original = { id: 'known', topic: 'reason' };
+  assert.deepEqual(confirmedDiscussionDestination(suggestion, original), { action: 'link', ticket: 'known', topic: 'reason' });
+  assert.equal(confirmedDiscussionDestination({ ...suggestion, action: 'review' }, original).action, 'review');
 });
 
 test('两人的相同反馈保留各自来源和修改记录，撤回一条只清掉对应正文及证据', () => {

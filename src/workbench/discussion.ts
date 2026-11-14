@@ -57,6 +57,12 @@ const proposalSchema = z.object({
 }).strict();
 export type Proposal = z.infer<typeof proposalSchema>;
 
+export function confirmedDiscussionDestination(proposal: Proposal, matched?: { id: string; topic?: string }): Destination {
+  if (proposal.action === 'dismiss') return { action: 'dismiss' };
+  if (matched && proposal.action !== 'review') return { action: 'link', ticket: matched.id, topic: matched.topic };
+  return { action: proposal.action, ticket: proposal.action === 'review' ? proposal.ticket : undefined, topic: proposal.topic };
+}
+
 export function digestProposals(scope: DigestScope, events: EventInput[] | undefined): Proposal[] | undefined {
   const expected = new Set(scope.ids);
   const used = new Set<string>();

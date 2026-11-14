@@ -22,7 +22,7 @@ import { checkoutFor, commitDevelopment, developmentCheckout, developmentFolder,
 import { FeishuSources, sensitiveFeishuText, withFeishuReads } from '../feishu-sources.ts';
 import { feishuTriggerId } from '../upstream.ts';
 import { tokenize } from '../memory-projections.ts';
-import { Discussions, digestAgentId, digestProposals, discussionLookback, discussionRule, githubObjectPath, observation, observationVersion, previewLength,
+import { Discussions, confirmedDiscussionDestination, digestAgentId, digestProposals, discussionLookback, discussionRule, githubObjectPath, observation, observationVersion, previewLength,
   type Destination, type DigestItem, type DigestScope, type Observation, type Proposal } from './discussion.ts';
 import { readDiscussionDocuments, readDiscussionHistory, refreshDiscussionMessages, type DiscussionInput, type SourceFact } from './discussion-intake.ts';
 import { githubReferenceDetails, recentGithubWork } from './github-intake.ts';
@@ -1428,8 +1428,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     if (matched === null || scope.unavailable.includes(decision.message) || changed
       || (decision.action === 'link' && (!matched || matched !== suggested)))
       return { action: 'review', ticket: suggested, topic: decision.topic };
-    if (decision.action === 'dismiss') return { action: 'dismiss' };
-    return { action: decision.action, ticket: ['link', 'review'].includes(decision.action) ? suggested : undefined, topic: decision.topic };
+    return confirmedDiscussionDestination({ ...decision, ticket: suggested }, matched ? { id: matched, topic: workOf(matched)?.topic } : undefined);
   }
 
   function finishDiscussion(id: number, token: string, result: ReturnType<typeof parseResult>, before: NonNullable<ReturnType<Discussions['run']>>) {
