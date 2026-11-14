@@ -94,9 +94,21 @@
               <optgroup v-if="availableFunctions.length" label="职能"><option v-for="fn in availableFunctions" :key="fn.id" :value="'function:'+fn.id">{{ fn.title }}</option></optgroup>
             </select></label>
             <label>优先级<select v-model="draft.priority"><option value="normal">普通</option><option value="urgent">紧急</option></select></label>
+            <details :open="draft.reusedLesson ? true : undefined" class="measure">
+              <summary>业务观测</summary>
+              <div class="form">
+                <p v-if="draft.reusedLesson" class="muted">沿用「{{ draft.reusedLesson.title }}」的指标和上次观测结果。</p>
+                <div class="two">
+                  <label>指标<input v-model.trim="draft.measure.metric" maxlength="100" placeholder="例如 预约确认率" :readonly="!!draft.reusedLesson"></label>
+                  <label>单位<input v-model.trim="draft.measure.unit" maxlength="100" placeholder="例如 %" :readonly="!!draft.reusedLesson"></label>
+                  <label>基线<input v-model.number="draft.measure.baseline" type="number" step="any" :readonly="!!draft.reusedLesson"></label>
+                  <label>目标（选填）<input v-model.number="draft.measure.target" type="number" step="any"></label>
+                </div>
+              </div>
+            </details>
             <fieldset v-if="materials.length">
               <legend>引用项目资料</legend>
-              <label v-for="entry in materials" :key="entry.id" class="check"><input type="checkbox" v-model="draft.material" :value="entry.id">{{ entry.title }}<span v-if="entry.visibility==='restricted'" class="muted">需资料所有者授权</span></label>
+              <label v-for="entry in materials" :key="entry.id" class="check"><input type="checkbox" v-model="draft.material" :value="entry.id" :disabled="draft.reusedLesson?.id===entry.id">{{ entry.title }}<span v-if="entry.visibility==='restricted'" class="muted">需资料所有者授权</span></label>
             </fieldset>
             <div class="actions"><button class="primary" type="submit" :disabled="busy">交给 Agent</button><button type="button" @click="restoreView()">返回</button></div>
           </form>
@@ -128,6 +140,30 @@
                   <button class="primary" type="submit" :disabled="busy">验收此版本</button>
                 </form>
                 <button v-if="ticket.candidate" @click="go('knowledge')">查看知识候选</button>
+              </section>
+              <section v-if="ticket.work.measure" class="panel">
+                <h2>业务观测</h2>
+                <dl class="facts">
+                  <dt>指标</dt><dd>{{ ticket.work.measure.metric }}（{{ ticket.work.measure.unit }}）</dd>
+                  <template v-if="ticket.work.measure.baseline!==undefined"><dt>基线</dt><dd>{{ ticket.work.measure.baseline }}</dd></template>
+                  <template v-if="ticket.work.measure.target!==undefined"><dt>目标</dt><dd>{{ ticket.work.measure.target }}</dd></template>
+                </dl>
+                <article v-for="record in ticket.observations" :key="record.id" class="document">
+                  <strong>实测 {{ record.actual }} {{ ticket.work.measure.unit }}</strong>
+                  <span v-if="ticket.work.measure.baseline!==undefined" class="status">较基线 {{ changeFrom(record.actual, ticket.work.measure.baseline) }}{{ ticket.work.measure.unit==='%'?' 个百分点':'' }}</span>
+                  <p class="prose">{{ record.evidence }}</p>
+                  <small>{{ record.actor }} · {{ new Date(record.at).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai'}) }}</small>
+                  <button v-if="record.candidate" class="quiet" @click="showLesson(record.candidate)">查看经验</button>
+                </article>
+                <p v-if="!ticket.observations.length && !ticket.materialHidden" class="muted">待记录业务结果。</p>
+                <button v-if="ticket.work.accepted && ticket.result && ticket.work.requester===workspace.actor && !observing" @click="startObservation">记录实际结果</button>
+                <form v-if="observing && ticket.result" class="form inner" @submit.prevent="recordObservation">
+                  <label>实际值（{{ ticket.work.measure.unit }}）<input v-model.number="observation.actual" type="number" step="any" required></label>
+                  <label>观测依据<textarea v-model.trim="observation.evidence" rows="3" maxlength="3500" required></textarea></label>
+                  <label>可复用经验（选填）<textarea v-model.trim="observation.body" rows="3" maxlength="3500"></textarea></label>
+                  <label v-if="observation.body.trim()">适用条件与例外<input v-model.trim="observation.conditions" maxlength="600" required></label>
+                  <div class="actions"><button class="primary" :disabled="busy">保存业务结果</button><button type="button" @click="observing=false">收起</button></div>
+                </form>
               </section>
             </div>
             <aside class="stack">
@@ -171,7 +207,7 @@
               <button type="submit" class="primary" :disabled="busy">保存资料</button>
             </form>
             <p v-if="!entries.length" class="muted">没有匹配的知识。</p>
-            <details v-for="entry in entries" :key="entry.id" class="document">
+            <details v-for="entry in entries" :key="entry.id" class="document" :id="'knowledge-'+entry.id" :open="focusedEntry===entry.id ? true : undefined">
               <summary>{{ entry.title }} <span class="status">{{ entry.state==='candidate'?'待采用':entry.body?'已入库':'需授权' }}</span></summary>
               <p v-if="entry.body" class="prose">{{ entry.body }}</p><p v-else class="muted">可在发起协作时引用，并由 {{ entry.owner }} 授权。</p>
               <p v-if="entry.conditions">适用条件 · {{ entry.conditions }}</p>
@@ -184,7 +220,12 @@
                   <code>{{ ref.revision.slice(0,12) }}</code>
                 </div>
               </div>
-              <button v-if="entry.canPublish" :disabled="busy" @click="publish(entry)">采用此版本</button>
+              <p v-if="entry.learning" class="muted">{{ entry.learning.metric }} · 上次实测 {{ entry.learning.baseline }} {{ entry.learning.unit }}</p>
+              <p v-if="entry.learning" class="prose">{{ entry.learning.evidence }}</p>
+              <div v-if="entry.canPublish || (entry.learning && project.mayStart)" class="actions">
+                <button v-if="entry.canPublish" :disabled="busy" @click="publish(entry)">采用此版本</button>
+                <button v-if="entry.learning && project.mayStart" @click="reuse(entry)">用这条经验发起协作</button>
+              </div>
             </details>
           </section>
         </template>

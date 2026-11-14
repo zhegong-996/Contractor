@@ -12,6 +12,7 @@ import { feishuTrigger, sendFeishu } from '../upstream.ts';
 import type { Trigger } from '../../upstream/superagent/src/core/index.ts';
 import { loadSettings, title } from './config.ts';
 import { openCollaboration, WorkbenchError } from './collaboration.ts';
+import { measureSchema, observationSchema } from './learning.ts';
 
 const stateDir = process.env.COLLAB_STATE_DIR;
 if (!stateDir || !path.isAbsolute(stateDir)) throw new Error('请提供独立工作台的 COLLAB_STATE_DIR 绝对路径。');
@@ -29,7 +30,7 @@ const id = z.string().min(1).max(80);
 const prose = z.string().trim().min(1).max(3500);
 const settingsRoutes = {
   start: z.object({ project: id, title, request: prose, nonce, material: z.array(id).max(8).default([]),
-    priority: z.enum(['normal', 'urgent']).default('normal'), agent: id.optional(), function: id.optional(), parent: id.optional() }).strict(),
+    priority: z.enum(['normal', 'urgent']).default('normal'), agent: id.optional(), function: id.optional(), parent: id.optional(), measure: measureSchema.optional(), reusedLesson: id.optional() }).strict(),
   answer: z.object({ card: z.number().int().positive(), choice: z.number().int().nonnegative().optional(), text: prose.optional(), nonce }).strict(),
   accept: z.object({ revision: z.string().length(64), commit: z.string().regex(/^[a-f0-9]{40}$/).optional(), body: z.string().trim().max(16000).default(''), conditions: z.string().trim().max(600).default('') }).strict(),
   add: z.object({ title, body: z.string().trim().min(1).max(16000), conditions: z.string().trim().max(600).default(''),
@@ -117,6 +118,8 @@ async function serve() {
         const value = settingsRoutes.accept.parse(await body(req));
         if (value.body && !value.conditions) throw new WorkbenchError('请填写这条结论的适用条件。');
         await work.accept(actor, item, value.revision, value.conditions, value.body, value.commit);
+      } else if (post && view === 'ticket' && action === 'observation') {
+        output = work.recordObservation(actor, item, observationSchema.parse(await body(req)));
       } else if (post && view === 'ticket' && action === 'access' && !reference) {
         const input = settingsRoutes.access.parse(await body(req));
         work.request(actor, item, input.entry, input.reason);

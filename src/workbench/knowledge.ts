@@ -16,6 +16,7 @@ type Entry = {
   visibility: 'project' | 'restricted';
   state: 'candidate' | 'published';
   ticket?: string;
+  observation?: string;
   sources: string[];
 };
 type Request = { id: string; ticket: string; entry: string; revision: string; requestedBy: string; reason: string; state: string };

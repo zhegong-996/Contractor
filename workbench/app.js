@@ -1,13 +1,22 @@
+function taskDraft(project = '') {
+  return { title: '', request: '', target: '', material: [], priority: 'normal', project, parent: undefined, nonce: '',
+    measure: { metric: '', unit: '', baseline: '', target: '' }, reusedLesson: null };
+}
+
+function observationDraft() {
+  return { actual: '', evidence: '', body: '', conditions: '', nonce: '' };
+}
+
 Vue.createApp({
   data() {
     return {
       workspace: null, view: 'inbox', projectId: '', ticket: null, ticketId: '',
       tabs: [{ id: 'inbox', title: '协作' }, { id: 'project', title: '项目' }, { id: 'team', title: '团队 Agent' }, { id: 'knowledge', title: '知识' }],
       credentials: { username: '', password: '' },
-      draft: { title: '', request: '', target: '', material: [], priority: 'normal', project: '', parent: undefined, nonce: '' },
+      draft: taskDraft(), observation: observationDraft(), observing: false,
       ciText: { passed: '已通过', pending: '等待结果', failed: '失败' }, deliveryUrl: '',
       review: { body: '', conditions: '' }, answers: {}, materials: [],
-      entries: [], query: '', adding: false,
+      entries: [], query: '', focusedEntry: '', adding: false,
       newEntry: { title: '', body: '', conditions: '', kind: 'reference', visibility: 'restricted' },
       accessTitles: { requested: '待授权', granted: '本工单已授权', revoked: '已撤回', expired: '已过期' },
       runTitles: { done: '已完成', nothing: '无进一步动作', queued: '排队中', claimed: '执行中', cancelled: '已停止' },
@@ -69,11 +78,25 @@ Vue.createApp({
     async logout() {
       await this.act(async () => {
         await this.api('logout', {});
-        this.workspace = null;
-        this.ticket = null;
-        this.ticketId = '';
-        this.view = 'inbox';
+        this.clearSession();
       });
+    },
+    clearSession() {
+      this.workspace = null;
+      this.view = 'inbox';
+      this.projectId = '';
+      this.ticket = null;
+      this.ticketId = '';
+      this.draft = taskDraft();
+      this.observation = observationDraft();
+      this.observing = false;
+      this.answers = {};
+      this.entries = [];
+      this.materials = [];
+      this.query = '';
+      this.focusedEntry = '';
+      this.adding = false;
+      this.newEntry = { title: '', body: '', conditions: '', kind: 'reference', visibility: 'restricted' };
     },
     async refresh() {
       try {
@@ -86,13 +109,15 @@ Vue.createApp({
           if (this.ticketId === id && this.view === 'ticket') this.ticket = ticket;
         }
       } catch (error) {
-        if (error.status === 401) { this.workspace = null; this.ticket = null; }
+        if (error.status === 401) this.clearSession();
         else this.error = error.message;
       }
     },
     agentName(id) { return this.workspace.agents.find(a => a.id === id)?.title ?? '项目 Agent'; },
     sourceName(source) { return { feishu: '飞书', github: 'GitHub', figma: 'Figma' }[source] ?? source; },
     stateOf(ticket) {
+      if (ticket.needsObservation || (ticket.work.accepted && ticket.work.measure && ticket.result
+          && ticket.work.requester === this.workspace.actor && ticket.observations?.length === 0)) return '待记录结果';
       if (ticket.work.accepted) return '已验收';
       if (ticket.result) return '待验收';
       if (ticket.nextReview || ticket.timers?.length) return '等待复查';
@@ -120,6 +145,8 @@ Vue.createApp({
       if (!ticket) return;
       if (this.ticketId !== id) {
         this.review = { body: '', conditions: '' };
+        this.observation = observationDraft();
+        this.observing = false;
         this.deliveryUrl = ticket.work.delivery?.url ?? '';
       }
       this.ticketId = id;
@@ -143,13 +170,53 @@ Vue.createApp({
     },
     async openComposer(agent = '', parent = undefined) {
       this.back = { view: this.view, y: window.scrollY };
-      if (this.draft.project !== this.projectId) this.draft = {
-        title: '', request: '', target: '', material: [], priority: 'normal', project: this.projectId, parent, nonce: crypto.randomUUID(),
-      };
+      if (this.draft.project !== this.projectId || (this.draft.reusedLesson && this.draft.parent !== parent)) {
+        this.draft = taskDraft(this.projectId);
+      }
+      this.draft.nonce ||= crypto.randomUUID();
       this.draft.parent = parent;
       if (agent) this.draft.target = 'agent:' + agent;
       this.view = 'create';
-      this.materials = (await this.api('knowledge/' + this.projectId)).filter(e => e.state === 'published');
+      try {
+        this.materials = (await this.api('knowledge/' + this.projectId)).filter(e => e.state === 'published');
+      } catch (error) { this.error = error.message; }
+    },
+    async reuse(entry) {
+      const { metric, unit, baseline } = entry.learning;
+      if (this.draft.reusedLesson?.id !== entry.id || this.draft.project !== this.projectId) {
+        this.draft = {
+          ...taskDraft(this.projectId), title: entry.title.slice(0, 95) + ' · 复查', parent: entry.ticket,
+          material: [entry.id], measure: { metric, unit, baseline, target: '' },
+          reusedLesson: { id: entry.id, title: entry.title },
+        };
+      }
+      await this.openComposer('', entry.ticket);
+    },
+    measurePayload() {
+      const { metric, unit, baseline, target } = this.draft.measure;
+      if (!metric && !unit && baseline === '' && target === '') return undefined;
+      if (!metric || !unit) throw new Error('请填写观测指标和单位。');
+      return { metric, unit, ...(baseline === '' ? {} : { baseline }), ...(target === '' ? {} : { target }) };
+    },
+    startObservation() {
+      this.observation.nonce ||= crypto.randomUUID();
+      this.observing = true;
+    },
+    async recordObservation() {
+      await this.act(async () => {
+        const { actual, evidence, body, conditions, nonce } = this.observation;
+        if (body.trim() && !conditions.trim()) throw new Error('请填写经验的适用条件。');
+        await this.api('ticket/' + this.ticket.id + '/observation', {
+          revision: this.ticket.work.accepted.revision, actual, evidence, nonce,
+          ...(body.trim() ? { lesson: { body, conditions } } : {}),
+        });
+        this.observation = observationDraft();
+        this.observing = false;
+        await this.refresh();
+      });
+    },
+    changeFrom(value, baseline) {
+      return Intl.NumberFormat('zh-CN', { signDisplay: 'exceptZero', maximumFractionDigits: 6 }).format(value - baseline);
     },
     async restoreView() {
       const { view, y } = this.back;
@@ -162,11 +229,12 @@ Vue.createApp({
         const [kind, target] = this.draft.target.split(':');
         const { title, request, material, priority, project, parent, nonce } = this.draft;
         const data = await this.api('ticket', { title, request, material, priority, project, parent, nonce,
+          measure: this.measurePayload(), reusedLesson: this.draft.reusedLesson?.id,
           ...(kind === 'agent' ? { agent: target } : { function: target }) });
         for (let retry = 0; retry < 15; retry++) {
           const { ticket } = await this.api('request/' + data.trigger);
           if (ticket) {
-            this.draft = { title: '', request: '', target: '', material: [], priority: 'normal', project: '', parent: undefined, nonce: '' };
+            this.draft = taskDraft();
             if (this.back.view === 'ticket') this.back = { view: 'inbox', y: 0 };
             await this.openTicket(ticket, false);
             return;
@@ -208,6 +276,15 @@ Vue.createApp({
         await this.api('ticket/' + this.ticket.id + '/accept', { ...this.review, revision: this.ticket.result.revision, commit: this.ticket.work.delivery?.headSha });
         await this.refresh();
       });
+    },
+    async showLesson(id) {
+      this.query = '';
+      this.focusedEntry = id;
+      await this.go('knowledge');
+      await this.$nextTick();
+      const entry = document.getElementById('knowledge-' + id);
+      entry?.scrollIntoView({ block: 'nearest' });
+      entry?.querySelector('summary')?.focus({ preventScroll: true });
     },
     async loadKnowledge() {
       if (!this.projectId) return;
