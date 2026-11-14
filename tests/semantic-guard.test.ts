@@ -22,9 +22,12 @@ test('仓库默认已开启护栏强制与本地语义检索，但不启用外�
     .knowledge.semanticRecall.enabled, false);
 });
 
-test('设备端中英文词向量：语义相近的句子明显比无关句子更接近', { timeout: 120000 }, () => {
+test('设备端中英文词向量：语义相近的句子明显比无关句子更接近', {
+  timeout: 120000, skip: process.platform !== 'darwin' && '需要 macOS NaturalLanguage；哈希向量有单独测试',
+}, () => {
   const texts = ['按锁定清单逐项验收并核对责任', '审核责任节点与证据引用', '香蕉与冰淇淋的做法'];
   const embedded = embedTexts(texts);
+  assert.equal(embedded.engine, APPLE_EMBEDDING_ENGINE);
   assert.equal(embedded.dimension, 600);
   assert.equal(embedded.vectors.length, 3);
   const query = embedTexts(['审核标准与责任验收']).vectors[0]!;
@@ -32,7 +35,7 @@ test('设备端中英文词向量：语义相近的句子明显比无关句子�
   const unrelated = cosine(query, embedded.vectors[2]!);
   assert.ok(related > 0.5, `相关句相似度 ${related}`);
   assert.ok(related - unrelated > 0.4, `语义区分度不足：${related} vs ${unrelated}`);
-  if (embedded.engine === APPLE_EMBEDDING_ENGINE) assert.ok(cosine(query, embedded.vectors[1]!) > unrelated);
+  assert.ok(cosine(query, embedded.vectors[1]!) > unrelated);
 });
 
 test('无 Apple 词向量时降级为本地哈希向量，仍可完成向量检索', () => {
