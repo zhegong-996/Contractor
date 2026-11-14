@@ -69,10 +69,10 @@ flowchart LR
 COLLAB_STATE_DIR="$PWD/.runtime/superagent-first-chain" npm run pilot:superagent
 ```
 
-`/health` 表示测试飞书事件通道就绪，`/tickets` 返回用于验收的本机摘要。工单账本、AutoLoop 日志和交付文件在忽略目录中。口径以真实服务回执为准。
+`/health` 表示测试飞书事件通道就绪，`/tickets` 返回用于验收的本机摘要。工单账本、AutoLoop 日志和交付文件在忽略目录中。试点撤权阻断新的任务资料装配和检索。原版 worker 和 Codex 的本机历史可能已接收过正文，生产接入还需隔离执行身份、控制历史和产物访问，以及处理撤权时仍在运行的会话。口径以真实服务回执为准。
 
 ### 联调记录 · 2026-11-14
 
 - 飞书测试单聊实收发。Engine 产生工单 `2b66b264d80a2265bfdaddfa8688e5d7` 和一个 Assignment。回执生成原生问题卡片后进程退出。原话题收到真实测试回复后，AutoLoop 自动开第二轮并恢复第一轮 Codex 会话。
 - [测试 PR #4](https://github.com/zhegong-996/desktop-tutorial/pull/4) 的提交为 `fad5df8b945c0da07f83713233bf67fe43336ca3`。[Actions 运行](https://github.com/zhegong-996/desktop-tutorial/actions/runs/43552188817) 按该提交生成预览。预览文件的 Git blob 与远端一致。浏览器确认标题、演练提示与按钮反馈。
-- 平台回归 822 项通过；固定版 AutoLoop 回归 352 项通过，2 项上游用例跳过。发起人的验收、知识采用和撤权以独立测试账本收到的实际操作为准。
+- 平台回归 822 项通过；固定版 AutoLoop 回归 352 项通过，2 项上游用例跳过。以该 PR 的真实预览为输入，在隔离副本验证了候选先审后收录、执行身份命中 1→0、撤权后原文拒绝及所有者仍可检索。发起人的验收、知识采用和撤权以独立测试账本收到的实际操作为准。
