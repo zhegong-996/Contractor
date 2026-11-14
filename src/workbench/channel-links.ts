@@ -12,6 +12,8 @@ export type ChannelRequest = {
   project: string;
   agent: string;
   request: string;
+  note?: boolean;
+  topic?: string;
 };
 
 type Binding = {

@@ -37,6 +37,12 @@ export async function openExecution(agents: Agent[]) {
   await mkdir(home, { recursive: true, mode: 0o700 });
   const cwd = runtime('execution');
   await mkdir(cwd, { recursive: true, mode: 0o700 });
+  if (agents.some(agent => agent.engine === 'cursor')) {
+    const plugins = path.join(home, 'plugins', 'cursor');
+    await mkdir(plugins, { recursive: true, mode: 0o700 });
+    const adapter = pathToFileURL(path.join(root, 'src/workbench/cursor.ts')).href;
+    await writeFile(path.join(plugins, 'agent.ts'), 'export { default } from ' + JSON.stringify(adapter) + ';\n', { mode: 0o600 });
+  }
   const rules = {
     timezone: 'Asia/Shanghai',
     sources: { suitme: { name: 'SuitMe 协作台' } },

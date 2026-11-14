@@ -90,12 +90,15 @@ export class Github implements DeliveryAdapter {
   }
   async inspect(prNumber: number): Promise<Delivery> {
     const pr = await this.api(`pulls/${prNumber}`);
-    const checks = await this.api(`commits/${pr.head.sha}/check-runs`);
+    const ci = await this.checkStatus(pr.head.sha);
+    return { pr: pr.number, url: pr.html_url, headSha: pr.head.sha, ci, merged: Boolean(pr.merged_at), ...(pr.merged_at ? { mergeSha: pr.merge_commit_sha } : {}) };
+  }
+  async checkStatus(sha: string): Promise<Delivery['ci']> {
+    const checks = await this.api(`commits/${sha}/check-runs`);
     const expected = checks.check_runs.filter((c: any) => c.name === 'collab-pilot' && c.app?.slug === 'github-actions')
       .sort((a: any, b: any) => b.id - a.id).slice(0, 1);
-    const ci = expected.some((c: any) => c.status === 'completed' && c.conclusion !== 'success') ? 'failed'
+    return expected.some((c: any) => c.status === 'completed' && c.conclusion !== 'success') ? 'failed'
       : expected.length && expected.every((c: any) => c.status === 'completed' && c.conclusion === 'success') ? 'passed' : 'pending';
-    return { pr: pr.number, url: pr.html_url, headSha: pr.head.sha, ci, merged: Boolean(pr.merged_at), ...(pr.merged_at ? { mergeSha: pr.merge_commit_sha } : {}) };
   }
   async preview(task: Task): Promise<Delivery> {
     if (!task.delivery || task.delivery.ci !== 'passed') throw new Error('Exact-commit CI must pass before preview');

@@ -28,8 +28,14 @@ test('渠道身份绑定、同一引用去重和负责人确认共用原版工�
   await auth.ready();
   await auth.bootstrapOwner('maintainer', 'only-for-unit-test');
   await auth.createAccount('maker', 'only-for-unit-test', 'operator', 'maintainer');
+  await auth.createAccount('outside', 'only-for-unit-test', 'operator', 'maintainer');
   const config = settingsSchema.parse({
-    projects: [{ id: 'example', title: '门店推荐理由', members: ['maintainer', 'maker'], maintainers: ['maintainer'] }],
+    projects: [
+      { id: 'example', title: '门店推荐理由', members: ['maintainer', 'maker'], maintainers: ['maintainer'],
+        topics: [{ id: 'reasons', title: '推荐理由' }], responsibilities: [{ member: 'maker', function: 'delivery' }],
+        resources: [{ source: 'github', externalId: 'team/example', state: 'bound', contributors: ['maker'] }] },
+      { id: 'private', title: '门店接入', parent: 'example', members: ['maintainer'], maintainers: ['maintainer'] },
+    ],
     functions: [{ id: 'delivery', title: '交付' }],
     agents: [{ id: 'review', title: '评审', projects: ['example'], active: true, owner: 'maker', function: 'delivery',
       kind: 'personal', engine: 'command', command: ['/usr/bin/true'], capability: '评审文案', skill: '只读检查' }],
@@ -75,6 +81,38 @@ test('渠道身份绑定、同一引用去重和负责人确认共用原版工�
   assert.equal(work.detail('maker', ticket).work.requester, 'maker');
   assert.deepEqual(work.detail('maker', ticket).channelHistory.map(({ member }) => member), ['maker', 'maker']);
   assert.equal(work.receiveChannel(a, shared).status, 'duplicate');
+  const note = input(github, shared, 'ordinary-comment');
+  note.trigger.meta.repository = 'team/example';
+  work.receiveNote(note);
+  work.receiveNote(note);
+  work.receiveNote(input(github, { key: 'github:100:8', label: '未绑定' }, 'unlinked-comment'));
+  assert.equal(work.overview('maker').tickets.length, 1);
+  assert.equal(work.detail('maker', ticket).channelHistory.at(-1)?.text, '在 GitHub 留下了讨论。');
+
+  const { githubInputs, githubPullChange } = await import('../src/workbench/github-intake.ts');
+  const repository = { id: '100', name: 'team/example' };
+  const user = { id: 91, login: 'maker-github', type: 'User' };
+  const now = new Date(Math.ceil(Date.now() / 1000) * 1000).toISOString();
+  const original = { user, created_at: now, updated_at: now };
+  const rawComment = { ...original, id: 671, body: '检查窄屏换行。',
+    html_url: 'https://github.com/team/example/pull/7#discussion_r671',
+    pull_request_url: 'https://api.github.com/repos/team/example/pulls/7',
+    in_reply_to_id: 650, commit_id: '1'.repeat(40) };
+  const [inline] = githubInputs(repository, [rawComment], true, now);
+  assert.ok(inline?.note);
+  assert.equal(inline.origin.key, shared.key);
+  assert.deepEqual(inline.trigger.meta.githubComment, { kind: 'inline', thread: 650, commit: '1'.repeat(40) });
+  assert.deepEqual(githubInputs(repository, [{ ...rawComment, created_at: '2026-11-13T00:00:00Z' }], true, now), []);
+  const issue = { ...original, id: 770, number: 8, html_url: 'https://github.com/team/example/issues/8',
+    body: '另一张 Issue，尚无明确协作命令。', state: 'closed', state_reason: 'completed' };
+  const [issueChange] = githubInputs(repository, [issue], false, now);
+  assert.equal(issueChange?.evidence, 'issue');
+  assert.equal(issueChange?.trigger.human, false);
+  assert.equal(issueChange?.origin.key, 'github:100:8');
+  const pullChange = githubPullChange(repository, { ...issue, number: 7, html_url: inline.origin.url }, now);
+  assert.equal(pullChange?.evidence, 'pull');
+  assert.equal(pullChange?.origin.key, shared.key);
+  assert.notEqual(pullChange?.trigger.id, inline.trigger.id);
 
   const c = input(feishu, { key: 'feishu:app-example:group:new-topic', label: '飞书新话题' }, 'missing-reference');
   assert.equal(work.receiveChannel(c).status, 'pending');
@@ -83,7 +121,7 @@ test('渠道身份绑定、同一引用去重和负责人确认共用原版工�
   assert.throws(() => work.resolveChannel('maker', c.trigger.id, { action: 'link', ticket }), { status: 403 });
   assert.deepEqual(work.resolveChannel('maintainer', c.trigger.id, { action: 'link', ticket }), { ticket });
   assert.equal(work.overview('maker').tickets.length, 1);
-  assert.equal(work.detail('maker', ticket).channelHistory.length, 3);
+  assert.equal(work.detail('maker', ticket).channelHistory.length, 4);
 
   const anotherRef = { key: 'github:200:7', label: 'another-repo #7' };
   const d = work.receiveChannel(input(github, anotherRef, 'same-number-another-repo'), anotherRef);
@@ -91,6 +129,30 @@ test('渠道身份绑定、同一引用去重和负责人确认共用原版工�
   assert.notEqual(d.ticket, ticket);
   assert.equal(work.receiveChannel(input(feishu, topic, 'conflicting-references'), anotherRef).status, 'pending');
   assert.equal(work.overview('maker').tickets.length, 2);
+  work.setTopic('maintainer', ticket, 'reasons');
+  work.setTopic('maker', d.ticket!, 'reasons');
+  assert.throws(() => work.setTopic('maker', ticket, 'unknown'), { status: 400 });
+  assert.equal(work.detail('maker', ticket).topicTitle, '推荐理由');
+  assert.equal(work.detail('maker', d.ticket!).topicTitle, '推荐理由');
+  assert.throws(() => work.createTopic('maker', 'example', { id: 'small-screen', title: '小屏展示', parent: 'reasons' }), { status: 403 });
+  work.createTopic('maintainer', 'example', { id: 'small-screen', title: '小屏展示', parent: 'reasons' });
+  assert.throws(() => work.createTopic('maintainer', 'example', { id: 'third-level', title: '多级', parent: 'small-screen' }), { status: 400 });
+  work.setTopic('maker', d.ticket!, 'small-screen');
+  assert.ok(work.overview('maker').projects[0]?.topics.some(topic => topic.id === 'small-screen' && topic.parent === 'reasons'));
+  assert.equal(work.detail('maker', d.ticket!).topicTitle, '小屏展示');
+  work.relateWork('maker', ticket, d.ticket!);
+  assert.equal(work.detail('maker', ticket).related[0]?.id, d.ticket);
+  assert.equal(work.detail('maker', d.ticket!).related[0]?.id, ticket);
+  assert.throws(() => work.relateWork('outside', ticket, d.ticket!), { status: 404 });
+  assert.deepEqual(work.overview('maker').projects.map(item => item.id), ['example']);
+  assert.deepEqual(work.overview('maker').projects[0]?.members.find(item => item.name === 'maker')?.responsibilities, ['delivery']);
+  assert.throws(() => work.addReference('maker', 'example', { source: 'figma', label: '设计', url: 'https://www.figma.com/design/Example?node-id=3-4' }), { status: 403 });
+  const design = work.addReference('maintainer', 'example', { source: 'figma', label: '设计', url: 'https://www.figma.com/design/Example?node-id=3-4', revision: 'v1' });
+  const privateDesign = work.addReference('maintainer', 'private', { source: 'figma', label: '参考设计', url: 'https://www.figma.com/design/Example?node-id=3%3A4', revision: 'v1' });
+  assert.equal(design.externalId, privateDesign.externalId);
+  assert.notEqual(design.ref, privateDesign.ref);
+  assert.throws(() => work.start('maker', { project: 'example', title: '越权引用', request: '引用测试', nonce: 'test',
+    material: [], resources: [privateDesign.ref], agent: 'review', priority: 'normal' }), { status: 400 });
 
   const e = input(feishu, { key: 'feishu:app-example:group:new', label: '待确认' }, 'revoke-pending');
   assert.equal(work.receiveChannel(e).status, 'pending');

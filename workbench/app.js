@@ -1,8 +1,7 @@
 function taskDraft(project = '') {
-  return { title: '', request: '', target: '', material: [], priority: 'normal', project, parent: undefined, nonce: '',
+  return { title: '', request: '', target: '', material: [], resources: [], repository: '', topic: '', priority: 'normal', project, parent: undefined, nonce: '',
     measure: { metric: '', unit: '', baseline: '', target: '' }, reusedLesson: null };
 }
-
 function observationDraft() {
   return { actual: '', evidence: '', body: '', conditions: '', nonce: '' };
 }
@@ -14,20 +13,45 @@ Vue.createApp({
       tabs: [{ id: 'inbox', title: '协作' }, { id: 'project', title: '项目' }, { id: 'team', title: '团队 Agent' }, { id: 'knowledge', title: '知识' }],
       credentials: { username: '', password: '' },
       draft: taskDraft(), observation: observationDraft(), observing: false,
-      ciText: { passed: '已通过', pending: '等待结果', failed: '失败' }, deliveryUrl: '',
+      ciText: { passed: '已通过', pending: '等待结果', failed: '失败' }, deliveryUrl: '', branchUrl: '',
       review: { body: '', conditions: '' }, answers: {}, materials: [],
       entries: [], query: '', focusedEntry: '', adding: false,
       newEntry: { title: '', body: '', conditions: '', kind: 'reference', visibility: 'restricted' },
       accessTitles: { requested: '待授权', granted: '本工单已授权', revoked: '已撤回', expired: '已过期' },
-      channels: { accounts: [], proofs: [], pending: [] }, proofCommands: {}, channelTargets: {},
+      channels: { accounts: [], proofs: [], pending: [] }, proofCommands: {}, channelTargets: {}, channelTopics: {},
+      referenceOpen: false, newReference: { source: 'feishu-doc', label: '', url: '', revision: '' },
+      topicOpen: false, newTopic: '', newTopicParent: '', focusedTopic: '', relatedTarget: '',
+      prStates: { open: '开启', draft: '草稿', closed: '已关闭', merged: '已合并' },
+      issueReasons: { completed: '已完成', not_planned: '暂无计划', duplicate: '重复' },
+      resourcePurposes: { discussion: '讨论入口', reference: '参考资料', delivery: '交付仓库' },
       runTitles: { done: '已完成', nothing: '无进一步动作', queued: '排队中', claimed: '执行中', cancelled: '已停止' },
       back: { view: 'inbox', y: 0 }, error: '', notice: '', busy: false, timer: null,
     };
   },
   computed: {
     project() { return this.workspace?.projects.find(p => p.id === this.projectId); },
+    parentProject() { return this.workspace?.projects.find(p => p.id === this.project?.parent); },
+    supportingResources() { return this.project?.resources.filter(ref => ref.state === 'bound') ?? []; },
+    selectedAgent() {
+      const [kind, name] = this.draft.target.split(':');
+      return this.projectAgents.find(agent => agent.id === (kind === 'agent' ? name : this.availableFunctions.find(fn => fn.id === name)?.lead));
+    },
     attention() { return this.workspace?.tickets.filter(t => t.attention) ?? []; },
     projectTickets() { return this.workspace.tickets.filter(t => t.work.project === this.projectId); },
+    topTopics() { return this.project?.topics.filter(topic => !topic.parent) ?? []; },
+    topicOptions() { return this.topTopics.flatMap(topic => [topic, ...this.subtopicsOf(topic.id)]); },
+    selectedTopic() { return this.project?.topics.find(topic => topic.id === this.focusedTopic); },
+    topicGroups() {
+      const topics = this.topicOptions;
+      const groups = topics.map(topic => ({ ...topic, tickets: this.projectTickets.filter(item => item.work.topic === topic.id) }));
+      if (this.selectedTopic) return groups.filter(group => group.id === this.focusedTopic || group.parent === this.focusedTopic);
+      const known = new Set(topics.map(topic => topic.id));
+      return [
+        ...groups,
+        { id: '', title: '未归入主题', tickets: this.projectTickets.filter(item => !known.has(item.work.topic)) },
+      ].filter(topic => topic.tickets.length);
+    },
+    subprojects() { return this.workspace?.projects.filter(item => item.parent === this.projectId) ?? []; },
     projectAgents() { return this.workspace.agents.filter(a => a.projects.includes(this.projectId)); },
     availableFunctions() { return this.workspace.functions.filter(fn => this.projectAgents.some(a => a.active && a.id === fn.lead)); },
     groups() {
@@ -97,6 +121,14 @@ Vue.createApp({
       this.channels = { accounts: [], proofs: [], pending: [] };
       this.proofCommands = {};
       this.channelTargets = {};
+      this.channelTopics = {};
+      this.referenceOpen = false;
+      this.topicOpen = false;
+      this.newTopic = '';
+      this.newTopicParent = '';
+      this.focusedTopic = '';
+      this.relatedTarget = '';
+      this.newReference = { source: 'feishu-doc', label: '', url: '', revision: '' };
       this.materials = [];
       this.query = '';
       this.focusedEntry = '';
@@ -112,7 +144,10 @@ Vue.createApp({
           for (const provider of Object.keys(this.proofCommands))
             if (!this.channels.proofs.some(proof => proof.provider === provider)) delete this.proofCommands[provider];
         }
-        if (!result.projects.some(p => p.id === this.projectId)) this.projectId = result.projects[0]?.id ?? '';
+        if (!result.projects.some(p => p.id === this.projectId)) {
+          this.projectId = result.projects[0]?.id ?? '';
+          this.focusedTopic = '';
+        }
         if (this.view === 'ticket' && this.ticketId) {
           const id = this.ticketId;
           const ticket = await this.api('ticket/' + id);
@@ -124,7 +159,19 @@ Vue.createApp({
       }
     },
     agentName(id) { return this.workspace.agents.find(a => a.id === id)?.title ?? '项目 Agent'; },
-    sourceName(source) { return { feishu: '飞书', github: 'GitHub', figma: 'Figma' }[source] ?? source; },
+    sourceName(source) { return { feishu: '飞书', github: 'GitHub', figma: 'Figma', 'feishu-doc': '飞书文档', document: '外部文档' }[source] ?? source; },
+    engineName(engine) { return { codex: 'Codex', cursor: 'Cursor', claude: 'Claude Code', acp: 'ACP', command: 'CLI' }[engine] ?? engine; },
+    functionName(id) { return this.workspace.functions.find(fn => fn.id === id)?.title ?? id; },
+    subtopicsOf(id) { return this.project?.topics.filter(topic => topic.parent === id) ?? []; },
+    topicLabel(topic, topics = this.project?.topics ?? []) {
+      const parent = topics.find(item => item.id === topic.parent);
+      return parent ? parent.title + ' / ' + topic.title : topic.title;
+    },
+    topicCount(id) {
+      const included = new Set([id, ...this.subtopicsOf(id).map(topic => topic.id)]);
+      return this.projectTickets.filter(item => included.has(item.work.topic)).length;
+    },
+    githubName(actor) { return actor ? [actor.member, '@' + actor.login, actor.type === 'Bot' ? 'Bot' : ''].filter(Boolean).join(' · ') : '未核实'; },
     stateOf(ticket) {
       if (ticket.needsObservation || (ticket.work.accepted && ticket.work.measure && ticket.result
           && ticket.work.requester === this.workspace.actor && ticket.observations?.length === 0)) return '待记录结果';
@@ -145,10 +192,18 @@ Vue.createApp({
       if (view === 'accounts') await this.refresh();
     },
     async selectProject(id) {
+      if (id !== this.projectId) {
+        this.focusedTopic = '';
+        this.newTopicParent = '';
+      }
       this.projectId = id;
       this.query = '';
-      if (this.view === 'ticket' || this.view === 'create') await this.go('project');
-      if (this.view === 'knowledge') await this.loadKnowledge();
+      await this.go('project');
+    },
+    async showTopic(id) {
+      this.focusedTopic = id;
+      await this.go('inbox');
+      this.$nextTick(() => document.getElementById('project-work')?.scrollIntoView());
     },
     async openTicket(id, remember = true) {
       if (remember) this.back = { view: this.view, y: window.scrollY };
@@ -159,9 +214,12 @@ Vue.createApp({
         this.observation = observationDraft();
         this.observing = false;
         this.deliveryUrl = ticket.work.delivery?.url ?? '';
+        this.branchUrl = '';
+        this.relatedTarget = '';
       }
       this.ticketId = id;
       this.ticket = ticket;
+      if (this.projectId !== ticket.project) this.focusedTopic = '';
       this.projectId = ticket.project;
       this.view = 'ticket';
       window.scrollTo(0, 0);
@@ -169,6 +227,25 @@ Vue.createApp({
     async bindResource(ref) {
       await this.act(async () => {
         await this.api('project/' + this.projectId + '/bind', { source: ref.source, externalId: ref.externalId });
+        await this.refresh();
+      });
+    },
+    async addReference() {
+      await this.act(async () => {
+        const { source, label, url, revision } = this.newReference;
+        await this.api('project/' + this.projectId + '/reference', { source, label, url, revision: revision || undefined });
+        this.referenceOpen = false;
+        this.newReference = { source: 'feishu-doc', label: '', url: '', revision: '' };
+        await this.refresh();
+      });
+    },
+    async addTopic() {
+      await this.act(async () => {
+        await this.api('project/' + this.projectId + '/topic', { id: 'topic-' + crypto.randomUUID(), title: this.newTopic,
+          parent: this.newTopicParent || undefined });
+        this.topicOpen = false;
+        this.newTopic = '';
+        this.newTopicParent = '';
         await this.refresh();
       });
     },
@@ -186,6 +263,8 @@ Vue.createApp({
       }
       this.draft.nonce ||= crypto.randomUUID();
       this.draft.parent = parent;
+      if (parent) this.draft.topic = this.ticket?.work.topic ?? '';
+      else if (!this.draft.topic) this.draft.topic = this.selectedTopic?.id ?? '';
       if (agent) this.draft.target = 'agent:' + agent;
       this.view = 'create';
       try {
@@ -238,8 +317,10 @@ Vue.createApp({
     async submitTask() {
       await this.act(async () => {
         const [kind, target] = this.draft.target.split(':');
-        const { title, request, material, priority, project, parent, nonce } = this.draft;
-        const data = await this.api('ticket', { title, request, material, priority, project, parent, nonce,
+        const { title, request, material, resources, repository, topic, priority, project, parent, nonce } = this.draft;
+        const data = await this.api('ticket', { title, request, material, resources, priority, project, parent, nonce,
+          topic: topic || undefined,
+          target: ['codex','cursor'].includes(this.selectedAgent?.engine) ? repository || undefined : undefined,
           measure: this.measurePayload(), reusedLesson: this.draft.reusedLesson?.id,
           ...(kind === 'agent' ? { agent: target } : { function: target }) });
         for (let retry = 0; retry < 15; retry++) {
@@ -282,6 +363,16 @@ Vue.createApp({
         await this.refresh();
       });
     },
+    async linkBranch() {
+      await this.act(async () => {
+        await this.api('ticket/' + this.ticket.id + '/branch', { url: this.branchUrl });
+        this.branchUrl = '';
+        await this.refresh();
+      });
+    },
+    branchLink(branch) {
+      return 'https://github.com/' + branch.repository + '/tree/' + branch.name.split('/').map(encodeURIComponent).join('/');
+    },
     async beginChannel(provider) {
       await this.act(async () => {
         const proof = await this.api('channels/proof', { provider });
@@ -308,10 +399,25 @@ Vue.createApp({
       await this.act(async () => {
         const result = await this.api('channels/' + item.id + '/resolve', {
           action, ...(action === 'link' ? { ticket: this.channelTargets[item.id] } : {}),
+          ...(action === 'create' && this.channelTopics[item.id] ? { topic: this.channelTopics[item.id] } : {}),
         });
         delete this.channelTargets[item.id];
+        delete this.channelTopics[item.id];
         await this.refresh();
         if (result.ticket) await this.openTicket(result.ticket);
+      });
+    },
+    async setTopic(topic) {
+      await this.act(async () => {
+        await this.api('ticket/' + this.ticket.id + '/topic', { topic: topic || undefined });
+        await this.refresh();
+      });
+    },
+    async relateWork() {
+      await this.act(async () => {
+        await this.api('ticket/' + this.ticket.id + '/related', { ticket: this.relatedTarget });
+        this.relatedTarget = '';
+        await this.refresh();
       });
     },
     async accept() {

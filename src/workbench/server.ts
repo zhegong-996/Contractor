@@ -15,6 +15,7 @@ import { openCollaboration, WorkbenchError } from './collaboration.ts';
 import { measureSchema, observationSchema } from './learning.ts';
 import { channelCommand, feishuCommandText, type ChannelRef, type PlatformActor } from './channel-links.ts';
 import { githubReference, watchGithub } from './github-intake.ts';
+import { referenceSchema, resourceSource, topicInputSchema } from './project-resources.ts';
 
 const stateDir = process.env.COLLAB_STATE_DIR;
 if (!stateDir || !path.isAbsolute(stateDir)) throw new Error('请提供独立工作台的 COLLAB_STATE_DIR 绝对路径。');
@@ -32,13 +33,15 @@ const id = z.string().min(1).max(80);
 const prose = z.string().trim().min(1).max(3500);
 const provider = z.enum(['feishu', 'github']);
 const accountRef = z.object({ provider, namespace: z.string().min(1).max(180), id });
+const githubUrl = z.url({ protocol: /^https$/, hostname: /^github\.com$/ });
 const channelDecision = z.discriminatedUnion('action', [
   z.object({ action: z.literal('link'), ticket: id }),
-  z.object({ action: z.literal('create') }),
+  z.object({ action: z.literal('create'), topic: id.optional() }),
   z.object({ action: z.literal('dismiss') }),
 ]);
 const settingsRoutes = {
   start: z.object({ project: id, title, request: prose, nonce, material: z.array(id).max(8).default([]),
+    resources: z.array(z.string().max(180)).max(12).default([]), target: z.string().max(180).optional(), topic: id.optional(),
     priority: z.enum(['normal', 'urgent']).default('normal'), agent: id.optional(), function: id.optional(), parent: id.optional(), measure: measureSchema.optional(), reusedLesson: id.optional() }).strict(),
   answer: z.object({ card: z.number().int().positive(), choice: z.number().int().nonnegative().optional(), text: prose.optional(), nonce }).strict(),
   accept: z.object({ revision: z.string().length(64), commit: z.string().regex(/^[a-f0-9]{40}$/).optional(), body: z.string().trim().max(16000).default(''), conditions: z.string().trim().max(600).default('') }).strict(),
@@ -127,14 +130,24 @@ async function serve() {
       else if (get && view === 'ticket' && item) output = work.detail(actor, item);
       else if (get && view === 'request' && item) output = { ticket: work.resolveStart(actor, item) };
       else if (post && view === 'project' && item && action === 'bind') {
-        const value = z.object({ source: z.enum(['feishu', 'github', 'figma']), externalId: z.string().min(1).max(200) }).parse(await body(req));
+        const value = z.object({ source: resourceSource, externalId: z.string().min(1).max(200) }).parse(await body(req));
         work.bindResource(actor, item, value.source, value.externalId);
+      } else if (post && view === 'project' && item && action === 'reference') {
+        output = work.addReference(actor, item, referenceSchema.parse(await body(req)));
+      } else if (post && view === 'project' && item && action === 'topic') {
+        work.createTopic(actor, item, topicInputSchema.parse(await body(req)));
       } else if (post && view === 'agent' && item) work.setAgent(actor, item, z.object({ active: z.boolean() }).parse(await body(req)).active);
       else if (post && view === 'ticket' && !item) output = work.start(actor, settingsRoutes.start.parse(await body(req)));
       else if (post && view === 'ticket' && action === 'answer') work.reply(actor, item, settingsRoutes.answer.parse(await body(req)));
       else if (post && view === 'ticket' && action === 'stop') work.stop(actor, item);
+      else if (post && view === 'ticket' && action === 'topic') work.setTopic(actor, item, z.object({ topic: id.optional() }).parse(await body(req)).topic);
+      else if (post && view === 'ticket' && action === 'related') work.relateWork(actor, item, z.object({ ticket: id }).parse(await body(req)).ticket);
+      else if (post && view === 'ticket' && action === 'branch') {
+        const value = z.object({ url: githubUrl }).parse(await body(req));
+        await work.linkBranch(actor, item, value.url);
+      }
       else if (post && view === 'ticket' && action === 'delivery') {
-        const value = z.object({ url: z.url({ protocol: /^https$/, hostname: /^github\.com$/ }) }).parse(await body(req));
+        const value = z.object({ url: githubUrl }).parse(await body(req));
         await work.linkDelivery(actor, item, value.url);
       } else if (post && view === 'ticket' && action === 'accept') {
         const value = settingsRoutes.accept.parse(await body(req));
@@ -168,7 +181,7 @@ async function serve() {
     const collaboration = await openCollaboration(config, auth, feishu && (message =>
       sendFeishu({ commands: { lark: (args: string[]) => command('lark-cli', ['--profile', feishu.profile, ...args, '--as', 'bot']) } }, message)));
     work = collaboration;
-    const processChannel = async (text: string, trigger: Trigger, sender: PlatformActor, origin: ChannelRef, project?: string) => {
+    const processChannel = async (text: string, trigger: Trigger, sender: PlatformActor, origin: ChannelRef, project?: string, topic?: string) => {
       const action = channelCommand(text);
       if (!action) return;
       if (action.kind === 'proof') {
@@ -185,17 +198,32 @@ async function serve() {
           catch { reference = null; }
         }
       }
-      collaboration.receiveChannel({ project, origin, sender, trigger, agent: action.agent, request: action.request }, reference);
+      collaboration.receiveChannel({ project, origin, sender, trigger, agent: action.agent, request: action.request, topic }, reference);
     };
 
     const stopGithub = config.crossChannel && watchGithub({
       repositories: () => collaboration.githubRepositories(),
+      tracksPull: collaboration.tracksPull,
       interval: config.crossChannel.githubPollSeconds,
       checkpoint: collaboration.githubCheckpoint,
+      refresh: collaboration.refreshGithubEvidence,
       log: message => console.error(message),
       async consume(input) {
-        const project = collaboration.boundProject('github', input.repository.name);
-        if (project) await processChannel(input.text, input.trigger, input.sender, input.origin, project.id);
+        const explicit = !input.note && !input.evidence ? channelCommand(input.text) : undefined;
+        const id = explicit?.kind === 'work' && /^[a-f0-9]{32}$/.test(explicit.reference ?? '') ? explicit.reference : undefined;
+        const project = collaboration.githubProject(input.repository.name, input.origin, id);
+        if (!project) return;
+        if (input.evidence === 'pull') {
+          if (collaboration.channelTicket(input.origin)) await collaboration.refreshDelivery(input.origin, project.id);
+        } else if (input.evidence === 'issue') {
+          if (collaboration.channelTicket(input.origin)) await collaboration.refreshIssue(input.origin, input.repository.name, project);
+        } else if (input.note) {
+          collaboration.receiveNote({ project: project.id, origin: input.origin, sender: input.sender,
+            trigger: input.trigger, agent: '', request: input.text });
+        } else {
+          const topic = project.resources.find(ref => ref.source === 'github' && ref.externalId.toLowerCase() === input.repository.name.toLowerCase())?.topic;
+          await processChannel(input.text, input.trigger, input.sender, input.origin, project.id, topic);
+        }
       },
     });
     available = true;
@@ -223,7 +251,8 @@ async function serve() {
             label: trigger.url ? '飞书原消息' : '飞书群', url: trigger.url ?? feishuChatLink('feishu', chat) };
           const action = config.crossChannel && channelCommand(text);
           if (action && ((action.kind === 'proof' && trigger.meta.direct) || (action.kind === 'work' && trigger.addressed && project))) {
-            void processChannel(text, trigger, sender, origin, project?.id)
+            void processChannel(text, trigger, sender, origin, project?.id,
+              project?.resources.find(ref => ref.source === 'feishu' && ref.externalId === chat)?.topic)
               .catch(error => console.error('飞书协作未受理：', (error as Error).name));
             return;
           }

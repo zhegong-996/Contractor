@@ -264,3 +264,11 @@ Vendored `element-plus@2.14.8` dist files (`console/vendor/element-plus.full.min
 Actually reused: the open-source component library per the user's round-30 instruction 「前端界面也做一个完整优化，复用开源代码和组件库」 — layout, tables, forms, dialogs, menus, dark theme (via `html.dark`) and the zh-CN locale, all served from the local vendor directory by `scripts/console-server.ts` (loopback only).
 
 Preserved boundaries (both front-end libraries): product red lines are unchanged — Feishu IM remains the only task-intake entry, the static HTML contains no native input/form elements, write actions outside knowledge CRUD / own settings / RBAC-gated admin remain rejected, and the visible layer keeps the domestic Chinese terminology layer (`DOMESTIC_TERMS` / `clean()`). `scripts/audit-upstream.ts` machine-checks the vendored version banners (`vue v3.5.45`, `Element Plus v2.14.8`) against the registered values.
+
+## Backstage catalog model (Apache-2.0)
+
+The workbench imports `parseEntityRef` and `stringifyEntityRef` from the published `@backstage/catalog-model@1.10.2` package. The package version and integrity are recorded in `package-lock.json`. The source reference is [Backstage `catalog-model/src/entity/ref.ts`](https://github.com/backstage/backstage/blob/40525466a0f70119579cbfc4a60b9d2aa6c8a52d/packages/catalog-model/src/entity/ref.ts). Copyright 2020 The Backstage Authors. The upstream materials are retained in `licenses/backstage-APACHE-2.0.txt` and `licenses/backstage-NOTICE.txt`.
+
+## Entire CLI (MIT)
+
+The workbench invokes an operator-configured Entire CLI for local hooks and its commit-specific JSON metadata exporter. The exercised release was [Entire CLI v0.13.4](https://github.com/entireio/cli/releases/tag/v0.13.4), upstream commit `95eabf579d7aa6e5dbe994a6956c8e3fb44d4465`. Copyright (c) 2026 Entire Inc. The license is retained in `licenses/entire-MIT.txt`. The executable and session data are local runtime files. No Entire binary is committed here.

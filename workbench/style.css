@@ -72,3 +72,10 @@ fieldset{border:1px solid var(--line);border-radius:8px}
 .measure { border: 1px solid var(--line); border-radius: 8px; padding: .65rem .9rem; }
 .measure summary { cursor: pointer; font-weight: 580; }
 .measure .form { padding: .7rem 0 .1rem; }
+.section-head{display:flex;align-items:center;justify-content:space-between;gap:.6rem;flex-wrap:wrap}
+.section-head h2{margin-bottom:.65rem}
+.source-row{overflow-wrap:anywhere}
+.work-topic{margin:.9rem 0 .5rem}
+.topic-child{padding-left:1.2rem}
+.ticket-topic{display:flex;align-items:center;gap:.4rem}
+.ticket-topic select{width:auto}
