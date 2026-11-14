@@ -2,6 +2,8 @@
 
 面向独立 SuitMe 的迁移、AutoLoop 全能力接入清单和九项生产验收见 [Super-agent 迁移](docs/SUPERAGENT-MIGRATION.md)。
 
+独立工作台入口为 `npm run workbench`。项目、Agent、授权资料、原生工单和 GitHub 版本验收通过同一个中文界面使用。参见 [配置和当前实现范围](docs/WORKBENCH.md)。
+
 个人与公共 Agent 的产品模型见[Agent 服务网](docs/AGENT-SERVICE-NETWORK.md)，事件、判断、工具执行与恢复见[自主协作运行](docs/AUTONOMOUS-COLLABORATION.md)。
 
 **产品文档套件（2026-11-09 · 第三十六轮）**：[产品功能介绍](docs/product/README.md) · [系统架构](docs/product/system-architecture.md) · [产品架构](docs/product/product-architecture.md) · [功能架构](docs/product/feature-map.md) · [业务流程](docs/product/business-flows.md)——五份文档覆盖「是什么、怎么搭、怎么分层、哪个功能在哪、流程怎么走」，新读者从 [产品功能介绍](docs/product/README.md) 进入。

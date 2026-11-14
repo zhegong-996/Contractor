@@ -3,7 +3,7 @@ import { key } from '../../upstream/superagent/src/core/index.ts';
 import type { MemoryEvent } from '../architecture-contracts.ts';
 import { recallMemory, replayMemory } from '../memory-projections.ts';
 import { knowledgeInput } from '../knowledge.ts';
-import type { PilotStore } from './ports.ts';
+import type { SuperAgentStore } from '../superagent-ports.ts';
 
 export const sha256 = (value: string) => createHash('sha256').update(value).digest('hex');
 export const executorPrincipal = 'agent:codex';
@@ -18,7 +18,7 @@ interface Candidate {
 }
 
 export class PilotKnowledge {
-  constructor(private readonly store: PilotStore) {
+  constructor(private readonly store: SuperAgentStore) {
     store.db.exec(`
       CREATE TABLE IF NOT EXISTS pilot_memory (id TEXT PRIMARY KEY, value TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS pilot_grants (ticket TEXT PRIMARY KEY, expires INTEGER NOT NULL, revoked TEXT);

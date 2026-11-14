@@ -14,7 +14,7 @@ import { command } from '../commands.ts';
 import { Github } from '../github.ts';
 import { feishuTrigger, sendFeishu } from '../upstream.ts';
 import type { Task } from '../store.ts';
-import { openPilotEffects, openPilotStore } from './ports.ts';
+import { openSuperAgentEffects, openSuperAgentStore } from '../superagent-ports.ts';
 import { openAutoloop, taskRule, workerName, type ExecutionCard } from './autoloop.ts';
 import { validateAcceptance } from '../delivery-acceptance.ts';
 import { executorPrincipal, PilotKnowledge, sha256 } from './knowledge.ts';
@@ -71,8 +71,8 @@ await new Promise<void>((resolve, reject) => {
   server.listen(pilot.port, '127.0.0.1', resolve);
 });
 
-const store = await openPilotStore(runtime('orchestrator.sqlite'));
-const effects = await openPilotEffects(store);
+const store = await openSuperAgentStore(runtime('orchestrator.sqlite'));
+const effects = await openSuperAgentEffects(store);
 const knowledge = new PilotKnowledge(store);
 const hub = await openAutoloop(pilot.checkout);
 store.db.exec(`

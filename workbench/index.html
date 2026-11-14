@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SuitMe 协作台</title>
+  <link rel="stylesheet" href="/workbench.css">
+  <script defer src="/vue.js"></script>
+  <script defer src="/app.js"></script>
+</head>
+<body>
+  <main id="app" v-cloak>
+    <div v-if="!workspace" class="login-layout">
+      <form class="login-card" @submit.prevent="login">
+        <div class="brand"><span class="mark">S</span> SuitMe</div>
+        <h1>登录协作台</h1>
+        <label>账号<input v-model.trim="credentials.username" name="username" autocomplete="username" required></label>
+        <label>口令<input v-model="credentials.password" name="password" type="password" autocomplete="current-password" required></label>
+        <p v-if="error" class="error" role="alert">{{ error }}</p>
+        <button class="primary" type="submit" :disabled="busy">登录</button>
+      </form>
+    </div>
+    <div v-else class="layout">
+      <aside class="sidebar">
+        <div class="brand"><span class="mark">S</span> SuitMe 协作台</div>
+        <nav aria-label="工作台">
+          <button v-for="tab in tabs" :key="tab.id" :aria-current="view===tab.id ? 'page' : null" @click="go(tab.id)" :class="{current: view===tab.id}">{{ tab.title }}<span v-if="tab.id==='inbox' && attention.length" class="counter">{{ attention.length }}</span></button>
+        </nav>
+        <div class="projects">
+          <p>项目</p>
+          <button v-for="p in workspace.projects" :key="p.id" :aria-pressed="projectId===p.id" :class="{child:p.parent,current:projectId===p.id}" @click="selectProject(p.id)">{{ p.title }}</button>
+        </div>
+        <div class="profile"><span>{{ workspace.actor }}</span><button class="quiet" @click="logout">退出</button></div>
+      </aside>
+      <section class="screen">
+        <header class="page-header">
+          <div><p class="context">{{ project?.title || '团队工作台' }}</p><h1>{{ pageTitle }}</h1></div>
+          <button v-if="project?.mayStart && view!=='create'" class="primary" @click="openComposer()">发起协作</button>
+        </header>
+        <p v-if="error" class="error" role="alert">{{ error }}</p>
+        <p v-if="notice" class="notice" role="status">{{ notice }}</p>
+        <template v-if="view==='inbox'">
+          <section class="panel">
+            <h2>待我处理</h2>
+            <p v-if="!attention.length" class="muted">当前没有待你决定的事项。</p>
+            <div v-for="item in attention" :key="item.id" class="row">
+              <button class="link" @click="openTicket(item.id)">{{ item.title }}</button>
+              <span class="status">{{ stateOf(item) }}</span>
+            </div>
+          </section>
+          <section class="panel">
+            <h2>{{ project?.title ? '项目工单' : '工单' }}</h2>
+            <p v-if="!projectTickets.length" class="muted">当前项目还没有协作工单。</p>
+            <div v-for="item in projectTickets" :key="item.id" class="row">
+              <button class="link" @click="openTicket(item.id)">{{ item.title }}</button>
+              <span class="muted">{{ agentName(item.work.agent) }}</span>
+              <span class="status">{{ stateOf(item) }}</span>
+            </div>
+          </section>
+        </template>
+        <template v-if="view==='project' && project">
+          <section class="panel"><h2>项目来源</h2><div v-for="ref in project.resources" :key="ref.source+ref.externalId" class="row">
+            <span>{{ sourceName(ref.source) }}</span><a v-if="ref.url" :href="ref.url" target="_blank" rel="noopener noreferrer">{{ ref.externalId }}</a>
+            <span v-else>{{ ref.externalId }}</span><span class="status">{{ ref.state==='bound' ? '已绑定' : '待确认' }}</span>
+            <button v-if="ref.state==='observe' && project.maintain" :disabled="busy" @click="bindResource(ref)">确认归属</button>
+          </div><p v-if="!project.resources.length" class="muted">尚未关联外部资料。</p></section>
+          <section class="panel"><h2>执行用量</h2><dl class="facts">
+            <dt>输入 Token</dt><dd>{{ project.usage.input }}</dd>
+            <dt>输出 Token</dt><dd>{{ project.usage.output }}</dd>
+            <dt>已回传费用</dt><dd>{{ project.usage.reported ? project.usage.cost : '执行端未回传' }}</dd>
+            <template v-if="project.budget"><dt>项目额度</dt><dd>{{ project.budget }}</dd></template>
+          </dl></section>
+        </template>
+        <template v-if="view==='team'">
+          <section v-for="group in groups" :key="group.id" class="panel">
+            <h2>{{ group.title }}</h2>
+            <div v-for="agent in group.agents" :key="agent.id" class="agent">
+              <div class="avatar" aria-hidden="true">{{ agent.title[0] }}</div>
+              <div><h3>{{ agent.title }}</h3><p>{{ agent.capability }}</p><small>{{ agent.owner }} · {{ agent.kind==='personal' ? '个人 Agent' : '专项 Agent' }} · {{ agent.engine }}</small></div>
+              <div class="agent-actions">
+                <button v-if="project?.mayStart && agent.active" @click="openComposer(agent.id)">委托</button><span v-else class="muted">{{ agent.active ? '在岗' : '已停用' }}</span>
+                <button v-if="agent.canManage" class="quiet" @click="setAgent(agent)">{{ agent.active ? '停用' : '上岗' }}</button>
+              </div>
+            </div>
+          </section>
+          <p v-if="!groups.length" class="muted">当前项目没有登记的 Agent。</p>
+        </template>
+        <template v-if="view==='create'">
+          <form class="panel form" @submit.prevent="submitTask">
+            <label>协作标题<input v-model.trim="draft.title" maxlength="100" required></label>
+            <label>你想完成什么<textarea v-model.trim="draft.request" rows="5" maxlength="3500" required></textarea></label>
+            <label>交给<select v-model="draft.target" required><option value="" disabled>选择个人 Agent 或职能</option>
+              <optgroup label="在岗 Agent"><option v-for="agent in projectAgents.filter(a=>a.active)" :key="agent.id" :value="'agent:'+agent.id">{{ agent.title }}</option></optgroup>
+              <optgroup v-if="availableFunctions.length" label="职能"><option v-for="fn in availableFunctions" :key="fn.id" :value="'function:'+fn.id">{{ fn.title }}</option></optgroup>
+            </select></label>
+            <label>优先级<select v-model="draft.priority"><option value="normal">普通</option><option value="urgent">紧急</option></select></label>
+            <fieldset v-if="materials.length">
+              <legend>引用项目资料</legend>
+              <label v-for="entry in materials" :key="entry.id" class="check"><input type="checkbox" v-model="draft.material" :value="entry.id">{{ entry.title }}<span v-if="entry.visibility==='restricted'" class="muted">需资料所有者授权</span></label>
+            </fieldset>
+            <div class="actions"><button class="primary" type="submit" :disabled="busy">交给 Agent</button><button type="button" @click="restoreView()">返回</button></div>
+          </form>
+        </template>
+        <template v-if="view==='ticket' && ticket">
+          <div class="backbar"><button class="quiet" @click="restoreView()">← 返回</button><span class="status">{{ stateOf(ticket) }}</span><span>{{ agentName(ticket.work.agent) }}</span><span v-if="ticket.work.source==='feishu'">来自飞书</span></div>
+          <div class="details">
+            <div class="stack">
+              <section class="panel"><h2>讨论</h2><div class="message"><small>{{ ticket.work.requester }}</small><p>{{ ticket.request }}</p></div>
+                <div v-for="message in ticket.history" :key="message.id" class="message"><small>{{ message.actor }}</small><p>{{ message.text }}</p></div>
+                <form v-for="question in ticket.questions" :key="question.id" class="question" @submit.prevent="answer(question.id)">
+                  <h3>{{ question.title }}</h3><p>{{ question.text }}</p>
+                  <div v-if="question.options.length" class="actions"><button v-for="(option,i) in question.options" type="button" :key="i" :disabled="busy" @click="answer(question.id,i)">{{ option }}</button></div>
+                  <label>补充答复<textarea rows="2" v-model="answers[question.id]"></textarea></label>
+                  <button type="submit" :disabled="busy || !answers[question.id]?.trim()">提交答复</button>
+                </form>
+                <p v-if="ticket.report && !ticket.questions.length && !ticket.result && !ticket.work.accepted && !ticket.materialHidden" class="muted">{{ ticket.report.summary }}</p>
+              </section>
+              <section v-if="ticket.materialHidden" class="panel"><h2>成果</h2>
+                <p v-if="ticket.work.accepted">已验收此版本。</p><p class="muted">来源资料授权已变化，成果正文已收回。</p>
+              </section>
+              <section v-if="ticket.result" class="panel"><h2>成果</h2><p class="prose">{{ ticket.result.text }}</p>
+                <dl class="facts"><dt>成果版本</dt><dd><code>{{ ticket.result.revision.slice(0,12) }}</code></dd>
+                <dt>引用资料</dt><dd>{{ ticket.result.sources.length }} 份</dd></dl>
+                <p v-if="ticket.work.accepted" class="notice">已由 {{ ticket.work.accepted.actor }} 验收此版本。</p>
+                <form v-else-if="ticket.work.requester===workspace.actor" class="form" @submit.prevent="accept">
+                  <label>可复用结论（选填）<textarea v-model="review.body" rows="3"></textarea></label>
+                  <label v-if="review.body.trim()">适用条件<input v-model.trim="review.conditions" required></label>
+                  <button class="primary" type="submit" :disabled="busy">验收此版本</button>
+                </form>
+                <button v-if="ticket.candidate" @click="go('knowledge')">查看知识候选</button>
+              </section>
+            </div>
+            <aside class="stack">
+              <section v-if="ticket.requests.length" class="panel"><h2>资料授权</h2><article v-for="request in ticket.requests" :key="request.id" class="grant">
+                <strong>{{ request.title }}</strong><p class="muted">{{ accessTitles[request.state] || request.state }}</p>
+                <button v-if="request.canManage && request.state==='requested'" :disabled="busy" @click="access(request,'granted')">授权此工单（8 小时）</button>
+                <button v-if="request.canManage && request.state==='granted'" :disabled="busy" @click="access(request,'revoked')">撤回本工单授权</button>
+              </article></section>
+              <section v-if="ticket.work.delivery || ticket.work.requester===workspace.actor" class="panel">
+                <h2>GitHub 交付</h2>
+                <dl v-if="ticket.work.delivery" class="facts">
+                  <dt>PR</dt><dd><a :href="ticket.work.delivery.url" target="_blank" rel="noopener noreferrer">#{{ ticket.work.delivery.pr }}</a></dd>
+                  <dt>提交</dt><dd><code>{{ ticket.work.delivery.headSha.slice(0,12) }}</code></dd>
+                  <dt>CI</dt><dd>{{ ciText[ticket.work.delivery.ci] }}</dd>
+                </dl>
+                <form v-if="ticket.work.requester===workspace.actor && !ticket.work.accepted" class="form" @submit.prevent="linkDelivery">
+                  <label>PR 链接<input v-model.trim="deliveryUrl" type="url" placeholder="https://github.com/…" required></label>
+                  <button :disabled="busy">{{ ticket.work.delivery ? '更新交付版本' : '关联交付' }}</button>
+                </form>
+              </section>
+              <section class="panel"><h2>执行记录</h2>
+                <p v-if="ticket.decision" class="muted">{{ ticket.decision.scope }}</p>
+                <p v-if="ticket.timers.length" class="muted">下次复查 {{ new Date(ticket.timers[0].at).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai'}) }}</p>
+                <div v-for="run in ticket.runs" :key="run.id" class="run"><span>{{ run.resumed ? '接续会话' : '执行' }} #{{ run.id }}</span><span>{{ runTitles[run.state] || run.state }}</span></div>
+                <button v-if="ticket.stage.stage!=='ended' && ticket.work.requester===workspace.actor" class="quiet" :disabled="busy" @click="stop">停止工单</button>
+                <button v-if="ticket.work.parent" class="quiet" @click="openTicket(ticket.work.parent)">打开上游工单</button>
+                <button v-if="project?.mayStart" class="quiet" @click="openComposer('',ticket.id)">从此工单发起协作</button>
+              </section>
+            </aside>
+          </div>
+        </template>
+        <template v-if="view==='knowledge' && project">
+          <section class="panel">
+            <form class="search" @submit.prevent="loadKnowledge"><label class="visually-hidden" for="search">搜索项目知识</label><input id="search" v-model.trim="query" placeholder="搜索项目知识"><button>搜索</button><button v-if="project.mayStart" type="button" @click="adding=!adding">{{ adding?'收起':'添加资料' }}</button></form>
+            <form v-if="adding" class="form inner" @submit.prevent="saveKnowledge">
+              <label>标题<input v-model.trim="newEntry.title" required></label>
+              <div class="two"><label>类型<select v-model="newEntry.kind"><option value="reference">参考资料</option><option value="procedure">操作方法</option><option value="decision">判断结论</option></select></label>
+              <label>可见范围<select v-model="newEntry.visibility"><option value="restricted">仅所有者查看，工单可申请授权</option><option value="project">项目成员</option></select></label></div>
+              <label>正文<textarea v-model.trim="newEntry.body" rows="4" required></textarea></label>
+              <label>适用条件<input v-model.trim="newEntry.conditions"></label>
+              <button type="submit" class="primary" :disabled="busy">保存资料</button>
+            </form>
+            <p v-if="!entries.length" class="muted">没有匹配的知识。</p>
+            <details v-for="entry in entries" :key="entry.id" class="document">
+              <summary>{{ entry.title }} <span class="status">{{ entry.state==='candidate'?'待采用':entry.body?'已入库':'需授权' }}</span></summary>
+              <p v-if="entry.body" class="prose">{{ entry.body }}</p><p v-else class="muted">可在发起协作时引用，并由 {{ entry.owner }} 授权。</p>
+              <p v-if="entry.conditions">适用条件 · {{ entry.conditions }}</p>
+              <div v-if="entry.provenance?.length" class="provenance">
+                <strong>来源</strong>
+                <div v-for="ref in entry.provenance" :key="ref.title+ref.revision" class="run">
+                  <button v-if="ref.ticket" class="link" @click="openTicket(ref.ticket)">{{ ref.title }}</button>
+                  <a v-else-if="ref.url" :href="ref.url" target="_blank" rel="noopener noreferrer">{{ ref.title }}</a>
+                  <span v-else>{{ ref.title }}</span>
+                  <code>{{ ref.revision.slice(0,12) }}</code>
+                </div>
+              </div>
+              <button v-if="entry.canPublish" :disabled="busy" @click="publish(entry)">采用此版本</button>
+            </details>
+          </section>
+        </template>
+      </section>
+    </div>
+  </main>
+</body>
+</html>

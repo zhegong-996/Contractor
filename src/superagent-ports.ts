@@ -2,10 +2,10 @@ import { registerHooks } from 'node:module';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { DatabaseSync } from 'node:sqlite';
-import type { OutboundMessage, Repositories } from '../../upstream/superagent/src/core/index.ts';
-import { root } from '../config.ts';
+import type { OutboundMessage, Repositories } from '../upstream/superagent/src/core/index.ts';
+import { root } from './config.ts';
 
-export type PilotStore = Repositories & {
+export type SuperAgentStore = Repositories & {
   db: DatabaseSync;
   close(): void;
   afterCommit(action: () => void): void;
@@ -23,7 +23,7 @@ interface EffectPayloads {
   delivery: { ticketId: string; assignmentId?: string };
   reply: Record<string, never>;
 }
-export interface PilotEffects {
+export interface SuperAgentEffects {
   enqueue<K extends keyof EffectPayloads>(kind: K, key: string, payload: EffectPayloads[K]): void;
   handle<K extends keyof EffectPayloads>(kind: K, run: (payload: EffectPayloads[K], key: string) => Promise<void>, options?: { ordered?: boolean }): void;
   start(): void;
@@ -31,7 +31,7 @@ export interface PilotEffects {
   drain(): Promise<void>;
 }
 
-export async function openPilotStore(file: string): Promise<PilotStore> {
+export async function openSuperAgentStore(file: string): Promise<SuperAgentStore> {
   const vendor = path.join(root, 'upstream/deepseek-harness/vendor');
   const aliases = new Map(['schemastery', 'cosmokit'].map(name => [
     '@deepseek-ai/' + name, pathToFileURL(path.join(vendor, name, 'src/index.ts')).href,
@@ -47,7 +47,7 @@ export async function openPilotStore(file: string): Promise<PilotStore> {
   } finally { hook.deregister(); }
 }
 
-export async function openPilotEffects(store: PilotStore): Promise<PilotEffects> {
+export async function openSuperAgentEffects(store: SuperAgentStore): Promise<SuperAgentEffects> {
   const source = path.join(root, 'upstream/superagent/src');
   const { Effects } = await import(pathToFileURL(path.join(source, 'app/effects.ts')).href);
   const { HealthBoard } = await import(pathToFileURL(path.join(source, 'infra/health.ts')).href);
