@@ -10,9 +10,6 @@ import { Store } from '../src/store.ts';
 import { Scheduler, routineSlot, defaultSchedulerConfig, automationActor } from '../src/scheduler.ts';
 import type { Config } from '../src/config.ts';
 
-// The scheduler uses the process's local clock and these fixtures use Asia/Shanghai wall times.
-process.env.TZ = 'Asia/Shanghai';
-
 function fixture(routines: Config['scheduler']['routines'], now = () => new Date('2026-11-09T10:00:00+08:00')) {
   const dir = mkdtempSync(path.join(tmpdir(), 'suitme-scheduler-')), store = new Store(path.join(dir, 'state.sqlite'));
   const task: any = { id: 'task-one', identifier: 'SUI-1', triggerId: 't1', chatId: 'local', messageId: 'local', senderId: 'local-operator',
