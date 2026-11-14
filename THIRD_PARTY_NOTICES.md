@@ -272,3 +272,7 @@ The workbench imports `parseEntityRef` and `stringifyEntityRef` from the publish
 ## Entire CLI (MIT)
 
 The workbench invokes an operator-configured Entire CLI for local hooks and its commit-specific JSON metadata exporter. The exercised release was [Entire CLI v0.13.4](https://github.com/entireio/cli/releases/tag/v0.13.4), upstream commit `95eabf579d7aa6e5dbe994a6956c8e3fb44d4465`. Copyright (c) 2026 Entire Inc. The license is retained in `licenses/entire-MIT.txt`. The executable and session data are local runtime files. No Entire binary is committed here.
+
+## LobeHub inbox digest (design reference)
+
+Reviewed the [LobeHub inbox digest service](https://github.com/lobehub/lobehub/blob/a8424d204a7ed1eb36985ebdfa6eac8041615392/apps/server/src/services/agentIdentity/wake/digest.ts) and its delayed flush at commit `a8424d204a7ed1eb36985ebdfa6eac8041615392`, under the LobeHub Community License. SuitMe applied the batching, replay and owner-triage ideas using the existing Super-agent source policy, native AutoLoop scheduler and local project data. No LobeHub source or service is shipped for this feature.

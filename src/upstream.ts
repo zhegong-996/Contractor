@@ -14,6 +14,13 @@ const contract = await moduleAt('autoloop/worker/contract.ts');
 const agents = await moduleAt('autoloop/worker/agents.ts');
 export type NativeTrigger = { id: string; human: boolean; addressed?: string; actor: { id: string }; text: string; meta: Record<string, unknown> };
 export const feishuTrigger: (input: unknown, botId: string, appId: string) => NativeTrigger | undefined = feishu.feishuTrigger;
+export const feishuHistory: (input: unknown, chat: string) => { event?: unknown; id: string; deleted: boolean } | undefined = (input, chat) => {
+  const result = feishu.HistoricalMessageSchema.safeParse(input);
+  if (!result.success || result.data.chat_id !== chat) return;
+  const message = result.data;
+  return { id: feishu.feishuTriggerId(message.message_id), deleted: message.deleted === true,
+    event: message.deleted ? undefined : feishu.historyEvent(message, chat, false) };
+};
 export const feishuThreadId: (chat: string, root: string | undefined, message: string) => string = feishu.feishuThreadId;
 export const feishuTriggerId: (message: string) => string = feishu.feishuTriggerId;
 export const feishuChatLink: (brand: 'feishu' | 'lark', chatId: string) => string = channel.feishuChatLink;

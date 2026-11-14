@@ -7,7 +7,7 @@ import { z } from 'zod';
 const id = z.string().regex(/^[A-Za-z0-9_-]+$/).max(160);
 export const feishuReference = z.object({
   provider: z.literal('feishu'), kind: z.enum(['docx', 'messages']), profile: id,
-  appId: id, userOpenId: id, token: id.optional(), chatId: id.optional(),
+  appId: id, userOpenId: id, token: id.optional(), block: id.optional(), chatId: id.optional(),
   messageIds: z.array(id).max(50).default([]), title: z.string().min(1).max(120),
   url: z.string().url().refine(s => { const u = new URL(s); return u.protocol === 'https:' && (u.hostname.endsWith('.feishu.cn') || u.hostname === 'applink.feishu.cn'); }),
 }).strict().superRefine((r, ctx) => {
@@ -21,11 +21,11 @@ const reads = new AsyncLocalStorage<Map<string, Promise<any>>>();
 export const withFeishuReads = <T>(fn: () => Promise<T>) => reads.run(new Map(), fn);
 const hash = (v: unknown) => createHash('sha256').update(JSON.stringify(v)).digest('hex');
 const execute = promisify(execFile);
-const unsafe = /(?:访问密码|密码\s*[:：]|(?:api[_ -]?key|access[_ -]?token|app[_ -]?secret|authorization)\s*[:=：]|\bsk-[\w-]{12,}|invite\/member\/)/i;
+export const sensitiveFeishuText = /(?:访问密码|密码\s*[:：]|(?:api[_ -]?key|access[_ -]?token|app[_ -]?secret|authorization)\s*[:=：]|\bsk-[\w-]{12,}|invite\/member\/|\bgh[pousr]_[A-Za-z0-9]{20,}|\bgithub_pat_|-----BEGIN [A-Z ]*PRIVATE KEY-----)/i;
 export function safeProjectMessages(messages: any[], ref: FeishuReference) {
   const allowed = new Set(ref.messageIds);
   return messages.filter(m => allowed.has(m.message_id) && (!m.chat_id || m.chat_id === ref.chatId) && !m.deleted
-    && m.sender?.sender_type !== 'bot' && ['text', 'post'].includes(m.msg_type) && typeof m.content === 'string' && !unsafe.test(m.content))
+    && m.sender?.sender_type !== 'bot' && ['text', 'post'].includes(m.msg_type) && typeof m.content === 'string' && !sensitiveFeishuText.test(m.content))
     .map(m => ({ id: m.message_id, text: m.content, createdAt: m.create_time, updatedAt: m.update_time ?? null,
       author: m.sender?.name ?? m.sender?.id, url: m.message_app_link ?? ref.url })).sort((a, b) => a.id.localeCompare(b.id));
 }
@@ -55,7 +55,8 @@ export class FeishuSources {
       if (identity.identity !== 'user' || !identity.available || identity.appId !== ref.appId || identity.onBehalfOf?.openId !== ref.userOpenId)
         throw new FeishuUnavailable(true, '飞书连接身份已变化，不能沿用旧委托');
       const args = ref.kind === 'docx'
-        ? ['docs', '+fetch', '--doc', ref.token!, '--doc-format', 'markdown']
+        ? ['docs', '+fetch', '--doc', ref.token!, '--doc-format', 'markdown',
+          ...(ref.block ? ['--scope', 'range', '--start-block-id', ref.block, '--end-block-id', ref.block] : [])]
         : ['im', '+messages-mget', '--message-ids', ref.messageIds.join(','), '--no-reactions'];
       const response = await this.command([...args, '--as', 'user', '--profile', ref.profile, '--format', 'json']);
       if (response.ok !== true || response.identity !== 'user') throw new FeishuUnavailable(true, '飞书来源未返回已授权用户数据');
@@ -63,7 +64,7 @@ export class FeishuSources {
       if (ref.kind === 'docx') {
         const doc = response.data?.document;
         if (doc?.document_id !== ref.token || !doc.content || doc.revision_id == null) throw new FeishuUnavailable(true, '飞书文档定位或版本不完整');
-        if (unsafe.test(doc.content)) throw new FeishuUnavailable(true, '文档含凭据信息，先选取安全的业务范围再接入');
+        if (sensitiveFeishuText.test(doc.content)) throw new FeishuUnavailable(true, '文档含凭据信息，先选取安全的业务范围再接入');
         body = doc.content; revision = String(doc.revision_id); details = { documentId: ref.token, revision };
       } else {
         const found = safeProjectMessages(response.data?.messages ?? [], ref);

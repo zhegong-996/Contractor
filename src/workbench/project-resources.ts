@@ -27,6 +27,7 @@ export const resourceSchema = z.object({
   topic: z.string().regex(/^[a-z][a-z0-9-]{0,47}$/).optional(),
   route: z.boolean().optional(),
   shareNotes: z.boolean().optional(),
+  digest: z.boolean().optional(),
   ...metadata,
 }).strict();
 export type ProjectResource = z.infer<typeof resourceSchema>;

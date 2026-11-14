@@ -19,6 +19,9 @@ Vue.createApp({
       newEntry: { title: '', body: '', conditions: '', kind: 'reference', visibility: 'restricted' },
       accessTitles: { requested: '待授权', granted: '本工单已授权', revoked: '已撤回', expired: '已过期' },
       channels: { accounts: [], proofs: [], pending: [] }, proofCommands: {}, channelTargets: {}, channelTopics: {},
+      discussion: null, discussionDrafts: {},
+      discussionLabels: { project: '项目记录', topic: '主题记录', link: '已接续', create: '新工单', review: '待判断' },
+      discussionStates: { running: '正在整理', empty: '本轮没有待整理的反馈', done: '整理完成', failed: '整理待重试', cancelled: '整理已停止' },
       referenceOpen: false, newReference: { source: 'feishu-doc', label: '', url: '', revision: '' },
       topicOpen: false, newTopic: '', newTopicParent: '', focusedTopic: '', relatedTarget: '',
       prStates: { open: '开启', draft: '草稿', closed: '已关闭', merged: '已合并' },
@@ -37,10 +40,16 @@ Vue.createApp({
       return this.projectAgents.find(agent => agent.id === (kind === 'agent' ? name : this.availableFunctions.find(fn => fn.id === name)?.lead));
     },
     attention() { return this.workspace?.tickets.filter(t => t.attention) ?? []; },
+    discussionReviews() { return this.workspace?.projects.filter(project => project.discussion?.pending) ?? []; },
     projectTickets() { return this.workspace.tickets.filter(t => t.work.project === this.projectId); },
     topTopics() { return this.project?.topics.filter(topic => !topic.parent) ?? []; },
     topicOptions() { return this.topTopics.flatMap(topic => [topic, ...this.subtopicsOf(topic.id)]); },
     selectedTopic() { return this.project?.topics.find(topic => topic.id === this.focusedTopic); },
+    topicDiscussion() {
+      if (!this.selectedTopic) return [];
+      return this.discussion?.items.filter(item => item.status === 'applied' && !item.ticket
+        && (item.topic === this.selectedTopic.id || this.subtopicsOf(this.selectedTopic.id).some(topic => topic.id === item.topic))) ?? [];
+    },
     topicGroups() {
       const topics = this.topicOptions;
       const groups = topics.map(topic => ({ ...topic, tickets: this.projectTickets.filter(item => item.work.topic === topic.id) }));
@@ -119,6 +128,8 @@ Vue.createApp({
       this.answers = {};
       this.entries = [];
       this.channels = { accounts: [], proofs: [], pending: [] };
+      this.discussion = null;
+      this.discussionDrafts = {};
       this.proofCommands = {};
       this.channelTargets = {};
       this.channelTopics = {};
@@ -148,6 +159,7 @@ Vue.createApp({
           this.projectId = result.projects[0]?.id ?? '';
           this.focusedTopic = '';
         }
+        if (this.view === 'project' || (this.view === 'inbox' && this.selectedTopic)) await this.loadDiscussion();
         if (this.view === 'ticket' && this.ticketId) {
           const id = this.ticketId;
           const ticket = await this.api('ticket/' + id);
@@ -171,6 +183,34 @@ Vue.createApp({
       const included = new Set([id, ...this.subtopicsOf(id).map(topic => topic.id)]);
       return this.projectTickets.filter(item => included.has(item.work.topic)).length;
     },
+    discussionWhen(at) {
+      return new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(at);
+    },
+    async loadDiscussion() {
+      const id = this.projectId;
+      if (!this.project?.discussion) { this.discussion = null; return; }
+      const next = await this.api('discussion/' + id);
+      if (this.projectId === id) this.discussion = next;
+    },
+    editDiscussion(item) {
+      this.discussionDrafts[item.id] = { action: item.status === 'suggested' ? 'create'
+        : item.destination.ticket ? 'link' : '', ticket: item.destination.ticket || '', topic: item.destination.topic || '', agent: '' };
+    },
+    async resolveDiscussion(item) {
+      await this.act(async () => {
+        const { action, ticket, topic, agent } = this.discussionDrafts[item.id];
+        const changed = await this.api('discussion/' + item.id + '/resolve', { action,
+          ...(action === 'link' ? { ticket } : {}), ...(action === 'topic' || (action === 'create' && topic) ? { topic } : {}),
+          ...(action === 'create' ? { agent } : {}) });
+        delete this.discussionDrafts[item.id];
+        await this.refresh();
+        if (changed.ticket && action === 'create') await this.openTicket(changed.ticket);
+      });
+    },
+    async goToDiscussion(id) {
+      await this.selectProject(id);
+      this.$nextTick(() => this.$el.querySelector('#project-discussion')?.scrollIntoView());
+    },
     githubName(actor) { return actor ? [actor.member, '@' + actor.login, actor.type === 'Bot' ? 'Bot' : ''].filter(Boolean).join(' · ') : '未核实'; },
     stateOf(ticket) {
       if (ticket.needsObservation || (ticket.work.accepted && ticket.work.measure && ticket.result
@@ -190,11 +230,15 @@ Vue.createApp({
       this.notice = '';
       if (view === 'knowledge') await this.loadKnowledge();
       if (view === 'accounts') await this.refresh();
+      if (view === 'project' || (view === 'inbox' && this.selectedTopic)) {
+        try { await this.loadDiscussion(); } catch (error) { this.error = error.message; }
+      }
     },
     async selectProject(id) {
       if (id !== this.projectId) {
         this.focusedTopic = '';
         this.newTopicParent = '';
+        this.discussion = null;
       }
       this.projectId = id;
       this.query = '';

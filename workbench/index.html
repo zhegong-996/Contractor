@@ -24,7 +24,7 @@
       <aside class="sidebar">
         <div class="brand"><span class="mark">S</span> SuitMe 协作台</div>
         <nav aria-label="工作台">
-          <button v-for="tab in tabs" :key="tab.id" :aria-current="view===tab.id ? 'page' : null" @click="go(tab.id)" :class="{current: view===tab.id}">{{ tab.title }}<span v-if="tab.id==='inbox' && attention.length" class="counter">{{ attention.length }}</span></button>
+          <button v-for="tab in tabs" :key="tab.id" :aria-current="view===tab.id ? 'page' : null" @click="go(tab.id)" :class="{current: view===tab.id}">{{ tab.title }}<span v-if="tab.id==='inbox' && (attention.length || discussionReviews.length)" class="counter">{{ attention.length + discussionReviews.length }}</span></button>
         </nav>
         <div class="projects">
           <p>项目</p>
@@ -42,7 +42,11 @@
         <template v-if="view==='inbox'">
           <section class="panel">
             <h2>待我处理</h2>
-            <p v-if="!attention.length && !channels.pending.length" class="muted">当前没有待你决定的事项。</p>
+            <p v-if="!attention.length && !channels.pending.length && !discussionReviews.length" class="muted">当前没有待你决定的事项。</p>
+            <div v-for="p in discussionReviews" :key="p.id" class="row">
+              <button class="link" @click="goToDiscussion(p.id)">{{ p.title }} · 群反馈待判断</button>
+              <span class="status">{{ p.discussion.pending }} 条</span>
+            </div>
             <div v-for="item in attention" :key="item.id" class="row">
               <button class="link" @click="openTicket(item.id)">{{ item.title }}</button>
               <span class="status">{{ stateOf(item) }}</span>
@@ -86,6 +90,12 @@
               </div>
             </template>
           </section>
+          <section v-if="topicDiscussion.length" class="panel"><h2>主题反馈</h2>
+            <article v-for="item in topicDiscussion" :key="item.id" class="document">
+              <strong>{{ item.title }}</strong><p class="prose">{{ item.reason }}</p>
+              <a v-for="(source,index) in item.evidence.filter(source=>source.url)" :key="index" :href="source.url" target="_blank" rel="noopener noreferrer" class="source-link">{{ source.title }}</a>
+            </article>
+          </section>
         </template>
         <template v-if="view==='accounts' && workspace.crossChannel">
           <section class="panel">
@@ -119,6 +129,44 @@
             </form>
             <div v-for="child in subprojects" :key="child.id" class="row"><button class="link" @click="selectProject(child.id)">{{ child.title }}</button><span class="muted">子项目</span></div>
             <div v-for="topic in topicOptions" :key="topic.id" class="row" :class="{'topic-child':topic.parent}"><button class="link" @click="showTopic(topic.id)">{{ topic.title }}</button><span class="muted">{{ topicCount(topic.id) }} 张工单</span></div>
+          </section>
+          <section v-if="discussion" id="project-discussion" class="panel">
+            <div class="section-head"><h2>群消息整理</h2><span v-if="discussion.next" class="muted">下次 {{ discussionWhen(discussion.next) }}</span></div>
+            <p class="muted">{{ discussion.schedule }}<template v-if="discussion.waiting"> · 已收到 {{ discussion.waiting }} 条待整理</template><template v-if="discussion.last"> · {{ discussionStates[discussion.last.state] }}</template></p>
+            <p v-if="discussion.last?.state==='done'" class="muted">上次整理 {{ discussionWhen(discussion.last.slot) }}</p>
+            <p v-if="discussion.last?.detail && project.maintain" class="muted">{{ discussion.last.detail }}</p>
+            <article v-for="item in discussion.items" :key="item.id" class="document">
+              <div class="section-head"><strong>{{ item.title }}</strong>
+                <span class="status">{{ item.status==='pending' ? '待负责人判断' : item.status==='suggested' ? '建议开单' : discussionLabels[item.destination.action] }}</span>
+              </div>
+              <p class="prose">{{ item.reason }}</p>
+              <div class="actions">
+                <button v-if="item.ticket" class="link" @click="openTicket(item.ticket)">查看工单</button>
+                <details v-if="item.evidence.length"><summary>查看依据</summary>
+                  <div v-for="(source,index) in item.evidence" :key="index" class="row source-row">
+                    <a v-if="source.url" :href="source.url" target="_blank" rel="noopener noreferrer">{{ source.title }}</a><span v-else>{{ source.title }}</span>
+                    <small v-if="source.revision">{{ source.revision }}</small>
+                  </div>
+                </details>
+                <button v-if="item.status!=='applied' && !discussionDrafts[item.id]" @click="editDiscussion(item)">处理</button>
+              </div>
+              <form v-if="discussionDrafts[item.id] && item.status!=='applied'" class="form inner" @submit.prevent="resolveDiscussion(item)">
+                <label>怎么处理<select v-model="discussionDrafts[item.id].action" required>
+                  <option value="" disabled>选择去向</option><option value="project">记到项目</option><option v-if="topicOptions.length" value="topic">记到主题</option>
+                  <option v-if="projectTickets.length" value="link">接续已有工单</option><option value="create">发起新工单</option><option value="dismiss">忽略</option>
+                </select></label>
+                <label v-if="discussionDrafts[item.id].action==='link'">工单<select v-model="discussionDrafts[item.id].ticket" required>
+                  <option value="" disabled>选择工单</option><option v-for="candidate in projectTickets" :key="candidate.id" :value="candidate.id">{{ candidate.title }}</option>
+                </select></label>
+                <label v-if="['topic','create'].includes(discussionDrafts[item.id].action) && topicOptions.length">主题<select v-model="discussionDrafts[item.id].topic" :required="discussionDrafts[item.id].action==='topic'">
+                  <option value="">当前项目</option><option v-for="candidate in topicOptions" :key="candidate.id" :value="candidate.id">{{ topicLabel(candidate) }}</option>
+                </select></label>
+                <label v-if="discussionDrafts[item.id].action==='create'">交给<select v-model="discussionDrafts[item.id].agent" required>
+                  <option value="" disabled>选择在岗 Agent</option><option v-for="agent in projectAgents.filter(agent=>agent.active)" :key="agent.id" :value="agent.id">{{ agent.title }}</option>
+                </select></label>
+                <div class="actions"><button class="primary" :disabled="busy">确认</button><button type="button" @click="delete discussionDrafts[item.id]">取消</button></div>
+              </form>
+            </article>
           </section>
           <section class="panel">
             <div class="section-head"><h2>项目来源</h2><button v-if="project.maintain" @click="referenceOpen=!referenceOpen">{{ referenceOpen ? '收起' : '关联资料' }}</button></div>
@@ -220,6 +268,10 @@
                   <p>{{ message.text }}</p>
                 </div>
                 <div v-for="message in ticket.history.filter(message=>message.id!==ticket.origin)" :key="message.id" class="message"><small>{{ message.actor }}</small><p>{{ message.text }}</p></div>
+                <div v-for="item in ticket.discussionNotes" :key="item.id" class="message">
+                  <small>飞书群整理</small><p><strong>{{ item.title }}</strong> · {{ item.reason }}</p>
+                  <a v-for="(source,index) in item.evidence.filter(source=>source.url)" :key="index" :href="source.url" target="_blank" rel="noopener noreferrer" class="source-link">{{ source.title }}</a>
+                </div>
                 <form v-for="question in ticket.questions" :key="question.id" class="question" @submit.prevent="answer(question.id)">
                   <h3>{{ question.title }}</h3><p>{{ question.text }}</p>
                   <div v-if="question.options.length" class="actions"><button v-for="(option,i) in question.options" type="button" :key="i" :disabled="busy" @click="answer(question.id,i)">{{ option }}</button></div>

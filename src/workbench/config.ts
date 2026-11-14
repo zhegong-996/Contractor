@@ -1,12 +1,23 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { z } from 'zod';
+import { nextRun, parseCron } from '../../upstream/autoloop/kernel/cron.ts';
 import { runtime } from '../config.ts';
 import { canonicalResourceId, githubRepository, resourcePurpose, resourceSchema, routesEvents, topicInputSchema } from './project-resources.ts';
 
 const id = z.string().regex(/^[a-z][a-z0-9-]{0,47}$/);
 const member = z.string().regex(/^[a-zA-Z0-9_-]{2,32}$/);
+const profileId = z.string().regex(/^[a-zA-Z0-9_-]+$/).max(160);
 export const title = z.string().trim().min(1).max(100);
+const discussion = z.object({
+  agent: id,
+  cron: z.string().max(80).refine(value => {
+    const cron = parseCron(value);
+    return !!cron && nextRun(cron, Date.now(), 'Asia/Shanghai') !== null;
+  }, '请输入能够触发的五段式 cron').default('0 0,12 * * *'),
+  history: z.object({ profile: profileId, appId: profileId, userOpenId: profileId, member }).strict().optional(),
+  documents: z.array(z.url({ protocol: /^https$/ })).max(4).default([]),
+}).strict();
 const project = z.object({
   id, title, parent: id.optional(), members: z.array(member).min(1),
   maintainers: z.array(member).min(1),
@@ -14,6 +25,7 @@ const project = z.object({
   topics: z.array(topicInputSchema).default([]),
   resources: z.array(resourceSchema).default([]),
   budget: z.number().positive().optional(),
+  discussion: discussion.optional(),
 }).strict();
 const agent = z.object({
   id, title, kind: z.enum(['personal', 'specialist']), owner: member,
@@ -49,6 +61,12 @@ export const settingsSchema = z.object({
     if (p.maintainers.some(name => !p.members.includes(name))) flag('项目维护人必须是项目成员');
     if (p.responsibilities.some(r => !p.members.includes(r.member) || !value.functions.some(fn => fn.id === r.function)))
       flag('项目职责须由项目成员承担，并引用已定义的职责');
+    if (p.discussion && (!value.feishu || !value.crossChannel || !p.resources.some(ref => ref.digest)
+      || !value.agents.some(agent => agent.id === p.discussion!.agent && agent.projects.includes(p.id) && agent.active)))
+      flag('群整理须配置飞书身份、渠道绑定和当前项目的在岗 Agent');
+    if (p.discussion?.history && !p.maintainers.includes(p.discussion.history.member))
+      flag('补读账号须由项目维护人授权并指定对应成员');
+    if (p.discussion?.documents.length && !p.discussion.history) flag('飞书文档整理须先配置授权读取身份');
     if (new Set(p.topics.map(topic => topic.id)).size !== p.topics.length) flag('项目主题标识重复');
     for (const topic of p.topics) {
       if (topic.parent && !p.topics.some(parent => parent.id === topic.parent && !parent.parent))
@@ -72,6 +90,8 @@ export const settingsSchema = z.object({
         flag('代码执行须配置交付仓库和交付成员');
       if (ref.topic && (!routesEvents(ref) || !p.topics.some(topic => topic.id === ref.topic)))
         flag('默认主题只用于当前项目已配置的消息来源');
+      if (ref.digest && (ref.source !== 'feishu' || !/^oc_[a-zA-Z0-9]+$/.test(ref.externalId) || !routesEvents(ref) || !p.discussion))
+        flag('群整理只适用于已配置的飞书讨论来源');
       if (ref.state === 'bound' && routesEvents(ref)) {
         if (refs.has(key)) flag('接收消息的来源只能路由到一个项目');
         refs.add(key);

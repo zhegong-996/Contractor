@@ -158,15 +158,34 @@ export function watchGithub(options: {
   return async () => { closed = true; clearInterval(timer); await running; };
 }
 
-export async function githubReference(text: string, repositories: string[]) {
+export async function githubReferenceDetails(text: string, repositories: string[]) {
   if (!/^https:\/\/github\.com\//i.test(text)) return;
+  const address = new URL(text);
+  if (address.username || address.password || address.port) return;
+  address.search = '';
   for (const name of repositories) {
-    const target = githubAddress(text, name);
+    const target = githubAddress(address.href, name);
     if (!target) continue;
     const repository = await githubRepository(name);
-    const parsed = z.object({ number: z.number().int().positive(), pull_request: z.object({}).optional() })
+    const parsed = z.object({ number: z.number().int().positive(), pull_request: z.object({}).optional(), title: z.string(),
+      state: z.enum(['open', 'closed']), updated_at: z.iso.datetime(), state_reason: z.string().nullish() })
       .parse(JSON.parse(await command('gh', ['api', 'repos/' + repository.name + '/issues/' + target.number])));
     if (parsed.number === target.number && !!parsed.pull_request === target.pr)
-      return reference(repository, target.number, target.pr);
+      return { ref: reference(repository, target.number, target.pr), title: parsed.title, state: parsed.state,
+        reason: parsed.state_reason, updatedAt: parsed.updated_at };
   }
+}
+
+export async function githubReference(text: string, repositories: string[]) {
+  return (await githubReferenceDetails(text, repositories))?.ref;
+}
+
+// A bounded set of candidate references, never permission to create work or to open any repository.
+export async function recentGithubWork(name: string, now = Date.now()) {
+  const repository = await githubRepository(name);
+  const since = new Date(now - 30 * 24 * 3600_000).toISOString();
+  const issues = z.array(z.object({ number: z.number().int().positive(), title: z.string(), updated_at: z.iso.datetime(),
+    state: z.enum(['open', 'closed']), pull_request: z.unknown().optional() }));
+  return issues.parse(JSON.parse(await command('gh', ['api', 'repos/' + name + '/issues?state=all&sort=updated&direction=desc&per_page=35&since=' + encodeURIComponent(since)])))
+    .map(item => ({ ref: reference(repository, item.number, !!item.pull_request), title: item.title, state: item.state, updatedAt: item.updated_at }));
 }

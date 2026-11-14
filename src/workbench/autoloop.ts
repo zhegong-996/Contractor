@@ -5,7 +5,8 @@ import type { WorkerHub } from '../../upstream/autoloop/worker/worker.ts';
 import type { Job } from '../../upstream/autoloop/protocol/job.ts';
 import type { Result } from '../../upstream/autoloop/protocol/validate.ts';
 import { root, runtime } from '../config.ts';
-import type { Agent } from './config.ts';
+import type { Agent, Project } from './config.ts';
+import { discussionRule, discussionZone } from './discussion.ts';
 
 export const workerName = 'suitme-workbench';
 export const ruleName = (id: string) => '执行 · ' + id;
@@ -29,7 +30,7 @@ export interface Autoloop {
   db: { close(): void };
 }
 
-export async function openExecution(agents: Agent[]) {
+export async function openExecution(agents: Agent[], projects: Project[]) {
   const home = runtime('autoloop');
   process.env.AGENT_AUTOLOOP_HOME = home;
   // Rules are generated from the trusted local runtime registry. Browser clients never supply commands.
@@ -44,16 +45,19 @@ export async function openExecution(agents: Agent[]) {
     await writeFile(path.join(plugins, 'agent.ts'), 'export { default } from ' + JSON.stringify(adapter) + ';\n', { mode: 0o600 });
   }
   const rules = {
-    timezone: 'Asia/Shanghai',
+    timezone: discussionZone,
     sources: { suitme: { name: 'SuitMe 协作台' } },
     agents: Object.fromEntries(agents.map(a => [a.id, {
       name: a.title, worker: workerName, use: a.engine, access: 'read', timeout: 8,
       ...(a.model ? { model: a.model } : {}), ...(a.command ? { command: a.command } : {}),
     }])),
-    rules: agents.map(a => ({
+    rules: [...agents.map(a => ({
       name: ruleName(a.id), when: { source: 'suitme', types: [assignmentEvent(a.id)] }, to: a.id, cwd,
       prompt: '按工单授权提供专业意见', parallel: 1, tell: 'needed',
-    })),
+    })), ...projects.flatMap(project => project.discussion ? [{
+      name: discussionRule(project.id), when: { cron: project.discussion.cron }, to: project.discussion.agent, cwd, tell: 'never',
+      prompt: '整理经授权的项目群反馈',
+    }] : [])],
   };
   await writeFile(path.join(home, 'rules.json'), JSON.stringify(rules), { mode: 0o600 });
   const at = (file: string) => pathToFileURL(path.join(root, 'upstream/autoloop', file)).href;

@@ -77,5 +77,6 @@ fieldset{border:1px solid var(--line);border-radius:8px}
 .source-row{overflow-wrap:anywhere}
 .work-topic{margin:.9rem 0 .5rem}
 .topic-child{padding-left:1.2rem}
+.source-link{display:inline-block;margin-right:.7rem}
 .ticket-topic{display:flex;align-items:center;gap:.4rem}
 .ticket-topic select{width:auto}

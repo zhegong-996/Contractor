@@ -8,7 +8,7 @@ import { z } from 'zod';
 import { root, runtime } from '../config.ts';
 import { ConsoleAuth, CONSOLE_ROLES } from '../console-auth.ts';
 import { command } from '../commands.ts';
-import { feishuChatLink, feishuTrigger, sendFeishu } from '../upstream.ts';
+import { feishuTrigger, sendFeishu } from '../upstream.ts';
 import type { Trigger } from '../../upstream/superagent/src/core/index.ts';
 import { loadSettings, title } from './config.ts';
 import { openCollaboration, WorkbenchError } from './collaboration.ts';
@@ -16,6 +16,7 @@ import { measureSchema, observationSchema } from './learning.ts';
 import { channelCommand, feishuCommandText, type ChannelRef, type PlatformActor } from './channel-links.ts';
 import { githubReference, watchGithub } from './github-intake.ts';
 import { referenceSchema, resourceSource, topicInputSchema } from './project-resources.ts';
+import { discussionInput } from './discussion-intake.ts';
 
 const stateDir = process.env.COLLAB_STATE_DIR;
 if (!stateDir || !path.isAbsolute(stateDir)) throw new Error('请提供独立工作台的 COLLAB_STATE_DIR 绝对路径。');
@@ -38,6 +39,13 @@ const channelDecision = z.discriminatedUnion('action', [
   z.object({ action: z.literal('link'), ticket: id }),
   z.object({ action: z.literal('create'), topic: id.optional() }),
   z.object({ action: z.literal('dismiss') }),
+]);
+const discussionDecision = z.discriminatedUnion('action', [
+  z.object({ action: z.literal('project') }).strict(),
+  z.object({ action: z.literal('topic'), topic: id }).strict(),
+  z.object({ action: z.literal('link'), ticket: id }).strict(),
+  z.object({ action: z.literal('create'), agent: id, topic: id.optional() }).strict(),
+  z.object({ action: z.literal('dismiss') }).strict(),
 ]);
 const settingsRoutes = {
   start: z.object({ project: id, title, request: prose, nonce, material: z.array(id).max(8).default([]),
@@ -114,6 +122,9 @@ async function serve() {
       let output: unknown;
       if (post && view === 'logout') auth.logout(req.headers.cookie);
       else if (get && view === 'overview') output = work.overview(actor);
+      else if (get && view === 'discussion' && item) output = work.discussionView(actor, item);
+      else if (post && view === 'discussion' && item && action === 'resolve')
+        output = work.resolveDiscussion(actor, item, discussionDecision.parse(await body(req)));
       else if (config.crossChannel && get && view === 'channels') output = work.channelView(actor);
       else if (config.crossChannel && post && view === 'channels' && item === 'proof') {
         const input = z.object({ provider }).parse(await body(req));
@@ -229,8 +240,10 @@ async function serve() {
     available = true;
     console.log('SuitMe 工作台 http://127.0.0.1:' + config.port);
     const consumer = feishu && spawn('lark-cli', ['--profile', feishu.profile, 'event', 'consume', 'im.message.receive_v1', '--as', 'bot'], { stdio: ['pipe', 'pipe', 'pipe'] });
+    let closing = false;
     if (consumer && feishu) {
       consumer.on('error', error => console.error('飞书接入失败：', error.message));
+      consumer.on('exit', () => { if (!closing) console.error('飞书实时订阅中断，群整理仍按已配置的补读规则运行。'); });
       consumer.stderr.resume();
       createInterface({ input: consumer.stdout }).on('line', line => {
         try {
@@ -245,10 +258,9 @@ async function serve() {
           const project = collaboration.boundProject('feishu', String(trigger.meta.chatId));
           const mention = mentions.find(m => m.id === feishu.botId || m.id === feishu.appId);
           const text = feishuCommandText(content, mention);
-          const sender = { provider: 'feishu' as const, namespace: feishu.appId, id: trigger.actor.id, label: trigger.actor.id };
+          const input = discussionInput(trigger, feishu.appId);
+          const { sender, origin } = input;
           const chat = String(trigger.meta.chatId);
-          const origin = { key: 'feishu:' + feishu.appId + ':' + trigger.threads[0]!.id,
-            label: trigger.url ? '飞书原消息' : '飞书群', url: trigger.url ?? feishuChatLink('feishu', chat) };
           const action = config.crossChannel && channelCommand(text);
           if (action && ((action.kind === 'proof' && trigger.meta.direct) || (action.kind === 'work' && trigger.addressed && project))) {
             void processChannel(text, trigger, sender, origin, project?.id,
@@ -257,6 +269,7 @@ async function serve() {
             return;
           }
           if (config.crossChannel && action) return;
+          if (!trigger.addressed && !text.startsWith('/')) collaboration.rememberDiscussion(input);
           const boundMember = config.crossChannel && collaboration.channelMember(sender, trigger.at);
           const matches = auth.listAccounts().filter(a => !a.disabled && (config.crossChannel
             ? a.username === boundMember : a.feishuOpenId === trigger.actor.id));
@@ -283,6 +296,8 @@ async function serve() {
       });
     }
     const close = () => {
+      if (closing) return;
+      closing = true;
       consumer?.stdin?.end();
       server.close();
       void Promise.resolve(stopGithub ? stopGithub() : undefined).then(() => collaboration.close()).catch(console.error);
