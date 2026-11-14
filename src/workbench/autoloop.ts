@@ -72,7 +72,6 @@ export async function openExecution(agents: Agent[], projects: Project[]) {
   });
   const rules = {
     timezone: discussionZone,
-    askFirst: ['需求范围或验收口径有冲突', '需要新增权限或超出已委托的改动范围', '需要人决定是否继续或交接'],
     sources: { suitme: { name: 'SuitMe 协作台' } },
     agents: Object.fromEntries([...agents.map(a => ({ ...a, effort: undefined })), ...digestAgents].map(a => [a.id, {
       name: a.title, worker: workerName, use: a.engine, access: 'read', timeout: 8,

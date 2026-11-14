@@ -792,7 +792,9 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       store.db.prepare('INSERT OR IGNORE INTO workbench_manifest VALUES (?,?,?,?)')
         .run(job.run, job.attempt, ticket.id, JSON.stringify(manifest));
       audit(ticket.id, 'run.started', { run: job.run, attempt: job.attempt, resumed: !!job.session });
-      return { job: { ...job, agent: { ...job.agent, access: development ? 'edit' : 'read' }, rule: { ...job.rule, cwd, prompt }, context } };
+      return { job: { ...job, agent: { ...job.agent, access: development ? 'edit' : 'read' },
+        askFirst: [...job.askFirst, '需求范围或验收口径有冲突', '需要超出已委托的改动范围', '需要人决定是否继续或交接'],
+        rule: { ...job.rule, cwd, prompt }, context } };
     },
     async started(id, token, value) { return hub.started(id, token, value); },
     async result(id, token, value) {
