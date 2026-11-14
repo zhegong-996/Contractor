@@ -19,6 +19,7 @@ Vue.createApp({
       entries: [], query: '', focusedEntry: '', adding: false,
       newEntry: { title: '', body: '', conditions: '', kind: 'reference', visibility: 'restricted' },
       accessTitles: { requested: '待授权', granted: '本工单已授权', revoked: '已撤回', expired: '已过期' },
+      channels: { accounts: [], proofs: [], pending: [] }, proofCommands: {}, channelTargets: {},
       runTitles: { done: '已完成', nothing: '无进一步动作', queued: '排队中', claimed: '执行中', cancelled: '已停止' },
       back: { view: 'inbox', y: 0 }, error: '', notice: '', busy: false, timer: null,
     };
@@ -36,6 +37,7 @@ Vue.createApp({
     pageTitle() {
       if (this.view === 'ticket') return this.ticket?.title ?? '工单';
       if (this.view === 'create') return '发起协作';
+      if (this.view === 'accounts') return '渠道账号';
       return this.tabs.find(tab => tab.id === this.view)?.title;
     },
   },
@@ -92,6 +94,9 @@ Vue.createApp({
       this.observing = false;
       this.answers = {};
       this.entries = [];
+      this.channels = { accounts: [], proofs: [], pending: [] };
+      this.proofCommands = {};
+      this.channelTargets = {};
       this.materials = [];
       this.query = '';
       this.focusedEntry = '';
@@ -102,6 +107,11 @@ Vue.createApp({
       try {
         const result = await this.api('overview');
         this.workspace = result;
+        if (result.crossChannel && ['inbox', 'project', 'accounts'].includes(this.view)) {
+          this.channels = await this.api('channels');
+          for (const provider of Object.keys(this.proofCommands))
+            if (!this.channels.proofs.some(proof => proof.provider === provider)) delete this.proofCommands[provider];
+        }
         if (!result.projects.some(p => p.id === this.projectId)) this.projectId = result.projects[0]?.id ?? '';
         if (this.view === 'ticket' && this.ticketId) {
           const id = this.ticketId;
@@ -132,6 +142,7 @@ Vue.createApp({
       this.error = '';
       this.notice = '';
       if (view === 'knowledge') await this.loadKnowledge();
+      if (view === 'accounts') await this.refresh();
     },
     async selectProject(id) {
       this.projectId = id;
@@ -220,7 +231,7 @@ Vue.createApp({
     },
     async restoreView() {
       const { view, y } = this.back;
-      this.view = ['inbox', 'project', 'team', 'ticket', 'knowledge'].includes(view) ? view : 'inbox';
+      this.view = ['inbox', 'project', 'team', 'ticket', 'knowledge', 'accounts'].includes(view) ? view : 'inbox';
       if (this.view === 'knowledge') await this.loadKnowledge();
       this.$nextTick(() => window.scrollTo(0, y));
     },
@@ -269,6 +280,38 @@ Vue.createApp({
       await this.act(async () => {
         await this.api('ticket/' + this.ticket.id + '/delivery', { url: this.deliveryUrl });
         await this.refresh();
+      });
+    },
+    async beginChannel(provider) {
+      await this.act(async () => {
+        const proof = await this.api('channels/proof', { provider });
+        this.proofCommands[provider] = proof.command;
+        await this.refresh();
+      });
+    },
+    async confirmChannel(proof) {
+      await this.act(async () => {
+        const { provider, namespace, id } = proof.sender;
+        await this.api('channels/confirm', { provider, namespace, id });
+        delete this.proofCommands[provider];
+        await this.refresh();
+      });
+    },
+    async unlinkChannel(account) {
+      await this.act(async () => {
+        const { provider, namespace, id } = account;
+        await this.api('channels/unlink', { provider, namespace, id });
+        await this.refresh();
+      });
+    },
+    async resolveChannel(item, action) {
+      await this.act(async () => {
+        const result = await this.api('channels/' + item.id + '/resolve', {
+          action, ...(action === 'link' ? { ticket: this.channelTargets[item.id] } : {}),
+        });
+        delete this.channelTargets[item.id];
+        await this.refresh();
+        if (result.ticket) await this.openTicket(result.ticket);
       });
     },
     async accept() {

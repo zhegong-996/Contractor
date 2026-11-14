@@ -30,7 +30,7 @@
           <p>项目</p>
           <button v-for="p in workspace.projects" :key="p.id" :aria-pressed="projectId===p.id" :class="{child:p.parent,current:projectId===p.id}" @click="selectProject(p.id)">{{ p.title }}</button>
         </div>
-        <div class="profile"><span>{{ workspace.actor }}</span><button class="quiet" @click="logout">退出</button></div>
+        <div class="profile"><span>{{ workspace.actor }}</span><button v-if="workspace.crossChannel" class="quiet" :aria-current="view==='accounts' ? 'page' : null" @click="go('accounts')">渠道账号</button><button class="quiet" @click="logout">退出</button></div>
       </aside>
       <section class="screen">
         <header class="page-header">
@@ -42,11 +42,31 @@
         <template v-if="view==='inbox'">
           <section class="panel">
             <h2>待我处理</h2>
-            <p v-if="!attention.length" class="muted">当前没有待你决定的事项。</p>
+            <p v-if="!attention.length && !channels.pending.length" class="muted">当前没有待你决定的事项。</p>
             <div v-for="item in attention" :key="item.id" class="row">
               <button class="link" @click="openTicket(item.id)">{{ item.title }}</button>
               <span class="status">{{ stateOf(item) }}</span>
             </div>
+          </section>
+          <section v-if="channels.pending.length" class="panel">
+            <h2>待确认工单归属</h2>
+            <article v-for="item in channels.pending" :key="item.id" class="document">
+              <small>{{ workspace.projects.find(p=>p.id===item.project)?.title }} · {{ sourceName(item.source) }} · {{ item.member }}</small>
+              <p class="prose">{{ item.request }}</p>
+              <p class="muted">{{ item.reason }}</p>
+              <a v-if="item.url" :href="item.url" target="_blank" rel="noopener noreferrer">查看来源</a>
+              <div class="form inner">
+                <label>已有工单<select v-model="channelTargets[item.id]">
+                  <option value="" disabled>请选择工单</option>
+                  <option v-for="work in workspace.tickets.filter(t=>t.work.project===item.project)" :key="work.id" :value="work.id">{{ work.title }}</option>
+                </select></label>
+                <div class="actions">
+                  <button class="primary" :disabled="busy || !channelTargets[item.id]" @click="resolveChannel(item,'link')">关联工单</button>
+                  <button :disabled="busy" @click="resolveChannel(item,'create')">确认新建</button>
+                  <button class="quiet" :disabled="busy" @click="resolveChannel(item,'dismiss')">忽略</button>
+                </div>
+              </div>
+            </article>
           </section>
           <section class="panel">
             <h2>{{ project?.title ? '项目工单' : '工单' }}</h2>
@@ -55,6 +75,28 @@
               <button class="link" @click="openTicket(item.id)">{{ item.title }}</button>
               <span class="muted">{{ agentName(item.work.agent) }}</span>
               <span class="status">{{ stateOf(item) }}</span>
+            </div>
+          </section>
+        </template>
+        <template v-if="view==='accounts' && workspace.crossChannel">
+          <section class="panel">
+            <h2>账号绑定</h2>
+            <div v-for="provider in ['feishu','github']" :key="provider" class="document">
+              <div class="row"><strong>{{ sourceName(provider) }}</strong><button :disabled="busy" @click="beginChannel(provider)">绑定账号</button></div>
+              <div v-for="account in channels.accounts.filter(a=>a.provider===provider)" :key="account.namespace+':'+account.id" class="row">
+                <span>{{ account.label }}</span><button class="quiet" :disabled="busy" @click="unlinkChannel(account)">解除绑定</button>
+              </div>
+              <template v-for="proof in channels.proofs.filter(p=>p.provider===provider)" :key="proof.provider">
+                <div v-if="proof.sender" class="row">
+                  <span>已收到 {{ proof.sender.label }} 的验证</span>
+                  <a v-if="proof.url" :href="proof.url" target="_blank" rel="noopener noreferrer">查看验证消息</a>
+                  <button :disabled="busy" @click="confirmChannel(proof)">确认绑定</button>
+                </div>
+                <template v-else-if="proofCommands[provider]">
+                  <p>{{ provider==='feishu' ? '将命令发给飞书机器人单聊。' : '将命令评论在项目已接入仓库的 Issue 中。' }}</p>
+                  <code>{{ proofCommands[provider] }}</code>
+                </template>
+              </template>
             </div>
           </section>
         </template>
@@ -117,8 +159,13 @@
           <div class="backbar"><button class="quiet" @click="restoreView()">← 返回</button><span class="status">{{ stateOf(ticket) }}</span><span>{{ agentName(ticket.work.agent) }}</span><span v-if="ticket.work.source==='feishu'">来自飞书</span></div>
           <div class="details">
             <div class="stack">
-              <section class="panel"><h2>讨论</h2><div class="message"><small>{{ ticket.work.requester }}</small><p>{{ ticket.request }}</p></div>
-                <div v-for="message in ticket.history" :key="message.id" class="message"><small>{{ message.actor }}</small><p>{{ message.text }}</p></div>
+              <section class="panel"><h2>讨论</h2>
+                <div v-if="!ticket.channelHistory.some(message=>message.id===ticket.origin)" class="message"><small>{{ ticket.work.requester }}</small><p>{{ ticket.request }}</p></div>
+                <div v-for="message in ticket.channelHistory" :key="message.id" class="message">
+                  <small>{{ message.member }} · {{ sourceName(message.source) }} <a v-if="message.url" :href="message.url" target="_blank" rel="noopener noreferrer">来源</a></small>
+                  <p>{{ message.text }}</p>
+                </div>
+                <div v-for="message in ticket.history.filter(message=>message.id!==ticket.origin)" :key="message.id" class="message"><small>{{ message.actor }}</small><p>{{ message.text }}</p></div>
                 <form v-for="question in ticket.questions" :key="question.id" class="question" @submit.prevent="answer(question.id)">
                   <h3>{{ question.title }}</h3><p>{{ question.text }}</p>
                   <div v-if="question.options.length" class="actions"><button v-for="(option,i) in question.options" type="button" :key="i" :disabled="busy" @click="answer(question.id,i)">{{ option }}</button></div>
@@ -167,6 +214,12 @@
               </section>
             </div>
             <aside class="stack">
+              <section v-if="ticket.channelReferences.length" class="panel">
+                <h2>关联来源</h2>
+                <div v-for="ref in ticket.channelReferences" :key="ref.key" class="row">
+                  <a v-if="ref.url" :href="ref.url" target="_blank" rel="noopener noreferrer">{{ ref.label }}</a><span v-else>{{ ref.label }}</span>
+                </div>
+              </section>
               <section v-if="ticket.requests.length" class="panel"><h2>资料授权</h2><article v-for="request in ticket.requests" :key="request.id" class="grant">
                 <strong>{{ request.title }}</strong><p class="muted">{{ accessTitles[request.state] || request.state }}</p>
                 <button v-if="request.canManage && request.state==='requested'" :disabled="busy" @click="access(request,'granted')">授权此工单（8 小时）</button>

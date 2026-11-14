@@ -34,6 +34,9 @@ export const settingsSchema = z.object({
   functions: z.array(z.object({ id, title, lead: id.optional() }).strict()).min(1),
   agents: z.array(agent),
   feishu: z.object({ profile: z.string(), appId: z.string(), botId: z.string() }).strict().optional(),
+  crossChannel: z.object({
+    githubPollSeconds: z.number().int().min(15).max(300).default(30),
+  }).strict().optional(),
 }).strict().superRefine((value, context) => {
   const flag = (message: string) => context.addIssue({ code: 'custom', message });
   for (const entries of [value.projects, value.functions, value.agents]) {
@@ -49,7 +52,7 @@ export const settingsSchema = z.object({
       seen.add(parent);
     }
     for (const ref of p.resources.filter(r => r.state === 'bound')) {
-      const key = ref.source + ':' + ref.externalId;
+      const key = ref.source + ':' + (ref.source === 'github' ? ref.externalId.toLowerCase() : ref.externalId);
       if (refs.has(key)) flag('同一外部资源只能绑定一个项目');
       refs.add(key);
     }

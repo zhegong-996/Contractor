@@ -14,6 +14,7 @@ import { assignmentEvent, openExecution, ruleName, workerName, type Card, type R
 import { digest, ProjectKnowledge, type KnowledgeEntry } from './knowledge.ts';
 import { measureSchema, WorkObservations, type Measure, type ObservationInput } from './learning.ts';
 import type { Agent, Project, Settings } from './config.ts';
+import { ChannelLinks, type ChannelRef, type ChannelRequest, type PlatformActor, type Provider } from './channel-links.ts';
 
 export class WorkbenchError extends Error {
   constructor(message: string, readonly status = 400) { super(message); }
@@ -31,7 +32,7 @@ type Work = {
   agentVersion: string;
   function: string;
   priority: 'normal' | 'urgent';
-  source: 'web' | 'feishu';
+  source: 'web' | Provider;
   material: string[];
   parent?: string;
   measure?: Measure;
@@ -54,6 +55,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
   const effects = await openSuperAgentEffects(store);
   const knowledge = new ProjectKnowledge(store);
   const observations = new WorkObservations(store);
+  const links = new ChannelLinks(store.db);
   const { hub, createWorker } = await openExecution(config.agents);
   store.db.exec(`
     CREATE TABLE IF NOT EXISTS workbench_binding (
@@ -67,6 +69,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     CREATE TABLE IF NOT EXISTS workbench_output (ticket TEXT NOT NULL, run INTEGER NOT NULL, value TEXT NOT NULL,
       PRIMARY KEY(ticket,run));
     CREATE TABLE IF NOT EXISTS workbench_audit (id INTEGER PRIMARY KEY, at TEXT NOT NULL, ticket TEXT NOT NULL, kind TEXT NOT NULL, value TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS workbench_github_cursor (repository TEXT PRIMARY KEY, start TEXT NOT NULL, at TEXT NOT NULL);
   `);
 
   const end = new AbortController();
@@ -94,18 +97,18 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     const row = store.db.prepare('SELECT active FROM workbench_agent WHERE id=?').get(a.id);
     return a.active && (!row || Number(row.active) === 1);
   };
-  const isActive = (a: Agent | undefined, p: Project) => !!a && agentEnabled(a) && a.projects.includes(p.id) && member(p, a.owner);
+  const isActive = (a: Agent | undefined, p: Project): a is Agent => !!a && agentEnabled(a) && a.projects.includes(p.id) && member(p, a.owner);
   const version = (a: Agent) => digest(a);
 
   const url = pathToFileURL(path.join(root, 'upstream/superagent/src/policy.ts'));
   const { SettingsSchema, settingsPolicy } = await import(url.href);
-  const scope: SourceScope = { scope: input => projectById.has(String(input.meta.project)) && ['web', 'feishu'].includes(input.source)
+  const scope: SourceScope = { scope: input => projectById.has(String(input.meta.project)) && ['web', 'feishu', 'github'].includes(input.source)
     ? { listened: true, observed: input.meta.observe === true }
     : { listened: false, reason: 'outsideProject' } };
   const policy = (): Policy => {
     const people = auth.listAccounts().filter(a => !a.disabled && rbacEnforce('user:' + a.username, 'task-control')).map(a => ({ id: a.username }));
     const upstream = settingsPolicy(SettingsSchema.parse({ policy: { sources: {
-      web: { allowed: people }, feishu: { allowed: people },
+      web: { allowed: people }, feishu: { allowed: people }, github: { allowed: people },
     } }, eval: { mode: 'observe' } }), scope) as Policy;
     return { ...upstream, version: key(upstream.version, digest(config.projects)), revalidate(mandate) {
       const p = projectById.get(String(mandate.basis.scope?.project));
@@ -175,7 +178,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       const event = store.triggers.get(ticket.origin.triggerId)!;
       const work: Work = { project: String(event.meta.project), requester: event.actor.id,
         agent: String(event.meta.agent), agentVersion: String(event.meta.agentVersion), function: String(event.meta.function),
-        material: event.meta.material as string[], source: event.source === 'feishu' ? 'feishu' : 'web',
+        material: event.meta.material as string[], source: event.source === 'feishu' || event.source === 'github' ? event.source : 'web',
         priority: event.meta.priority === 'urgent' ? 'urgent' : 'normal',
         ...(event.meta.parent ? { parent: String(event.meta.parent) } : {}),
         ...(event.meta.measure ? { measure: measureSchema.parse(event.meta.measure) } : {}),
@@ -209,12 +212,17 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       engine.decide(triggerId, { kind: 'ignore', reason: '需要已绑定的项目、已授权成员和在岗 Agent', evalId });
       return;
     }
-    engine.decide(triggerId, { kind: 'accept', evalId, title: String(trigger.meta.title),
-      scope: '在 ' + project.title + ' 内提供受托专业意见，资料按项目或工单授权读取',
-      reason: '来自项目成员的明确委托', acknowledgement: '已交给 ' + agent!.title + '，有需要你决定的问题会在原话题跟进。',
-      audit: { project: project.id, function: agent!.function, agent: agent!.id, revision: version(agent!),
-        viaPersonalAgent: agent!.kind === 'personal' ? agent!.owner : null, parentTicket: trigger.meta.parent ?? null } });
+    acceptStart(trigger, project, agent!, evalId);
   });
+
+  function acceptStart(trigger: Trigger, project: Project, agent: Agent, evalId?: string) {
+    return engine.decide(trigger.id, { kind: 'accept', evalId, title: String(trigger.meta.title),
+      scope: '在 ' + project.title + ' 内提供受托专业意见，资料按项目或工单授权读取',
+      reason: '来自项目成员的明确委托', acknowledgement: '已交给 ' + agent.title + '，有需要你决定的问题会在原话题跟进。',
+      audit: { project: project.id, function: agent.function, agent: agent.id, revision: version(agent),
+        viaPersonalAgent: agent.kind === 'personal' ? agent.owner : null, parentTicket: trigger.meta.parent ?? null,
+        ...(trigger.meta.channelActor ? { channelActor: trigger.meta.channelActor, confirmedBy: trigger.meta.confirmedBy ?? null } : {}) } });
+  }
 
   effects.handle('reply', async (_payload, id) => {
     const message = store.receipts.get(id);
@@ -403,7 +411,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     return total;
   }
 
-  function start(actor: string, input: Start, external?: Trigger) {
+  function start(actor: string, input: Start, external?: Trigger, immediate = false) {
     const project = projectFor(input.project, actor);
     if (!mayStart(project, actor)) throw new WorkbenchError('当前角色没有项目委托权限。', 403);
     if (input.parent && ticketFor(input.parent, actor).project.id !== project.id) throw new WorkbenchError('父工单属于其他项目。');
@@ -432,8 +440,113 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       measure: input.measure, reusedLesson: input.reusedLesson,
     } };
     engine.receive(trigger);
+    if (immediate) {
+      const decision = acceptStart(trigger, project, agent);
+      return { trigger: id, ticket: requireValue(decision.ticketId, '委托未获准，请核对范围与授权。', 409) };
+    }
     engine.evaluateDue();
     return { trigger: id };
+  }
+
+  function linkOrigin(ref: ChannelRef, ticket: string) {
+    if (!links.link(ref, ticket)) throw new WorkbenchError('此来源已关联另一张工单。', 409);
+  }
+
+  function openChannelTicket(event: ChannelRequest, actor: string, refs: ChannelRef[], confirmedBy?: string) {
+    const channelActor = event.sender;
+    // Channel messages stay at their original addresses. An Engine thread is owned only by this case.
+    const trigger = { ...event.trigger, human: true, addressed: 'direct' as const,
+      threads: [{ source: 'workbench-case', id: event.trigger.id }],
+      meta: { ...event.trigger.meta, channelActor, confirmedBy } };
+    const { ticket } = start(actor, {
+      project: event.project, agent: event.agent, request: event.request, title: event.request.slice(0, 100),
+      nonce: trigger.id, material: [], priority: 'normal',
+    }, trigger, true);
+    if (!ticket) throw new WorkbenchError('委托未获准。', 409);
+    for (const ref of refs) linkOrigin(ref, ticket);
+    return ticket;
+  }
+
+  function receiveChannel(event: ChannelRequest, reference?: ChannelRef | string | null) {
+    return store.atomic(() => {
+      if (links.seen(event.trigger.id)) return { status: 'duplicate' as const };
+      const actor = links.member(event.sender, event.trigger.at);
+      const project = projectById.get(event.project);
+      if (!actor || !project || !member(project, actor)) return { status: 'unbound' as const };
+      if (!mayStart(project, actor)) return { status: 'denied' as const };
+      if (reference === null) {
+        links.record(event, actor, { reason: '引用无法核对，需由项目维护人确认。' });
+        return { status: 'pending' as const };
+      }
+      const refs = typeof reference === 'object' ? [event.origin, reference] : [event.origin];
+      const ids = new Set(refs.flatMap(ref => links.ticket(ref) ?? []));
+      if (typeof reference === 'string') {
+        const work = workOf(reference);
+        if (!work || work.project !== project.id) {
+          links.record(event, actor, { reason: '工单引用未确认，需由项目维护人核对。' });
+          return { status: 'pending' as const };
+        }
+        ids.add(reference);
+      }
+      if (ids.size > 1 || [...ids].some(id => workOf(id)?.project !== project.id)) {
+        links.record(event, actor, { reason: '不同引用指向不同工单，需由项目维护人核对。' });
+        return { status: 'pending' as const };
+      }
+      const existing = [...ids][0];
+      if (existing) {
+        for (const ref of refs) linkOrigin(ref, existing);
+        links.record(event, actor, { ticket: existing });
+        audit(existing, 'channel.input-linked', { actor, event: event.trigger.id, channelActor: event.sender });
+        return { status: 'linked' as const, ticket: existing };
+      }
+      if (typeof reference !== 'object' || !isActive(agentById.get(event.agent), project)) {
+        links.record(event, actor, { reason: '需要确认工单归属或可用的执行 Agent。' });
+        return { status: 'pending' as const };
+      }
+      const ticket = openChannelTicket(event, actor, refs);
+      links.record(event, actor, { ticket });
+      return { status: 'created' as const, ticket };
+    });
+  }
+
+  function resolveChannel(actor: string, id: string, decision: { action: 'link'; ticket: string } | { action: 'create' | 'dismiss' }) {
+    return store.atomic(() => {
+      const pending = requireValue(links.getPending(id), '这条消息已处理，请刷新。', 409);
+      const event = pending.request;
+      const project = projectFor(event.project, actor);
+      if (!maintain(project, actor)) throw new WorkbenchError('由项目维护人确认工单归属。', 403);
+      if (decision.action === 'dismiss') { links.settle(id); audit(project.id, 'channel.dismissed', { actor, event: id }); return {}; }
+      if (links.member(event.sender, event.trigger.at) !== pending.member || !mayStart(project, pending.member))
+        throw new WorkbenchError('原发言人的账号绑定或项目权限已变化，请重新提交。', 409);
+      if (decision.action === 'create' && links.ticket(event.origin))
+        throw new WorkbenchError('此来源已有工单，请选择关联后继续。', 409);
+      const ticket = decision.action === 'link' ? decision.ticket : undefined;
+      if (ticket && ticketFor(ticket, actor).project.id !== project.id)
+        throw new WorkbenchError('请选择当前项目的工单。', 409);
+      const target = ticket ?? openChannelTicket(event, pending.member, [event.origin], actor);
+      linkOrigin(event.origin, target);
+      links.settle(id, target);
+      audit(target, 'channel.confirmed', { actor, member: pending.member, event: id });
+      return { ticket: target };
+    });
+  }
+
+  function channelView(actor: string) {
+    const pending = config.projects.filter(project => maintain(project, actor)).flatMap(project =>
+      links.pending(project.id).map(row => ({
+        id: row.id, project: project.id, member: row.member, source: row.request.sender.provider,
+        request: row.request.request, url: row.request.trigger.url ?? row.request.origin.url, reason: row.reason,
+      })));
+    return { ...links.status(actor), pending };
+  }
+
+  function confirmAccount(actor: string, provider: Provider, expected: { namespace: string; id: string }) {
+    store.atomic(() => {
+      const result = links.confirm(actor, provider, expected);
+      if (result === 'conflict') throw new WorkbenchError('这个渠道账号已绑定其他成员。', 409);
+      if (result !== 'bound') throw new WorkbenchError('验证记录已变化或过期，请重新核对。', 409);
+      auth.audit('channel.account-bound', actor, { provider, ...expected });
+    });
   }
 
   function reply(actor: string, id: string, input: { card: number; choice?: number; text?: string; nonce: string }, external?: Trigger) {
@@ -553,7 +666,12 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       if (run.session) priorSessions.add(run.session);
       return { id: run.id, state: run.state, usage: run.usage ? JSON.parse(run.usage) : null, resumed };
     });
-    return { id, title: ticket.title, project: project.id, work, request: opening.text, createdAt: ticket.createdAt, history, report,
+    const channelHistory = links.history(id).map(({ member, request }) => ({
+      id: request.trigger.id, member, source: request.sender.provider, label: request.sender.label,
+      at: request.trigger.at, text: request.request, url: request.trigger.url ?? request.origin.url,
+    }));
+    return { id, title: ticket.title, project: project.id, work, origin: opening.id, request: opening.text, createdAt: ticket.createdAt, history, report,
+      channelHistory, channelReferences: links.references(id),
       stage: ticketStage(ticket), result: output, materialHidden, decision: decision && { at: decision.at, scope: ticket.mandate.scope }, questions: question, requests, runs, timers,
       candidate: output && knowledge.get(id)?.owner === actor ? id : undefined,
       observations: output ? observations.list(id).map(({ candidate, ...record }) => ({
@@ -576,7 +694,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
         result: !!subject.result, needsObservation, nextReview: subject.timers[0]?.at, waitingAccess: needed(ticket.id, work) && !ticket.ended, blocked: subject.report?.state === 'blocked' }];
     }).sort((a, b) => Number(b.attention) - Number(a.attention)
       || Number(b.work.priority === 'urgent') - Number(a.work.priority === 'urgent') || b.updatedAt.localeCompare(a.updatedAt));
-    return { actor,
+    return { actor, crossChannel: !!config.crossChannel,
       projects: projects.map(p => ({ id: p.id, title: p.title, parent: p.parent && ids.has(p.parent) ? p.parent : undefined,
         resources: availableRefs(p), mayStart: mayStart(p, actor), maintain: maintain(p, actor), usage: usage(p.id), budget: p.budget })),
       agents: config.agents.flatMap(a => {
@@ -604,7 +722,26 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
   }, 700);
 
   return {
-    start, reply, overview, detail, boundProject, recordObservation,
+    start, reply, overview, detail, boundProject, recordObservation, receiveChannel, resolveChannel, channelView, confirmAccount,
+    accountProof: (actor: string, provider: Provider) => links.begin(actor, provider),
+    revokeAccount(actor: string, provider: Provider, namespace: string, externalId: string) {
+      if (!links.unlink(actor, provider, namespace, externalId)) throw new WorkbenchError('找不到此账号绑定。', 404);
+      auth.audit('channel.account-unbound', actor, { provider, namespace, externalId });
+    },
+    proveAccount: (code: string, sender: PlatformActor, url?: string) => links.prove(code, sender, url),
+    channelMember: (sender: PlatformActor, at?: string) => links.member(sender, at),
+    channelEventSeen: (id: string) => links.seen(id),
+    channelTicket: (ref: ChannelRef) => links.ticket(ref),
+    githubRepositories(projectId?: string) {
+      return config.projects.filter(project => !projectId || project.id === projectId).flatMap(project =>
+        availableRefs(project).filter(r => r.source === 'github' && r.state === 'bound').map(r => r.externalId));
+    },
+    githubCheckpoint(repository: string, at?: string) {
+      if (at) store.db.prepare(`INSERT INTO workbench_github_cursor VALUES (?,?,?)
+        ON CONFLICT(repository) DO UPDATE SET at=excluded.at`).run(repository, at, at);
+      return store.db.prepare('SELECT start,at FROM workbench_github_cursor WHERE repository=?').get(repository) as
+        { start: string; at: string } | undefined;
+    },
     bindResource(actor: string, id: string, source: string, externalId: string) {
       const project = projectFor(id, actor);
       if (!maintain(project, actor)) throw new WorkbenchError('由项目维护人确认来源。', 403);
