@@ -12,7 +12,6 @@ export const digestAgentId = (project: string) => 'discussion-worker-' + project
 export const discussionZone = 'Asia/Shanghai';
 export const discussionBatch = 30;
 export const discussionLookback = 3 * 24 * 3600_000;
-const duplicateWindow = 12 * 3600_000;
 export const previewLength = 600;
 const casual = /^(?:[\s。！!？，,]*(?:好的|收到|了解|嗯+|哈+|[oｏ]k|好呀|早安|晚安|早上好|大家好|谢谢(?:大家)?|辛苦了|点赞|节日快乐|生日快乐|周末愉快)[\s。！!？，,]*)$/iu;
 const offTopic = /^(?:[（(][^）)]{1,18}[）)]\s*)?(?:大家|你们?|今天|晚上|今晚|中午|下班后|咱们|一起)*(?:打游戏[吗么具体]?|吃(?:了|啥|什么|饭)|晚饭吃|午饭吃|谁想喝|去不去打球|约球|周末去哪)[^。；;\n]{0,10}[？?。！!\s]*$/u;
@@ -27,10 +26,12 @@ export function discussionText(text: string) {
 export type Observation = {
   id: string; message: string; project: string; chat: string; at: number; text: string;
   actor: PlatformActor; member?: string; origin: ChannelRef; root?: string; parent?: string; topic?: string; history?: boolean;
+  updatedAt?: number; channel?: boolean;
 };
 export function observation(project: string, input: DiscussionInput, member?: string, topic?: string): Observation {
   const { trigger, sender, origin } = input;
   return { id: trigger.id, message: String(trigger.meta.messageId), project, at: Date.parse(trigger.at), text: discussionText(trigger.text),
+    updatedAt: input.updatedAt,
     chat: String(trigger.meta.chatId), actor: sender, member, origin, topic, history: input.history,
     root: typeof trigger.meta.rootId === 'string' ? trigger.meta.rootId : undefined,
     parent: typeof trigger.meta.parentId === 'string' ? trigger.meta.parentId : undefined };
@@ -39,7 +40,9 @@ export function observation(project: string, input: DiscussionInput, member?: st
 export type DigestScope = {
   project: string; slot: number; ids: string[]; topics: string[]; tickets: string[]; facts: SourceFact[];
   matches: Record<string, string | null>; unavailable: string[]; relatedGithub: Record<string, string[]>;
+  groups?: Record<string, Record<string, string>>;
 };
+
 export function githubObjectPath(text: string) {
   const url = new URL(text);
   const match = /^\/([\w.-]+\/[\w.-]+)\/(issues|pull)\/(\d+)\/?$/i.exec(url.pathname);
@@ -69,7 +72,9 @@ export function digestProposals(scope: DigestScope, events: EventInput[] | undef
     if ((value.action === 'link' && !value.ticket) || (value.action === 'topic' && !value.topic)) return;
     if (value.action !== 'dismiss' && (!value.title || !value.reason || sensitiveFeishuText.test(value.title + '\n' + value.reason))) return;
     used.add(value.message);
-    proposals.push(value);
+    const conflicted = scope.matches[value.message] === null || scope.unavailable.includes(value.message);
+    proposals.push(conflicted && value.action === 'dismiss' ? { ...value, action: 'review',
+      title: '群消息需要确认归属', reason: '来源引用冲突或暂时无法核对，请查看原消息。' } : value);
   }
   return used.size === expected.size ? proposals : undefined;
 }
@@ -78,8 +83,12 @@ export type DigestItem = {
   id: string; project: string; slot: number; title: string; reason: string; destination: Destination;
   status: 'applied' | 'pending' | 'suggested'; topic?: string; ticket?: string; messageRefs: string[];
   decidedBy?: string;
-  evidence: { title: string; kind: 'feishu' | SourceFact['kind']; url?: string; revision?: string }[];
+  evidence: { title: string; kind: 'feishu' | SourceFact['kind']; url?: string; revision?: string; message?: string }[];
 };
+
+type SavedMessage = { body: string | null; source: string | null; updated: number | null; withdrawn: number; item: string | null; settled: number };
+type MessageRevision = { at: number; revision: string; text: string | null };
+export const observationVersion = ({ text }: Observation) => key('discussion-text', text);
 
 export class Discussions {
   constructor(private readonly store: SuperAgentStore) {
@@ -90,7 +99,7 @@ export class Discussions {
       );
       CREATE TABLE IF NOT EXISTS workbench_discussion_message (
         id TEXT PRIMARY KEY, project TEXT NOT NULL, chat TEXT NOT NULL, at INTEGER NOT NULL, body TEXT,
-        fingerprint TEXT, settled INTEGER NOT NULL, item TEXT
+        fingerprint TEXT, settled INTEGER NOT NULL, item TEXT, source TEXT, updated INTEGER, checked INTEGER, withdrawn INTEGER NOT NULL DEFAULT 0
       );
       CREATE INDEX IF NOT EXISTS workbench_discussion_due ON workbench_discussion_message(project,settled,at);
       CREATE TABLE IF NOT EXISTS workbench_discussion_run (
@@ -102,7 +111,14 @@ export class Discussions {
       );
       CREATE INDEX IF NOT EXISTS workbench_discussion_project ON workbench_discussion_item(project,slot);
       CREATE INDEX IF NOT EXISTS workbench_discussion_ticket ON workbench_discussion_item(json_extract(value,'$.ticket'));
+      CREATE TABLE IF NOT EXISTS workbench_discussion_revision (
+        message TEXT NOT NULL, at INTEGER NOT NULL, revision TEXT NOT NULL, text TEXT,
+        PRIMARY KEY(message,at,revision), FOREIGN KEY(message) REFERENCES workbench_discussion_message(id) ON DELETE CASCADE
+      );
     `);
+    const columns = new Set(store.db.prepare('PRAGMA table_info(workbench_discussion_message)').all().map(column => column.name));
+    for (const [name, type] of [['source', 'TEXT'], ['updated', 'INTEGER'], ['checked', 'INTEGER'], ['withdrawn', 'INTEGER NOT NULL DEFAULT 0']])
+      if (!columns.has(name)) store.db.exec('ALTER TABLE workbench_discussion_message ADD COLUMN ' + name + ' ' + type);
   }
 
   chat(project: string, chat: string) {
@@ -119,27 +135,90 @@ export class Discussions {
   }
 
   remember(row: Observation) {
-    const fingerprint = row.text ? key('ordinary-feishu', row.project, row.chat, row.root ?? '',
+    const db = this.store.db;
+    const fingerprint = row.text ? key('ordinary-feishu', row.project, row.chat, row.root ?? '', row.parent ?? '',
       row.text.normalize('NFKC').trim()) : null;
-    const previous = fingerprint && this.store.db.prepare(`SELECT m.item FROM workbench_discussion_message m
-      JOIN workbench_discussion_item i ON m.item=i.id WHERE m.project=? AND m.fingerprint=? AND m.at>=? ORDER BY m.at DESC LIMIT 1`)
-      .get(row.project, fingerprint, row.at - duplicateWindow);
-    const inserted = this.store.db.prepare(`INSERT INTO workbench_discussion_message VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(id) DO NOTHING`)
-      .run(row.id, row.project, row.chat, row.at, row.text && !previous ? JSON.stringify(row) : null,
-        fingerprint, row.text && !previous ? 0 : 1, previous ? previous.item : null);
-    if (!inserted.changes && row.origin.label === '飞书原消息') {
-      const saved = this.store.db.prepare('SELECT body FROM workbench_discussion_message WHERE id=? AND settled=0').get(row.id);
-      if (typeof saved?.body === 'string') {
-        const original: Observation = JSON.parse(saved.body);
-        if (original.origin.label !== '飞书原消息') this.store.db.prepare('UPDATE workbench_discussion_message SET body=? WHERE id=?')
-          .run(JSON.stringify({ ...original, origin: row.origin }), row.id);
-      }
+    const at = Math.max(row.at, row.updatedAt ?? row.at);
+    const checked = row.history ? Date.now() : null;
+    const saved = db.prepare('SELECT * FROM workbench_discussion_message WHERE id=? AND project=? AND chat=?')
+      .get(row.id, row.project, row.chat) as SavedMessage | undefined;
+    if (!saved) {
+      const inserted = db.prepare(`INSERT INTO workbench_discussion_message
+        (id,project,chat,at,body,fingerprint,settled,source,updated,checked) VALUES (?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO NOTHING`)
+        .run(row.id, row.project, row.chat, row.at, row.text && !row.channel ? JSON.stringify(row) : null,
+          fingerprint, row.text && !row.channel ? 0 : 1, row.text || row.channel ? JSON.stringify({ ...row, text: '' }) : null, at, checked);
+      if (inserted.changes && (row.text || row.channel)) this.saveRevision(row, at);
+      return;
     }
-    if (inserted.changes && previous && typeof previous.item === 'string') {
-      const item = this.item(previous.item);
-      if (item && item.messageRefs.length < discussionBatch && !item.messageRefs.includes(row.id)) this.saveItem({ ...item, messageRefs: item.messageRefs.concat(row.id),
-        evidence: [...item.evidence, { kind: 'feishu', title: row.origin.label, url: row.origin.url }] });
-    }
+    if (saved.withdrawn || at < (saved.updated ?? row.at)) return;
+    const previousBody: Observation | undefined = saved.body ? JSON.parse(saved.body) : undefined;
+    const original: Observation = saved.source ? JSON.parse(saved.source) : previousBody ?? row;
+    const latest = db.prepare('SELECT revision FROM workbench_discussion_revision WHERE message=? ORDER BY at DESC,rowid DESC LIMIT 1').get(row.id);
+    const previous = latest?.revision ?? (previousBody && observationVersion(previousBody));
+    const changed = previous ? previous !== observationVersion(row)
+      // Older archives kept the summary and dropped the input text. The first reread seeds its evidence history.
+      : !saved.item && !!row.text;
+    const current = { ...original, ...(!original.member && row.member ? { member: row.member, actor: row.actor, history: row.history } : {}),
+      origin: row.origin.label === '飞书原消息' ? row.origin : original.origin, text: row.text, updatedAt: at };
+    if (changed && previousBody && !latest) this.saveRevision(previousBody, saved.updated ?? original.at);
+    if (changed || (!latest && row.text)) this.saveRevision(current, at);
+    const item = saved.item ? this.item(saved.item) : undefined;
+    const keep = item && (!changed || item.status === 'applied') ? item : undefined;
+    if (changed && item && !keep) this.removeSource(item, row.id);
+    const waiting = Boolean(row.text && !current.channel && !keep && (!saved.settled || changed));
+    db.prepare(`UPDATE workbench_discussion_message SET body=?,fingerprint=?,settled=?,item=?,source=?,updated=?,checked=COALESCE(?,checked)
+      WHERE id=?`).run(waiting || (row.text && keep && keep.status !== 'applied') ? JSON.stringify(current) : null,
+        fingerprint, waiting ? 0 : 1, keep?.id ?? null,
+        saved.source || row.text ? JSON.stringify({ ...current, text: '' }) : null, at, checked, row.id);
+  }
+
+  private saveRevision(row: Observation, at: number) {
+    this.store.db.prepare('INSERT OR IGNORE INTO workbench_discussion_revision VALUES (?,?,?,?)')
+      .run(row.id, at, observationVersion(row), row.text || null);
+  }
+
+  revisions(id: string) {
+    return this.store.db.prepare('SELECT at,revision,text FROM workbench_discussion_revision WHERE message=? ORDER BY at,rowid')
+      .all(id) as MessageRevision[];
+  }
+
+  pendingMessage(id: string, slot: number): Observation | undefined {
+    const row = this.store.db.prepare('SELECT body FROM workbench_discussion_message WHERE id=? AND settled=0 AND at<?').get(id, slot);
+    return typeof row?.body === 'string' ? JSON.parse(row.body) : undefined;
+  }
+
+  sources(item: DigestItem) {
+    return item.messageRefs.map(id => {
+      const source = this.source(id);
+      const revisions = this.revisions(id).map(({ at, revision }) => ({ at, revision }));
+      const evidence = item.evidence.find(ref => ref.kind === 'feishu' && this.belongsTo(item, ref, id));
+      return { id, url: source?.origin.url ?? evidence?.url, member: source?.member,
+        sender: source && key('discussion-sender', source.actor.namespace, source.actor.id), at: source?.at,
+        digestRevision: evidence?.revision, currentRevision: revisions.at(-1)?.revision, revisions };
+    });
+  }
+
+  sourceEvidence(row: Observation): DigestItem['evidence'][number] {
+    return { kind: 'feishu', title: row.origin.label, url: row.origin.url, message: row.id, revision: observationVersion(row) };
+  }
+
+  source(id: string) {
+    const data = this.store.db.prepare('SELECT source,body FROM workbench_discussion_message WHERE id=? AND withdrawn=0').get(id);
+    const raw = data?.source ?? data?.body;
+    return typeof raw === 'string' ? JSON.parse(raw) as Observation : undefined;
+  }
+
+  watchMessages(project: string, chat: string) {
+    // Fetch older known messages by ID to catch edits after their creation window. Rotate the read budget.
+    return this.store.db.prepare(`SELECT id,COALESCE(source,body) AS source FROM workbench_discussion_message WHERE project=? AND chat=?
+      AND (source IS NOT NULL OR body IS NOT NULL) AND withdrawn=0 AND (item IS NOT NULL OR settled=0 OR json_extract(source,'$.channel')=1)
+      ORDER BY COALESCE(checked,0),at,id LIMIT 50`).all(project, chat)
+      .map(row => ({ id: String(row.id), native: (JSON.parse(String(row.source)) as Observation).message }));
+  }
+
+  checked(ids: string[]) {
+    const update = this.store.db.prepare('UPDATE workbench_discussion_message SET checked=? WHERE id=?');
+    for (const id of ids) update.run(Date.now(), id);
   }
 
   batch(project: string, end: number) {
@@ -155,17 +234,26 @@ export class Discussions {
   }
 
   prune(now: number) {
-    this.store.db.prepare('UPDATE workbench_discussion_message SET body=NULL,settled=1 WHERE at<? AND body IS NOT NULL')
-      .run(now - discussionLookback);
-    this.store.db.prepare('DELETE FROM workbench_discussion_message WHERE at<? AND item IS NULL')
+    const cutoff = now - discussionLookback;
+    this.store.db.prepare(`UPDATE workbench_discussion_message SET body=NULL,settled=1 WHERE COALESCE(updated,at)<?
+      AND body IS NOT NULL AND item IS NULL`).run(cutoff);
+    this.store.db.prepare(`UPDATE workbench_discussion_revision SET text=NULL WHERE text IS NOT NULL AND at<?
+      AND message IN (SELECT id FROM workbench_discussion_message WHERE item IS NULL AND COALESCE(json_extract(source,'$.channel'),0)=0)`).run(cutoff);
+    this.store.db.prepare(`DELETE FROM workbench_discussion_message WHERE COALESCE(updated,at)<? AND item IS NULL AND withdrawn=0
+      AND COALESCE(json_extract(source,'$.channel'),0)=0`)
       .run(now - discussionLookback * 2);
   }
 
   withdraw(project: string, chat: string, id: string, at: number) {
     const row = this.store.db.prepare('SELECT item FROM workbench_discussion_message WHERE project=? AND chat=? AND id=?').get(project, chat, id);
-    this.store.db.prepare(`INSERT INTO workbench_discussion_message(id,project,chat,at,settled) VALUES (?,?,?,?,1)
-      ON CONFLICT(id) DO UPDATE SET settled=1,body=NULL,item=NULL WHERE project=excluded.project AND chat=excluded.chat`).run(id, project, chat, at);
-    if (typeof row?.item === 'string') this.dismiss(row.item);
+    this.store.db.prepare(`INSERT INTO workbench_discussion_message(id,project,chat,at,settled,withdrawn) VALUES (?,?,?,?,1,1)
+      ON CONFLICT(id) DO UPDATE SET settled=1,withdrawn=1,body=NULL,source=NULL,fingerprint=NULL,item=NULL
+      WHERE project=excluded.project AND chat=excluded.chat`).run(id, project, chat, at);
+    this.store.db.prepare(`UPDATE workbench_discussion_revision SET text=NULL WHERE message=? AND EXISTS
+      (SELECT 1 FROM workbench_discussion_message WHERE id=? AND project=? AND chat=? AND withdrawn=1)`).run(id, id, project, chat);
+    const item = typeof row?.item === 'string' ? this.item(row.item) : undefined;
+    if (item) this.removeSource(item, id);
+    return item?.ticket;
   }
 
   messageGroupFor(id: string, slot: number): Observation[] {
@@ -178,6 +266,27 @@ export class Discussions {
   messageRefs(item: string): Observation[] {
     return this.store.db.prepare('SELECT body FROM workbench_discussion_message WHERE item=? AND body IS NOT NULL ORDER BY at,id')
       .all(item).map(row => JSON.parse(String(row.body)));
+  }
+
+  extract(item: DigestItem, message: string, id: string) {
+    const evidence = item.evidence.filter(ref => ref.kind !== 'feishu' || this.belongsTo(item, ref, message));
+    this.removeSource(item, message);
+    this.store.db.prepare('UPDATE workbench_discussion_message SET item=? WHERE id=? AND item=?').run(id, message, item.id);
+    const portion = { ...item, id, messageRefs: [message], evidence };
+    this.saveItem(portion);
+    return portion;
+  }
+
+  private belongsTo(item: DigestItem, ref: DigestItem['evidence'][number], id: string) {
+    if (ref.message) return ref.message === id;
+    // Older digests stored Feishu evidence in source order without recording the message ID.
+    return item.evidence.filter(entry => entry.kind === 'feishu').indexOf(ref) === item.messageRefs.indexOf(id);
+  }
+
+  private removeSource(item: DigestItem, id: string) {
+    const messageRefs = item.messageRefs.filter(message => message !== id);
+    if (!messageRefs.length) this.store.db.prepare('DELETE FROM workbench_discussion_item WHERE id=?').run(item.id);
+    else this.saveItem({ ...item, messageRefs, evidence: item.evidence.filter(ref => ref.kind !== 'feishu' || !this.belongsTo(item, ref, id)) });
   }
 
   settle(id: string, item?: string, keep = true) {
@@ -235,13 +344,15 @@ export class Discussions {
       .get(project)?.count);
   }
 
-  stopChanged(project: string, stillAllowed: (row: Observation) => boolean) {
+  stopChanged(project: string, stillAllowed: (row: Observation) => boolean, removed: (id: string, ticket: string) => void) {
     this.store.atomic(() => {
-      const rows = this.store.db.prepare(`SELECT id,item,body FROM workbench_discussion_message WHERE project=? AND body IS NOT NULL`).all(project);
+      const rows = this.store.db.prepare(`SELECT COALESCE(source,body) AS source FROM workbench_discussion_message
+        WHERE project=? AND withdrawn=0 AND (source IS NOT NULL OR body IS NOT NULL)`).all(project);
       for (const row of rows) {
-        if (stillAllowed(JSON.parse(String(row.body)))) continue;
-        if (typeof row.item === 'string') this.dismiss(row.item);
-        else this.settle(String(row.id));
+        const source = JSON.parse(String(row.source)) as Observation;
+        if (stillAllowed(source)) continue;
+        const ticket = this.withdraw(project, source.chat, source.id, source.at);
+        if (ticket) removed(source.id, ticket);
       }
     });
   }

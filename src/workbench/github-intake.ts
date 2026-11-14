@@ -19,7 +19,7 @@ const messageSchema = z.object({
 type Repository = { id: string; name: string };
 const repositorySchema = z.object({ id: z.number().int().positive(), full_name: z.string().regex(repositoryName) });
 export type GitHubInput = { repository: Repository; trigger: Trigger; sender: PlatformActor; origin: ChannelRef; text: string;
-  note?: boolean; evidence?: 'issue' | 'pull' };
+  note?: boolean; revision?: string; evidence?: 'issue' | 'pull' };
 const pullRevision = z.object({
   id: z.number().int().positive(), number: z.number().int().positive(),
   html_url: z.string(), updated_at: z.iso.datetime(),
@@ -54,11 +54,12 @@ export function githubInputs(repository: Repository, raw: unknown, comments: boo
     const origin = reference(repository, target.number, pr);
     const evidence = !comments && !pr && item.state && Date.parse(item.updated_at) >= Date.parse(since)
       ? [evidenceInput(repository, origin, item, 'issue')] : [];
-    // A pull request edit cannot speak as its recorded creator. Plain notes require a verified original author too.
-    if (!item.user || item.performed_via_github_app || item.created_at !== item.updated_at
-      || Date.parse(item.created_at) < Date.parse(since)) return evidence;
-    const command = /^\/(协作|绑定协作)\s/.test(text);
-    if (!command && (!comments || !text || text.length > 3500 || text.startsWith('/'))) return evidence;
+    const edited = item.created_at !== item.updated_at;
+    if (!item.user || item.performed_via_github_app || (edited && !comments) || Date.parse(item.updated_at) < Date.parse(since)) return evidence;
+    // An edit is evidence only. GitHub supplies the original author, not the actor who edited the comment.
+    const command = !edited && /^\/(协作|绑定协作)\s/.test(text);
+    if (!command && (!comments || (!edited && (!text || text.length > 3500 || text.startsWith('/'))))) return evidence;
+    if (/^\/绑定协作(?:\s|$)/.test(text) && !command) return evidence;
     const message = { ...item, body: text, user: item.user };
     const native = comments
       ? githubCommentTrigger(message, { number: target.number, isPr: pr }, item.pull_request_url ? 'inline' : 'conversation', '')
@@ -66,11 +67,11 @@ export function githubInputs(repository: Repository, raw: unknown, comments: boo
     if (!native.human) return evidence;
     const kind = item.pull_request_url ? 'inline' : comments ? 'comment' : 'issue';
     const trigger = { ...native, id: key('github-workbench', repository.id, String(item.id), kind),
-      text, threads: [{ source: 'github', id: origin.key.slice('github:'.length) }], addressed: 'direct' as const,
+      text, threads: [{ source: 'github', id: origin.key.slice('github:'.length) }], addressed: 'direct' as const, at: item.created_at,
       meta: { ...native.meta, repository: repository.name, repositoryId: repository.id, platformLogin: item.user.login,
         githubComment: comments ? { kind, thread: item.in_reply_to_id ?? item.id, commit: item.commit_id ?? undefined } : undefined },
     };
-    return [...evidence, { repository, trigger, origin, text, ...(!command ? { note: true } : {}),
+    return [...evidence, { repository, trigger, origin, text, ...(!command ? { note: true } : {}), ...(comments ? { revision: item.updated_at } : {}),
       sender: { provider: 'github' as const, namespace: 'github.com', id: String(item.user.id), label: item.user.login } }];
   });
 }

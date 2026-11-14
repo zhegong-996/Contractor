@@ -20,9 +20,9 @@ test('渠道身份绑定、同一引用去重和负责人确认共用原版工�
   const directory = await mkdtemp(path.join(os.tmpdir(), 'suitme-channels-'));
   await mkdir(path.join(directory, 'console'));
   process.env.COLLAB_STATE_DIR = directory;
-  const [{ openCollaboration }, { settingsSchema }, { ConsoleAuth }, { key }] = await Promise.all([
+  const [{ openCollaboration }, { settingsSchema }, { ConsoleAuth }, { key }, { messageRef }] = await Promise.all([
     import('../src/workbench/collaboration.ts'), import('../src/workbench/config.ts'),
-    import('../src/console-auth.ts'), import('../upstream/superagent/src/core/index.ts'),
+    import('../src/console-auth.ts'), import('../upstream/superagent/src/core/index.ts'), import('../src/workbench/channel-links.ts'),
   ]);
   const auth = new ConsoleAuth();
   await auth.ready();
@@ -102,7 +102,14 @@ test('渠道身份绑定、同一引用去重和负责人确认共用原版工�
   assert.ok(inline?.note);
   assert.equal(inline.origin.key, shared.key);
   assert.deepEqual(inline.trigger.meta.githubComment, { kind: 'inline', thread: 650, commit: '1'.repeat(40) });
-  assert.deepEqual(githubInputs(repository, [{ ...rawComment, created_at: '2026-11-13T00:00:00Z' }], true, now), []);
+  assert.deepEqual(githubInputs(repository, [{ ...rawComment, ...Object.fromEntries(['created_at', 'updated_at']
+    .map(field => [field, '2026-11-13T00:00:00Z'])) }], true, now), []);
+  const editedAt = new Date(Date.parse(now) + 1000).toISOString();
+  const [edited] = githubInputs(repository, [{ ...rawComment, updated_at: editedAt, body: '/协作 review 这只是编辑后的内容' }], true, editedAt);
+  assert.equal(edited?.trigger.id, inline.trigger.id);
+  assert.equal(edited?.trigger.at, now);
+  assert.equal(edited?.note, true);
+  assert.equal(edited?.revision, editedAt);
   const issue = { ...original, id: 770, number: 8, html_url: 'https://github.com/team/example/issues/8',
     body: '另一张 Issue，尚无明确协作命令。', state: 'closed', state_reason: 'completed' };
   const [issueChange] = githubInputs(repository, [issue], false, now);
@@ -127,8 +134,33 @@ test('渠道身份绑定、同一引用去重和负责人确认共用原版工�
   const d = work.receiveChannel(input(github, anotherRef, 'same-number-another-repo'), anotherRef);
   assert.equal(d.status, 'created');
   assert.notEqual(d.ticket, ticket);
-  assert.equal(work.receiveChannel(input(feishu, topic, 'conflicting-references'), anotherRef).status, 'pending');
+  const conflict = input(feishu, topic, 'conflicting-references');
+  assert.equal(work.receiveChannel(conflict, anotherRef).status, 'pending');
   assert.equal(work.overview('maker').tickets.length, 2);
+  assert.equal(work.channelView('maintainer').pending[0]?.sourceTicket, ticket);
+  assert.deepEqual(work.channelView('maintainer').pending[0]?.reference, anotherRef);
+  assert.deepEqual(work.resolveChannel('maintainer', conflict.trigger.id, { action: 'link', ticket: d.ticket! }), { ticket: d.ticket });
+  assert.equal(work.channelTicket(topic), ticket);
+  assert.equal(work.channelTicket(messageRef(conflict.trigger.id)), d.ticket);
+  assert.ok(work.detail('maker', d.ticket!).channelHistory.some(row => row.id === conflict.trigger.id));
+  assert.ok(!work.detail('maker', ticket).channelHistory.some(row => row.id === conflict.trigger.id));
+  const split = input(feishu, topic, 'confirmed-distinct-work');
+  assert.equal(work.receiveChannel(split, anotherRef).status, 'pending');
+  const separated = work.resolveChannel('maintainer', split.trigger.id, { action: 'create', agent: 'review' }).ticket;
+  assert.ok(separated && separated !== ticket && separated !== d.ticket);
+  assert.equal(work.channelTicket(topic), ticket);
+  assert.equal(work.channelTicket(messageRef(split.trigger.id)), separated);
+  assert.equal(work.receiveChannel(split, anotherRef).status, 'duplicate');
+  assert.throws(() => work.resolveChannel('maintainer', split.trigger.id, { action: 'create', agent: 'review' }), { status: 409 });
+  assert.equal(work.overview('maker').tickets.length, 3);
+  for (const comment of [inline, edited!, inline, edited!]) work.receiveNote({
+    project: 'example', origin: comment.origin, sender: comment.sender, trigger: comment.trigger, agent: '',
+    request: comment.text, revision: comment.revision,
+  });
+  const notes = work.detail('maker', ticket).channelHistory.filter(row => row.id === inline.trigger.id);
+  assert.equal(notes.length, 1);
+  assert.deepEqual(notes[0]?.revisions.map(revision => [revision.at, revision.text]), [[now, null], [editedAt, null]]);
+  assert.equal(work.overview('maker').tickets.length, 3);
   work.setTopic('maintainer', ticket, 'reasons');
   work.setTopic('maker', d.ticket!, 'reasons');
   assert.throws(() => work.setTopic('maker', ticket, 'unknown'), { status: 400 });

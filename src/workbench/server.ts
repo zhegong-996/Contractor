@@ -8,12 +8,12 @@ import { z } from 'zod';
 import { root, runtime } from '../config.ts';
 import { ConsoleAuth, CONSOLE_ROLES } from '../console-auth.ts';
 import { command } from '../commands.ts';
-import { feishuTrigger, sendFeishu } from '../upstream.ts';
+import { feishuTrigger, feishuTriggerId, sendFeishu } from '../upstream.ts';
 import type { Trigger } from '../../upstream/superagent/src/core/index.ts';
 import { loadSettings, title } from './config.ts';
 import { openCollaboration, WorkbenchError } from './collaboration.ts';
 import { measureSchema, observationSchema } from './learning.ts';
-import { channelCommand, feishuCommandText, type ChannelRef, type PlatformActor } from './channel-links.ts';
+import { channelCommand, feishuCommandText, messageRef, type ChannelRef, type PlatformActor } from './channel-links.ts';
 import { githubReference, watchGithub } from './github-intake.ts';
 import { referenceSchema, resourceSource, topicInputSchema } from './project-resources.ts';
 import { discussionInput } from './discussion-intake.ts';
@@ -37,15 +37,16 @@ const accountRef = z.object({ provider, namespace: z.string().min(1).max(180), i
 const githubUrl = z.url({ protocol: /^https$/, hostname: /^github\.com$/ });
 const channelDecision = z.discriminatedUnion('action', [
   z.object({ action: z.literal('link'), ticket: id }),
-  z.object({ action: z.literal('create'), topic: id.optional() }),
+  z.object({ action: z.literal('create'), topic: id.optional(), agent: id.optional() }),
   z.object({ action: z.literal('dismiss') }),
 ]);
+const selectedMessage = { message: id.optional() };
 const discussionDecision = z.discriminatedUnion('action', [
-  z.object({ action: z.literal('project') }).strict(),
-  z.object({ action: z.literal('topic'), topic: id }).strict(),
-  z.object({ action: z.literal('link'), ticket: id }).strict(),
-  z.object({ action: z.literal('create'), agent: id, topic: id.optional() }).strict(),
-  z.object({ action: z.literal('dismiss') }).strict(),
+  z.object({ action: z.literal('project'), ...selectedMessage }).strict(),
+  z.object({ action: z.literal('topic'), topic: id, ...selectedMessage }).strict(),
+  z.object({ action: z.literal('link'), ticket: id, ...selectedMessage }).strict(),
+  z.object({ action: z.literal('create'), agent: id, topic: id.optional(), ...selectedMessage }).strict(),
+  z.object({ action: z.literal('dismiss'), ...selectedMessage }).strict(),
 ]);
 const settingsRoutes = {
   start: z.object({ project: id, title, request: prose, nonce, material: z.array(id).max(8).default([]),
@@ -122,6 +123,8 @@ async function serve() {
       let output: unknown;
       if (post && view === 'logout') auth.logout(req.headers.cookie);
       else if (get && view === 'overview') output = work.overview(actor);
+      else if (get && view === 'discussion' && item && action === 'revisions' && reference)
+        output = await work.discussionRevisions(actor, item, reference);
       else if (get && view === 'discussion' && item) output = work.discussionView(actor, item);
       else if (post && view === 'discussion' && item && action === 'resolve')
         output = work.resolveDiscussion(actor, item, discussionDecision.parse(await body(req)));
@@ -192,7 +195,8 @@ async function serve() {
     const collaboration = await openCollaboration(config, auth, feishu && (message =>
       sendFeishu({ commands: { lark: (args: string[]) => command('lark-cli', ['--profile', feishu.profile, ...args, '--as', 'bot']) } }, message)));
     work = collaboration;
-    const processChannel = async (text: string, trigger: Trigger, sender: PlatformActor, origin: ChannelRef, project?: string, topic?: string) => {
+    const processChannel = async (text: string, trigger: Trigger, sender: PlatformActor, origin: ChannelRef, project?: string, topic?: string,
+      revision?: string) => {
       const action = channelCommand(text);
       if (!action) return;
       if (action.kind === 'proof') {
@@ -209,7 +213,8 @@ async function serve() {
           catch { reference = null; }
         }
       }
-      collaboration.receiveChannel({ project, origin, sender, trigger, agent: action.agent, request: action.request, topic }, reference);
+      collaboration.receiveChannel({ project, origin, sender, trigger, agent: action.agent, request: action.request, topic, revision }, reference);
+      if (sender.provider === 'feishu' && feishu) collaboration.rememberDiscussion(discussionInput(trigger, feishu.appId));
     };
 
     const stopGithub = config.crossChannel && watchGithub({
@@ -230,10 +235,10 @@ async function serve() {
           if (collaboration.channelTicket(input.origin)) await collaboration.refreshIssue(input.origin, input.repository.name, project);
         } else if (input.note) {
           collaboration.receiveNote({ project: project.id, origin: input.origin, sender: input.sender,
-            trigger: input.trigger, agent: '', request: input.text });
+            trigger: input.trigger, agent: '', request: input.text, revision: input.revision });
         } else {
           const topic = project.resources.find(ref => ref.source === 'github' && ref.externalId.toLowerCase() === input.repository.name.toLowerCase())?.topic;
-          await processChannel(input.text, input.trigger, input.sender, input.origin, project.id, topic);
+          await processChannel(input.text, input.trigger, input.sender, input.origin, project.id, topic, input.revision);
         }
       },
     });
@@ -283,7 +288,9 @@ async function serve() {
               request: value, nonce: trigger.id, priority: 'normal' }, trigger);
           } else if (answer && trigger.meta.rootId) {
             const thread = trigger.threads[0]!;
-            const ticket = (config.crossChannel && collaboration.channelTicket(origin))
+            const parent = trigger.meta.parentId ?? trigger.meta.rootId;
+            const ticket = (config.crossChannel && ((typeof parent === 'string' && collaboration.channelTicket(messageRef(feishuTriggerId(parent))))
+              || collaboration.channelTicket(origin)))
               || collaboration.rootThread(project.id, thread.source, thread.id);
             if (!ticket) return;
             const [question] = collaboration.detail(actor.username, ticket).questions;

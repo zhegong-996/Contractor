@@ -4,7 +4,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { nextRun, parseCron } from '../upstream/autoloop/kernel/cron.ts';
 import { feishuTriggerId } from '../src/upstream.ts';
 import { digestProposals, Discussions, discussionText, discussionZone, type DigestScope, type Observation } from '../src/workbench/discussion.ts';
-import { readDiscussionHistory } from '../src/workbench/discussion-intake.ts';
+import { readDiscussionHistory, refreshDiscussionMessages } from '../src/workbench/discussion-intake.ts';
 import { FeishuSources } from '../src/feishu-sources.ts';
 import type { SuperAgentStore } from '../src/superagent-ports.ts';
 
@@ -22,6 +22,44 @@ test('群整理按上海时间在半天结束运行，回执须覆盖本批且�
   assert.equal(digestProposals(scope, [review, review]), undefined);
   assert.equal(digestProposals(scope, [event('first', 'link', { ticket: 'other', title: '不明项目', reason: '不明来源' }), ignore]), undefined);
   assert.equal(digestProposals(scope, [event('first', 'topic', { topic: 'reason', title: '密码：测试', reason: '私密内容' }), ignore]), undefined);
+  assert.equal(digestProposals({ ...scope, matches: { second: null } }, [review, ignore])?.[1]?.action, 'review');
+  assert.equal(digestProposals({ ...scope, unavailable: ['second'] }, [review, ignore])?.[1]?.action, 'review');
+});
+
+test('两人的相同反馈保留各自来源和修改记录，撤回一条只清掉对应正文及证据', () => {
+  const db = new DatabaseSync(':memory:');
+  try {
+    const discussions = new Discussions({ db } as SuperAgentStore);
+    const first: Observation = { id: 'a', message: 'om_a', project: 'one', chat: 'oc_room', at: 1000, text: '窄屏推荐理由重复换行',
+      actor: { provider: 'feishu', namespace: 'app', id: 'ou_first', label: 'first' }, member: 'first',
+      origin: { key: 'feishu:a', label: '飞书原消息', url: 'https://example.com/a' } };
+    const second: Observation = { ...first, id: 'b', message: 'om_b', at: 1100, member: 'second',
+      actor: { ...first.actor, id: 'ou_second' }, origin: { key: 'feishu:b', label: '飞书原消息', url: 'https://example.com/b' } };
+    for (const message of [first, second]) discussions.remember(message);
+    assert.deepEqual(discussions.batch('one', 1250).map(row => row.id), [first.id]);
+    discussions.saveItem({ id: 'summary', project: 'one', slot: 1250, title: '重复换行', reason: '两家门店反馈',
+      destination: { action: 'link', ticket: 'known' }, status: 'applied', ticket: 'known',
+      messageRefs: [first.id, second.id], evidence: [discussions.sourceEvidence(first), discussions.sourceEvidence(second)] });
+    for (const message of [first, second]) discussions.settle(message.id, 'summary', false);
+    const edit = { ...first, text: '更正：发生在 360px', updatedAt: 1500 };
+    for (const message of [edit, first, { ...edit, updatedAt: 1600 }]) discussions.remember(message);
+    const archived = discussions.item('summary')!;
+    const [a, b] = discussions.sources(archived);
+    assert.equal(a?.member, 'first');
+    assert.equal(b?.member, 'second');
+    assert.notEqual(a?.sender, b?.sender);
+    assert.equal(a?.digestRevision, a?.revisions[0]?.revision);
+    assert.deepEqual(discussions.revisions(first.id).map(version => version.text), [first.text, edit.text]);
+    assert.deepEqual(discussions.batch('one', 2000), []);
+    assert.equal(discussions.withdraw('one', 'oc_room', first.id, 2000), 'known');
+    const remaining = discussions.item('summary')!;
+    assert.deepEqual(remaining.messageRefs, [second.id]);
+    assert.deepEqual(remaining.evidence.map(row => row.url), [second.origin.url]);
+    assert.deepEqual(discussions.revisions(first.id).map(version => version.text), [null, null]);
+    discussions.remember(edit);
+    assert.deepEqual(discussions.item('summary')?.messageRefs, [second.id]);
+    assert.equal(discussions.source(first.id), undefined);
+  } finally { db.close(); }
 });
 
 test('群整理过滤闲聊和凭据，重放及完全相同的讨论只保留一条可处理反馈', () => {
@@ -59,7 +97,7 @@ test('补读校验授权身份与时间窗，沿用 Super-agent 原消息编号�
   const start = Date.parse('2026-11-14T00:00:00Z');
   const settings = { profile: 'reader', appId: 'cli_reader', userOpenId: 'ou_reader', member: 'product' };
   const feishu = { profile: 'bot', appId: 'cli_bot', botId: 'ou_bot' };
-  const message = (id: string, ts: number, chat = 'oc_room') => ({ message_id: id, chat_id: chat, create_time: String(ts),
+  const message = (id: string, ts: number, chat = 'oc_room') => ({ message_id: id, chat_id: chat, create_time: String(ts), update_time: String(ts + 20),
     msg_type: 'text', root_id: 'om_root', message_position: '13', sender: { id: 'ou_reader', sender_type: 'user', id_type: 'open_id' },
     body: { content: JSON.stringify({ text: '推荐理由补充反馈' }) } });
   let historyReads = 0;
@@ -67,6 +105,11 @@ test('补读校验授权身份与时间窗，沿用 Super-agent 原消息编号�
     if (args[0] === 'whoami') return { identity: 'user', available: true, appId: settings.appId, onBehalfOf: { openId: settings.userOpenId } };
     historyReads++;
     const params = JSON.parse(args[args.indexOf('--params') + 1]!);
+    if (args[2]?.endsWith('/mget')) {
+      assert.deepEqual(params.message_ids, ['om_message', 'om_withdrawn', 'om_missing']);
+      return { ok: true, identity: 'user', data: { items: [message('om_message', start - 100),
+        { ...message('om_withdrawn', start - 100), deleted: true }, message('om_not_requested', start)] } };
+    }
     assert.equal(typeof params.start_time, 'string');
     assert.equal(params.container_id, 'oc_room');
     const deleted = { ...message('om_withdrawn', start + 11), deleted: true };
@@ -82,5 +125,9 @@ test('补读校验授权身份与时间窗，沿用 Super-agent 原消息编号�
   assert.equal(batch.inputs[0]?.sender.namespace, settings.appId);
   assert.ok(batch.inputs[0]?.origin.url?.endsWith('position=13'));
   assert.equal(batch.inputs[0]?.trigger.id, feishuTriggerId('om_message'));
+  assert.equal(batch.inputs[0]?.updatedAt, start + 30);
+  const refreshed = await refreshDiscussionMessages(reader, settings, feishu, 'oc_room', ['om_message', 'om_withdrawn', 'om_missing']);
+  assert.deepEqual(refreshed.inputs.map(row => row.trigger.id), [feishuTriggerId('om_message')]);
+  assert.deepEqual(refreshed.withdrawn, [feishuTriggerId('om_withdrawn')]);
   await assert.rejects(readDiscussionHistory(reader, { ...settings, userOpenId: 'ou_changed' }, feishu, 'oc_room', start, start + 1000), /身份已变化/);
 });

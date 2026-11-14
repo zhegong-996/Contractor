@@ -14,6 +14,8 @@ export type ChannelRequest = {
   request: string;
   note?: boolean;
   topic?: string;
+  reference?: ChannelRef | string;
+  revision?: string;
 };
 
 type Binding = {
@@ -23,10 +25,11 @@ type Proof = {
   member: string; provider: Provider; expires: number; sender: string | null; url: string | null;
 };
 export type PendingRequest = {
-  id: string; member: string; request: ChannelRequest; reason: string;
+  id: string; member: string; request: ChannelRequest; reason: string; ticket?: string;
 };
 
 const digest = (value: string) => createHash('sha256').update(value).digest('hex');
+export const messageRef = (id: string, url?: string): ChannelRef => ({ key: 'channel-message:' + id, label: '原消息', url });
 
 export function feishuCommandText(content: string, mention?: { key?: string; name?: string }) {
   const text = content.trim();
@@ -65,6 +68,10 @@ export class ChannelLinks {
       CREATE INDEX IF NOT EXISTS workbench_channel_pending ON workbench_channel_event(project,resolved);
       CREATE INDEX IF NOT EXISTS workbench_channel_ticket ON workbench_channel_event(ticket);
       CREATE INDEX IF NOT EXISTS workbench_thread_ticket ON workbench_thread_link(ticket);
+      CREATE TABLE IF NOT EXISTS workbench_channel_revision (
+        event TEXT NOT NULL, at TEXT NOT NULL, hash TEXT NOT NULL, text TEXT,
+        PRIMARY KEY(event,at,hash), FOREIGN KEY(event) REFERENCES workbench_channel_event(id)
+      );
     `);
   }
 
@@ -138,6 +145,10 @@ export class ChannelLinks {
     return this.db.prepare('SELECT ref AS key,label,url FROM workbench_thread_link WHERE ticket=? ORDER BY rowid').all(ticket);
   }
 
+  unlinkReference(ref: ChannelRef, ticket: string) {
+    this.db.prepare('DELETE FROM workbench_thread_link WHERE ref=? AND ticket=?').run(ref.key, ticket);
+  }
+
   seen(id: string) {
     return !!this.db.prepare('SELECT 1 FROM workbench_channel_event WHERE id=?').get(id);
   }
@@ -150,8 +161,27 @@ export class ChannelLinks {
     );
   }
 
+  revise(id: string, at: string, body: string, shared: boolean) {
+    const hash = digest(body.trim());
+    const last = this.db.prepare('SELECT at,hash FROM workbench_channel_revision WHERE event=? ORDER BY at DESC,rowid DESC LIMIT 1').get(id);
+    if (last && (Date.parse(String(last.at)) > Date.parse(at) || last.hash === hash)) return;
+    this.db.prepare('INSERT OR IGNORE INTO workbench_channel_revision VALUES (?,?,?,?)')
+      .run(id, at, hash, shared ? body : null);
+  }
+
+  revisions(id: string) {
+    return this.db.prepare('SELECT at,hash AS revision,text FROM workbench_channel_revision WHERE event=? ORDER BY at,rowid')
+      .all(id) as { at: string; revision: string; text: string | null }[];
+  }
+
   private read(row: Record<string, unknown>): PendingRequest {
-    return { id: String(row.id), member: String(row.member), request: JSON.parse(String(row.request)), reason: String(row.reason ?? '') };
+    return { id: String(row.id), member: String(row.member), request: JSON.parse(String(row.request)), reason: String(row.reason ?? ''),
+      ticket: typeof row.ticket === 'string' ? row.ticket : undefined };
+  }
+
+  event(id: string) {
+    const row = this.db.prepare('SELECT * FROM workbench_channel_event WHERE id=?').get(id);
+    return row && this.read(row);
   }
 
   pending(project: string) {
