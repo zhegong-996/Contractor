@@ -93,5 +93,6 @@ test('按锁定清单确认验收是一条独立路径，身份与闸门都不�
   assert.match(controller, /gate\.status !== 'verified'/);
   assert.match(controller, /不代替人签字/);
   // 旧的 CI/交付验收红线完整保留，没有被新路径替换。
-  assert.match(controller, /Acceptance must target the deployed, CI-verified commit/);
+  assert.match(controller, /validateAcceptance\(current, sha, cases\)/);
+  assert.match(read('src/delivery-acceptance.ts'), /Acceptance must target the deployed, CI-verified commit/);
 });

@@ -22,6 +22,9 @@ import { EvolutionService, defaultEvolutionDeps, assertDeliverySelfCheck } from 
 // 第三十八轮 · 交付前独立审码（RE-AUDIT 待补第 4 项）：与验收分开的一段。
 import { reviewDelivery, assertCodeReviewGate, codeReviewLines } from './code-review.ts';
 import type { V06Services } from './v06.ts';
+import { validateAcceptance } from './delivery-acceptance.ts';
+
+export { validateAcceptance } from './delivery-acceptance.ts';
 
 /**
  * Business acceptance items are declared in the originating IM message as
@@ -34,15 +37,6 @@ export function businessAcceptanceFrom(text: string): string[] {
   const line = /(?:^|[\s。；;，,、])验收[:：]\s*(.+)$/m.exec(text)?.[1];
   const items = line ? line.split(/[；;]/).map(s => s.trim()).filter(Boolean).slice(0, 12) : [];
   return items.length ? items : ['符合任务要求'];
-}
-
-export function validateAcceptance(task: Task, sha: string, cases: { name: string; passed: boolean }[]) {
-  const d = task.delivery;
-  if (!d || d.ci !== 'passed' || !d.deployedSha || sha !== d.headSha || sha !== d.deployedSha) throw new Error('Acceptance must target the deployed, CI-verified commit');
-  if (!cases.length || cases.some(c => !c.name.trim() || c.passed !== true)) throw new Error('Every acceptance case must pass');
-  const required: string[] = JSON.parse(task.context).businessAcceptance ?? ['符合任务要求'];
-  if (new Set(cases.map(c => c.name)).size !== cases.length || required.some(name => !cases.some(c => c.name === name))) throw new Error('Every required business acceptance case must be recorded');
-  if (!d.environment) throw new Error('Acceptance environment is missing');
 }
 
 export class Controller {

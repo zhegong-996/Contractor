@@ -31,7 +31,7 @@ async function noSymlink(rootPath: string, file: string) {
   }
 }
 export class Github implements DeliveryAdapter {
-  constructor(readonly config: Config) {}
+  constructor(readonly config: Pick<Config, 'repository' | 'checkout' | 'allowedPaths' | 'bridgePort'>) {}
   async api(route: string) { return JSON.parse(await command('gh', ['api', `repos/${this.config.repository}/${route}`])); }
   async prepare(id: string) {
     const workspace = path.join(runtime('tasks'), id, 'worktree'); const branch = `collab/${id.slice(0, 12)}`;

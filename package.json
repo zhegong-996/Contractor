@@ -41,6 +41,7 @@
     "restart:bridge": "node --import tsx scripts/up.ts restart-bridge",
     "stop": "node --import tsx scripts/up.ts stop",
     "status": "node --import tsx scripts/up.ts status",
+    "pilot:superagent": "node --import tsx src/superagent-pilot/main.ts",
     "start": "node --import tsx src/server.ts",
     "cli": "node --import tsx src/cli.ts",
     "mcp": "node --import tsx src/mcp.ts",

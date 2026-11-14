@@ -181,6 +181,10 @@ License: Apache License 2.0; retained verbatim at `upstream/cognee/LICENSE` and 
 
 The existing pinned Super-agent MIT source also supplies `settingsPolicy` and `assessmentOutcome`. The existing pinned Agent Autoloop MIT source also supplies `createWorker` for native process execution and receipt recovery. Both submodule worktrees remain unmodified. SuitMe adds native Paperclip ports and scoped MCP tools; no second hub is started.
 
+## Independent Super-agent migration pilot (2026-11-14)
+
+The isolated SuitMe pilot directly runs the pinned Super-agent Engine, SQLite Store, Effects, Feishu normalization and replies. It also runs Agent Autoloop's original host runtime, event kernel, cards, leases, recovery and Codex worker. Both use the unchanged sources and MIT notices above. The production host remains on its existing path. LobeHub informs design without copying its main repository code.
+
 ## Agent2Agent JavaScript SDK
 
 `@a2a-js/sdk` 1.3.0, package gitHead `29417a5bb4038f804f310ce4fffd267a9375aa90`, from https://github.com/a2aproject/a2a-js. Licensed under Apache-2.0, retained verbatim in `licenses/a2a-js-APACHE-2.0.txt`. The lockfile pins the registry package and integrity. The SDK executes actual native-task delegation, JSON-RPC state retrieval and durable cancellation; no separate business scheduler or unscoped external-agent discovery is introduced.
