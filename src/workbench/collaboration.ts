@@ -21,7 +21,7 @@ import { checkpointAgent, entireCheckpoint } from './entire.ts';
 import { checkoutFor, commitDevelopment, developmentCheckout, developmentFolder, type Development, type DevelopmentTarget } from './development.ts';
 import { FeishuSources, sensitiveFeishuText } from '../feishu-sources.ts';
 import { tokenize } from '../memory-projections.ts';
-import { Discussions, digestProposals, discussionLookback, discussionRule, githubObjectPath, observation,
+import { Discussions, digestAgentId, digestProposals, discussionLookback, discussionRule, githubObjectPath, observation, previewLength,
   type Destination, type DigestItem, type DigestScope, type Observation, type Proposal } from './discussion.ts';
 import { readDiscussionDocuments, readDiscussionHistory, type DiscussionInput, type SourceFact } from './discussion-intake.ts';
 import { githubReferenceDetails, recentGithubWork } from './github-intake.ts';
@@ -876,7 +876,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     const slots = job.context.events.filter(event => event.type === 'schedule.tick' && event.source === 'schedule')
       .map(event => Date.parse(event.id.slice(event.id.lastIndexOf('@') + 1))).filter(Number.isFinite);
     const slot = Math.max(...slots);
-    if (!Number.isFinite(slot) || !digestEnabled(project) || job.agent.id !== project.discussion!.agent) {
+    if (!Number.isFinite(slot) || !digestEnabled(project) || job.agent.id !== digestAgentId(project.id)) {
       hub.finish(job.run, job.token, { outcome: 'cancelled', summary: '群整理的来源或 Agent 已变更' });
       return;
     }
@@ -904,7 +904,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       const earlier = discussions.list(project.id).filter(item => item.status === 'applied').slice(0, 8)
         .map(item => ({ title: item.title, topic: item.topic, ticket: item.ticket }));
       add('discussion.project', project.id, { title: project.title, topics, tickets, coverage: failures, earlier });
-      for (const message of messages) add('discussion.message', message.id, { id: message.id, text: message.text,
+      for (const message of messages) add('discussion.message', message.id, { id: message.id, text: message.text.slice(0, previewLength),
         topicHint: message.topic, exactTicket: scope.matches[message.id], githubUnverified: scope.unavailable.includes(message.id),
         nearbyGithub: scope.relatedGithub[message.id], at: new Date(message.at).toISOString(), url: message.origin.url });
       for (const fact of scope.facts) add('discussion.evidence', fact.key, fact);

@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { nextRun, parseCron } from '../../upstream/autoloop/kernel/cron.ts';
 import { runtime } from '../config.ts';
 import { canonicalResourceId, githubRepository, resourcePurpose, resourceSchema, routesEvents, topicInputSchema } from './project-resources.ts';
+import { digestAgentId, discussionZone } from './discussion.ts';
 
 const id = z.string().regex(/^[a-z][a-z0-9-]{0,47}$/);
 const member = z.string().regex(/^[a-zA-Z0-9_-]{2,32}$/);
@@ -11,9 +12,11 @@ const profileId = z.string().regex(/^[a-zA-Z0-9_-]+$/).max(160);
 export const title = z.string().trim().min(1).max(100);
 const discussion = z.object({
   agent: id,
+  model: title.optional(),
+  effort: z.enum(['low', 'medium', 'high']).default('low'),
   cron: z.string().max(80).refine(value => {
     const cron = parseCron(value);
-    return !!cron && nextRun(cron, Date.now(), 'Asia/Shanghai') !== null;
+    return !!cron && nextRun(cron, Date.now(), discussionZone) !== null;
   }, '请输入能够触发的五段式 cron').default('0 0,12 * * *'),
   history: z.object({ profile: profileId, appId: profileId, userOpenId: profileId, member }).strict().optional(),
   documents: z.array(z.url({ protocol: /^https$/ })).max(4).default([]),
@@ -99,6 +102,8 @@ export const settingsSchema = z.object({
     }
   }
   for (const service of value.agents) {
+    if (value.projects.some(p => p.discussion && service.id === digestAgentId(p.id)))
+      flag('Agent 标识与群整理执行端冲突');
     if (!value.functions.some(x => x.id === service.function)) flag('Agent 的职能不存在');
     if (service.projects.some(p => !projectById.get(p)?.members.includes(service.owner))) flag('Agent 所有者必须是对应项目成员');
     if ((['command', 'cursor'].includes(service.engine)) !== Boolean(service.command)) flag('通用命令与 Cursor 需要配置命令参数');

@@ -8,10 +8,12 @@ import type { DiscussionInput, SourceFact } from './discussion-intake.ts';
 import { sensitiveFeishuText } from '../feishu-sources.ts';
 
 export const discussionRule = (project: string) => '群消息整理 · ' + project;
+export const digestAgentId = (project: string) => 'discussion-worker-' + project;
 export const discussionZone = 'Asia/Shanghai';
-export const discussionBatch = 60;
+export const discussionBatch = 30;
 export const discussionLookback = 3 * 24 * 3600_000;
 const duplicateWindow = 12 * 3600_000;
+export const previewLength = 600;
 const casual = /^(?:[\s。！!？，,]*(?:好的|收到|了解|嗯+|哈+|[oｏ]k|好呀|早安|晚安|早上好|大家好|谢谢(?:大家)?|辛苦了|点赞|节日快乐|生日快乐|周末愉快)[\s。！!？，,]*)$/iu;
 const offTopic = /^(?:[（(][^）)]{1,18}[）)]\s*)?(?:大家|你们?|今天|晚上|今晚|中午|下班后|咱们|一起)*(?:打游戏[吗么具体]?|吃(?:了|啥|什么|饭)|晚饭吃|午饭吃|谁想喝|去不去打球|约球|周末去哪)[^。；;\n]{0,10}[？?。！!\s]*$/u;
 

@@ -6,7 +6,7 @@ import type { Job } from '../../upstream/autoloop/protocol/job.ts';
 import type { Result } from '../../upstream/autoloop/protocol/validate.ts';
 import { root, runtime } from '../config.ts';
 import type { Agent, Project } from './config.ts';
-import { discussionRule, discussionZone } from './discussion.ts';
+import { digestAgentId, discussionRule, discussionZone } from './discussion.ts';
 
 export const workerName = 'suitme-workbench';
 export const ruleName = (id: string) => '执行 · ' + id;
@@ -44,18 +44,23 @@ export async function openExecution(agents: Agent[], projects: Project[]) {
     const adapter = pathToFileURL(path.join(root, 'src/workbench/cursor.ts')).href;
     await writeFile(path.join(plugins, 'agent.ts'), 'export { default } from ' + JSON.stringify(adapter) + ';\n', { mode: 0o600 });
   }
+  const digestAgents = projects.flatMap(project => {
+    const selected = project.discussion && agents.find(agent => agent.id === project.discussion!.agent);
+    return selected ? [{ ...selected, id: digestAgentId(project.id), model: project.discussion!.model ?? selected.model,
+      effort: selected.engine === 'codex' ? project.discussion!.effort : undefined }] : [];
+  });
   const rules = {
     timezone: discussionZone,
     sources: { suitme: { name: 'SuitMe 协作台' } },
-    agents: Object.fromEntries(agents.map(a => [a.id, {
+    agents: Object.fromEntries([...agents.map(a => ({ ...a, effort: undefined })), ...digestAgents].map(a => [a.id, {
       name: a.title, worker: workerName, use: a.engine, access: 'read', timeout: 8,
-      ...(a.model ? { model: a.model } : {}), ...(a.command ? { command: a.command } : {}),
+      ...(a.model ? { model: a.model } : {}), ...(a.command ? { command: a.command } : {}), ...(a.effort ? { effort: a.effort } : {}),
     }])),
     rules: [...agents.map(a => ({
       name: ruleName(a.id), when: { source: 'suitme', types: [assignmentEvent(a.id)] }, to: a.id, cwd,
       prompt: '按工单授权提供专业意见', parallel: 1, tell: 'needed',
     })), ...projects.flatMap(project => project.discussion ? [{
-      name: discussionRule(project.id), when: { cron: project.discussion.cron }, to: project.discussion.agent, cwd, tell: 'never',
+      name: discussionRule(project.id), when: { cron: project.discussion.cron }, to: digestAgentId(project.id), cwd, tell: 'never',
       prompt: '整理经授权的项目群反馈',
     }] : [])],
   };
