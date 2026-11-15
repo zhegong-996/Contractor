@@ -180,6 +180,7 @@ a.external:hover, a.text-button:hover { text-decoration: underline; text-underli
 .searchbox { position: relative; display: flex; align-items: center; width: 100%; }
 .searchbox > svg { position: absolute; left: 9px; z-index: 1; height: 15px; width: 15px; color: var(--dim); pointer-events: none; }
 .searchbox input { padding-left: 31px; background: white; }
+.memory-home-link { margin: 0 14px 6px; align-self: flex-start; }
 .segments { border-radius: 8px; flex-wrap: nowrap; }
 .segments [data-slot=tabs-trigger] { border-radius: 6px; padding-inline: 10px; font-size: 12px; }
 .segments [data-state=active] { color: var(--violet-deep); font-weight: 650; }

@@ -10,13 +10,14 @@ import type { Job } from '../../upstream/autoloop/protocol/job.ts';
  * view is never persisted, so waiting neither loses inputs nor cancels a run. */
 export function claimWhenAnswered(
   hub: Pick<typeof NativeHub, 'db' | 'getView' | 'environment'>, worker: string, claim: string,
+  eligible: (run: { lane: string; rule: string }) => boolean = () => true,
 ): Job | null {
   let job: Job | null = null;
   commitLatest(hub.db, hub.getView().format, latest => {
     const view = latest.fork();
     const pending = latest.select('cards', { kind: 'ask', state: 'open' });
     for (const run of latest.select('runs', { state: 'queued' })) {
-      if (pending.some(card => card.lane === run.lane && card.rule === run.rule))
+      if (!eligible({ lane: String(run.lane), rule: String(run.rule) }) || pending.some(card => card.lane === run.lane && card.rule === run.rule))
         view.set('runs', String(run.id), null);
     }
     const now = Date.now();

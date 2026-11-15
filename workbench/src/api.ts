@@ -16,6 +16,11 @@ export type Discussion = ReturnType<Collaboration['discussionView']>;
 export type Imported = Awaited<ReturnType<Collaboration['importKnowledge']>>;
 export type StartResult = ReturnType<Collaboration['start']>;
 export type Resource = Project['resources'][number];
+export type DeviceRow = ReturnType<Collaboration['projectDevices']>[number];
+export type BudgetRow = ReturnType<Collaboration['budgetPools']>[number];
+export type MemoryRow = ReturnType<Collaboration['memoryHome']>[number];
+export type MemoryUse = ReturnType<Collaboration['memoryUses']>[number];
+export type RecallHit = ReturnType<Collaboration['recallMemory']>[number];
 
 class ApiError extends Error {
   constructor(message: string, readonly status: number) { super(message); }

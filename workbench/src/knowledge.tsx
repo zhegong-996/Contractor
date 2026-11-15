@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { ArrowLeft, ArrowRight, BookOpen, Check, FilePlus2, History, Import, LockKeyhole, PencilLine, Plus, XCircle } from 'lucide-react';
-import { api, readable, useData, type Imported, type Knowledge, type ReadableKnowledge } from './api.ts';
-import { go, routeFor, type PageProps } from './navigation.ts';
+import { api, readable, useData, type Imported, type Knowledge, type MemoryRow, type MemoryUse, type ReadableKnowledge, type RecallHit } from './api.ts';
+import { go, routeFor, runRoute, type PageProps } from './navigation.ts';
 import { Button } from './paperclip/button.tsx';
 import { Input } from './paperclip/input.tsx';
 import { date, Empty, Ext, Failure, Field, IconButton, Loading, Markdown, MaterialIcon, Modal, Pill, SearchBox, Section, Segments,
@@ -21,6 +21,7 @@ export function KnowledgePage(props: PageProps) {
   const [query, search] = useStored('knowledge-query:' + project.id, '');
   const [searchTerm, setTerm] = useState(query);
   const [editing, edit] = useState<'add' | 'import' | null>(null);
+  const overview = !route.item && route.tab === 'activity';
   useEffect(() => {
     const timer = window.setTimeout(() => setTerm(query.trim()), 240);
     return () => window.clearTimeout(timer);
@@ -37,16 +38,19 @@ export function KnowledgePage(props: PageProps) {
     if (tab === 'review') return entry.state === 'candidate' && (!query || entry.title.includes(query.trim()));
     return entry.state === 'published' && (!query || entry.title.includes(query.trim()));
   });
-  return <div className="split" data-has-detail={!!route.item}>
+  return <div className="split" data-has-detail={!!route.item || overview}>
     <aside className="split-list" aria-label="项目资料列表">
       <div className="list-header">
-        <div className="list-title"><h1>知识库</h1><div className="actions">
+        <div className="list-title"><h1>知识与记忆</h1><div className="actions">
           {project.importableSources.length > 0 && <IconButton label="接入资料" onClick={() => edit('import')}><Import /></IconButton>}
           {project.mayStart && <IconButton label="新增知识" onClick={() => edit('add')}><Plus /></IconButton>}
         </div></div>
         <SearchBox label="搜索项目知识" value={query} onChange={search} />
         <Segments label="知识状态" items={catalogTabs} value={tab} onChange={value => go(project.id, 'knowledge', undefined, value)} />
       </div>
+      <a className="text-button memory-home-link" href={routeFor(project.id, 'knowledge', undefined, 'activity')}>
+        协作沉淀 <ArrowRight size={14} />
+      </a>
       <div className="list-scroll">
         {catalog.error ? <Failure error={catalog.error} retry={() => void catalog.refetch()} /> : catalog.isPending ? <Loading />
           : entries.length ? entries.map(entry => <a key={entry.id} className="list-item entry-item"
@@ -60,15 +64,57 @@ export function KnowledgePage(props: PageProps) {
       </div>
     </aside>
     <div className="split-detail">
-      {route.item && <a className="mobile-back" href={routeFor(project.id, 'knowledge', undefined, tab)}><ArrowLeft size={16} />知识列表</a>}
+      {(route.item || overview) && <a className="mobile-back" href={routeFor(project.id, 'knowledge', undefined, tab)}><ArrowLeft size={16} />知识列表</a>}
       {selected ? <KnowledgeDetail entry={selected} key={selected.id} {...props} />
         : route.item && waiting ? <Loading /> : route.item ? <Empty title="此条目当前不可见" icon={<LockKeyhole />}
           description="可以查看现行列表，或在有权限时查询历史版本。" />
-          : <Empty title="选择一条知识" description="查看适用条件、来源和版本。" icon={<BookOpen />}
-            action={project.importableSources.length ? <Button variant="outline" size="sm" onClick={() => edit('import')}><Import />接入资料</Button> : undefined} />}
+          : <MemoryHome project={project.id} />}
     </div>
     {editing === 'add' && <KnowledgeEditor {...props} close={() => edit(null)} />}
     {editing === 'import' && <ImportSource {...props} close={() => edit(null)} />}
+  </div>;
+}
+
+function MemoryHome({ project }: { project: string }) {
+  const data = useData<MemoryRow[]>('project/' + project + '/memory', 3200);
+  const [query, setQuery] = useState('');
+  const [submitted, setSubmitted] = useState('');
+  const matches = useData<RecallHit[]>(submitted ? 'project/' + project + '/recall?q=' + encodeURIComponent(submitted) : '');
+  return <div className="knowledge-detail">
+    <header className="object-header"><div className="object-emblem"><BookOpen size={24} /></div><div><h1>协作沉淀</h1></div></header>
+    <div className="detail-stack reading">
+      <Section title="试查项目记忆">
+        <form className="inline-form" onSubmit={event => { event.preventDefault(); setSubmitted(query.trim()); }}>
+          <SearchBox label="输入下一次任务的问题" value={query} onChange={setQuery} />
+          <Button type="submit" size="sm" variant="outline" disabled={!query.trim()}>检索</Button>
+        </form>
+        {submitted && (matches.error ? <Failure error={matches.error} /> : !matches.data ? <Loading />
+          : matches.data.length ? matches.data.map(hit => <div className="record-row" key={hit.id}>
+            <a className="text-button" href={routeFor(project, 'knowledge', hit.id)}>{hit.title}</a>
+            {hit.pinned && <Pill tone="violet">常用口径</Pill>}
+            <small>{hit.conditions}</small>
+          </div>) : <p className="muted-text">未找到可供新工单装配的现行记忆。</p>)}
+      </Section>
+      {data.error ? <Failure error={data.error} retry={() => void data.refetch()} /> : !data.data ? <Loading />
+        : data.data.length ? <Section title="近期知识">
+          {data.data.map(entry => <article className="revision-note" key={entry.id}>
+            <div className="record-row">
+              <a className="text-button" href={routeFor(project, 'knowledge', entry.id, entry.state === 'candidate' ? 'review' : entry.retirement ? 'history' : 'current')}>
+                {entry.title}<ArrowRight size={14} /></a>
+              <Pill tone={entry.state === 'candidate' ? 'amber' : entry.retirement ? 'neutral' : 'green'}>
+                {entry.state === 'candidate' ? '待确认' : entry.retirement === 'superseded' ? '已替代' : entry.retirement ? '已失效' : '已采用'}
+              </Pill>
+              {entry.pinned && <Pill tone="violet">常用口径</Pill>}
+            </div>
+            <div className="record-row">{entry.ticket
+              ? <a href={routeFor(project, 'work', entry.ticket, 'delivery')}>{entry.ticketTitle}</a>
+              : <span>接入资料</span>}<small>{entry.owner}</small>{entry.at && <time>{date(entry.at)}</time>}</div>
+            {entry.related && <a className="text-button" href={routeFor(project, 'knowledge', entry.related.id)}>
+              {entry.related.sameBody ? '核对重复知识' : '对照同名现行口径'}
+            </a>}
+          </article>)}
+        </Section> : <Empty title="等待项目沉淀" description="验收形成的候选和接入的资料会显示在这里。" icon={<BookOpen />} />}
+    </div>
   </div>;
 }
 
@@ -78,6 +124,9 @@ function KnowledgeDetail({ entry, project, workspace, openTask, route }: PagePro
   const owned = entry.owner === workspace.actor;
   const full = readable(entry) ? entry : undefined;
   const active = !!full && entry.state === 'published' && !full.retirement && route.tab !== 'history';
+  const memory = useData<MemoryRow[]>('project/' + project.id + '/memory');
+  const pinned = memory.data?.some(item => item.id === entry.id && item.pinned);
+  const compare = memory.data?.find(item => item.id === entry.id)?.related;
   const source = full?.source;
   return <div className="knowledge-detail">
     <header className="object-header">
@@ -109,6 +158,10 @@ function KnowledgeDetail({ entry, project, workspace, openTask, route }: PagePro
         </div>)}
       </Section>}
       {full?.learning && <Section title="观测证据"><p>{full.learning.metric} · 基线 {full.learning.baseline} {full.learning.unit}</p><Markdown text={full.learning.evidence} /></Section>}
+      {compare && <a className="text-button" href={routeFor(project.id, 'knowledge', compare.id, 'current')}>
+        {compare.sameBody ? '核对相同结论' : '对照现行口径'} <ArrowRight size={14} />
+      </a>}
+      {full?.state === 'published' && <MemoryUseHistory project={project.id} id={entry.id} />}
       <div className="actions">
         {(active || !full && entry.state === 'published') && project.mayStart && <Button onClick={() => openTask(full?.learning && full.ticket
           ? { lesson: { id: entry.id, title: entry.title, ticket: full.ticket, metric: full.learning.metric, unit: full.learning.unit, baseline: full.learning.baseline } }
@@ -117,6 +170,11 @@ function KnowledgeDetail({ entry, project, workspace, openTask, route }: PagePro
         {full?.canPublish && <Button disabled={busy} onClick={() => show('publish')}><Check />确认采用</Button>}
         {active && owned && !full?.source && !full?.ticket && <Button variant="outline" onClick={() => show('replace')}><FilePlus2 />拟定新版</Button>}
         {active && owned && <Button variant="ghost" onClick={() => show('invalidate')}><XCircle />标记失效</Button>}
+        {active && full.visibility === 'project' && full.body.length <= 1500 && full.conditions && project.maintain && memory.data
+          && <Button variant="outline" size="sm" disabled={busy}
+            onClick={() => void run(() => api('knowledge/' + entry.id + '/pin', { pinned: !pinned }), pinned ? '已取消固定' : '已固定为常用口径')}>
+            {pinned ? '取消固定' : '固定为常用口径'}
+          </Button>}
       </div>
     </div>
     {full && (dialog === 'review' || dialog === 'replace') && <KnowledgeEditor {...{ project, workspace, openTask, route }}
@@ -136,6 +194,19 @@ function KnowledgeDetail({ entry, project, workspace, openTask, route }: PagePro
       </form>
     </Modal>}
   </div>;
+}
+
+function MemoryUseHistory({ project, id }: { project: string; id: string }) {
+  const data = useData<MemoryUse[]>('knowledge/' + id + '/uses', 3200);
+  return <Section title="使用记录">
+    {data.error ? <Failure error={data.error} retry={() => void data.refetch()} /> : !data.data ? <Loading />
+      : data.data.length ? data.data.map(item => <div className="record-row" key={item.run + ':' + item.attempt}>
+        <a className="text-button" href={runRoute(project, item.ticket, item.run, item.attempt)}>{item.title}<ArrowRight size={14} /></a>
+        <small>第 {item.version} 版 · #{item.run}/{item.attempt} {item.owner}</small>
+        <Pill tone={item.cited ? 'green' : 'neutral'}>{item.cited ? '成果已引用' : '已装配'}</Pill>
+        {item.recalled && <span>按任务检索</span>}
+      </div>) : <p className="muted-text">暂无可查看的执行记录。</p>}
+  </Section>;
 }
 
 function KnowledgeEditor({ project, entry, mode, close }: PageProps & { entry?: ReadableKnowledge; mode?: 'review' | 'replace'; close: () => void }) {

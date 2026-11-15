@@ -4,17 +4,22 @@ import { go, routeFor, type PageProps } from './navigation.ts';
 import { TabsContent } from './paperclip/tabs.tsx';
 import { Button } from './paperclip/button.tsx';
 import { Avatar, Empty, Failure, Loading, PageTabs, Pill, SearchBox, Section, useActions, useStored } from './ui.tsx';
+import { AgentMemory, AgentOperations } from './agent-operations.tsx';
 
-const agentTabs = [['profile', '职责与委托'], ['receipts', '执行与费用']] as const;
+const agentTabs = [['profile', '职责与委托'], ['memory', '记忆'], ['receipts', '执行与费用']] as const;
 export function AgentsPage(props: PageProps) {
   const { workspace, project, route } = props;
   const [query, search] = useStored('agents-search:' + project.id, '');
   const all = workspace.agents.filter(agent => agent.projects.includes(project.id));
   const shown = all.filter(a => (a.title + a.owner + a.capability).toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
   const selected = route.item ? all.find(agent => agent.id === route.item) : undefined;
+  if (!route.item && (route.tab === 'devices' || route.tab === 'budgets')) return <AgentOperations {...props} page={route.tab} />;
   return <div className="split" data-has-detail={!!route.item}>
     <aside className="split-list" aria-label="项目 Agent 列表">
-      <div className="list-header"><h1>Agent</h1><SearchBox label="搜索 Agent 或负责人" value={query} onChange={search} /></div>
+      <div className="list-header"><h1>Agent</h1><div className="actions">
+        <a className="text-button" href={routeFor(project.id, 'agents', undefined, 'devices')}><Cpu size={15} />执行端</a>
+        <a className="text-button" href={routeFor(project.id, 'agents', undefined, 'budgets')}><ReceiptText size={15} />额度管理</a>
+      </div><SearchBox label="搜索 Agent 或负责人" value={query} onChange={search} /></div>
       <div className="list-scroll">
         {shown.map(agent => <a className="list-item entry-item" href={routeFor(project.id, 'agents', agent.id)} key={agent.id}
           aria-current={selected?.id === agent.id ? 'page' : undefined}>
@@ -43,7 +48,8 @@ function engineName(engine: string) {
 }
 function AgentDetail({ agent, project, workspace, route, openTask }: PageProps & { agent: Agent }) {
   const { run, busy } = useActions();
-  const active = route.tab === 'receipts' ? 'receipts' : 'profile';
+  const active = route.tab === 'receipts' || route.tab === 'memory' ? route.tab : 'profile';
+  const mine = agent.kind === 'personal' && agent.owner === workspace.actor;
   const role = workspace.functions.find(f => f.id === agent.function);
   const duties = project.dispatch.filter(rule => rule.agent === agent.id);
   const assigned = workspace.tickets.filter(t => t.work.project === project.id && t.work.agent === agent.id);
@@ -53,7 +59,8 @@ function AgentDetail({ agent, project, workspace, route, openTask }: PageProps &
         <Pill tone={agent.active ? 'green' : 'neutral'}>{agent.active ? '在岗' : '未启用'}</Pill>
         <span>{agent.kind === 'personal' ? '个人 Agent' : '专项 Agent'}</span><span>所有者 {agent.owner}</span>
       </div></div>
-      {project.mayStart && agent.active && <Button size="sm" className="object-action" onClick={() => openTask({ agent: agent.id })}><Play />发起委托</Button>}
+      {project.mayStart && agent.active && <Button size="sm" className="object-action" onClick={() => openTask({ agent: agent.id, personal: mine })}>
+        <Play />{mine ? '交给我的 Agent' : '发起委托'}</Button>}
     </header>
     <PageTabs label="Agent 详情" items={agentTabs} value={active} onChange={tab => go(project.id, 'agents', agent.id, tab)}>
       <TabsContent value="profile" className="detail-stack reading">
@@ -75,6 +82,7 @@ function AgentDetail({ agent, project, workspace, route, openTask }: PageProps &
           </div>) : <p className="muted-text">当前没有分配给该 Agent 的工单。</p>}
         </Section>
       </TabsContent>
+      <TabsContent value="memory" className="detail-stack reading"><AgentMemory project={project.id} agent={agent.id} /></TabsContent>
       <TabsContent value="receipts" className="detail-stack reading"><Receipts project={project.id} agent={agent.id} /></TabsContent>
     </PageTabs>
   </div>;

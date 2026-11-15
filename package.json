@@ -10,6 +10,7 @@
   "scripts": {
     "start": "npm run workbench",
     "workbench": "npm run build:ui && node --import tsx src/workbench/server.ts",
+    "runner": "node --import tsx src/workbench/device-client.ts",
     "audit:upstream": "node --import tsx scripts/audit-upstream.ts",
     "test": "node --import tsx --test tests/*.test.ts",
     "typecheck": "tsc --noEmit",

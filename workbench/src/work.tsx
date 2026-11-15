@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import { ArrowLeft, ArrowRight, Bot, Check, ChevronRight, CircleCheck, FileCheck2, GitBranch, GitPullRequest, History, Link2, ListChecks, LockKeyhole, PanelRightClose, PanelRightOpen, Plus, ShieldCheck } from 'lucide-react';
-import { api, uid, useData, type Knowledge, type Snapshot, type Ticket } from './api.ts';
+import { api, uid, useData, type DeviceRow, type Knowledge, type Snapshot, type Ticket } from './api.ts';
 import { AgentOptions, MaterialPicker } from './creation.tsx';
 import { go, routeFor, type PageProps } from './navigation.ts';
 import { Button } from './paperclip/button.tsx';
@@ -83,7 +83,8 @@ function TicketDetail(props: PageProps & { ticket: Ticket; tab: WorkTab }) {
   const agentChoices = workspace.agents.filter(a => a.active && a.projects.includes(project.id)
     && (!ticket.work.development || ['codex', 'cursor'].includes(a.engine)));
   const actions = ticket.actions;
-  const canResume = actions.resume && (ticket.materialHidden || ticket.report?.state === 'blocked' || ticket.report?.state === 'failed'
+  const deviceWaiting = !!ticket.device && !ticket.device.online && !ticket.endReason;
+  const canResume = actions.resume && !status && (deviceWaiting || ticket.materialHidden || ticket.report?.state === 'blocked' || ticket.report?.state === 'failed'
     || ticket.requests.some(r => r.state === 'revoked' || r.state === 'expired') || ticket.stage.stage === 'idle');
   const send = (action: string, data: unknown, message: string) => run(() => api('ticket/' + ticket.id + '/' + action, data), message);
   const upcoming = ticket.work.version ?? 1;
@@ -98,12 +99,14 @@ function TicketDetail(props: PageProps & { ticket: Ticket; tab: WorkTab }) {
         </div>
       </div>
       <div className="ticket-head-meta"><TicketStatus ticket={ticket} /><Version version={ticket.work.version} /><Source channel={ticket.work.source} />
-        <span>{agent ? agent.title : ticket.work.agent}</span></div>
+        <span>{agent ? agent.title : ticket.work.agent}</span>
+        {ticket.device && <span>{ticket.device.name}{deviceWaiting ? ' · 离线' : ''}</span>}</div>
     </div>
     <div className="ticket-frame" data-inspector={side && tab !== 'context'}>
       <PageTabs value={tab} onChange={value => go(project.id, 'work', ticket.id, value)} items={workTabs} label="工单详情">
         <TabsContent className="ticket-tab" value="activity">
           {status && <div className="info-callout"><History size={17} /><span>正在确认旧执行停止及接续权限。{ticket.report?.summary}</span></div>}
+          {deviceWaiting && !status && <div className="info-callout"><Bot size={17} />{ticket.device?.name} 当前离线，等待连接或确认接续。</div>}
           {decision && <section className="decision-box">
             <span className="decision-mark"><ShieldCheck size={18} /></span><div>
               <h2>{decision.title}</h2>{decision.detail && <p>{decision.detail}</p>}
@@ -213,6 +216,8 @@ function TicketCommand({ name, ticket, close, project, workspace, nextVersion }:
   name: string; ticket: Ticket; close: () => void; nextVersion: number;
 }) {
   const { busy, run } = useActions();
+  const devices = useData<DeviceRow[]>(name === 'resume' ? 'project/' + project.id + '/devices' : '', 2500);
+  const eligible = devices.data?.filter(device => device.agent === ticket.work.agent && device.active && device.eligible) ?? [];
   const options = workspace.agents.filter(a => a.active && a.projects.includes(project.id)
     && (name !== 'handoff' || a.id !== ticket.work.agent) && (!ticket.work.development || ['codex','cursor'].includes(a.engine)));
   const offer = workspace.needsYou.find(d => d.ticket === ticket.id && d.kind === (name === 'respond' ? 'development' : 'development-returned'));
@@ -225,10 +230,12 @@ function TicketCommand({ name, ticket, close, project, workspace, nextVersion }:
     e.preventDefault();
     const form = new FormData(e.currentTarget);
     const reason = String(form.get('reason') ?? '').trim();
+    const target = form.get('device');
     const agent = String(form.get('agent') ?? '');
     const commands: Record<string, [string, unknown]> = {
       stop: ['stop', {}], handoff: ['handoff', { agent, reason }],
-      resume: ['resume', { version: nextVersion, nonce: uid(), reason, baseSha: form.get('baseSha') || undefined }],
+      resume: ['resume', { version: nextVersion, nonce: uid(), reason, baseSha: form.get('baseSha') || undefined,
+        device: target === 'workbench' ? null : target || undefined }],
       respond: ['respond-development', { offer: offer?.id, response: form.get('response'), reason }],
       reoffer: ['reoffer-development', { offer: offer?.subject, agent, reason }],
     };
@@ -240,6 +247,10 @@ function TicketCommand({ name, ticket, close, project, workspace, nextVersion }:
     {['handoff','reoffer'].includes(name) && <Field label="接续 Agent"><select name="agent" required defaultValue=""><AgentOptions agents={options} /></select></Field>}
     {name === 'respond' && <Field label="处理方式"><select name="response"><option value="return">退回给负责人</option><option value="decline">拒接</option></select></Field>}
     {name !== 'stop' && <Field label="原因"><textarea name="reason" rows={4} maxLength={3500} required /></Field>}
+    {name === 'resume' && !ticket.materialHidden && (ticket.device || eligible.length > 0) && <Field label="接续执行端"><select name="device" defaultValue="">
+      <option value="">沿用当前执行端</option><option value="workbench">工作台执行端</option>
+      {eligible.map(device => <option key={device.id} value={device.id}>{device.name}{device.online ? '' : ' · 离线'}</option>)}
+    </select></Field>}
     {name === 'resume' && ticket.actions.baseline && !ticket.materialHidden && <Field label="新 Git 基线（选填）"><Input name="baseSha" pattern="[a-f0-9]{40}" maxLength={40} /></Field>}
     <div className="form-actions"><Button type="submit" variant={name === 'stop' ? 'destructive' : 'default'} disabled={busy}>{submit}</Button></div>
   </form></Modal>;
@@ -258,7 +269,8 @@ function Delivery(props: PageProps & { ticket: Ticket }) {
     <Section title="当前成果" action={<Version version={ticket.work.version} />}>
       {ticket.materialHidden ? <div className="info-callout"><LockKeyhole size={16} />
         <span>{ticket.requests.some(r => r.state === 'revoked') ? '资料授权已收回。' : '此成果当前受限。'}{accepted ? '验收记录仍可查阅。' : ''}</span></div>
-        : result ? <><Markdown text={result.text} /><div className="inline-meta">成果修订 <code>{short(result.revision, 12)}</code><span>引用 {result.sources.length} 份</span></div></>
+        : result ? <><Markdown text={result.text} /><div className="inline-meta">成果修订 <code>{short(result.revision, 12)}</code>
+          <span>已装配 {result.sources.length} 份资料</span><span>成果引用 {result.cited?.length ?? 0} 条记忆</span></div></>
         : <p className="muted-text">尚未提交本版成果。</p>}
       {accepted && <div className="acceptance-line"><CircleCheck size={17} /><span>{accepted.actor} 已验收 · {date(accepted.at, true)}</span>
         {accepted.commit && <code>{short(accepted.commit, 12)}</code>}</div>}
@@ -417,14 +429,15 @@ function ObservationPane({ ticket, project, workspace }: PageProps & { ticket: T
   </Section>;
 }
 
-function ContextPanel({ ticket, project, workspace }: PageProps & { ticket: Ticket }) {
+function ContextPanel({ ticket, project, workspace, route }: PageProps & { ticket: Ticket }) {
   const [selected, select] = useStored('runs:' + ticket.id, 0);
   const [access, setAccess] = useState<{ request: Ticket['requests'][number]; action: 'request' | 'revoke' }>();
   const { run, busy } = useActions();
   const relatedProjects = new Set([project.id, project.parent, ...project.relatedProjects, ...workspace.projects.filter(p => p.parent === project.id).map(p => p.id)]);
   const [related, setRelated] = useState('');
   const editable = ticket.work.requester === workspace.actor || project.maintain;
-  const info = selected ? ticket.runs.find(r => r.id === selected) : ticket.runs.at(-1);
+  const runId = route.run ?? selected;
+  const info = runId ? ticket.runs.find(r => r.id === runId) : ticket.runs.at(-1);
   const handoff = ticket.work.handoff;
   const agentTitle = (id: string) => workspace.agents.find(agent => agent.id === id)?.title ?? id;
   return <div className="detail-stack">
@@ -455,13 +468,17 @@ function ContextPanel({ ticket, project, workspace }: PageProps & { ticket: Tick
         {(handoff.completedAt || handoff.cancelledAt) && <time>{date(handoff.completedAt ?? handoff.cancelledAt!)}</time>}
       </div>
     </Section>}
-    <Section title="执行快照" action={ticket.runs.length > 0 ? <select aria-label="选择执行轮次" value={info?.id ?? ''} onChange={e => select(Number(e.target.value))}>
+    <Section title="执行快照" action={ticket.runs.length > 0 ? <select aria-label="选择执行轮次" value={info?.id ?? ''} onChange={e => {
+      select(Number(e.target.value));
+      if (route.run) go(project.id, 'work', ticket.id, 'context');
+    }}>
       {ticket.runs.slice().reverse().map(r => <option key={r.id} value={r.id}>执行 #{r.id} · {runStates[r.state] ?? r.state}</option>)}
     </select> : undefined}>
       {ticket.timers[0] && <p className="muted-text">下次复查 {date(ticket.timers[0].at)}</p>}
       {info ? <><div className="inline-meta"><Bot size={16} /><span>{info.attribution?.agent ?? 'Agent'} · {info.attribution?.owner ?? '—'}</span>
         {info.attribution && <span>委托 {info.attribution.delegatedBy}</span>}{info.resumed && <span>接续会话</span>}</div>
-        {info.assembly ? <SnapshotBody ticket={ticket.id} id={info.id} project={project.id} /> : <p className="muted-text">此轮暂未保存装配快照。</p>}</>
+        {info.assembly ? <SnapshotBody ticket={ticket.id} id={info.id} attempt={route.run === info.id ? route.attempt : undefined}
+          project={project.id} /> : <p className="muted-text">此轮暂未保存装配快照。</p>}</>
         : <p className="muted-text">等待首轮执行。</p>}
     </Section>
     {(ticket.children.length > 0 || ticket.related.length > 0 || ticket.work.parent || editable) && <Section title="关联工单">
@@ -502,8 +519,8 @@ function ContextPanel({ ticket, project, workspace }: PageProps & { ticket: Tick
   </div>;
 }
 
-function SnapshotBody({ id, ticket, project }: { id: number; ticket: string; project: string }) {
-  const data = useData<Snapshot>('ticket/' + ticket + '/runs/' + id, 2300);
+function SnapshotBody({ id, attempt, ticket, project }: { id: number; attempt?: number; ticket: string; project: string }) {
+  const data = useData<Snapshot>('ticket/' + ticket + '/runs/' + id + (attempt ? '?attempt=' + attempt : ''), 2300);
   if (data.error) return <Failure error={data.error} retry={() => void data.refetch()} />;
   if (!data.data) return <Loading />;
   const snap = data.data;
@@ -515,8 +532,9 @@ function SnapshotBody({ id, ticket, project }: { id: number; ticket: string; pro
     <div className="inline-meta">尝试 {snap.attempt} · {snap.contents.runtime.model ?? '历史记录未提供模型'}
       {snap.isolation && <span>成员隔离 · {snap.isolation.owner}</span>}</div>
     {material.map(ref => <div className="record-row" key={ref.id}>
-      <a href={routeFor(project, 'knowledge', ref.id, 'history')}>{evidence.find(e => e.id === ref.id)?.summary ?? '资料'}</a>
+      <a href={routeFor(project, 'knowledge', ref.id, 'history')}>{ref.title ?? evidence.find(e => e.id === ref.id)?.summary ?? '资料'}</a>
       <code>{short(ref.revision, 12)}</code>{ref.sourceRevision && <Ext href={ref.url}>源版本 {short(ref.sourceRevision, 12)}</Ext>}
+      <Pill tone="neutral">{ref.recalled ? '按任务检索' : '随工单引用'}</Pill>
     </div>)}
     {evidence.length > 0 && <details className="minor-disclosure"><summary>查看实际装配内容</summary>
       {evidence.map(event => <article className="revision-note" key={event.id}><h3>{event.summary}</h3><Markdown text={event.detail} /></article>)}

@@ -1,6 +1,6 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, timingSafeEqual } from 'node:crypto';
 import path from 'node:path';
 import { z } from 'zod';
 import { root, runtime } from '../config.ts';
@@ -16,6 +16,7 @@ import { githubReference, watchGithub } from './github-intake.ts';
 import { referenceSchema, resourceSource, topicInputSchema } from './project-resources.ts';
 import { discussionInput } from './discussion-intake.ts';
 import { watchFeishu } from './feishu-events.ts';
+import { localDeviceKey } from './devices.ts';
 
 const stateDir = process.env.COLLAB_STATE_DIR;
 if (!stateDir || !path.isAbsolute(stateDir)) throw new Error('请提供独立工作台的 COLLAB_STATE_DIR 绝对路径。');
@@ -56,7 +57,8 @@ const discussionDecision = z.discriminatedUnion('action', [
 const settingsRoutes = {
   start: z.object({ project: id, title, request: prose, nonce, material: materials.default([]),
     resources: z.array(z.string().max(180)).max(12).default([]), target: z.string().max(180).optional(), topic: id.optional(),
-    priority: z.enum(['normal', 'urgent']).default('normal'), agent: id.optional(), function: id.optional(), parent: id.optional(), measure: measureSchema.optional(), reusedLesson: id.optional() }).strict(),
+    priority: z.enum(['normal', 'urgent']).default('normal'), agent: id.optional(), function: id.optional(), parent: id.optional(), measure: measureSchema.optional(), reusedLesson: id.optional(),
+    recall: z.boolean().optional(), personal: z.boolean().optional(), device: z.uuid().optional() }).strict(),
   answer: z.object({ card: z.number().int().positive(), choice: z.number().int().nonnegative().optional(), text: prose.optional(), nonce }).strict(),
   accept: z.object({ revision: z.string().length(64), commit: z.string().regex(/^[a-f0-9]{40}$/).optional(), body: z.string().trim().max(16000).default(''), conditions: z.string().trim().max(600).default('') }).strict(),
   add: z.object({ title, body: z.string().trim().min(1).max(16000), conditions: z.string().trim().max(600).default(''),
@@ -74,6 +76,7 @@ function json(res: ServerResponse, status: number, body: unknown) {
 async function serve() {
   // Defined above before the first HTTP request. Hosting remains on the local machine.
   const config = await loadSettings();
+  const deviceKey = Buffer.from(await localDeviceKey(), 'hex');
   const feishu = config.feishu;
   let work: Awaited<ReturnType<typeof openCollaboration>> | undefined;
   let feishuWatch: ReturnType<typeof watchFeishu> | undefined;
@@ -130,6 +133,33 @@ async function serve() {
         } catch (error) { throw new WorkbenchError((error as Error).message, 401); }
         return;
       }
+      if (post && view === 'runner') {
+        const native = await body(req);
+        if (item === 'pair') {
+          const input = z.object({ code: z.string().regex(/^[a-f0-9]{24}$/), host: z.string().regex(/^[a-f0-9]{64}$/), name: title }).strict().parse(native);
+          if (!timingSafeEqual(deviceKey, Buffer.from(input.host, 'hex')))
+            throw new WorkbenchError('请在工作台所在设备完成配对。', 403);
+          json(res, 200, work.pairDevice(input.code, input.name));
+          return;
+        }
+        const token = req.headers.authorization?.match(/^Bearer ([A-Za-z0-9_-]{43})$/)?.[1];
+        if (!token) throw new WorkbenchError('请使用已配对的本机执行端。', 401);
+        if (item === 'work') {
+          const input = z.object({ claim: nonce, wait: z.number().min(0).max(50), capacity: z.boolean(),
+            running: z.array(z.number().int().positive()).max(1) }).strict().parse(native);
+          json(res, 200, await work.deviceWork(token, input));
+        } else if (item === 'started' || item === 'result') {
+          const input = z.object({ run: z.number().int().positive(), lease: z.string().min(1).max(500), value: z.unknown() }).strict().parse(native);
+          const value = item === 'started'
+            ? work.deviceStarted(token, input.run, input.lease, z.object({ session: z.string().min(1).max(240), link: z.string().max(1000).optional() }).strict().parse(input.value))
+            : await work.deviceResult(token, input.run, input.lease, input.value as Parameters<typeof work.deviceResult>[3]);
+          json(res, 200, value ?? { ok: true });
+        } else if (item === 'offline') {
+          work.deviceOffline(token);
+          json(res, 200, { ok: true });
+        } else throw new WorkbenchError('找不到执行端操作。', 404);
+        return;
+      }
       const session = auth.sessionFromRequest(req.headers.cookie);
       const actor = session?.username;
       if (get && view === 'session') { json(res, 200, { signedIn: !!actor }); return; }
@@ -170,6 +200,26 @@ async function serve() {
       else if (get && view === 'ticket' && item) output = work.detail(actor, item);
       else if (get && view === 'request' && item) output = { ticket: work.resolveStart(actor, item) };
       else if (get && view === 'project' && item && action === 'usage') output = work.projectUsage(actor, item);
+      else if (get && view === 'project' && item && action === 'memory')
+        output = work.memoryHome(actor, item, url.searchParams.has('agent') ? id.parse(url.searchParams.get('agent')) : undefined);
+      else if (get && view === 'project' && item && action === 'recall') output = work.recallMemory(actor, item, url.searchParams.get('q') ?? '');
+      else if (get && view === 'project' && item && action === 'devices') output = work.projectDevices(actor, item);
+      else if (get && view === 'project' && item && action === 'budgets') output = work.budgetPools(actor, item);
+      else if (get && view === 'knowledge' && item && action === 'uses') output = work.memoryUses(actor, item);
+      else if (post && view === 'knowledge' && item && action === 'pin')
+        work.setMemoryPin(actor, item, z.object({ pinned: z.boolean() }).strict().parse(await body(req)).pinned);
+      else if (post && view === 'budget') {
+        const input = z.object({ kind: z.enum(['platform', 'personal', 'execution']), subject: id,
+          period: z.enum(['day', 'month']), limit: z.number().int().min(0).max(100000).nullable(),
+          maxMinutes: z.number().int().min(1).max(8).optional() }).strict().parse(await body(req));
+        work.setBudget(actor, { kind: input.kind, subject: input.subject }, input.period, input.limit, input.maxMinutes);
+      } else if (post && view === 'device' && item === 'pair') {
+        const input = z.object({ project: id, agent: id }).strict().parse(await body(req));
+        output = work.issueDevicePair(actor, input.project, input.agent);
+      } else if (post && view === 'device' && item) {
+        const input = z.object({ active: z.boolean() }).strict().parse(await body(req));
+        work.setDevice(actor, z.uuid().parse(item), input.active);
+      }
       else if (post && view === 'project' && item && action === 'bind') {
         const value = z.object({ source: resourceSource, externalId: z.string().min(1).max(200) }).parse(await body(req));
         work.bindResource(actor, item, value.source, value.externalId);
@@ -188,7 +238,7 @@ async function serve() {
         output = work.handoff(actor, item, z.object({ agent: id, reason: prose }).strict().parse(await body(req)));
       else if (post && view === 'ticket' && action === 'resume')
         output = work.resume(actor, item, z.object({ nonce, reason: prose, version: z.number().int().positive(),
-          baseSha: z.string().regex(/^[a-f0-9]{40}$/).optional() }).strict().parse(await body(req)));
+          baseSha: z.string().regex(/^[a-f0-9]{40}$/).optional(), device: z.uuid().nullable().optional() }).strict().parse(await body(req)));
       else if (post && view === 'ticket' && action === 'revise')
         output = work.revise(actor, item, z.object({ revision: z.string().length(64), reason: prose,
           kind: z.enum(['rejected', 'continued']).optional(), material: materials.optional() }).strict().parse(await body(req)));

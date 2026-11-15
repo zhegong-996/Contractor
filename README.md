@@ -37,6 +37,8 @@ npm run build:ui
 
 [交接、恢复与多轮交付](docs/WORKBENCH-ITERATIONS.md) · [迁移设计与九项生产能力](docs/SUPERAGENT-MIGRATION.md) · [上游使用位置](docs/SOURCES.md) · [第三方声明](THIRD_PARTY_NOTICES.md)
 
+[协作记忆、注册执行端和额度](docs/WORKBENCH-MEMORY-AND-DEVICES.md)
+
 [九项生产能力的当前核验与缺口](docs/PRODUCTION-CAPABILITY-AUDIT.md)逐项区分已接能力、验证范围和未完成事项。迁移设计中的目标不代表全部实现。
 
 旧 Paperclip 宿主、插件及首轮迁移原型可从 [清理前版本](https://github.com/zhegong-996/suitme-collab/tree/a7b8b1f7c97cf3fe4cba6894e14590448c0d8ae7) 查阅。旧实例与工作台使用各自的运行目录。

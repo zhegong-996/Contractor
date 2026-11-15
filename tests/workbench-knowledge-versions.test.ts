@@ -116,6 +116,7 @@ test('替换与失效保留历史版本，撤回原资料的精确授权会隐�
   await grant('product', downstream, v1.candidate.id);
   const derived = await adopt(downstream);
   assert.equal(work.executionSnapshot('product', downstream, derived.result.run).readable, true);
+  assert.ok(work.memoryUses('product', v1.candidate.id).some(item => item.ticket === downstream));
 
   const candidate = entry('owner', work.addKnowledge('owner', 'store', {
     ...input, body: 'STORE_POLICY_V2_AMBER，先事实后场景', replaces: first,
@@ -139,6 +140,7 @@ test('替换与失效保留历史版本，撤回原资料的精确授权会隐�
   work.changeAccess('owner', original, grant1, 'revoked');
   assert.equal(work.executionSnapshot('product', original, v1.result.run).contents, undefined);
   assert.equal(work.executionSnapshot('product', downstream, derived.result.run).contents, undefined);
+  assert.throws(() => work.memoryUses('product', v1.candidate.id), { status: 403 });
   assert.ok(!work.browse('product', 'store', '', true).some(e => [v1.candidate.id, derived.candidate.id].includes(e.id)));
   assert.equal(detail(original).versions[0]?.text, undefined);
   assert.equal(detail(original).versions[0]?.reviews[0]?.kind, 'accepted');

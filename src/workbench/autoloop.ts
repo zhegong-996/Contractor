@@ -28,7 +28,7 @@ export interface Autoloop {
   one<T>(sql: string, params?: (string | number)[]): T | undefined;
   heartbeat(name: string, ids: number[]): void;
   cancels(name: string): number[];
-  claimNext(name: string, claim: string): Job | null;
+  claimNext(name: string, claim: string, eligible?: (run: { lane: string; rule: string }) => boolean): Job | null;
   cancel(run: number): void;
   started(id: number, token: string, value: Started): unknown;
   finish(id: number, token: string, result: Result): Receipt;
@@ -63,8 +63,8 @@ function processes(pid?: number): ProcessView[] {
   });
 }
 
-function entryFor(run: number) {
-  const base = runtime('autoloop', 'worker', 'runs');
+function entryFor(run: number, home: string) {
+  const base = path.join(home, 'worker', 'runs');
   const folder = readdirSync(base).filter(name => new RegExp('^' + run + '-[0-9]+$').test(name))
     .sort((a, b) => Number(b.split('-')[1]) - Number(a.split('-')[1]))
     .find(name => existsSync(path.join(base, name, 'entry.json')));
@@ -85,9 +85,9 @@ function processLedger(file: string, entry: NativeEntry): ProcessLedger {
 }
 
 /** Observe from the native launch callback and every heartbeat, before any cancellation can reparent children. */
-export function trackWorkerProcesses(run: number, cancel = false): boolean {
+export function trackWorkerProcesses(run: number, cancel = false, home = runtime('autoloop')): boolean {
   try {
-    const record = entryFor(run);
+    const record = entryFor(run, home);
     if (!record) return true; // A queued run has no native process yet.
     const { file, entry } = record;
     if (!entry.pid) return entry.turn === 0 || !existsSync(path.join(path.dirname(file), 'command-' + entry.turn + '.sh'));
@@ -167,14 +167,14 @@ export function trackWorkerProcesses(run: number, cancel = false): boolean {
 }
 
 /** A finished native root group is insufficient: every observed descendant must have stopped, including detached children. */
-export function workerStopped(run: number, attempt: number, token: string) {
+export function workerStopped(run: number, attempt: number, token: string, home = runtime('autoloop')) {
   try {
-    const file = runtime('autoloop', 'worker', 'runs', run + '-' + attempt, 'entry.json');
+    const file = path.join(home, 'worker', 'runs', run + '-' + attempt, 'entry.json');
     const entry = JSON.parse(readFileSync(file, 'utf8'));
     if (entry.run !== run || entry.attempt !== attempt || entry.token !== token || !entry.result) return false;
     if (!entry.pid) return entry.turn === 0 || !existsSync(path.join(path.dirname(file), 'command-' + entry.turn + '.sh'));
     // A completed turn also owns any subprocess it left behind. Stop those before accepting its receipt.
-    if (!trackWorkerProcesses(run, true)) return false;
+    if (!trackWorkerProcesses(run, true, home)) return false;
     const ledger = processLedger(file, entry);
     const active = processes().filter(p => !p.state.startsWith('Z'));
     return ledger.roots.includes(entry.pid) && !active.some(p => p.group === entry.pid)
@@ -225,7 +225,7 @@ export async function openExecution(agents: Agent[], projects: Project[]) {
   await writeFile(path.join(home, 'rules.json'), JSON.stringify(rules), { mode: 0o600 });
   const at = (file: string) => pathToFileURL(path.join(root, 'upstream/autoloop', file)).href;
   const native = await import(at('host/runtime.ts')) as typeof import('../../upstream/autoloop/host/runtime.ts');
-  const hub: Autoloop = { ...native, claimNext: (worker, claim) => claimWhenAnswered(native, worker, claim) };
+  const hub: Autoloop = { ...native, claimNext: (worker, claim, eligible) => claimWhenAnswered(native, worker, claim, eligible) };
   const { createWorker } = await import(at('worker/worker.ts')) as typeof import('../../upstream/autoloop/worker/worker.ts');
   return { hub, createWorker };
 }

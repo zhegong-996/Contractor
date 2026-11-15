@@ -17,3 +17,7 @@
 LobeHub 的前端参考包括项目话题列表与搜索、Agent 分页档案、交付详情旁的协作记录。SuitMe 实现对应交互，并使用自己的项目权限、工单版本和知识投影。[LobeHub 会话导航](https://github.com/lobehub/lobehub/tree/a8424d204a7ed1eb36985ebdfa6eac8041615392/src/features/AgentSidebar/Topic) · [Agent 档案](https://github.com/lobehub/lobehub/tree/a8424d204a7ed1eb36985ebdfa6eac8041615392/src/features/AgentProfileTabs) · [交付协作记录](https://github.com/lobehub/lobehub/tree/a8424d204a7ed1eb36985ebdfa6eac8041615392/src/features/Acceptance/Viewer/Conversation)
 
 批量整理、唤醒及上下文装配参考 LobeHub。逐项验收和版本证据参考 [Acceptance](https://github.com/lobehub/acceptance/tree/f720feb862bdbe3acc653bdedc297e20e08be1ae)。
+
+协作记忆采用 Anthropic 对过程记录、可复用笔记和少量预载规则的组织方式。界面参考 LobeHub 的记忆详情和返回来源，也借鉴 Dify 的检索测试和 Letta 的按需挂载记忆。记忆版本、审核与权限继续调用 SuitMe 的既有实现。 [Anthropic](https://www.anthropic.com/research/components-of-agent-memory) · [LobeHub 记忆界面](https://github.com/lobehub/lobehub/tree/a8424d204a7ed1eb36985ebdfa6eac8041615392/src/routes/%28main%29/memory) · [Dify 检索与引用](https://www.dify.ai/rag) · [Letta 记忆模块](https://docs.letta.com/v1-sdk/memory/memory-blocks)
+
+设备登记和按任务选择参考 LobeHub 的设备与执行配置，接单客户端直接复用本仓固定的 AutoLoop WorkerHub 接口和 worker 源码。 [LobeHub 执行目标选择](https://github.com/lobehub/lobehub/blob/a8424d204a7ed1eb36985ebdfa6eac8041615392/apps/server/src/services/taskRunner/resolveRunExecution.ts) · [原版 AutoLoop 协议](https://github.com/KKKKhazix/agent-autoloop/blob/ba8cf6d8cf24f9ce005958c15d88f2d9cff7f05d/docs/protocol.md) · [SuitMe 使用说明](WORKBENCH-MEMORY-AND-DEVICES.md)
