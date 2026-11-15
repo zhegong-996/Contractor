@@ -48,12 +48,20 @@ export type PullCheck = z.infer<typeof check>;
 
 // A passing check from another SHA, another app, or a superseded attempt is not evidence for this version.
 export function pullChecks(sha: string, checks: PullCheck[]) {
-  const selected = checks.filter(item => item.head_sha === sha && item.name === 'collab-pilot'
-    && item.app?.slug === 'github-actions').sort((a, b) => b.id - a.id).slice(0, 1);
+  const attempts = checks.filter(item => item.head_sha === sha && item.name === 'collab-pilot'
+    && item.app?.slug === 'github-actions').sort((a, b) => b.id - a.id);
+  const selected = attempts.slice(0, 1);
   const ci = selected.some(item => item.status === 'completed' && item.conclusion !== 'success') ? 'failed' as const
     : selected.length && selected.every(item => item.status === 'completed' && item.conclusion === 'success') ? 'passed' as const
     : 'pending' as const;
-  return { ci, checks: selected };
+  return { ci, checks: selected, attempts };
+}
+
+export async function inspectCommitChecks(repository: string, sha: string) {
+  const raw = await command('gh', ['api', 'repos/' + repository + '/commits/' + commitSha.parse(sha)
+    + '/check-runs?check_name=collab-pilot&filter=all&per_page=100', '--paginate', '--slurp']);
+  const attempts = z.array(z.object({ check_runs: z.array(check) })).parse(JSON.parse(raw)).flatMap(page => page.check_runs);
+  return pullChecks(sha, attempts);
 }
 
 export async function inspectIssue(repository: string, number: number) {
@@ -82,11 +90,8 @@ export async function inspectPull(repository: string, url: string) {
   const live = pull.parse(await githubApi(repository, 'pulls/' + number));
   if (live.base.repo?.full_name.toLowerCase() !== repository.toLowerCase() || live.number !== number) throw new Error('PR 仓库已变化');
   const reviewPages = command('gh', ['api', 'repos/' + repository + '/pulls/' + number + '/reviews?per_page=100', '--paginate', '--slurp']);
-  const [shaChecks, listed, reviews, pushes] = await Promise.all([
-    command('gh', ['api', 'repos/' + repository + '/commits/' + live.head.sha
-      + '/check-runs?check_name=collab-pilot&filter=latest&per_page=100', '--paginate', '--slurp'])
-      .then(value => pullChecks(live.head.sha, z.array(z.object({ check_runs: z.array(check) }))
-        .parse(JSON.parse(value)).flatMap(page => page.check_runs))),
+  const [{ attempts, ...shaChecks }, listed, reviews, pushes] = await Promise.all([
+    inspectCommitChecks(repository, live.head.sha),
     command('gh', ['api', 'repos/' + repository + '/pulls/' + number + '/commits?per_page=100', '--paginate', '--slurp']),
     reviewPages,
     live.head.repo?.id === live.base.repo.id
@@ -106,7 +111,7 @@ export async function inspectPull(repository: string, url: string) {
     assignees: live.assignees, labels: live.labels, requestedReviewers: live.requested_reviewers, milestone: live.milestone,
     reviews: z.array(z.array(review)).parse(JSON.parse(reviews)).flat(),
   };
-  return { snapshot, commits: observed, pushes, body: live.body ?? '' };
+  return { snapshot, attempts, commits: observed, pushes, body: live.body ?? '' };
 }
 
 export function referencesTicket(body: string, ticket: string) {

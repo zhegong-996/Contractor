@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -98,21 +98,21 @@ test('渠道身份绑定、同一引用去重和负责人确认共用原版工�
     html_url: 'https://github.com/team/example/pull/7#discussion_r671',
     pull_request_url: 'https://api.github.com/repos/team/example/pulls/7',
     in_reply_to_id: 650, commit_id: '1'.repeat(40) };
-  const [inline] = githubInputs(repository, [rawComment], true, now);
+  const [inline] = await githubInputs(repository, [rawComment], true, now);
   assert.ok(inline?.note);
   assert.equal(inline.origin.key, shared.key);
   assert.deepEqual(inline.trigger.meta.githubComment, { kind: 'inline', thread: 650, commit: '1'.repeat(40) });
-  assert.deepEqual(githubInputs(repository, [{ ...rawComment, ...Object.fromEntries(['created_at', 'updated_at']
+  assert.deepEqual(await githubInputs(repository, [{ ...rawComment, ...Object.fromEntries(['created_at', 'updated_at']
     .map(field => [field, '2026-11-13T00:00:00Z'])) }], true, now), []);
   const editedAt = new Date(Date.parse(now) + 1000).toISOString();
-  const [edited] = githubInputs(repository, [{ ...rawComment, updated_at: editedAt, body: '/协作 review 这只是编辑后的内容' }], true, editedAt);
+  const [edited] = await githubInputs(repository, [{ ...rawComment, updated_at: editedAt, body: '/协作 review 这只是编辑后的内容' }], true, editedAt);
   assert.equal(edited?.trigger.id, inline.trigger.id);
   assert.equal(edited?.trigger.at, now);
   assert.equal(edited?.note, true);
   assert.equal(edited?.revision, editedAt);
   const issue = { ...original, id: 770, number: 8, html_url: 'https://github.com/team/example/issues/8',
     body: '另一张 Issue，尚无明确协作命令。', state: 'closed', state_reason: 'completed' };
-  const [issueChange] = githubInputs(repository, [issue], false, now);
+  const [issueChange] = await githubInputs(repository, [issue], false, now);
   assert.equal(issueChange?.evidence, 'issue');
   assert.equal(issueChange?.trigger.human, false);
   assert.equal(issueChange?.origin.key, 'github:100:8');
@@ -197,4 +197,41 @@ test('渠道身份绑定、同一引用去重和负责人确认共用原版工�
   const earlier = input(feishu, topic, 'created-before-binding');
   earlier.trigger.at = '2026-11-13T00:00:00.000Z';
   assert.equal(work.receiveChannel(earlier, shared).status, 'unbound');
+});
+
+test('GitHub 首次读取区分 Issue 元数据更新与正文编辑，失败可重试', async t => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'suitme-github-opening-'));
+  const priorPath = process.env.PATH;
+  process.env.PATH = dir + path.delimiter + priorPath;
+  t.after(async () => { process.env.PATH = priorPath; await rm(dir, { recursive: true, force: true }); });
+  const response = path.join(dir, 'response.json');
+  const calls = path.join(dir, 'calls');
+  await writeFile(path.join(dir, 'gh'), [
+    '#!' + process.execPath,
+    'const fs = require("node:fs");',
+    'if (process.argv[2] !== "api" || process.argv[3] !== "graphql") process.exit(2);',
+    'fs.appendFileSync(' + JSON.stringify(calls) + ', "checked\\n");',
+    'process.stdout.write(fs.readFileSync(' + JSON.stringify(response) + ', "utf8"));',
+  ].join('\n'), { mode: 0o700 });
+  const { githubInputs } = await import('../src/workbench/github-intake.ts');
+  const repository = { id: '100', name: 'team/example' };
+  const since = '2026-11-15T12:00:00Z', changedAt = '2026-11-15T12:00:05Z';
+  const issue = { id: 154, node_id: 'I_example', number: 17, user: { id: 91, login: 'product', type: 'User' },
+    created_at: since, updated_at: changedAt, body: '/协作 review 门店推荐理由',
+    html_url: 'https://github.com/team/example/issues/17', state: 'open' };
+  const node = { __typename: 'Issue', number: 17, body: issue.body, createdAt: since, lastEditedAt: null,
+    repository: { nameWithOwner: repository.name } };
+  await writeFile(response, '{}');
+  await assert.rejects(githubInputs(repository, [issue], false, since));
+  await writeFile(response, JSON.stringify({ data: { node } }));
+  const [, accepted] = await githubInputs(repository, [issue], false, since);
+  assert.ok(accepted);
+  const [, first] = await githubInputs(repository, [{ ...issue, updated_at: since }], false, since);
+  assert.equal(accepted.trigger.id, first?.trigger.id);
+  assert.deepEqual((await githubInputs(repository, [issue], false, since, ID => ID === accepted.trigger.id))
+    .map(event => event.evidence), ['issue']);
+  assert.equal((await readFile(calls, 'utf8')).trim().split('\n').length, 2, '已处理的 Issue 后续更新不再验证开单');
+  await writeFile(response, JSON.stringify({ data: { node: { ...node, lastEditedAt: changedAt } } }));
+  assert.deepEqual((await githubInputs(repository, [issue], false, since)).map(event => event.evidence), ['issue']);
+  assert.deepEqual((await githubInputs(repository, [issue], false, changedAt)).map(event => event.evidence), ['issue']);
 });

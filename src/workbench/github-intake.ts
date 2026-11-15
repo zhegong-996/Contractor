@@ -8,6 +8,7 @@ const repositoryName = /^(?:[\w.-]+)\/[\w.-]+$/;
 const sender = z.object({ id: z.number().int().positive(), login: z.string(), type: z.literal('User') });
 const messageSchema = z.object({
   id: z.number().int().positive(), user: sender.nullable().catch(null), body: z.string().nullish(),
+  node_id: z.string().min(1).optional(),
   html_url: z.string(), created_at: z.iso.datetime(), updated_at: z.iso.datetime(),
   number: z.number().int().positive().optional(), title: z.string().optional(),
   issue_url: z.string().optional(), pull_request_url: z.string().optional(), pull_request: z.unknown().optional(),
@@ -24,6 +25,16 @@ const pullRevision = z.object({
   id: z.number().int().positive(), number: z.number().int().positive(),
   html_url: z.string(), updated_at: z.iso.datetime(),
 });
+const openingNode = z.object({
+  __typename: z.enum(['Issue', 'PullRequest']), number: z.number(), body: z.string(),
+  createdAt: z.iso.datetime(), lastEditedAt: z.iso.datetime().nullable(),
+  repository: z.object({ nameWithOwner: z.string() }),
+});
+const openingQuery = `query($id: ID!) { node(id: $id) {
+  __typename
+  ... on Issue { number body createdAt lastEditedAt repository { nameWithOwner } }
+  ... on PullRequest { number body createdAt lastEditedAt repository { nameWithOwner } }
+} }`;
 
 function reference(repository: Repository, number: number, pr: boolean, url?: string): ChannelRef {
   return {
@@ -40,40 +51,62 @@ function evidenceInput(repository: Repository, origin: ChannelRef, item: { id: n
     sender: { provider: 'github', namespace: 'github.com', id: '', label: '' } };
 }
 
-export function githubInputs(repository: Repository, raw: unknown, comments: boolean, since: string) {
-  return z.array(z.unknown()).parse(raw).flatMap<GitHubInput>(value => {
+async function originalOpening(repository: Repository, item: z.infer<typeof messageSchema>, pr: boolean) {
+  if (!item.node_id) throw new Error('缺少 GitHub 来源编号，无法确认正文是否修改。');
+  const raw = await command('gh', ['api', 'graphql', '-f', 'query=' + openingQuery, '-f', 'id=' + item.node_id]);
+  const { data: { node } } = z.object({ data: z.object({ node: openingNode.nullable() }) }).parse(JSON.parse(raw));
+  if (!node || node.lastEditedAt) return false;
+  if (node.__typename !== (pr ? 'PullRequest' : 'Issue') || node.number !== item.number
+    || node.repository.nameWithOwner.toLowerCase() !== repository.name.toLowerCase()
+    || Date.parse(node.createdAt) !== Date.parse(item.created_at)
+    || node.body.trim() !== (item.body ?? '').trim())
+    throw new Error('GitHub 来源正在变化，稍后重新确认正文。');
+  return true;
+}
+
+export async function githubInputs(repository: Repository, raw: unknown, comments: boolean, since: string,
+  seen: (triggerId: string) => boolean = () => false) {
+  const inputs: GitHubInput[] = [];
+  for (const value of z.array(z.unknown()).parse(raw)) {
     const parsed = messageSchema.safeParse(value);
-    if (!parsed.success) return [];
+    if (!parsed.success) continue;
     const item = parsed.data;
     const targetUrl = item.pull_request_url ?? item.issue_url ?? item.html_url;
     const target = githubAddress(targetUrl, repository.name);
-    if (!target || (comments ? !!item.number : item.number !== target.number)) return [];
+    if (!target || (comments ? !!item.number : item.number !== target.number)) continue;
 
     const text = (item.body ?? '').trim();
     const pr = target.pr || !!item.pull_request || /\/pull\//.test(item.html_url);
     const origin = reference(repository, target.number, pr);
-    const evidence = !comments && !pr && item.state && Date.parse(item.updated_at) >= Date.parse(since)
-      ? [evidenceInput(repository, origin, item, 'issue')] : [];
+    if (!comments && !pr && item.state && Date.parse(item.updated_at) >= Date.parse(since))
+      inputs.push(evidenceInput(repository, origin, item, 'issue'));
     const edited = item.created_at !== item.updated_at;
-    if (!item.user || item.performed_via_github_app || (edited && !comments) || Date.parse(item.updated_at) < Date.parse(since)) return evidence;
-    // An edit is evidence only. GitHub supplies the original author, not the actor who edited the comment.
-    const command = !edited && /^\/(协作|绑定协作)\s/.test(text);
-    if (!command && (!comments || (!edited && (!text || text.length > 3500 || text.startsWith('/'))))) return evidence;
-    if (/^\/绑定协作(?:\s|$)/.test(text) && !command) return evidence;
+    if (!item.user || item.performed_via_github_app || Date.parse(item.updated_at) < Date.parse(since)) continue;
+    const kind = item.pull_request_url ? 'inline' : comments ? 'comment' : 'issue';
+    const id = key('github-workbench', repository.id, String(item.id), kind);
+    const explicit = /^\/(协作|绑定协作)\s/.test(text);
+    if (!comments && edited) {
+      // Metadata updates also change updated_at. Check the original body before treating the first sighting as a command.
+      if (!explicit || seen(id) || Date.parse(item.created_at) < Date.parse(since) || !await originalOpening(repository, item, pr)) continue;
+    }
+    // Edited comments carry evidence because GitHub supplies the original author, not the editor.
+    const authored = explicit && (!comments || !edited);
+    if (!authored && (!comments || (!edited && (!text || text.length > 3500 || text.startsWith('/'))))) continue;
+    if (/^\/绑定协作(?:\s|$)/.test(text) && !authored) continue;
     const message = { ...item, body: text, user: item.user };
     const native = comments
       ? githubCommentTrigger(message, { number: target.number, isPr: pr }, item.pull_request_url ? 'inline' : 'conversation', '')
       : (pr ? githubPullTrigger : githubIssueTrigger)({ ...message, number: target.number, title: item.title ?? '' }, '');
-    if (!native.human) return evidence;
-    const kind = item.pull_request_url ? 'inline' : comments ? 'comment' : 'issue';
-    const trigger = { ...native, id: key('github-workbench', repository.id, String(item.id), kind),
+    if (!native.human) continue;
+    const trigger = { ...native, id,
       text, threads: [{ source: 'github', id: origin.key.slice('github:'.length) }], addressed: 'direct' as const, at: item.created_at,
       meta: { ...native.meta, repository: repository.name, repositoryId: repository.id, platformLogin: item.user.login,
         githubComment: comments ? { kind, thread: item.in_reply_to_id ?? item.id, commit: item.commit_id ?? undefined } : undefined },
     };
-    return [...evidence, { repository, trigger, origin, text, ...(!command ? { note: true } : {}), ...(comments ? { revision: item.updated_at } : {}),
-      sender: { provider: 'github' as const, namespace: 'github.com', id: String(item.user.id), label: item.user.login } }];
-  });
+    inputs.push({ repository, trigger, origin, text, ...(!authored ? { note: true } : {}), ...(comments ? { revision: item.updated_at } : {}),
+      sender: { provider: 'github', namespace: 'github.com', id: String(item.user.id), label: item.user.login } });
+  }
+  return inputs;
 }
 
 export function githubPullChange(repository: Repository, value: unknown, since: string): GitHubInput | undefined {
@@ -93,6 +126,7 @@ async function githubRepository(name: string) {
 export function watchGithub(options: {
   repositories: () => string[];
   tracksPull: (origin: ChannelRef) => boolean;
+  seen: (triggerId: string) => boolean;
   consume: (input: GitHubInput) => Promise<void>;
   refresh?: (repository: Repository, refreshed: ReadonlySet<string>) => Promise<void>;
   interval: number;
@@ -126,7 +160,7 @@ export function watchGithub(options: {
           'repos/' + name + '/' + url + '&per_page=100&since=' + encodeURIComponent(since), '--paginate', '--slurp'])));
         for (const [index, raw] of batches.entries())
           for (const batch of z.array(z.unknown()).parse(JSON.parse(raw)))
-            for (const input of githubInputs(repository, batch, index > 0, since)) {
+            for (const input of await githubInputs(repository, batch, index > 0, since, options.seen)) {
               if (closed) return;
               await options.consume(input);
             }

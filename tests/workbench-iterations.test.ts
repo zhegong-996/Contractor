@@ -128,7 +128,14 @@ test('原生工单带口径交接、阻塞接续、多版验收、成果重授�
   work.changeAccess('resource', expired, review.id, 'granted');
   assert.equal(detail(expired).result?.revision, old.revision);
   assert.equal(detail(expired).runs.length, 1, '仅查阅旧成果不启动执行');
-  work.revise('product', expired, { revision: old.revision, reason: '按新意见改第二版' });
+  const privateReason = '受限门店专用修订口径';
+  work.revise('product', expired, { revision: old.revision, reason: privateReason });
+  assert.equal(detail(expired).work.continuation?.reason, privateReason);
+  assert.ok(detail(expired).history.some(item => item.text === privateReason));
+  const unrelated = work.detail('replacement', expired);
+  assert.equal(unrelated.work.continuation?.reason, undefined);
+  assert.ok(!JSON.stringify(unrelated).includes(privateReason));
+  assert.ok(!JSON.stringify(work.overview('replacement').tickets.find(item => item.id === expired)).includes(privateReason));
   await delay(1500);
   assert.equal(detail(expired).runs.filter(r => r.state !== 'queued').length, 1, '查阅许可不能作为执行许可');
   work.request('product', expired, restricted, '申请第二版执行权限');
@@ -139,6 +146,8 @@ test('原生工单带口径交接、阻塞接续、多版验收、成果重授�
   assert.equal(assignments(expired), 2);
   work.changeAccess('resource', expired, review.id, 'revoked');
   assert.equal(detail(expired).versions[0]!.text, undefined, '新执行批准不复活旧成果的读取许可');
+  assert.equal(detail(expired).work.continuation?.reason, undefined);
+  assert.ok(!detail(expired).history.some(item => item.text === privateReason));
 
   const target = work.overview('product').projects[0]!.deliveryTargets[0]!.ref;
   const proposed = work.start('product', { project: 'store', agent: 'coder', title: '委托研发修改门店页', request: '受托路径内修改',

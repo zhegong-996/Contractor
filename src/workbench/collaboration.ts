@@ -16,7 +16,7 @@ import type { Agent, Project, Settings } from './config.ts';
 import { ChannelLinks, messageRef, type ChannelRef, type ChannelRequest, type PlatformActor, type Provider } from './channel-links.ts';
 import { canonicalResourceId, projectResourceRef, referenceResource, resourcePurpose, resourceView, routesEvents,
   type ProjectResource, type ProjectTopic, type ReferenceInput, type ResourceView } from './project-resources.ts';
-import { inspectBranch, inspectIssue, inspectPull, referencesTicket, type GitHubIdentity, type GitHubIssue, type GitHubPush } from './github-delivery.ts';
+import { inspectBranch, inspectCommitChecks, inspectIssue, inspectPull, referencesTicket, type GitHubIdentity, type GitHubIssue, type GitHubPush, type PullCheck } from './github-delivery.ts';
 import { checkpointAgent, entireCheckpoint } from './entire.ts';
 import { checkoutFor, commitDevelopment, developmentCheckout, developmentFolder, developmentChanges, type Development, type DevelopmentTarget } from './development.ts';
 import { Iterations } from './iterations.ts';
@@ -135,6 +135,15 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       ticket TEXT NOT NULL, repository INTEGER NOT NULL, number INTEGER NOT NULL, base TEXT NOT NULL, head TEXT NOT NULL,
       value TEXT NOT NULL, PRIMARY KEY(ticket,repository,number,base,head)
     );
+    CREATE TABLE IF NOT EXISTS workbench_ci_attempt (
+      ticket TEXT NOT NULL, repository INTEGER NOT NULL, number INTEGER NOT NULL, head TEXT NOT NULL,
+      id INTEGER NOT NULL, value TEXT NOT NULL, PRIMARY KEY(ticket,repository,number,head,id)
+    );
+    INSERT OR IGNORE INTO workbench_ci_attempt
+      SELECT v.ticket,v.repository,v.number,v.head,json_extract(c.value,'$.id'),c.value
+      FROM workbench_pull_version v, json_each(v.value,'$.checks') c
+      WHERE json_type(c.value,'$.id')='integer' AND json_extract(c.value,'$.head_sha')=v.head
+        AND json_extract(c.value,'$.name')='collab-pilot' AND json_extract(c.value,'$.app.slug')='github-actions';
     CREATE TABLE IF NOT EXISTS workbench_issue_state (
       ticket TEXT NOT NULL, ref TEXT NOT NULL, value TEXT NOT NULL, PRIMARY KEY(ticket,ref)
     );
@@ -2054,8 +2063,9 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     return mapped;
   }
 
-  function writeDelivery(id: string, current: Work, evidence: DeliveryEvidence) {
+  function writeDelivery(id: string, current: Work, evidence: DeliveryEvidence, attempts: PullCheck[]) {
     storeDeliveryVersion(id, evidence);
+    if (evidence.repoId) recordCheckAttempts(id, { repoId: evidence.repoId, pr: evidence.pr }, attempts);
     saveWork(id, { ...current, delivery: evidence });
   }
 
@@ -2149,6 +2159,13 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       .run(id, evidence.repoId!, evidence.pr, evidence.baseSha, evidence.headSha, JSON.stringify(evidence));
   }
 
+  function recordCheckAttempts(id: string, pull: Pick<DeliveryPull, 'repoId' | 'pr'>, attempts: PullCheck[]) {
+    const save = store.db.prepare(`INSERT INTO workbench_ci_attempt VALUES (?,?,?,?,?,?)
+      ON CONFLICT DO UPDATE SET value=excluded.value WHERE value!=excluded.value
+        AND (json_extract(value,'$.status')!='completed' OR json_extract(excluded.value,'$.status')='completed')`);
+    for (const check of attempts) save.run(id, pull.repoId, pull.pr, check.head_sha, check.id, JSON.stringify(check));
+  }
+
   async function refreshDelivery(ref: ChannelRef, expectedProject?: string) {
     const id = links.ticket(ref);
     if (!id) return;
@@ -2173,10 +2190,12 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       return { current, currentTicket };
     };
     let latest: DeliveryEvidence;
+    let attempts: PullCheck[];
     try {
       const target = pullTarget(project, pull.url);
       const observed = await inspectPull(target.externalId, pull.url);
       if (observed.snapshot.repoId !== pull.repoId || observed.snapshot.pr !== pull.pr) throw new Error('PR 身份已变化');
+      attempts = observed.attempts;
       latest = { ...observed.snapshot, attachedBy: pull.attachedBy, workReference: referencesTicket(observed.body, id),
         creator: githubMember(observed.snapshot.creator, project, observed.snapshot.createdAt)!,
         commits: await provenance(ticket, work, project, observed, old) };
@@ -2195,6 +2214,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       const state = currentObservation();
       if (!state) return;
       const { current, currentTicket } = state;
+      recordCheckAttempts(id, pull, attempts);
       if (digest(latest) !== digest(old ?? null)) storeDeliveryVersion(id, latest);
       if (current.accepted) return;
       const matches = !current.development || matchesCodeDelivery(currentTicket, current, output, latest);
@@ -2281,6 +2301,16 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     const { ticket, work, project } = ticketFor(id, actor);
     const opening = store.triggers.get(ticket.origin.triggerId)!;
     const report = ticket.assignments.at(-1)?.report;
+    const outputs = store.db.prepare('SELECT value FROM workbench_output WHERE ticket=? ORDER BY run').all(id)
+      .map(row => JSON.parse(String(row.value)) as Output);
+    const readableRevisions = new Set(outputs.filter(prior => {
+      const priorActor = manifestFor(prior.run)?.actor;
+      const visible = actor === work.requester || actor === priorActor?.owner || prior.sources.every(ref => knowledge.get(ref.id)?.visibility === 'project');
+      return visible && outputUsable(id, prior);
+    }).map(prior => prior.revision));
+    const reviews = iterations.list(id);
+    const protectedReasons = new Set(reviews.filter(review => review.kind !== 'accepted' && !readableRevisions.has(review.revision))
+      .map(review => key('work-revision', id, review.revision)));
     const stored = outputFor(ticket.id);
     const permitted = !!stored && (work.requester === actor || agentById.get(work.agent)?.owner === actor
       || stored.sources.every(ref => knowledge.get(ref.id)?.visibility === 'project'));
@@ -2292,7 +2322,8 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       if (item.kind !== 'trigger') return [];
       const event = store.triggers.get(item.triggerId);
       if (!event?.human) return [];
-      const text = hiddenAnswer && event.meta.answer ? '答复正文随资料授权收回或受限。' : event.text;
+      const text = protectedReasons.has(event.id) ? '修改理由随资料授权收回或受限。'
+        : hiddenAnswer && event.meta.answer ? '答复正文随资料授权收回或受限。' : event.text;
       return [{ id: event.id, actor: event.actor.id, at: event.at, text }];
     });
     const timers = ticket.ended ? [] : timersFor(ticket.id);
@@ -2336,28 +2367,29 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       const attached = workOf(id);
       return item && member(projectById.get(attached?.project ?? ''), actor) ? [{ id, title: item.title, project: attached!.project }] : [];
     });
-    const { lane: _lane, related: _related, ...visibleWork } = work;
+    const { lane: _lane, related: _related, continuation, ...visibleWork } = work;
+    const visibleContinuation = continuation?.previous && !readableRevisions.has(continuation.previous)
+      ? { ...continuation, reason: undefined } : continuation;
     const delivery = codeDeliveryState(ticket, work);
-    return { id, title: ticket.title, project: project.id, work: visibleWork, origin: opening.id, request: opening.text,
+    return { id, title: ticket.title, project: project.id, work: { ...visibleWork, continuation: visibleContinuation }, origin: opening.id, request: opening.text,
       createdAt: ticket.createdAt, history, report, children, related, topicTitle: topicsFor(project).find(topic => topic.id === work.topic)?.title,
       mayLinkDelivery: !work.accepted && deliveryTargets(project).some(ref => canAttach(project, ref, actor, work.requester)),
       githubIssues: store.db.prepare('SELECT value FROM workbench_issue_state WHERE ticket=? ORDER BY rowid').all(id)
         .map(row => JSON.parse(String(row.value)) as GitHubIssue),
       deliveryVersions: store.db.prepare('SELECT value FROM workbench_pull_version WHERE ticket=? ORDER BY rowid DESC').all(id)
         .map(row => JSON.parse(String(row.value)) as DeliveryEvidence),
+      ciAttempts: store.db.prepare('SELECT repository AS repoId, number AS pr, value FROM workbench_ci_attempt WHERE ticket=? ORDER BY id DESC').all(id)
+        .map(row => ({ ...JSON.parse(String(row.value)) as PullCheck, repoId: Number(row.repoId), pr: Number(row.pr) })),
       channelHistory, channelReferences: links.references(id), discussionNotes: project.discussion
         ? discussions.linked(id).filter(item => member(projectById.get(item.project), actor)).map(item => ({ ...item, sources: discussions.sources(item) })) : [],
       stage: ticketStage(ticket), result: output, materialHidden, decision: decision && { at: decision.at, scope: ticket.mandate.scope }, questions: question, requests, runs, timers,
       deliveryStatus: delivery && { state: delivery.state, detail: delivery.detail, version: delivery.output.version ?? 1 },
       candidate: output && knowledge.get(knowledgeId(id, output))?.owner === actor ? knowledgeId(id, output) : undefined,
-      versions: store.db.prepare('SELECT value FROM workbench_output WHERE ticket=? ORDER BY run').all(id).map(row => {
-        const prior: Output = JSON.parse(String(row.value));
-        const priorActor = manifestFor(prior.run)?.actor;
-        const visible = actor === work.requester || actor === priorActor?.owner || prior.sources.every(ref => knowledge.get(ref.id)?.visibility === 'project');
-        const readable = visible && outputUsable(id, prior);
+      versions: outputs.map(prior => {
+        const readable = readableRevisions.has(prior.revision);
         return { version: prior.version ?? 1, run: prior.run, revision: prior.revision, at: prior.at,
           ...(readable ? { text: prior.text } : {}),
-          reviews: iterations.list(id).filter(review => review.revision === prior.revision)
+          reviews: reviews.filter(review => review.revision === prior.revision)
             .map(({ reason, ...review }) => ({ ...review, ...(readable ? { reason } : {}) })) };
       }),
       observations: output ? observations.list(id).map(({ candidate, ...record }) => ({
@@ -2494,7 +2526,17 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       }
       for (const ticket of store.tickets.list()) {
         const work = workOf(ticket.id);
-        if (!work || work.accepted) continue;
+        if (!work) continue;
+        if (work.accepted) {
+          const pull = followedPull(ticket.id, work);
+          const sha = work.accepted.commit;
+          const project = projectById.get(work.project);
+          if (!sha || !pull || !project || String(pull.repoId) !== repository.id || work.delivery?.headSha !== sha
+            || !deliveryTargets(project).some(ref => ref.externalId.toLowerCase() === repository.name.toLowerCase())) continue;
+          const { attempts } = await inspectCommitChecks(repository.name, sha);
+          store.atomic(() => recordCheckAttempts(ticket.id, pull, attempts));
+          continue;
+        }
         if (work.development) {
           if (ticket.ended?.outcome !== 'completed' || work.development.repository.toLowerCase() !== repository.name.toLowerCase()) continue;
           const pull = followedPull(ticket.id, work);
@@ -2603,7 +2645,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
         linkOrigin({ key: 'github:' + snapshot.repoId + ':' + snapshot.pr, url: snapshot.url,
           label: snapshot.repository + ' #' + snapshot.pr }, id);
         writeDelivery(id, { ...current, deliveryPr: { repository: snapshot.repository, repoId: snapshot.repoId,
-          url: snapshot.url, pr: snapshot.pr, attachedBy: actor } }, evidence);
+          url: snapshot.url, pr: snapshot.pr, attachedBy: actor } }, evidence, observed.attempts);
         notifyCodeDelivery(ticketFor(id, actor).ticket, workOf(id)!);
         audit(id, 'delivery.linked', { actor, pr: snapshot.url, head: snapshot.headSha });
       });
@@ -2634,10 +2676,12 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       if (work.development && (!commit || !work.delivery)) throw new WorkbenchError('代码工单必须关联本单提交与 PR，并核对该提交的 CI 后验收。', 409);
       if (commit && !work.delivery) throw new WorkbenchError('请先关联交付版本。', 409);
       let verified: DeliveryEvidence | undefined;
+      let attempts: PullCheck[] = [];
       if (work.delivery) {
         const target = pullTarget(project, work.delivery.url);
         const fresh = await inspectPull(target.externalId, work.delivery.url);
         const observed = fresh.snapshot;
+        attempts = fresh.attempts;
         const selected = ticketFor(id, actor).work.delivery;
         if (observed.state === 'draft' || observed.state === 'closed' || observed.ci !== 'passed'
           || observed.headSha !== commit || digest(selected ?? null) !== digest(work.delivery)
@@ -2652,7 +2696,10 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
         throw new WorkbenchError('成果或交付版本已变化，请刷新。', 409);
       store.atomic(() => {
         if (verified) verifyCodeDelivery(ticketFor(id, actor).ticket, current, verified);
-        if (verified) storeDeliveryVersion(id, verified);
+        if (verified) {
+          storeDeliveryVersion(id, verified);
+          if (verified.repoId) recordCheckAttempts(id, { repoId: verified.repoId, pr: verified.pr }, attempts);
+        }
         saveWork(id, { ...current, ...(verified ? { delivery: verified } : {}), accepted: { actor, revision, at: new Date().toISOString(), ...(commit ? { commit } : {}) } });
         iterations.record(id, { version: current.version ?? 1, revision, kind: 'accepted', actor, at: new Date().toISOString(),
           ...(commit ? { commit } : {}), delivery: verified ?? current.delivery });

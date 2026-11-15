@@ -1,8 +1,6 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { randomBytes } from 'node:crypto';
-import { spawn } from 'node:child_process';
-import { createInterface } from 'node:readline';
 import path from 'node:path';
 import { z } from 'zod';
 import { root, runtime } from '../config.ts';
@@ -17,6 +15,7 @@ import { channelCommand, feishuCommandText, messageRef, type ChannelRef, type Pl
 import { githubReference, watchGithub } from './github-intake.ts';
 import { referenceSchema, resourceSource, topicInputSchema } from './project-resources.ts';
 import { discussionInput } from './discussion-intake.ts';
+import { watchFeishu } from './feishu-events.ts';
 
 const stateDir = process.env.COLLAB_STATE_DIR;
 if (!stateDir || !path.isAbsolute(stateDir)) throw new Error('请提供独立工作台的 COLLAB_STATE_DIR 绝对路径。');
@@ -74,6 +73,7 @@ async function serve() {
   const config = await loadSettings();
   const feishu = config.feishu;
   let work: Awaited<ReturnType<typeof openCollaboration>> | undefined;
+  let feishuWatch: ReturnType<typeof watchFeishu> | undefined;
   let available = false;
   const staticRoot = path.join(root, 'workbench');
   const assets = new Map([
@@ -90,7 +90,12 @@ async function serve() {
     res.setHeader('content-security-policy', "default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'");
     try {
       const url = new URL(req.url ?? '/', 'http://127.0.0.1');
-      if (req.method === 'GET' && url.pathname === '/health') { json(res, available ? 200 : 503, { ready: available, engine: 'superagent', executor: 'autoloop' }); return; }
+      if (req.method === 'GET' && url.pathname === '/health') {
+        const subscription = feishu && (feishuWatch?.status() ?? { state: 'connecting' });
+        const ready = available && (!subscription || subscription.state === 'ready');
+        json(res, ready ? 200 : 503, { ready, engine: 'superagent', executor: 'autoloop', feishu: subscription });
+        return;
+      }
       if (req.method === 'GET' && url.pathname === '/favicon.ico') { res.writeHead(204).end(); return; }
       const file = req.method === 'GET' && assets.get(url.pathname);
       if (file) {
@@ -264,6 +269,7 @@ async function serve() {
     const stopGithub = config.crossChannel && watchGithub({
       repositories: () => collaboration.githubRepositories(),
       tracksPull: collaboration.tracksPull,
+      seen: collaboration.channelEventSeen,
       interval: config.crossChannel.githubPollSeconds,
       checkpoint: collaboration.githubCheckpoint,
       refresh: collaboration.refreshGithubEvidence,
@@ -286,13 +292,9 @@ async function serve() {
     });
     available = true;
     console.log('SuitMe 工作台 http://127.0.0.1:' + config.port);
-    const consumer = feishu && spawn('lark-cli', ['--profile', feishu.profile, 'event', 'consume', 'im.message.receive_v1', '--as', 'bot'], { stdio: ['pipe', 'pipe', 'pipe'] });
     let closing = false;
-    if (consumer && feishu) {
-      consumer.on('error', error => console.error('飞书接入失败：', error.message));
-      consumer.on('exit', () => { if (!closing) console.error('飞书实时订阅中断，群整理仍按已配置的补读规则运行。'); });
-      consumer.stderr.resume();
-      createInterface({ input: consumer.stdout }).on('line', line => {
+    if (feishu) {
+      feishuWatch = watchFeishu(feishu.profile, line => {
         try {
           const event = JSON.parse(line);
           if (event.sender_type !== 'user' || (event.message_type && event.message_type !== 'text')) return;
@@ -342,12 +344,12 @@ async function serve() {
               ...(/^\d+$/.test(value) ? { choice: Number(value) - 1 } : { text: value }) }, trigger);
           }
         } catch (error) { console.error('飞书事件未受理：', (error as Error).name); }
-      });
+      }, message => console.info(message));
     }
     const close = () => {
       if (closing) return;
       closing = true;
-      consumer?.stdin?.end();
+      feishuWatch?.close();
       server.close();
       void Promise.resolve(stopGithub ? stopGithub() : undefined).then(() => collaboration.close()).catch(console.error);
     };

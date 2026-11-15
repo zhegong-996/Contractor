@@ -177,10 +177,22 @@ test('代码单验收绑定本单运行提交、PR 分支基线与当前 CI，�
   remote.checks = [check(5)]; await save(); await refresh();
   assert.equal(pending('owner', 'acceptance')?.id, ready.id);
   assert.equal(messages.filter(message => message.channel.address.decision === ready.id).length, 1);
+  const attempts = () => work.detail('owner', id).ciAttempts.filter(item => item.head_sha === sha);
+  assert.deepEqual(attempts().filter(item => [4, 5].includes(item.id)).map(item => [item.id, item.conclusion]),
+    [[5, 'success'], [4, 'failure']]);
   await accept(sha);
   const accepted = work.detail('owner', id).work;
   assert.equal(accepted.accepted?.commit, sha);
   assert.equal(accepted.delivery?.commits?.find(item => item.sha === sha)?.run?.ticket, id);
   assert.equal(accepted.delivery?.checks?.[0]?.id, 5);
   assert.equal(accepted.delivery?.checks?.[0]?.head_sha, sha);
+  // A CI rerun on a signed SHA is also tracked. It cannot change the recorded acceptance.
+  remote.checks = [check(6, { status: 'in_progress', conclusion: null })]; await save(); await refresh();
+  assert.equal(attempts().find(item => item.id === 6)?.status, 'in_progress');
+  remote.checks = [check(6, { conclusion: 'failure' })]; await save(); await refresh();
+  remote.checks = [check(6, { status: 'queued', conclusion: null })]; await save(); await refresh();
+  assert.deepEqual(attempts().filter(item => [4, 5, 6].includes(item.id)).map(item => [item.id, item.conclusion]),
+    [[6, 'failure'], [5, 'success'], [4, 'failure']]);
+  assert.equal(work.detail('owner', id).work.delivery?.checks?.[0]?.id, 5);
+  assert.equal(work.detail('owner', id).work.accepted?.commit, sha);
 });
