@@ -97,9 +97,9 @@ SOFTWARE.
 
 The workbench uses the published `casbin@5.51.1` package for role-based authorization. The version and integrity are recorded in `package-lock.json`. The license is retained in `licenses/casbin-APACHE-2.0.txt`.
 
-## Vue.js (MIT)
+## Paperclip (MIT)
 
-The vendored Vue `3.5.45` runtime at `workbench/vendor/vue.global.prod.js` retains the original header and license. The full license is in `licenses/vue-MIT.txt`.
+`workbench/src/paperclip/` contains the resizable sidebar, pane-width hook, button, badge, breadcrumb, input, tabs, and the `cn` utility from [Paperclip commit 8cd2d6a](https://github.com/paperclipai/paperclip/tree/8cd2d6a73d2097253dd329f55b637e12b20361c6/ui/src). The files adapt local imports, Radix package imports, and the sidebar resize label. The complete notice is in `licenses/paperclip-MIT.txt` and ships with the workbench bundle.
 
 ## Backstage catalog model (Apache-2.0)
 

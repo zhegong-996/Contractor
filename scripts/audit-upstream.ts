@@ -7,6 +7,7 @@ const git = (...args: string[]) => execFileSync('git', args, { cwd: root, encodi
 const read = (file: string) => readFileSync(path.join(root, file), 'utf8');
 const lock = JSON.parse(read('sources.lock.json')) as {
   sources: Record<string, { url: string; commit: string; license: string }>;
+  vendored: { paperclip: { commit: string; license: string; files: Record<string, string> } };
 };
 const problems: string[] = [];
 const index = new Map(git('ls-files', '-s', 'upstream').split('\n').filter(Boolean).map(line => {
@@ -45,11 +46,16 @@ for (const name of ['casbin', '@backstage/catalog-model']) {
 }
 for (const file of ['THIRD_PARTY_NOTICES.md', 'licenses/casbin-APACHE-2.0.txt',
   'licenses/backstage-APACHE-2.0.txt', 'licenses/backstage-NOTICE.txt', 'licenses/entire-MIT.txt',
-  'licenses/harness-vendor-MIT.txt', 'licenses/vue-MIT.txt']) {
+  'licenses/harness-vendor-MIT.txt', 'licenses/paperclip-MIT.txt']) {
   if (!existsSync(path.join(root, file))) problems.push(`缺少 ${file}`);
 }
-if (!read('workbench/vendor/vue.global.prod.js').includes('vue v3.5.45'))
-  problems.push('Vue 本地版本与第三方声明不一致');
+const paperclip = lock.vendored.paperclip;
+for (const [file, source] of Object.entries(paperclip.files)) {
+  const local = 'workbench/src/paperclip/' + file;
+  if (!existsSync(path.join(root, local)) || !read(local).split('\n', 1)[0]?.includes(paperclip.commit + ', ' + source))
+    problems.push(local + ' 缺少锁定的上游来源');
+}
+console.log('workbench/src/paperclip · ' + paperclip.license + ' @ ' + paperclip.commit.slice(0, 12));
 
 if (problems.length) {
   console.error(problems.join('\n'));

@@ -9,24 +9,44 @@
   },
   "scripts": {
     "start": "npm run workbench",
-    "workbench": "node --import tsx src/workbench/server.ts",
+    "workbench": "npm run build:ui && node --import tsx src/workbench/server.ts",
     "audit:upstream": "node --import tsx scripts/audit-upstream.ts",
     "test": "node --import tsx --test tests/*.test.ts",
     "typecheck": "tsc --noEmit",
-    "build": "tsc --noEmit"
+    "build": "npm run typecheck && npm run build:ui",
+    "build:ui": "vite build --config workbench/vite.config.ts"
   },
   "dependencies": {
     "@anthropic-ai/sandbox-runtime": "0.0.83",
     "@backstage/catalog-model": "1.10.2",
+    "@radix-ui/react-slot": "1.3.3",
+    "@radix-ui/react-tabs": "1.2.1",
+    "@tanstack/react-query": "5.102.8",
     "casbin": "5.51.1",
+    "class-variance-authority": "0.7.1",
+    "clsx": "2.1.1",
+    "lucide-react": "1.48.0",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "react-markdown": "10.1.0",
+    "remark-gfm": "4.0.1",
+    "tailwind-merge": "3.6.0",
     "tsx": "4.23.15",
     "zod": "4.6.7"
   },
   "devDependencies": {
+    "@tailwindcss/vite": "4.3.3",
     "@types/node": "24.0.0",
-    "typescript": "7.0.2"
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.5",
+    "@vitejs/plugin-react": "6.1.1",
+    "tailwindcss": "4.3.3",
+    "typescript": "7.0.2",
+    "vite": "8.3.8"
   },
   "overrides": {
-    "@anthropic-ai/sandbox-runtime": { "zod": "$zod" }
+    "@anthropic-ai/sandbox-runtime": {
+      "zod": "$zod"
+    }
   }
 }

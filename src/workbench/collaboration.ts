@@ -2520,8 +2520,22 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     const visibleContinuation = continuation?.previous && !readableRevisions.has(continuation.previous)
       ? { ...continuation, reason: undefined } : continuation;
     const delivery = codeDeliveryState(ticket, work);
+    const candidate = output && knowledge.get(knowledgeId(id, output));
+    const requester = work.requester === actor;
+    const maintainer = maintain(project, actor);
+    const owner = agentById.get(work.agent)?.owner === actor;
+    const actions = {
+      stop: !ticket.ended && (requester || maintainer),
+      handoff: !ticket.ended && maintainer && !work.developmentResponse && !handingOff(work) && !cardsFor(id).some(card => card.state === 'open'),
+      resume: mayStart(project, actor) && (requester || maintainer || owner) && !work.developmentResponse
+        && (!ticket.ended || requester && ticket.ended.outcome === 'completed' && !work.accepted && materialHidden),
+      baseline: !!work.development && authorizesDevelopment(project, work.development, actor),
+      revise: requester && mayStart(project, actor) && ticket.ended?.outcome === 'completed' && !!output,
+      accept: requester && ticket.ended?.outcome === 'completed' && !work.accepted && !!output && (!work.development || delivery?.state === 'ready'),
+    };
     return { id, title: ticket.title, project: project.id, work: { ...visibleWork, continuation: visibleContinuation }, origin: opening.id, request: opening.text,
-      createdAt: ticket.createdAt, history, report, children, related, topicTitle: topicsFor(project).find(topic => topic.id === work.topic)?.title,
+      createdAt: ticket.createdAt, history, report, children, related, actions, endReason: ticket.ended?.outcome,
+      topicTitle: topicsFor(project).find(topic => topic.id === work.topic)?.title,
       mayLinkDelivery: !work.accepted && deliveryTargets(project).some(ref => canAttach(project, ref, actor, work.requester)),
       githubIssues: store.db.prepare('SELECT value FROM workbench_issue_state WHERE ticket=? ORDER BY rowid').all(id)
         .map(row => JSON.parse(String(row.value)) as GitHubIssue),
@@ -2533,7 +2547,10 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
         ? discussions.linked(id).filter(item => member(projectById.get(item.project), actor)).map(item => ({ ...item, sources: discussions.sources(item) })) : [],
       stage: ticketStage(ticket), result: output, materialHidden, decision: decision && { at: decision.at, scope: ticket.mandate.scope }, questions: question, requests, runs, timers,
       deliveryStatus: delivery && { state: delivery.state, detail: delivery.detail, version: delivery.output.version ?? 1 },
-      candidate: output && knowledge.get(knowledgeId(id, output))?.owner === actor ? knowledgeId(id, output) : undefined,
+      candidate: candidate?.owner === actor ? candidate.id : undefined,
+      candidateTab: candidate?.owner === actor
+        ? candidate.state === 'candidate' ? 'review' : candidate.retirement ? 'history' : 'current'
+        : undefined,
       versions: outputs.map(prior => {
         const readable = readableRevisions.has(prior.revision);
         return { version: prior.version ?? 1, run: prior.run, revision: prior.revision, at: prior.at,
@@ -2663,7 +2680,11 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
         relatedProjects: projects.filter(target => target.id !== p.id && relatedProjects(target, p)
           && (p.relatedProjects.includes(target.id) || target.relatedProjects.includes(p.id))).map(target => target.id),
         dispatch: p.dispatch,
-        resources: views(p), topics: topicsFor(p), members: p.members.filter(person => member(p, person))
+        resources: views(p),
+        importableSources: availableRefs(p).flatMap(ref => ref.state === 'bound' && ref.knowledge?.owner === actor
+          ? [{ ...resourceView(p.id, ref), files: ref.knowledge.format === 'github-markdown' ? ref.knowledge.files : [],
+            visibility: ref.knowledge.visibility }] : []),
+        topics: topicsFor(p), members: p.members.filter(person => member(p, person))
           .map(person => ({ name: person, responsibilities: p.responsibilities.filter(r => r.member === person).map(r => r.function),
             maintain: maintain(p, person) })),
         deliveryTargets: deliveryTargets(p).filter(ref => mayStart(p, actor) && ref.execution && checkoutFor(config.attribution, ref.externalId))

@@ -78,19 +78,17 @@ async function serve() {
   let work: Awaited<ReturnType<typeof openCollaboration>> | undefined;
   let feishuWatch: ReturnType<typeof watchFeishu> | undefined;
   let available = false;
-  const staticRoot = path.join(root, 'workbench');
+  const staticRoot = path.join(root, 'dist', 'workbench');
   const assets = new Map([
     ['/', [path.join(staticRoot, 'index.html'), 'text/html'] ],
-    ['/app.js', [path.join(staticRoot, 'app.js'), 'text/javascript']],
-    ['/workbench.css', [path.join(staticRoot, 'style.css'), 'text/css']],
-    ['/vue.js', [path.join(staticRoot, 'vendor/vue.global.prod.js'), 'text/javascript']],
+    ['/licenses/paperclip', [path.join(staticRoot, 'paperclip-MIT.txt'), 'text/plain']],
   ]);
 
   const server = createServer(async (req, res) => {
     res.setHeader('cache-control', 'no-store');
     res.setHeader('x-content-type-options', 'nosniff');
     res.setHeader('referrer-policy', 'no-referrer');
-    res.setHeader('content-security-policy', "default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'");
+    res.setHeader('content-security-policy', "default-src 'self'; script-src 'self'; style-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'");
     try {
       const url = new URL(req.url ?? '/', 'http://127.0.0.1');
       if (req.method === 'GET' && url.pathname === '/health') {
@@ -100,9 +98,15 @@ async function serve() {
         return;
       }
       if (req.method === 'GET' && url.pathname === '/favicon.ico') { res.writeHead(204).end(); return; }
-      const file = req.method === 'GET' && assets.get(url.pathname);
+      const bundled = /^\/assets\/([\w-]+\.(js|css))$/.exec(url.pathname);
+      const file = req.method === 'GET' && (assets.get(url.pathname) ?? (bundled
+        ? [path.join(staticRoot, 'assets', bundled[1]!), bundled[2] === 'js' ? 'text/javascript' : 'text/css'] : undefined));
       if (file) {
-        res.writeHead(200, { 'content-type': file[1] + '; charset=utf-8' }).end(await readFile(file[0]!));
+        const bytes = await readFile(file[0]!).catch(error => {
+          if (error.code !== 'ENOENT') throw error;
+          throw new WorkbenchError(url.pathname === '/' ? '工作台前端尚未构建，请运行 npm run build:ui。' : '未找到资源。', url.pathname === '/' ? 503 : 404);
+        });
+        res.writeHead(200, { 'content-type': file[1] + '; charset=utf-8' }).end(bytes);
         return;
       }
       if (!url.pathname.startsWith('/api/')) throw new WorkbenchError('未找到。', 404);

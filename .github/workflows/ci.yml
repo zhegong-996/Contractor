@@ -19,3 +19,4 @@ jobs:
       - run: npm run audit:upstream
       - run: npm test
       - run: npm run typecheck
+      - run: npm run build:ui

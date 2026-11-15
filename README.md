@@ -24,7 +24,7 @@ npm start
 | --- | --- |
 | `src/workbench/` | HTTP 入口、身份绑定、项目与工单路由、执行适配、交付验收和知识 |
 | `src/` | 共用的登录授权、飞书读取、GitHub 校验、上游接入与知识投影 |
-| `workbench/` | 中文工作台和本地 Vue |
+| `workbench/` | 基于 Paperclip 开源组件的中文 React 工作台 |
 | `upstream/` | 固定版本的 Super-agent、AutoLoop、DeepSeek Harness |
 | `fixtures/`、`tests/` | 配置样例、测试仓 CI 模板和回归测试 |
 
@@ -32,6 +32,7 @@ npm start
 npm run audit:upstream
 npm test
 npm run typecheck
+npm run build:ui
 ```
 
 [交接、恢复与多轮交付](docs/WORKBENCH-ITERATIONS.md) · [迁移设计与九项生产能力](docs/SUPERAGENT-MIGRATION.md) · [上游使用位置](docs/SOURCES.md) · [第三方声明](THIRD_PARTY_NOTICES.md)
