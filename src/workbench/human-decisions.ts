@@ -1,7 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { key } from '../../upstream/superagent/src/core/index.ts';
 
-export type HumanDecisionKind = 'channel' | 'discussion' | 'intake' | 'answer' | 'access' | 'acceptance' | 'blocked';
+export type HumanDecisionKind = 'channel' | 'discussion' | 'intake' | 'answer' | 'access' | 'acceptance' | 'blocked' | 'development';
 export type HumanDecision = {
   id: string;
   project: string;

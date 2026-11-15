@@ -167,6 +167,13 @@ async function serve() {
       else if (post && view === 'ticket' && action === 'stop') work.stop(actor, item);
       else if (post && view === 'ticket' && action === 'handoff')
         output = work.handoff(actor, item, z.object({ agent: id, reason: prose }).strict().parse(await body(req)));
+      else if (post && view === 'ticket' && action === 'resume')
+        output = work.resume(actor, item, z.object({ nonce, reason: prose, version: z.number().int().positive(),
+          baseSha: z.string().regex(/^[a-f0-9]{40}$/).optional() }).strict().parse(await body(req)));
+      else if (post && view === 'ticket' && action === 'revise')
+        output = work.revise(actor, item, z.object({ revision: z.string().length(64), reason: prose,
+          kind: z.enum(['rejected', 'continued']).optional() }).strict().parse(await body(req)));
+      else if (post && view === 'ticket' && action === 'approve-development') work.approveDevelopment(actor, item);
       else if (post && view === 'ticket' && action === 'topic') work.setTopic(actor, item, z.object({ topic: id.optional() }).parse(await body(req)).topic);
       else if (post && view === 'ticket' && action === 'related') work.relateWork(actor, item, z.object({ ticket: id }).parse(await body(req)).ticket);
       else if (post && view === 'ticket' && action === 'branch') {

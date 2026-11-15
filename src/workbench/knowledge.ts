@@ -21,7 +21,7 @@ type Entry = {
 };
 export type AccessReader = { agent: string; owner: string };
 type Request = { id: string; ticket: string; entry: string; revision: string; requestedBy: string; reason: string; state: string;
-  readerAgent: string; readerOwner: string; generation: number };
+  readerAgent: string; readerOwner: string; generation: number; purpose: 'execute' | 'review'; output: string };
 
 export class ProjectKnowledge {
   constructor(private readonly store: SuperAgentStore) {
@@ -49,6 +49,9 @@ export class ProjectKnowledge {
         `);
       });
     }
+    if (!store.db.prepare('PRAGMA table_info(workbench_access)').all().some(column => column.name === 'purpose')) {
+      store.atomic(() => store.db.exec("ALTER TABLE workbench_access ADD COLUMN purpose TEXT NOT NULL DEFAULT 'execute'; ALTER TABLE workbench_access ADD COLUMN output TEXT NOT NULL DEFAULT ''"));
+    }
   }
 
   get(id: string): Entry | undefined {
@@ -73,22 +76,24 @@ export class ProjectKnowledge {
       .run(JSON.stringify({ ...entry, state: 'published' }), entry.id);
   }
 
-  request(ticket: string, entry: Entry, actor: string, reason: string, reader: AccessReader): Request {
+  request(ticket: string, entry: Entry, actor: string, reason: string, reader: AccessReader, review = ''): Request {
     if (!reader.agent || !reader.owner) throw new Error('资料申请需要明确读取 Agent 及其所有者。');
     return this.store.atomic(() => {
-      const previous = this.requests(ticket).filter(r => r.entry === entry.id && r.revision === entry.revision
-        && r.readerAgent === reader.agent && r.readerOwner === reader.owner).at(-1);
+      const all = this.requests(ticket).filter(r => r.entry === entry.id && r.revision === entry.revision
+        && r.readerAgent === reader.agent && r.readerOwner === reader.owner);
+      const previous = all.filter(r => r.output === review && r.purpose === (review ? 'review' : 'execute')).at(-1);
       if (previous && ['requested', 'granted'].includes(previous.state)) return previous;
       const id = randomUUID();
-      this.store.db.prepare(`INSERT INTO workbench_access VALUES (?,?,?,?,?,?,'requested',NULL,?,?,?)`)
-        .run(id, ticket, entry.id, entry.revision, actor, reason, reader.agent, reader.owner, (previous?.generation ?? 0) + 1);
+      this.store.db.prepare(`INSERT INTO workbench_access VALUES (?,?,?,?,?,?,'requested',NULL,?,?,?,?,?)`)
+        .run(id, ticket, entry.id, entry.revision, actor, reason, reader.agent, reader.owner, (all.at(-1)?.generation ?? 0) + 1,
+          review ? 'review' : 'execute', review);
       return this.requests(ticket).find(r => r.id === id)!;
     });
   }
 
   requests(ticket: string): Request[] {
     return this.store.db.prepare(`SELECT id,ticket,entry,revision,requester AS requestedBy,reason,
-      reader_agent AS readerAgent,reader_owner AS readerOwner,generation,
+      reader_agent AS readerAgent,reader_owner AS readerOwner,generation,purpose,output,
       CASE WHEN state='granted' AND expires<=? THEN 'expired' ELSE state END AS state
       FROM workbench_access WHERE ticket=? ORDER BY rowid`).all(Date.now(), ticket) as unknown as Request[];
   }
@@ -101,14 +106,14 @@ export class ProjectKnowledge {
     if (!changed.changes) throw new Error('资料申请状态已变化。');
   }
 
-  granted(ticket: string, entry: Entry, reader?: AccessReader): Request | undefined {
+  granted(ticket: string, entry: Entry, reader?: AccessReader, review = ''): Request | undefined {
     return reader && this.requests(ticket).find(r => r.entry === entry.id && r.revision === entry.revision && r.state === 'granted'
-      && r.readerAgent === reader.agent && r.readerOwner === reader.owner);
+      && r.readerAgent === reader.agent && r.readerOwner === reader.owner && r.output === review && r.purpose === (review ? 'review' : 'execute'));
   }
 
-  usable(ticket: string, entry: Entry, reader?: AccessReader, request?: string): boolean {
+  usable(ticket: string, entry: Entry, reader?: AccessReader, request?: string, review = ''): boolean {
     return entry.state === 'published' && (entry.visibility === 'project'
-      || !!this.granted(ticket, entry, reader) && (!request || this.granted(ticket, entry, reader)?.id === request));
+      || !!this.granted(ticket, entry, reader, review) && (!request || this.granted(ticket, entry, reader, review)?.id === request));
   }
 
   search(entries: Entry[], query: string, principal: string): Entry[] {
