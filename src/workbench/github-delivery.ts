@@ -38,6 +38,24 @@ export type GitHubPush = z.infer<typeof activity>;
 export type GitHubBranch = { repository: string; repoId: number; name: string; sha: string; push?: GitHubPush };
 export type GitHubIssue = z.infer<typeof issue>;
 
+const check = z.object({
+  id: z.number().int().positive(), name: z.string(), head_sha: commitSha,
+  status: z.string(), conclusion: z.string().nullable(),
+  app: z.object({ id: z.number().int().positive(), slug: z.string() }).nullable(),
+  html_url: z.string().nullable().optional(), completed_at: z.string().nullable().optional(),
+});
+export type PullCheck = z.infer<typeof check>;
+
+// A passing check from another SHA, another app, or a superseded attempt is not evidence for this version.
+export function pullChecks(sha: string, checks: PullCheck[]) {
+  const selected = checks.filter(item => item.head_sha === sha && item.name === 'collab-pilot'
+    && item.app?.slug === 'github-actions').sort((a, b) => b.id - a.id).slice(0, 1);
+  const ci = selected.some(item => item.status === 'completed' && item.conclusion !== 'success') ? 'failed' as const
+    : selected.length && selected.every(item => item.status === 'completed' && item.conclusion === 'success') ? 'passed' as const
+    : 'pending' as const;
+  return { ci, checks: selected };
+}
+
 export async function inspectIssue(repository: string, number: number) {
   const value = issue.parse(JSON.parse(await command('gh', ['api', 'repos/' + repository + '/issues/' + number])));
   if (value.number !== number || value.pull_request) return;
@@ -67,7 +85,10 @@ export async function inspectPull(repository: string, url: string, port: number,
   if (live.base.repo?.full_name.toLowerCase() !== repository.toLowerCase() || live.number !== number) throw new Error('PR 仓库已变化');
   const reviewPages = command('gh', ['api', 'repos/' + repository + '/pulls/' + number + '/reviews?per_page=100', '--paginate', '--slurp']);
   const [shaChecks, listed, reviews, pushes] = await Promise.all([
-    github.checkStatus(live.head.sha),
+    command('gh', ['api', 'repos/' + repository + '/commits/' + live.head.sha
+      + '/check-runs?check_name=collab-pilot&filter=latest&per_page=100', '--paginate', '--slurp'])
+      .then(value => pullChecks(live.head.sha, z.array(z.object({ check_runs: z.array(check) }))
+        .parse(JSON.parse(value)).flatMap(page => page.check_runs))),
     command('gh', ['api', 'repos/' + repository + '/pulls/' + number + '/commits?per_page=100', '--paginate', '--slurp']),
     reviewPages,
     live.head.repo?.id === live.base.repo.id
@@ -79,7 +100,7 @@ export async function inspectPull(repository: string, url: string, port: number,
   const observed = z.array(commits).parse(JSON.parse(listed)).flat();
   if (!observed.some(commit => commit.sha === live.head.sha)) throw new Error('未核对到 PR 的当前提交。');
   const snapshot = {
-    repository, repoId: live.base.repo.id, url: live.html_url, pr: number, baseSha: live.base.sha, headSha: live.head.sha, ci: shaChecks,
+    repository, repoId: live.base.repo.id, url: live.html_url, pr: number, baseSha: live.base.sha, headSha: live.head.sha, ...shaChecks,
     baseBranch: live.base.ref, headBranch: live.head.ref, headRepoId: live.head.repo?.id,
     state: live.merged ? 'merged' as const : live.draft && live.state === 'open' ? 'draft' as const : live.state,
     creator: live.user, createdAt: live.created_at, updatedAt: live.updated_at,

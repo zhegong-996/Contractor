@@ -9,8 +9,8 @@ import { root, runtime } from '../config.ts';
 import type { ConsoleAuth } from '../console-auth.ts';
 import { rbacEnforce } from '../rbac.ts';
 import { openSuperAgentEffects, openSuperAgentStore } from '../superagent-ports.ts';
-import { assignmentEvent, openExecution, ruleName, workerName, workerStopped, type Card, type Run } from './autoloop.ts';
-import { digest, ProjectKnowledge, type KnowledgeEntry } from './knowledge.ts';
+import { assignmentEvent, openExecution, ruleName, trackWorkerProcesses, workerName, workerStopped, type Card, type Run } from './autoloop.ts';
+import { digest, ProjectKnowledge, type AccessReader, type KnowledgeEntry } from './knowledge.ts';
 import { measureSchema, WorkObservations, type Measure, type ObservationInput } from './learning.ts';
 import type { Agent, Project, Settings } from './config.ts';
 import { ChannelLinks, messageRef, type ChannelRef, type ChannelRequest, type PlatformActor, type Provider } from './channel-links.ts';
@@ -56,7 +56,7 @@ type Work = {
   reusedLesson?: string;
   lane?: string;
   handoff?: { assignment: string; from: string; to: string; by: string; reason: string; runs: number[];
-    requestedAt: string; completedAt?: string; cancelledAt?: string };
+    requestedAt: string; completedAt?: string; cancelledAt?: string; accessRequests?: Record<string, string>; cause?: 'access' };
   delivery?: DeliveryEvidence;
   accepted?: { actor: string; revision: string; at: string; commit?: string };
 };
@@ -73,7 +73,7 @@ type RunActor = {
   delegatedBy: string; requestedVia: Work['source']; delegatedAccount?: PlatformActor;
   agent: string; owner: string; function: string; engine: string;
 };
-type Assembled = { assignment: string; agentVersion: string; contextHash: string; sources: { id: string; revision: string }[];
+type Assembled = { assignment: string; agentVersion: string; contextHash: string; sources: { id: string; revision: string; access?: string }[];
   engine: string; model?: string; actor?: RunActor; resources?: ResourceView[]; development?: Development };
 type Output = { run: number; text: string; revision: string; sources: Assembled['sources']; at: string };
 type Start = {
@@ -308,7 +308,9 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     if (ticket.ended) return false;
     if (decision.kind === 'access') {
       const request = knowledge.requests(ticket.id).find(item => item.id === decision.subject);
-      return request?.state === 'requested' && knowledge.get(request.entry)?.owner === actor;
+      const reader = accessReader(work, true);
+      return request?.state === 'requested' && knowledge.get(request.entry)?.owner === actor
+        && request.readerAgent === reader?.agent && request.readerOwner === reader?.owner;
     }
     if (decision.kind === 'answer') return mayRun(ticket, work) && !needed(ticket.id, work) && executionDecider(project, work) === actor
       && cardsFor(ticket.id).some(card => card.id === decision.card && card.state === 'open');
@@ -354,19 +356,24 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       ...(opening.meta.channelActor ? { delegatedAccount: opening.meta.channelActor as PlatformActor } : {}),
       agent: agent.id, owner: agent.owner, function: work.function, engine: agent.engine };
   };
-  const sourceAllowed = (id: string, entry: KnowledgeEntry, visited: Set<string>): boolean => {
-    if (!knowledge.usable(id, entry) || visited.has(entry.id)) return false;
+  const accessReader = (work: Work | undefined, pending = false): AccessReader | undefined => {
+    const agent = work && agentById.get(pending && handingOff(work) ? work.handoff!.to : work.agent);
+    return agent && { agent: agent.id, owner: agent.owner };
+  };
+  const sourceAllowed = (id: string, entry: KnowledgeEntry, visited: Set<string>, reader = accessReader(workOf(id)), access?: string): boolean => {
+    if (!knowledge.usable(id, entry, reader, access) || visited.has(entry.id)) return false;
     if (!entry.ticket) return true;
     const origin = outputFor(entry.ticket);
     return !!origin && usable(entry.ticket, origin.sources, new Set([...visited, entry.id]));
   };
   const usable = (id: string, sources: Assembled['sources'], visited = new Set<string>()): boolean => sources.every(ref => {
     const entry = knowledge.get(ref.id);
-    return !!entry && entry.revision === ref.revision && sourceAllowed(id, entry, visited);
+    return !!entry && entry.revision === ref.revision && (entry.visibility !== 'restricted' || !!ref.access)
+      && sourceAllowed(id, entry, visited, accessReader(workOf(id)), ref.access);
   });
   const needed = (id: string, work: Work) => work.material.some(ref => {
     const entry = knowledge.get(ref);
-    return !entry || !sourceAllowed(id, entry, new Set());
+    return !entry || !sourceAllowed(id, entry, new Set(), accessReader(work));
   });
   const valid = (ticket: Ticket | undefined, work: Work | undefined) => {
     if (!ticket || !work || ticket.ended || !policy().revalidate(ticket.mandate)) return false;
@@ -557,11 +564,12 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
   }
 
   function requestAccess(id: string, work: Work, entry: KnowledgeEntry, actor: string, reason: string) {
-    knowledge.request(id, entry, actor, reason);
-    const request = knowledge.requests(id).find(item => item.entry === entry.id && item.revision === entry.revision);
-    if (request?.state === 'requested')
+    const reader = requireValue(accessReader(work), '资料申请需要明确读取 Agent。');
+    const request = knowledge.request(id, entry, actor, reason, reader);
+    if (request.state === 'requested')
       askHuman(projectById.get(work.project)!, { kind: 'access', subject: request.id, title: '有一项项目资料访问申请',
-        ticket: id, detail: '请在工单中核对资料、申请人和访问范围。' }, entry.owner);
+        ticket: id, detail: '请核对资料与读取方：' + reader.owner + ' 的 ' + reader.agent + '，仅本工单、8 小时内有效。' }, entry.owner);
+    return request;
   }
 
   function clearExecutionDecisions(id: string) {
@@ -570,6 +578,19 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       closeDecision('answer', cardSubject(id, card.id));
     }
     for (const run of [0, ...runsFor(id).map(run => run.id)]) closeDecision('blocked', id + ':' + run);
+  }
+
+  function renewExecutionAccess(id: string, ticket: Ticket, work: Work, request: string) {
+    if (ticket.ended || handingOff(work) || !runsFor(id).some(run => run.lane === activeLane(id))) return;
+    const assignment = ticket.assignments.at(-1)!;
+    const affected = knowledge.requests(id).find(item => item.id === request);
+    const plan = { from: work.agent, to: work.agent, by: work.requester, reason: '资料访问已变化，等待停止旧执行并重新授权',
+      assignment: assignment.id, cause: 'access' as const,
+      runs: runsFor(id).filter(run => run.lane === activeLane(id) && ['claimed', 'unknown'].includes(run.state)).map(run => run.id),
+      requestedAt: new Date().toISOString(), accessRequests: affected ? { [affected.entry]: request } : {} };
+    saveWork(id, { ...work, handoff: plan });
+    store.db.prepare('INSERT OR IGNORE INTO workbench_handoff VALUES (?)').run(id);
+    audit(id, 'access.recovery-requested', { request, ...plan });
   }
 
   function confirmOldStop(id: string, run: number, evidence: 'worker' | 'not-launched') {
@@ -610,11 +631,58 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     }
     const project = projectById.get(work.project)!;
     const replacement = agentById.get(plan.to);
-    if (!maintain(project, plan.by) || !policy().revalidate(ticket.mandate) || !isActive(replacement, project)
-      || work.development && (!authorizesDevelopment(project, work.development, work.requester) || !['codex', 'cursor'].includes(replacement.engine))
-      || needed(id, work)) {
+    if (!(plan.cause === 'access' ? mayStart(project, plan.by) : maintain(project, plan.by))
+      || !policy().revalidate(ticket.mandate) || !isActive(replacement, project)
+      || work.development && (!authorizesDevelopment(project, work.development, work.requester) || !['codex', 'cursor'].includes(replacement.engine))) {
       const reason = '交接条件已变化，请维护人核对资料授权和接续 Agent。';
       if (ticket.assignments.at(-1)?.report?.summary !== reason) reportBlocked(id, work, reason);
+      return;
+    }
+    const replacementWork = { ...work, agent: replacement.id, agentVersion: version(replacement), function: replacement.function };
+    if (needed(id, replacementWork)) {
+      const accessRequests = { ...plan.accessRequests };
+      const reader = accessReader(replacementWork)!;
+      const requests = knowledge.requests(id);
+      for (const ref of work.material) {
+        const entry = knowledge.get(ref);
+        const existing = requests.find(request => request.id === accessRequests[ref]);
+        // A request for another document, version or reader cannot stand in for this one.
+        // Preserve a matching revoked request until the requester explicitly reapplies.
+        const matches = existing && existing.entry === ref && existing.revision === entry?.revision
+          && existing.readerAgent === reader.agent && existing.readerOwner === reader.owner;
+        if (entry?.visibility === 'restricted' && !matches && !knowledge.usable(id, entry, reader))
+          accessRequests[ref] = requestAccess(id, replacementWork, entry, plan.by, '原执行端已停止，交接至新的 Agent 前重新申请资料访问').id;
+      }
+      if (digest(accessRequests) !== digest(plan.accessRequests ?? {}))
+        saveWork(id, { ...work, handoff: { ...plan, accessRequests } });
+      const reason = '旧执行端已停止，等待资料负责人授权接续 Agent';
+      if (ticket.assignments.at(-1)?.report?.summary !== reason)
+        engine.report(id, { state: 'waiting', summary: reason, question: null });
+      return;
+    }
+    if (plan.cause === 'access') {
+      store.atomic(() => {
+        const accessRequests = Object.fromEntries(work.material.flatMap(ref => {
+          const entry = knowledge.get(ref);
+          const grant = entry && knowledge.granted(id, entry, accessReader(replacementWork));
+          return grant ? [[ref, grant.id]] : [];
+        }));
+        const restored = { ...work, handoff: { ...plan, accessRequests, completedAt: new Date().toISOString() } };
+        saveWork(id, restored);
+        // Retain unanswered cards in the native lane; the next run gets a fresh CLI session.
+        ingest(ticket, restored, key('access-restored', id, plan.requestedAt), '资料已重新授权，按原委托接续。');
+        engine.report(id, { state: cardsFor(id).some(card => card.state === 'open') ? 'waiting' : 'progress',
+          summary: cardsFor(id).some(card => card.state === 'open') ? '资料已重新授权，继续等待必答事项' : '资料已重新授权，准备接续' });
+        audit(id, 'access.recovery-completed', { request: accessRequests, stoppedRuns: plan.runs });
+        store.db.prepare('DELETE FROM workbench_handoff WHERE ticket=?').run(id);
+      });
+      return;
+    }
+    if (cardsFor(id).some(card => card.state === 'open')) {
+      // Older persisted handoff plans may predate the intake check below.
+      saveWork(id, { ...work, handoff: { ...plan, cancelledAt: new Date().toISOString() } });
+      store.db.prepare('DELETE FROM workbench_handoff WHERE ticket=?').run(id);
+      engine.report(id, { state: 'waiting', summary: '仍有必答事项，请答复后重新申请交接' });
       return;
     }
     clearExecutionDecisions(id);
@@ -634,6 +702,8 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     if (!maintain(project, actor)) throw new WorkbenchError('由项目维护人决定执行交接。', 403);
     if (work.handoff?.completedAt && work.handoff.to === input.agent && work.handoff.reason === input.reason) return work.handoff;
     if (ticket.ended) throw new WorkbenchError('该工单的执行已结束。', 409);
+    if (cardsFor(id).some(card => card.state === 'open'))
+      throw new WorkbenchError('仍有必答事项，请先由执行决策人答复，再交接 Agent。', 409);
     if (handingOff(work)) {
       if (work.handoff!.to === input.agent) return work.handoff!;
       const replacement = agentById.get(work.handoff!.to);
@@ -656,11 +726,14 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
   }
 
   const worker = createWorker({ name: workerName, wait: 0, capacity: 1, log(message) {
+    const launched = /^run (\d+) .* turn \d+ started, pid \d+$/.exec(message);
+    if (launched && !trackWorkerProcesses(Number(launched[1]))) console.error('SuitMe 执行进程追踪尚未确认');
     const status = /^run (\d+): (done|nothing|failed|cancelled|couldn't hand in the result)/.exec(message);
     if (status) console.info('SuitMe 执行 #' + status[1] + ' ' + status[2]);
   }, hub: {
     async work(request) {
       const running = request.running ?? [];
+      for (const id of running) trackWorkerProcesses(id);
       hub.heartbeat(workerName, running);
       for (const id of running) {
         const run = hub.one<Run>('SELECT id,lane,state,cancel_at FROM runs WHERE id=?', [id]);
@@ -680,9 +753,14 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
         const run = hub.one<Run>('SELECT lane,state FROM runs WHERE id=?', [id]);
         return run?.state === 'unknown' && handingOff(workOf(ticketOfLane(run.lane)));
       })])];
+      for (const id of cancel) if (!trackWorkerProcesses(id, true)) console.error('SuitMe 等待核对受托执行的进程谱系');
       if (end.signal.aborted || request.capacity === false || cancel.length || running.length) return { cancel };
       const job = hub.claimNext(workerName, request.claim);
       if (!job) return {};
+      // AutoLoop's native openInScope is group-wide. A SuitMe work lane is a separate delegation.
+      const openInLane = new Set(hub.all<{ id: number }>(
+        'SELECT id FROM cards WHERE lane=(SELECT lane FROM runs WHERE id=?) AND rule=?', [job.run, job.rule.name]).map(card => card.id));
+      job.context.open = job.context.open.filter(card => openInLane.has(card.card));
       const digestProject = digestProjects.get(job.rule.name);
       if (digestProject) return { job: await prepareDiscussion(job, digestProject) };
       const run = hub.one<Run>('SELECT id,lane,state FROM runs WHERE id=?', [job.run]);
@@ -700,7 +778,12 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       const agent = agentById.get(work.agent)!;
       const prior = job.session ? hub.one<{ id: number }>(
         'SELECT id FROM runs WHERE lane=? AND session=? AND id<>? ORDER BY id DESC LIMIT 1', [run.lane, job.session, job.run]) : undefined;
-      const previous = manifestFor(job.run) ?? (prior && manifestFor(prior.id));
+      let previous = manifestFor(job.run) ?? (prior && manifestFor(prior.id));
+      let session = job.session;
+      if (previous && !usable(ticket.id, previous.sources) && work.handoff?.cause === 'access' && work.handoff.completedAt) {
+        previous = undefined;
+        session = null;
+      }
       if (previous && !usable(ticket.id, previous.sources)) {
         hub.finish(job.run, job.token, { outcome: 'cancelled', summary: '历史场景使用的资料已撤权' });
         reportBlocked(ticket.id, work, '历史会话的资料授权已变化，请重新发起委托');
@@ -716,7 +799,8 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
         const entry = knowledge.get(id);
         return entry && entry.project === project.id && sourceAllowed(ticket.id, entry, new Set()) ? [entry] : [];
       });
-      const sources = entries.map(entry => ({ id: entry.id, revision: entry.revision }));
+      const sources: Assembled['sources'] = entries.map(entry => ({ id: entry.id, revision: entry.revision,
+        ...(entry.visibility === 'restricted' ? { access: knowledge.granted(ticket.id, entry, accessReader(work))?.id } : {}) }));
       for (const ref of previous?.sources ?? []) {
         if (!sources.some(source => source.id === ref.id)) sources.push(ref);
       }
@@ -791,8 +875,8 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       };
       store.db.prepare('INSERT OR IGNORE INTO workbench_manifest VALUES (?,?,?,?)')
         .run(job.run, job.attempt, ticket.id, JSON.stringify(manifest));
-      audit(ticket.id, 'run.started', { run: job.run, attempt: job.attempt, resumed: !!job.session });
-      return { job: { ...job, agent: { ...job.agent, access: development ? 'edit' : 'read' },
+      audit(ticket.id, 'run.started', { run: job.run, attempt: job.attempt, resumed: !!session });
+      return { job: { ...job, session, agent: { ...job.agent, access: development ? 'edit' : 'read' },
         askFirst: [...job.askFirst, '需求范围或验收口径有冲突', '需要超出已委托的改动范围', '需要人决定是否继续或交接'],
         rule: { ...job.rule, cwd, prompt }, context } };
     },
@@ -801,7 +885,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       const result = parseResult(value);
       const digestWork = discussions.run(id);
       if (digestWork) return finishDiscussion(id, token, result, digestWork);
-      const run = hub.one<Run>('SELECT id,lane,state FROM runs WHERE id=?', [id]);
+      const run = hub.one<Run & { rule: string }>('SELECT id,lane,state,rule FROM runs WHERE id=?', [id]);
       const manifest = manifestFor(id);
       const ticketId = run && ticketOfLane(run.lane);
       if (!run || !ticketId) throw new Error('缺少原生运行记录');
@@ -813,6 +897,15 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
         return { rejected: [] };
       }
       if (!workerStopped(id, attempt, token)) throw new Error('等待旧进程组退出');
+      // Only people can answer required asks. Knowing another lane's card ID grants no authority to resolve it.
+      const deniedResolutions: { card: number; reason: string }[] = [];
+      if (result.resolve) result.resolve = result.resolve.filter(item => {
+        const allowed = hub.one('SELECT 1 FROM cards WHERE id=? AND lane=? AND rule=? AND kind=\'notice\' AND state=\'open\'',
+          [item.card, run.lane, run.rule]);
+        if (!allowed) deniedResolutions.push({ card: item.card, reason: 'Agent 仅能处理本工单的告知事项，必答事项须由人答复。' });
+        return !!allowed;
+      });
+      if (deniedResolutions.length) audit(ticketId, 'run.resolve-rejected', { run: id, cards: deniedResolutions.map(item => item.card) });
       const ok = () => manifest && mayRun(store.tickets.get(ticketId), workOf(ticketId)) && run.lane === activeLane(ticketId)
         && usable(ticketId, manifest.sources);
       let outcome = ok() ? result : { outcome: 'cancelled', summary: handingOff(workOf(ticketId))
@@ -840,7 +933,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
         console.error('SuitMe 工单同步失败（运行 ' + id + '）：', (error as Error).name);
         throw error;
       }
-      return ack;
+      return { ...ack, rejected: [...ack.rejected, ...deniedResolutions] };
     },
   } });
 
@@ -1432,6 +1525,9 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
   }
 
   function finishDiscussion(id: number, token: string, result: ReturnType<typeof parseResult>, before: NonNullable<ReturnType<Discussions['run']>>) {
+    const native = hub.one<{ state: string; attempts: number }>('SELECT state,attempts FROM runs WHERE id=?', [id]);
+    if (native && ['claimed', 'unknown'].includes(native.state) && !workerStopped(id, native.attempts + 1, token))
+      throw new Error('等待群整理执行及其子进程退出');
     const scope = before.scope;
     const terminal = { usage: result.usage };
     if (!scope) return hub.finish(id, token, before.state === 'done' ? { ...terminal, outcome: 'done', summary: '群消息已整理' }
@@ -1600,7 +1696,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     for (const id of descendants) for (const child of children.get(id) ?? []) descendants.add(child);
     return [...descendants].flatMap(id => runsFor(id).flatMap(run => {
       const manifest = manifestFor(run.id);
-      return manifest?.actor && run.session && run.state === 'done'
+      return manifest?.actor && run.state === 'done'
         ? [{ ticket: id, id: run.id, actor: manifest.actor, session: run.session, development: manifest.development }] : [];
     }));
   }
@@ -1634,6 +1730,25 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
   function writeDelivery(id: string, current: Work, evidence: DeliveryEvidence) {
     storeDeliveryVersion(id, evidence);
     saveWork(id, { ...current, delivery: evidence });
+  }
+
+  function verifyCodeDelivery(ticket: Ticket, work: Work, evidence: DeliveryEvidence) {
+    if (!work.development) return;
+    const output = readableOutput(ticket.id);
+    const run = output && hub.one<Run>('SELECT id,lane,state,session,usage,summary,cancel_at FROM runs WHERE id=?', [output.run]);
+    const manifest = output && manifestFor(output.run);
+    const development = manifest?.development;
+    const proof = evidence.commits?.find(item => item.sha === evidence.headSha)?.run;
+    if (!output || !run || run.state !== 'done' || ticketOfLane(run.lane) !== ticket.id
+      || !manifest || ticket.assignments.at(-1)?.id !== manifest.assignment
+      || !development?.commit || development.commit !== evidence.headSha
+      || development.repository.toLowerCase() !== work.development.repository.toLowerCase()
+      || development.base !== work.development.base || digest(development.paths) !== digest(work.development.paths)
+      || evidence.repository.toLowerCase() !== work.development.repository.toLowerCase()
+      || evidence.headRepoId !== evidence.repoId || evidence.headBranch !== development.branch
+      || evidence.baseBranch !== development.base || evidence.baseSha !== development.baseSha
+      || proof?.ticket !== ticket.id || proof.id !== output.run)
+      throw new WorkbenchError('PR 必须对应本工单当前成果的受托提交、分支和代码基线。', 409);
   }
 
   function storeDeliveryVersion(id: string, evidence: DeliveryEvidence) {
@@ -1857,6 +1972,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       hub.tick();
       engine.evaluateDue();
       effects.kick();
+      for (const entry of worker.entries()) trackWorkerProcesses(entry.run);
       await worker.tick();
       for (const row of store.db.prepare('SELECT ticket FROM workbench_handoff ORDER BY rowid').all())
         advanceHandoff(String(row.ticket));
@@ -2027,10 +2143,12 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       const evidence: DeliveryEvidence = { ...snapshot, creator: githubMember(snapshot.creator, project, snapshot.createdAt)!,
         attachedBy: actor, workReference: referencesTicket(observed.body, id),
         commits: await provenance(ticket, work, project, observed) };
+      verifyCodeDelivery(ticket, work, evidence);
       store.atomic(() => {
         const current = ticketFor(id, actor).work;
         if (!canAttach(project, target, actor, current.requester) || current.accepted) throw new WorkbenchError('无法更新已验收或无权限的交付。', 409);
         if (digest(current.delivery ?? null) !== digest(work.delivery ?? null)) throw new WorkbenchError('交付已变化，请刷新后再关联。', 409);
+        verifyCodeDelivery(ticketFor(id, actor).ticket, current, evidence);
         linkOrigin({ key: 'github:' + snapshot.repoId + ':' + snapshot.pr, url: snapshot.url,
           label: snapshot.repository + ' #' + snapshot.pr }, id);
         writeDelivery(id, current, evidence);
@@ -2060,28 +2178,36 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       const output = requireValue(readableOutput(id), '当前成果不可读取，请重新核对权限。', 409);
       if (ticket.ended?.outcome !== 'completed' || output.revision !== revision) throw new WorkbenchError('请验收当前已生成的版本。', 409);
       if (work.accepted) return;
+      if (work.development && (!commit || !work.delivery)) throw new WorkbenchError('代码工单必须关联本单提交与 PR，并核对该提交的 CI 后验收。', 409);
       if (commit && !work.delivery) throw new WorkbenchError('请先关联交付版本。', 409);
+      let verified: DeliveryEvidence | undefined;
       if (work.delivery) {
         const target = pullTarget(project, work.delivery.url);
-        const { snapshot: observed } = await inspectPull(target.externalId, work.delivery.url, config.port, runtime('execution'));
+        const fresh = await inspectPull(target.externalId, work.delivery.url, config.port, runtime('execution'));
+        const observed = fresh.snapshot;
         const selected = ticketFor(id, actor).work.delivery;
         if (observed.state === 'draft' || observed.state === 'closed' || observed.ci !== 'passed'
           || observed.headSha !== commit || digest(selected ?? null) !== digest(work.delivery)
           || work.delivery.headSha !== observed.headSha || observed.baseSha !== work.delivery.baseSha)
           throw new WorkbenchError('PR 提交、基线或 CI 已变化，请更新交付版本后再验收。', 409);
+        verified = { ...work.delivery, ...observed, commits: await provenance(ticket, work, project, fresh) };
+        verifyCodeDelivery(ticket, work, verified);
       }
       const current = ticketFor(id, actor).work;
       if (current.accepted) return;
       if (readableOutput(id)?.revision !== revision || digest(current.delivery ?? null) !== digest(work.delivery ?? null))
         throw new WorkbenchError('成果或交付版本已变化，请刷新。', 409);
       store.atomic(() => {
-        saveWork(id, { ...current, accepted: { actor, revision, at: new Date().toISOString(), ...(commit ? { commit } : {}) } });
+        if (verified) verifyCodeDelivery(ticketFor(id, actor).ticket, current, verified);
+        if (verified) storeDeliveryVersion(id, verified);
+        saveWork(id, { ...current, ...(verified ? { delivery: verified } : {}), accepted: { actor, revision, at: new Date().toISOString(), ...(commit ? { commit } : {}) } });
         closeDecision('acceptance', id);
         if (body) knowledge.save({ project: work.project, owner: actor, ticket: id, title: ticket.title, kind: 'decision', body, conditions,
           visibility: output.sources.some(ref => knowledge.get(ref.id)?.visibility === 'restricted') ? 'restricted' : 'project',
           state: 'candidate', sources: [id + '@' + revision, ...(work.delivery ? [work.delivery.url + '@' + work.delivery.headSha] : []),
             ...output.sources.map(ref => ref.id + '@' + ref.revision)] }, id);
-        audit(id, 'output.accepted', { revision, actor });
+        audit(id, 'output.accepted', { revision, actor, ...(commit ? { commit } : {}),
+          ...(verified ? { pr: verified.url, checks: verified.checks?.map(item => ({ id: item.id, head: item.head_sha })) } : {}) });
       });
     },
     publish(actor: string, id: string, revision: string) {
@@ -2127,7 +2253,11 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       const entry = requireValue(knowledge.get(entryId), '找不到资料。');
       if (entry.project !== work.project || entry.visibility !== 'restricted' || !work.material.includes(entry.id))
         throw new WorkbenchError('请在委托时选择当前项目内的资料。');
-      requestAccess(id, work, entry, actor, reason);
+      const agent = accessReader(work, true)?.agent;
+      const request = requestAccess(id, agent ? { ...work, agent } : work, entry, actor, reason);
+      if (request.state === 'requested' && !handingOff(work) && runsFor(id).some(run => run.lane === activeLane(id)
+        && !!manifestFor(run.id)?.sources.some(ref => ref.id === entry.id) && !usable(id, manifestFor(run.id)!.sources)))
+        renewExecutionAccess(id, ticket, work, request.id);
     },
     changeAccess(actor: string, id: string, requestId: string, state: 'granted' | 'revoked') {
       const { ticket, work } = ticketFor(id, actor);
@@ -2135,10 +2265,18 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       const entry = requireValue(knowledge.get(request.entry), '找不到资料。');
       if (entry.owner !== actor) throw new WorkbenchError('只有资料所有者可以授权或撤回。', 403);
       if (state === 'granted' && ticket.ended) throw new WorkbenchError('工单已结束。', 409);
+      if (request.state !== (state === 'granted' ? 'requested' : 'granted'))
+        throw new WorkbenchError('资料申请状态已变化。', 409);
+      const reader = accessReader(work, true);
+      if (state === 'granted' && (request.readerAgent !== reader?.agent || request.readerOwner !== reader?.owner))
+        throw new WorkbenchError('读取 Agent 或所有者已变化，请核对当前资料申请。', 409);
       store.atomic(() => {
         knowledge.change(request, state);
         closeDecision('access', request.id);
-        audit(id, 'access.' + state, { actor, entry: entry.id, revision: entry.revision });
+        audit(id, 'access.' + state, { actor, entry: entry.id, revision: entry.revision,
+          request: request.id, readerAgent: request.readerAgent, readerOwner: request.readerOwner, generation: request.generation });
+        if (state === 'revoked' && request.readerAgent === accessReader(work)?.agent
+          && request.readerOwner === accessReader(work)?.owner) renewExecutionAccess(id, ticket, work, request.id);
         if (state === 'granted' && mayRun(ticket, work) && !needed(id, work)) {
           effects.enqueue('delivery', id, { ticketId: id, assignmentId: ticket.assignments.at(-1)?.id });
           if (!cardsFor(id).some(card => card.state === 'open')) engine.report(id, { state: 'progress', summary: '资料已授权，准备执行' });
