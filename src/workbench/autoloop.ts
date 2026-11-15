@@ -44,7 +44,7 @@ type ProcessLedger = { run: number; attempt: number; tokenHash: string; processe
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 const sameProcess = (a: ProcessIdentity, b: ProcessIdentity) => a.pid === b.pid && a.started === b.started && a.commandHash === b.commandHash;
 
-// Only executable names are read, never command arguments or environment variables.
+// Process listings use executable names without arguments or environment variables.
 function processes(pid?: number): ProcessView[] {
   let value: string;
   try {
@@ -97,13 +97,23 @@ export function trackWorkerProcesses(run: number, cancel = false): boolean {
     const known = new Set(ledger.processes.filter(p => active.some(current => sameProcess(p, current))).map(p => p.pid));
     const root = active.find(p => p.pid === entry.pid);
     let verifiedRoot = !!root && ledger.processes.some(p => sameProcess(p, root));
-    if (root && !ledger.roots.includes(root.pid) && root.group === root.pid && typeof entry.launchedAt === 'number'
-      && Math.abs(Date.parse(root.started) - entry.launchedAt) <= 1000) {
-      // A saved PID alone is not an identity, especially when recovering a pre-upgrade run.
+    if (root && !ledger.roots.includes(root.pid) && root.group === root.pid) {
       try {
-        const command = execFileSync('ps', ['-p', String(root.pid), '-ww', '-o', 'command='],
-          { encoding: 'utf8', timeout: 3000, stdio: ['ignore', 'pipe', 'pipe'] });
-        verifiedRoot = command.includes('agent-autoloop-run:' + entry.run + ':' + entry.attempt + ':' + entry.turn);
+        const marker = 'agent-autoloop-run:' + entry.run + ':' + entry.attempt + ':' + entry.turn;
+        if (process.platform === 'linux') {
+          // AutoLoop passes the run marker and output paths as distinct shell arguments.
+          // Match the exact wrapper because procps lstart rounds the wall-clock start time.
+          const folder = path.dirname(file);
+          const args = readFileSync('/proc/' + root.pid + '/cmdline', 'utf8').split('\0');
+          verifiedRoot = args[0] === '/bin/sh' && args[1] === '-c' && args[3] === marker
+            && args[4] === path.join(folder, 'stdout-' + entry.turn + '.log')
+            && args[5] === path.join(folder, 'stderr-' + entry.turn + '.log')
+            && args[6] === path.join(folder, 'exit-' + entry.turn);
+        } else if (typeof entry.launchedAt === 'number' && Math.abs(Date.parse(root.started) - entry.launchedAt) <= 1000) {
+          const command = execFileSync('ps', ['-p', String(root.pid), '-ww', '-o', 'command='],
+            { encoding: 'utf8', timeout: 3000, stdio: ['ignore', 'pipe', 'pipe'] });
+          verifiedRoot = command.includes(marker);
+        }
       } catch { verifiedRoot = false; }
     }
     if (root && verifiedRoot) {
