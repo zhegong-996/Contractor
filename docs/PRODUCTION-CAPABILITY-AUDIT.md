@@ -102,6 +102,16 @@ Skill、context 和 runtime 分别以内容哈希寻址，读取时再算哈希�
 
 联调保留了脚本自身的失败记录：先误以为明确引用需要手动建单，再误把单聊答复命令发在群里；修正预期和回复位置后沿用原工单。测试服务重启后旧登录 Cookie 返回 401，重新登录后继续核验。没有用直接修改业务账本来伪造这些步骤。私有运行证据保存在本机 `/private/tmp/suitme-document-live/evidence.json`，不提交登录文件或消息正文。
 
+## 依赖核查
+
+首轮远端 CI 的安装日志另报告了现有依赖告警。核对注册表及公告后，将直接依赖 Zod 从 4.4.3 升至 4.6.7，修复其受限集合校验可能耗尽内存的问题；公告修复范围为 4.6.6 起。[Zod 公告](https://github.com/advisories/GHSA-mrhx-c7xc-m3w5)
+
+仍保留 Casbin 依赖链的 3 项中等级审计记录（Casbin 汇总以及 csv-parse、minimatch 两项底层记录，并非三个独立漏洞）。csv-parse 公告要求启用 `columns` 与 `group_columns_by_name`；当前 Casbin 文件适配器读取可信本地策略，没有这两个选项。minimatch 公告的触发条件为 `optimizationLevel >= 2`；当前 RBAC 模型使用 `keyMatch`，没有使用 `globMatch`。这是当前调用路径核对，不是对所有未来用法的安全保证。[csv-parse 公告](https://github.com/advisories/GHSA-8cw4-87c7-c6xx)、[minimatch 公告](https://github.com/advisories/GHSA-g3hv-75wg-m249)
+
+Casbin 当前版本仍限定 csv-parse 5.x、minimatch 10.x，公告修复分别在 7.x 和 11.x。没有通过强制跨主版本覆盖或退回旧 Casbin 来制造零告警结果。后续更新其依赖范围或增加新策略导入方式时，须重新核对这两条路径。上游三个项目的固定版本没有改变。
+
+升级后 40 项回归、类型检查、上游校验再次通过；依赖审计为 0 项高等级、3 项中等级。重新载入同一真实联调账本，快照、知识检索及撤权仍生效，执行次数仍为 3，没有再次调用模型。
+
 ## 后续顺序
 
 1. 固定各执行端的模型与计量能力，并隔离工作区、凭据和会话。这决定能否安全服务多个真实成员。
