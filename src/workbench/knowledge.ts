@@ -18,6 +18,8 @@ type Entry = {
   ticket?: string;
   observation?: string;
   sources: string[];
+  draft?: { run: number; version: number; cards: number[]; needsReview: boolean };
+  reviewed?: { by: string; at: string };
 };
 export type AccessReader = { agent: string; owner: string };
 type Request = { id: string; ticket: string; entry: string; revision: string; requestedBy: string; reason: string; state: string;
@@ -27,6 +29,9 @@ export class ProjectKnowledge {
   constructor(private readonly store: SuperAgentStore) {
     store.db.exec(`
       CREATE TABLE IF NOT EXISTS workbench_knowledge (id TEXT PRIMARY KEY, project TEXT NOT NULL, value TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS workbench_knowledge_revision (
+        entry TEXT NOT NULL, revision TEXT NOT NULL, value TEXT NOT NULL, PRIMARY KEY(entry,revision)
+      );
       CREATE TABLE IF NOT EXISTS workbench_access (
         id TEXT PRIMARY KEY, ticket TEXT NOT NULL, entry TEXT NOT NULL, revision TEXT NOT NULL,
         requester TEXT NOT NULL, reason TEXT NOT NULL, state TEXT NOT NULL, expires INTEGER,
@@ -62,7 +67,9 @@ export class ProjectKnowledge {
   save(input: Omit<Entry, 'id' | 'revision'>, id: string = randomUUID()): Entry {
     const value = { ...input, id, revision: digest({ ...input, id }) };
     this.store.db.prepare('INSERT OR IGNORE INTO workbench_knowledge VALUES (?,?,?)').run(id, value.project, JSON.stringify(value));
-    return this.get(id)!;
+    const stored = this.get(id)!;
+    this.keepRevision(stored);
+    return stored;
   }
 
   list(project: string): Entry[] {
@@ -72,8 +79,31 @@ export class ProjectKnowledge {
 
   publish(entry: Entry, revision: string) {
     if (entry.state !== 'candidate' || entry.revision !== revision) throw new Error('知识候选已更新，请重新核对。');
+    if (entry.draft?.needsReview || !entry.conditions.trim()) throw new Error('采用前请核对结论并补充适用条件。');
     this.store.db.prepare('UPDATE workbench_knowledge SET value=? WHERE id=?')
       .run(JSON.stringify({ ...entry, state: 'published' }), entry.id);
+  }
+
+  private keepRevision(entry: Entry) {
+    this.store.db.prepare('INSERT OR IGNORE INTO workbench_knowledge_revision VALUES (?,?,?)')
+      .run(entry.id, entry.revision, JSON.stringify(entry));
+  }
+
+  review(entry: Entry, revision: string, body: string, conditions: string, actor: string): Entry {
+    if (entry.state !== 'candidate' || entry.revision !== revision) throw new Error('知识候选已更新，请重新核对。');
+    if (!body.trim() || !conditions.trim()) throw new Error('请确认结论并填写适用条件。');
+    const { revision: _old, ...previous } = entry;
+    const input = { ...previous, body, conditions, reviewed: { by: actor, at: new Date().toISOString() },
+      ...(entry.draft ? { draft: { ...entry.draft, needsReview: false } } : {}) };
+    const value = { ...input, revision: digest(input) };
+    this.store.atomic(() => {
+      const changed = this.store.db.prepare(`UPDATE workbench_knowledge SET value=? WHERE id=? AND json_extract(value,'$.revision')=?
+        AND json_extract(value,'$.state')='candidate'`).run(JSON.stringify(value), entry.id, revision);
+      if (!changed.changes) throw new Error('知识候选已更新，请重新核对。');
+      this.keepRevision(entry);
+      this.keepRevision(value);
+    });
+    return value;
   }
 
   request(ticket: string, entry: Entry, actor: string, reason: string, reader: AccessReader, review = ''): Request {

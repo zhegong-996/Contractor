@@ -157,8 +157,12 @@ async function serve() {
       } else if (config.crossChannel && post && view === 'channels' && action === 'resolve') {
         output = work.resolveChannel(actor, item, channelDecision.parse(await body(req)));
       }
+      else if (get && view === 'ticket' && item && action === 'runs' && reference)
+        output = work.executionSnapshot(actor, item, z.coerce.number().int().positive().parse(reference),
+          url.searchParams.has('attempt') ? z.coerce.number().int().positive().parse(url.searchParams.get('attempt')) : undefined);
       else if (get && view === 'ticket' && item) output = work.detail(actor, item);
       else if (get && view === 'request' && item) output = { ticket: work.resolveStart(actor, item) };
+      else if (get && view === 'project' && item && action === 'usage') output = work.projectUsage(actor, item);
       else if (post && view === 'project' && item && action === 'bind') {
         const value = z.object({ source: resourceSource, externalId: z.string().min(1).max(200) }).parse(await body(req));
         work.bindResource(actor, item, value.source, value.externalId);
@@ -206,6 +210,9 @@ async function serve() {
         work.changeAccess(actor, item, reference, settingsRoutes.changeAccess.parse(await body(req)).state);
       else if (get && view === 'knowledge' && item) output = work.browse(actor, item, (url.searchParams.get('q') ?? '').slice(0, 300));
       else if (post && view === 'knowledge' && action === 'publish') work.publish(actor, item, settingsRoutes.publish.parse(await body(req)).revision);
+      else if (post && view === 'knowledge' && action === 'review') output = work.reviewKnowledge(actor, item,
+        z.object({ revision: z.string().length(64), body: z.string().trim().min(1).max(16000),
+          conditions: z.string().trim().min(1).max(600) }).strict().parse(await body(req)));
       else if (post && view === 'knowledge' && item) output = { id: work.addKnowledge(actor, item, settingsRoutes.add.parse(await body(req))) };
       else throw new WorkbenchError('未找到。', 404);
       json(res, 200, output ?? { ok: true });

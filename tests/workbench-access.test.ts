@@ -161,7 +161,11 @@ test('原生执行交接先停旧进程，再等新读取方授权；撤权重�
     const questions = work.detail('requester', asking).questions;
     return questions.length === 2 ? questions : undefined;
   });
+  assert.ok(!JSON.stringify(work.detail('replacement', asking)).includes(questions[0]!.title),
+    '受限问题的标题也不能从 Report.question 向其他项目成员泄露');
   work.changeAccess('owner', asking, askAccess.id, 'revoked');
+  assert.ok(!JSON.stringify(work.detail('requester', asking)).includes(questions[0]!.title),
+    '撤权后报告中的旧问题也要隐藏');
   work.request('requester', asking, entry, '保持未答问题重新申请');
   const askRenewal = work.detail('owner', asking).requests.find(r => r.state === 'requested')!;
   work.changeAccess('owner', asking, askRenewal.id, 'granted');
