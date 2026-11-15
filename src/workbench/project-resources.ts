@@ -8,6 +8,19 @@ export const githubRepository = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 const gitPath = z.string().regex(/^[a-zA-Z0-9_][a-zA-Z0-9_./-]*$/).refine(value =>
   value.split('/').every((part, index, parts) => part === '' ? index === parts.length - 1 : !part.startsWith('.')));
 const branchName = z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_/-]{0,79}$/);
+export const markdownPath = gitPath.max(240).refine(value => /\.(?:md|markdown)$/i.test(value));
+const sourceOwner = {
+  owner: z.string().regex(/^[a-zA-Z0-9_-]{2,32}$/),
+  visibility: z.enum(['project', 'restricted']).default('restricted'),
+  conditions: z.string().trim().min(1).max(600),
+};
+const connectionId = z.string().regex(/^[a-zA-Z0-9_-]{1,160}$/);
+const knowledge = z.discriminatedUnion('format', [
+  z.object({ ...sourceOwner, format: z.literal('feishu-docx'), profile: connectionId,
+    appId: connectionId, userOpenId: connectionId }).strict(),
+  z.object({ ...sourceOwner, format: z.literal('github-markdown'), branch: branchName,
+    files: z.array(markdownPath).min(1).max(12) }).strict(),
+]);
 const https = z.url({ protocol: /^https$/ }).refine(value => {
   const url = new URL(value);
   return !url.username && !url.password && ![...url.searchParams.keys()]
@@ -28,6 +41,7 @@ export const resourceSchema = z.object({
   route: z.boolean().optional(),
   shareNotes: z.boolean().optional(),
   digest: z.boolean().optional(),
+  knowledge: knowledge.optional(),
   ...metadata,
 }).strict();
 export type ProjectResource = z.infer<typeof resourceSchema>;
@@ -79,6 +93,16 @@ export function resourceView(project: string, ref: ProjectResource) {
   };
 }
 export type ResourceView = ReturnType<typeof resourceView>;
+
+export function feishuDocLocation(ref: ProjectResource) {
+  if (ref.source !== 'feishu-doc' || !ref.url) return;
+  const canonical = referenceResource({ source: 'feishu-doc', label: ref.label ?? '飞书文档', url: ref.url });
+  const url = new URL(ref.url);
+  const token = /^\/docx\/([a-zA-Z0-9]+)\/?$/.exec(url.pathname)?.[1];
+  if (!canonical || canonical.externalId !== ref.externalId || !url.hostname.endsWith('.feishu.cn')
+    || !token || url.hash.startsWith('#share-')) return;
+  return { token, block: url.hash.slice(1) || undefined, url: url.origin + url.pathname + url.hash };
+}
 
 export function projectResourceRef(project: string, value: string) {
   try {

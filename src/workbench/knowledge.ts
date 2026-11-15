@@ -4,6 +4,10 @@ import type { MemoryEvent } from '../architecture-contracts.ts';
 import type { SuperAgentStore } from '../superagent-ports.ts';
 
 export const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
+export type KnowledgeRef = { id: string; revision: string };
+export type SourceVersion = {
+  resource: string; path?: string; authority: string; revision: string; fingerprint: string; url: string;
+};
 type Entry = {
   id: string;
   project: string;
@@ -20,6 +24,10 @@ type Entry = {
   sources: string[];
   draft?: { run: number; version: number; cards: number[]; needsReview: boolean };
   reviewed?: { by: string; at: string };
+  source?: SourceVersion;
+  replaces?: KnowledgeRef;
+  published?: { by: string; at: string };
+  retirement?: { kind: 'superseded' | 'invalidated'; by: string; at: string; reason?: string; replacement?: KnowledgeRef };
 };
 export type AccessReader = { agent: string; owner: string };
 type Request = { id: string; ticket: string; entry: string; revision: string; requestedBy: string; reason: string; state: string;
@@ -59,9 +67,24 @@ export class ProjectKnowledge {
     }
   }
 
-  get(id: string): Entry | undefined {
+  get(id: string, revision?: string): Entry | undefined {
     const row = this.store.db.prepare('SELECT value FROM workbench_knowledge WHERE id=?').get(id);
-    return row && JSON.parse(String(row.value));
+    const entry: Entry | undefined = row && JSON.parse(String(row.value));
+    return entry && (revision === undefined || entry.revision === revision) ? entry : undefined;
+  }
+
+  /** Published versions have immutable content and IDs. Retirement changes selection, not snapshots. */
+  current(id: string): Entry | undefined {
+    let next: KnowledgeRef | undefined = undefined;
+    const visited = new Set<string>();
+    for (;;) {
+      const entry: Entry | undefined = next ? this.get(next.id, next.revision) : this.get(id);
+      if (!entry || entry.state !== 'published' || visited.has(entry.id)) return;
+      if (!entry.retirement) return entry;
+      visited.add(entry.id);
+      next = entry.retirement.replacement;
+      if (!next) return;
+    }
   }
 
   save(input: Omit<Entry, 'id' | 'revision'>, id: string = randomUUID()): Entry {
@@ -77,11 +100,32 @@ export class ProjectKnowledge {
       .all(project).map(row => JSON.parse(String(row.value)));
   }
 
-  publish(entry: Entry, revision: string) {
+  publish(entry: Entry, revision: string, actor = entry.owner, previous?: Entry) {
     if (entry.state !== 'candidate' || entry.revision !== revision) throw new Error('知识候选已更新，请重新核对。');
     if (entry.draft?.needsReview || !entry.conditions.trim()) throw new Error('采用前请核对结论并补充适用条件。');
+    const published = { by: actor, at: new Date().toISOString() };
     this.store.db.prepare('UPDATE workbench_knowledge SET value=? WHERE id=?')
-      .run(JSON.stringify({ ...entry, state: 'published' }), entry.id);
+      .run(JSON.stringify({ ...entry, state: 'published', published,
+        ...(previous ? { replaces: { id: previous.id, revision: previous.revision } } : {}) }), entry.id);
+    if (previous) this.retire(previous, { kind: 'superseded', ...published, replacement: { id: entry.id, revision } });
+  }
+
+  retire(entry: Entry, retirement: NonNullable<Entry['retirement']>) {
+    this.store.db.prepare('UPDATE workbench_knowledge SET value=? WHERE id=?').run(JSON.stringify({ ...entry, retirement }), entry.id);
+  }
+
+  sourceHead(project: string, source: Pick<SourceVersion, 'resource' | 'path' | 'authority'>) {
+    const row = this.store.db.prepare(`SELECT value FROM workbench_knowledge WHERE project=?
+      AND json_extract(value,'$.state')='published' AND json_extract(value,'$.retirement.replacement') IS NULL
+      AND json_extract(value,'$.source.resource')=? AND COALESCE(json_extract(value,'$.source.path'),'')=?
+      AND json_extract(value,'$.source.authority')=? ORDER BY rowid DESC LIMIT 1`)
+      .get(project, source.resource, source.path ?? '', source.authority);
+    return row ? JSON.parse(String(row.value)) as Entry : undefined;
+  }
+
+  hasSource(project: string, resource: string) {
+    return !!this.store.db.prepare("SELECT 1 FROM workbench_knowledge WHERE project=? AND json_extract(value,'$.source.resource')=? LIMIT 1")
+      .get(project, resource);
   }
 
   private keepRevision(entry: Entry) {

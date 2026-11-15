@@ -3,7 +3,7 @@ import path from 'node:path';
 import { z } from 'zod';
 import { nextRun, parseCron } from '../../upstream/autoloop/kernel/cron.ts';
 import { runtime } from '../config.ts';
-import { canonicalResourceId, githubRepository, resourcePurpose, resourceSchema, routesEvents, topicInputSchema } from './project-resources.ts';
+import { canonicalResourceId, feishuDocLocation, githubRepository, resourcePurpose, resourceSchema, routesEvents, topicInputSchema } from './project-resources.ts';
 import { digestAgentId, discussionZone } from './discussion.ts';
 
 const id = z.string().regex(/^[a-z][a-z0-9-]{0,47}$/);
@@ -118,6 +118,13 @@ export const settingsSchema = z.object({
         flag('默认主题只用于当前项目已配置的消息来源');
       if (ref.digest && (ref.source !== 'feishu' || !/^oc_[a-zA-Z0-9]+$/.test(ref.externalId) || !routesEvents(ref) || !p.discussion))
         flag('群整理只适用于已配置的飞书讨论来源');
+      if (ref.knowledge) {
+        if (ref.state !== 'bound' || !p.members.includes(ref.knowledge.owner))
+          flag('知识接入须绑定项目资料，并指定该项目的资料负责人');
+        if (ref.knowledge.format === 'feishu-docx' ? !feishuDocLocation(ref)
+          : ref.source !== 'github' || !githubRepository.test(ref.externalId))
+          flag('知识正文接入只接受明确的飞书 Docx 或 GitHub Markdown 配置');
+      }
       if (ref.state === 'bound' && routesEvents(ref)) {
         if (refs.has(key)) flag('接收消息的来源只能路由到一个项目');
         refs.add(key);

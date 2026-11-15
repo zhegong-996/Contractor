@@ -7,7 +7,7 @@ import type { Project, Settings } from './config.ts';
 import type { ProjectResource } from './project-resources.ts';
 
 export type DiscussionInput = { trigger: Trigger; origin: ChannelRef; sender: PlatformActor; history?: boolean; updatedAt?: number };
-export type SourceFact = { kind: 'material' | 'github'; key: string; title: string; text?: string; revision?: string; url?: string;
+export type SourceFact = { kind: 'material' | 'github'; key: string; title: string; text?: string; revision?: string; url?: string; knowledge?: true;
   messages?: string[]; exact?: boolean };
 
 export function discussionInput(trigger: Trigger, app: string, senderApp = app): DiscussionInput {

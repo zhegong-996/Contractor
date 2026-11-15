@@ -34,10 +34,13 @@ const prose = z.string().trim().min(1).max(3500);
 const provider = z.enum(['feishu', 'github']);
 const accountRef = z.object({ provider, namespace: z.string().min(1).max(180), id });
 const githubUrl = z.url({ protocol: /^https$/, hostname: /^github\.com$/ });
+const knowledgeRevision = z.string().regex(/^[a-f0-9]{64}$/);
+const knowledgeRef = z.object({ id, revision: knowledgeRevision }).strict();
+const materials = z.array(id).max(8);
 const channelDecision = z.discriminatedUnion('action', [
   z.object({ action: z.literal('link'), ticket: id }),
   z.object({ action: z.literal('create'), project: id.optional(), topic: id.optional(), agent: id.optional(), parent: id.optional(),
-    brief: prose.optional(), separate: z.boolean().optional() }),
+    brief: prose.optional(), separate: z.boolean().optional(), material: materials.optional() }),
   z.object({ action: z.literal('project') }),
   z.object({ action: z.literal('topic'), topic: id }),
   z.object({ action: z.literal('dismiss') }),
@@ -51,16 +54,16 @@ const discussionDecision = z.discriminatedUnion('action', [
   z.object({ action: z.literal('dismiss'), ...selectedMessage }).strict(),
 ]);
 const settingsRoutes = {
-  start: z.object({ project: id, title, request: prose, nonce, material: z.array(id).max(8).default([]),
+  start: z.object({ project: id, title, request: prose, nonce, material: materials.default([]),
     resources: z.array(z.string().max(180)).max(12).default([]), target: z.string().max(180).optional(), topic: id.optional(),
     priority: z.enum(['normal', 'urgent']).default('normal'), agent: id.optional(), function: id.optional(), parent: id.optional(), measure: measureSchema.optional(), reusedLesson: id.optional() }).strict(),
   answer: z.object({ card: z.number().int().positive(), choice: z.number().int().nonnegative().optional(), text: prose.optional(), nonce }).strict(),
   accept: z.object({ revision: z.string().length(64), commit: z.string().regex(/^[a-f0-9]{40}$/).optional(), body: z.string().trim().max(16000).default(''), conditions: z.string().trim().max(600).default('') }).strict(),
   add: z.object({ title, body: z.string().trim().min(1).max(16000), conditions: z.string().trim().max(600).default(''),
-    kind: z.enum(['reference', 'procedure', 'decision']), visibility: z.enum(['project', 'restricted']) }).strict(),
+    kind: z.enum(['reference', 'procedure', 'decision']), visibility: z.enum(['project', 'restricted']), replaces: knowledgeRef.optional() }).strict(),
   access: z.object({ entry: id, reason: prose }).strict(),
   changeAccess: z.object({ state: z.enum(['granted', 'revoked']) }).strict(),
-  publish: z.object({ revision: z.string().length(64) }).strict(),
+  publish: z.object({ revision: knowledgeRevision, replaces: knowledgeRef.optional() }).strict(),
 };
 
 function json(res: ServerResponse, status: number, body: unknown) {
@@ -168,6 +171,9 @@ async function serve() {
         work.bindResource(actor, item, value.source, value.externalId);
       } else if (post && view === 'project' && item && action === 'reference') {
         output = work.addReference(actor, item, referenceSchema.parse(await body(req)));
+      } else if (post && view === 'project' && item && action === 'knowledge-import') {
+        output = await work.importKnowledge(actor, item, z.object({ resource: z.string().min(1).max(180),
+          path: z.string().min(1).max(240).optional() }).strict().parse(await body(req)));
       } else if (post && view === 'project' && item && action === 'topic') {
         work.createTopic(actor, item, topicInputSchema.parse(await body(req)));
       } else if (post && view === 'agent' && item) work.setAgent(actor, item, z.object({ active: z.boolean() }).parse(await body(req)).active);
@@ -181,7 +187,7 @@ async function serve() {
           baseSha: z.string().regex(/^[a-f0-9]{40}$/).optional() }).strict().parse(await body(req)));
       else if (post && view === 'ticket' && action === 'revise')
         output = work.revise(actor, item, z.object({ revision: z.string().length(64), reason: prose,
-          kind: z.enum(['rejected', 'continued']).optional() }).strict().parse(await body(req)));
+          kind: z.enum(['rejected', 'continued']).optional(), material: materials.optional() }).strict().parse(await body(req)));
       else if (post && view === 'ticket' && action === 'approve-development')
         work.approveDevelopment(actor, item, z.object({ offer: id.optional() }).strict().parse(await body(req)).offer);
       else if (post && view === 'ticket' && action === 'respond-development')
@@ -208,12 +214,19 @@ async function serve() {
         work.request(actor, item, input.entry, input.reason);
       } else if (post && view === 'ticket' && action === 'access' && reference)
         work.changeAccess(actor, item, reference, settingsRoutes.changeAccess.parse(await body(req)).state);
-      else if (get && view === 'knowledge' && item) output = work.browse(actor, item, (url.searchParams.get('q') ?? '').slice(0, 300));
-      else if (post && view === 'knowledge' && action === 'publish') work.publish(actor, item, settingsRoutes.publish.parse(await body(req)).revision);
+      else if (get && view === 'knowledge' && item) output = work.browse(actor, item, (url.searchParams.get('q') ?? '').slice(0, 300),
+        url.searchParams.get('history') === '1');
+      else if (post && view === 'knowledge' && action === 'publish') {
+        const input = settingsRoutes.publish.parse(await body(req));
+        await work.publish(actor, item, input.revision, input.replaces);
+      } else if (post && view === 'knowledge' && action === 'invalidate') {
+        const input = z.object({ revision: knowledgeRevision, reason: prose }).strict().parse(await body(req));
+        work.invalidateKnowledge(actor, item, input.revision, input.reason);
+      }
       else if (post && view === 'knowledge' && action === 'review') output = work.reviewKnowledge(actor, item,
         z.object({ revision: z.string().length(64), body: z.string().trim().min(1).max(16000),
           conditions: z.string().trim().min(1).max(600) }).strict().parse(await body(req)));
-      else if (post && view === 'knowledge' && item) output = { id: work.addKnowledge(actor, item, settingsRoutes.add.parse(await body(req))) };
+      else if (post && view === 'knowledge' && item && !action) output = { id: work.addKnowledge(actor, item, settingsRoutes.add.parse(await body(req))) };
       else throw new WorkbenchError('未找到。', 404);
       json(res, 200, output ?? { ok: true });
     } catch (error) {

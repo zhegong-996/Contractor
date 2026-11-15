@@ -10,7 +10,8 @@ import type { ConsoleAuth } from '../console-auth.ts';
 import { rbacEnforce } from '../rbac.ts';
 import { openSuperAgentEffects, openSuperAgentStore } from '../superagent-ports.ts';
 import { assignmentEvent, openExecution, ruleName, trackWorkerProcesses, workerName, workerStopped, type Card, type Run } from './autoloop.ts';
-import { digest, ProjectKnowledge, type AccessReader, type KnowledgeEntry } from './knowledge.ts';
+import { digest, ProjectKnowledge, type AccessReader, type KnowledgeEntry, type KnowledgeRef } from './knowledge.ts';
+import { knowledgeSource, readKnowledgeSource } from './knowledge-sources.ts';
 import { measureSchema, WorkObservations, type Measure, type ObservationInput } from './learning.ts';
 import type { Agent, Project, Settings } from './config.ts';
 import { ChannelLinks, messageRef, type ChannelRef, type ChannelRequest, type PlatformActor, type Provider } from './channel-links.ts';
@@ -100,7 +101,7 @@ type Start = {
   measure?: Measure; reusedLesson?: string;
 };
 type IntakeDecision = { action: 'link'; ticket: string }
-  | { action: 'create'; project?: string; topic?: string; agent?: string; parent?: string; brief?: string; separate?: boolean }
+  | { action: 'create'; project?: string; topic?: string; agent?: string; parent?: string; brief?: string; separate?: boolean; material?: string[] }
   | { action: 'project' }
   | { action: 'topic'; topic: string }
   | { action: 'dismiss' };
@@ -362,7 +363,9 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       const request = knowledge.requests(ticket.id).find(item => item.id === decision.subject);
       const review = request?.purpose === 'review' && outputFor(ticket.id)?.revision === request.output && !work.accepted;
       const reader = review ? outputReader(outputFor(ticket.id)!, work) : accessReader(work, true);
-      return request?.state === 'requested' && knowledge.get(request.entry)?.owner === actor
+      const entry = request && knowledge.get(request.entry, request.revision);
+      return request?.state === 'requested' && entry?.owner === actor && entryEvidence(entry)
+        && (review || work.material.includes(entry.id))
         && request.readerAgent === reader?.agent && request.readerOwner === reader?.owner && (!ticket.ended && !work.developmentResponse || review);
     }
     if (ticket.ended) return false;
@@ -408,6 +411,14 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     const row = store.db.prepare("SELECT value FROM workbench_output WHERE ticket=? AND json_extract(value,'$.revision')=?").get(id, revision);
     return row && JSON.parse(String(row.value));
   };
+  const configuredSource = (project: Project | undefined, resource: string, file?: string) => {
+    if (!project) return;
+    const ref = availableRefs(project).find(item => item.knowledge && resourceView(project.id, item).ref === resource);
+    const connection = ref && knowledgeSource(project.id, ref, file);
+    return connection && member(project, connection.owner) ? connection : undefined;
+  };
+  const connected = (entry: KnowledgeEntry) => !entry.source
+    || configuredSource(projectById.get(entry.project), entry.source.resource, entry.source.path)?.authority === entry.source.authority;
   const originOutput = (entry: KnowledgeEntry) => {
     const revision = entry.sources.find(ref => ref.startsWith(entry.ticket + '@'))?.slice(entry.ticket!.length + 1);
     return entry.ticket && revision ? outputByRevision(entry.ticket, revision) : undefined;
@@ -426,26 +437,41 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     const agent = work && agentById.get(pending && handingOff(work) ? work.handoff!.to : work.agent);
     return agent && { agent: agent.id, owner: agent.owner };
   };
-  const sourceAllowed = (id: string, entry: KnowledgeEntry, visited: Set<string>, reader = accessReader(workOf(id)), access?: string, review = ''): boolean => {
-    if (!(knowledge.usable(id, entry, reader, access) || review && knowledge.usable(id, entry, reader, access, review)) || visited.has(entry.id)) return false;
+  function entryEvidence(entry: KnowledgeEntry, visited = new Set<string>(), current = false): boolean {
+    if (!connected(entry) || visited.has(entry.id) || current && entry.retirement) return false;
     if (!entry.ticket) return true;
+    const work = workOf(entry.ticket);
     const origin = originOutput(entry);
-    return !!origin && outputUsable(entry.ticket, origin, new Set([...visited, entry.id]));
+    // A later review-only grant can reopen the output to its reviewer, never free the derived knowledge for reuse.
+    return !!origin && work?.project === entry.project && usable(entry.ticket, origin.sources,
+      new Set([...visited, entry.id]), outputReader(origin, work), '', current);
+  }
+  const sourceAllowed = (id: string, entry: KnowledgeEntry, visited: Set<string>, reader = accessReader(workOf(id)), access?: string, review = '', current = false): boolean => {
+    if (entry.project !== workOf(id)?.project || entry.visibility === 'restricted' && (!reader || !member(projectById.get(entry.project), reader.owner))) return false;
+    return (knowledge.usable(id, entry, reader, access) || !!review && knowledge.usable(id, entry, reader, access, review))
+      && entryEvidence(entry, visited, current);
   };
-  const usable = (id: string, sources: Assembled['sources'], visited = new Set<string>(), reader = accessReader(workOf(id)), review = ''): boolean => sources.every(ref => {
-    const entry = knowledge.get(ref.id);
-    return !!entry && entry.revision === ref.revision && (entry.visibility !== 'restricted' || !!ref.access)
-      && sourceAllowed(id, entry, visited, reader, ref.access, review);
+  const usable = (id: string, sources: Assembled['sources'], visited = new Set<string>(), reader = accessReader(workOf(id)), review = '', current = false): boolean => sources.every(ref => {
+    const entry = knowledge.get(ref.id, ref.revision);
+    return !!entry && (entry.visibility !== 'restricted' || !!ref.access) && sourceAllowed(id, entry, visited, reader, ref.access, review, current);
   });
-  const outputUsable = (id: string, output: Output, visited = new Set<string>()): boolean => {
+  const outputUsable = (id: string, output: Output): boolean => {
     const reader = outputReader(output, workOf(id)!);
     const sources = output.sources.map(ref => {
-      const entry = knowledge.get(ref.id);
+      const entry = knowledge.get(ref.id, ref.revision);
       const review = entry && knowledge.granted(id, entry, reader, output.revision);
       return review ? { ...ref, access: review.id } : ref;
     });
-    return usable(id, sources, visited, reader, output.revision);
+    return usable(id, sources, new Set(), reader, output.revision);
   };
+  function selectMaterials(project: string, ids: string[]) {
+    return [...new Set(ids.map(id => {
+      const entry = knowledge.current(id);
+      if (!entry || entry.project !== project || !entryEvidence(entry, new Set(), true))
+        throw new WorkbenchError('引用资料已失效或不属于当前项目。请选择当前可用的资料。', 409);
+      return entry.id;
+    }))];
+  }
   function outputReader(output: Output, work: Work) {
     const actor = manifestFor(output.run)?.actor;
     return actor ? { agent: actor.agent, owner: actor.owner } : accessReader(work);
@@ -552,9 +578,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
   const handingOff = (work: Work | undefined) => !!work?.handoff && !work.handoff.completedAt && !work.handoff.cancelledAt;
   const mayRun = (ticket: Ticket | undefined, work: Work | undefined) => valid(ticket, work) && !handingOff(work);
   const canReadEntry = (e: KnowledgeEntry, actor: string) => {
-    const output = e.ticket && originOutput(e);
-    if (e.ticket && (!output || !outputUsable(e.ticket, output))) return false;
-    return e.owner === actor || (e.state === 'published' && e.visibility === 'project');
+    return entryEvidence(e) && (e.owner === actor || (e.state === 'published' && e.visibility === 'project'));
   };
 
   const engine = new Engine({
@@ -656,7 +680,10 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
         if (card?.state === 'open' && executionDecider(projectById.get(work!.project)!, work!) === trigger.actor.id) {
           hub.answer(card.id, { choice: answer.choice, text: answer.text, by: trigger.actor.id, ref: trigger.id });
         }
-      } else if (trigger.id !== opening.id) ingest(ticket!, work!, key('assignment-input', assignmentId!, input.id), trigger.text);
+      } else if (trigger.id !== opening.id) {
+        const transition = work!.continuation?.previous && trigger.id === work!.continuation.id;
+        ingest(ticket!, work!, key('assignment-input', assignmentId!, input.id), transition ? '原工单开启了下一版。' : trigger.text);
+      }
     }
     closeAnsweredCards(ticketId);
     const waiting = cardsFor(ticketId).some(card => card.state === 'open');
@@ -962,7 +989,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     return { version: work.version ?? 1, pending: true };
   }
 
-  function revise(actor: string, id: string, input: { revision: string; reason: string; kind?: 'rejected' | 'continued' }) {
+  function revise(actor: string, id: string, input: { revision: string; reason: string; kind?: 'rejected' | 'continued'; material?: string[] }) {
     const { ticket, work, project } = ticketFor(id, actor);
     if (actor !== work.requester || !mayStart(project, actor)) throw new WorkbenchError('由原发起人决定打回或开启下一版。', 403);
     const kind = input.kind ?? 'rejected';
@@ -976,6 +1003,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       throw new WorkbenchError('原委托或 Agent 已失效，请重新确认接单。', 409);
     if (runsFor(id).some(run => ['claimed', 'unknown'].includes(run.state)))
       throw new WorkbenchError('须先确认旧执行停止。', 409);
+    const material = selectMaterials(work.project, input.material ?? work.material);
     return store.atomic(() => {
       const currentVersion = work.version ?? 1;
       if (work.accepted && !iterations.get(id, work.accepted.revision, 'accepted'))
@@ -984,7 +1012,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
         reason: input.reason, delivery: work.delivery, commit: work.delivery?.headSha });
       const { accepted: _accepted, delivery: _delivery, handoff: _handoff, ...rest } = work;
       const marker = key('work-revision', id, output.revision);
-      const next: Work = { ...rest, version: currentVersion + 1, continuation: { id: marker, reason: input.reason, actor,
+      const next: Work = { ...rest, material, version: currentVersion + 1, continuation: { id: marker, reason: input.reason, actor,
         at: new Date().toISOString(), previous: output.revision } };
       saveWork(id, next);
       closeAcceptance(id);
@@ -1009,8 +1037,8 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
 
   function requestReviewAccess(actor: string, id: string, work: Work, output: Output, entry: KnowledgeEntry, reason: string) {
     if (actor !== work.requester) throw new WorkbenchError('由原发起人为待验收成果重新申请查阅。', 403);
-    if (entry.revision !== output.sources.find(ref => ref.id === entry.id)?.revision)
-      throw new WorkbenchError('来源版本已变化，不能为旧成果批准新资料。', 409);
+    if (entry.revision !== output.sources.find(ref => ref.id === entry.id)?.revision || !entryEvidence(entry))
+      throw new WorkbenchError('来源版本或权限已变化，无法查阅该成果。', 409);
     const reader = requireValue(outputReader(output, work), '缺少成果的执行身份。');
     const request = knowledge.request(id, entry, actor, '重新查阅待验收成果 ' + output.revision + '：' + reason, reader, output.revision);
     if (request.state === 'requested') askHuman(projectById.get(work.project)!, { kind: 'access', subject: request.id,
@@ -1035,7 +1063,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
         const scanned = discussions.run(id);
         if (scanned) {
           const p = projectById.get(scanned.project);
-          if (!p || !digestEnabled(p)) hub.cancel(id);
+          if (!p || !digestEnabled(p) || scanned.scope && !discussionKnowledgeCurrent(scanned.scope)) hub.cancel(id);
         } else {
           const ticketId = ticketOfLane(run.lane);
           if (!mayRun(store.tickets.get(ticketId), workOf(ticketId)) || run.lane !== activeLane(ticketId)
@@ -1097,6 +1125,8 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       for (const ref of previous?.sources ?? []) {
         if (!sources.some(source => source.id === ref.id)) sources.push(ref);
       }
+      const mounted = (refs: Assembled['sources']) => refs.every(ref =>
+        sources.some(source => source.id === ref.id && source.revision === ref.revision));
       const priorDevelopment = store.db.prepare('SELECT value FROM workbench_manifest WHERE ticket=? ORDER BY run DESC,attempt DESC')
         .all(ticket.id).map(row => (JSON.parse(String(row.value)) as Assembled).development).find(dev => dev?.commit);
       let developmentError = '';
@@ -1126,10 +1156,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
         "SELECT id,title,text,choice,answer,options,by,decided_at,run_id FROM cards WHERE (lane=? OR lane GLOB ?) AND kind='ask' AND state IN ('decided','done') ORDER BY id",
         [ticket.id, ticket.id + ':*']).filter(card => {
           const used = manifestFor(card.run_id)?.sources;
-          return !!used && used.every(ref => {
-            const entry = knowledge.get(ref.id);
-            return entry?.revision === ref.revision && sourceAllowed(ticket.id, entry, new Set());
-          });
+          return !!used && mounted(used);
         });
       const changes = development ? await developmentChanges(ticket.id, development).catch(() => undefined) : undefined;
       if (development && !changes) {
@@ -1142,12 +1169,16 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
         return {};
       }
       const priorOutput = work.continuation?.previous && outputByRevision(ticket.id, work.continuation.previous);
-      const priorAllowed = priorOutput && priorOutput.sources.every(ref => {
-        const entry = knowledge.get(ref.id);
-        return entry?.revision === ref.revision && sourceAllowed(ticket.id, entry, new Set());
-      });
+      const priorAllowed = priorOutput && mounted(priorOutput.sources) && outputUsable(ticket.id, priorOutput);
+      const privatePrior = priorOutput && !priorAllowed && priorOutput.sources.some(ref =>
+        knowledge.get(ref.id, ref.revision)?.visibility !== 'project');
+      const continuation = privatePrior && work.continuation
+        ? { ...work.continuation, reason: '原工单开启了下一版。请依据本轮选定的资料重新核对。' } : work.continuation;
+      const continuationEvent = privatePrior && ticket.inputs.find(input =>
+        input.kind === 'trigger' && input.triggerId === work.continuation?.id);
       const context = { ...job.context, events: [
-        ...job.context.events,
+        ...job.context.events.map(event => continuationEvent && event.id === key('assignment-input', a.id, continuationEvent.id)
+          ? { ...event, detail: '原工单开启了下一版。请依据本轮选定的资料重新核对。' } : event),
         { id: opening.id, type: 'task.request', source: work.source, sourceName: '原始需求', subject: ticket.id, summary: ticket.title, detail: opening.text, receivedAt: opening.at, link: '' },
         ...confirmed.map(card => ({ id: 'confirmation:' + card.id, type: 'task.confirmation', source: 'suitme', sourceName: '已确认口径',
           subject: ticket.id, summary: card.title, detail: JSON.stringify({ question: card.text,
@@ -1171,9 +1202,10 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
             subject: ticket.id, summary: '已核对的渠道补充', detail: text.slice(0, 600), receivedAt: request.trigger.at, link: '' }];
         }),
         ...entries.map(entry => ({ id: entry.id, type: 'knowledge.source', source: 'suitme', sourceName: '项目资料', subject: ticket.id,
-          summary: entry.title, detail: [entry.body.slice(0, 12000), entry.conditions && '适用条件与例外：' + entry.conditions,
+          summary: entry.title, detail: [entry.body.slice(0, 12000), entry.source && '原始资料版本：' + entry.source.revision,
+            entry.conditions && '适用条件与例外：' + entry.conditions,
             lessonEvidence(entry)].filter(Boolean).join('\n'),
-          receivedAt: ticket.createdAt, link: '' })),
+          receivedAt: ticket.createdAt, link: entry.source?.url ?? '' })),
         ...(work.resources ?? []).map(ref => ({
           id: ref.ref, type: 'project.reference', source: 'suitme', sourceName: '项目来源', subject: ticket.id,
           summary: ref.label, detail: '资料版本 ' + (ref.revision ?? '未标注') + '。这里只提供来源引用。',
@@ -1188,8 +1220,8 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
             receivedAt: new Date(item.slot).toISOString(), link: item.evidence.find(ref => ref.kind === 'feishu')?.url ?? '' };
         }),
       ] };
-      if (work.continuation) context.events.push({ id: work.continuation.id, type: 'task.continuation', source: 'suitme', sourceName: '本版执行要求',
-        subject: ticket.id, summary: '第 ' + (work.version ?? 1) + ' 版接续', detail: JSON.stringify(work.continuation), receivedAt: work.continuation.at, link: '' });
+      if (continuation) context.events.push({ id: continuation.id, type: 'task.continuation', source: 'suitme', sourceName: '本版执行要求',
+        subject: ticket.id, summary: '第 ' + (work.version ?? 1) + ' 版接续', detail: JSON.stringify(continuation), receivedAt: continuation.at, link: '' });
       if (work.developmentOffer) context.events.push({ id: 'development:' + work.developmentOffer.replaces, type: 'task.development-note',
         source: 'suitme', sourceName: '研发委托', subject: ticket.id, summary: '负责人补充的委托说明',
         detail: JSON.stringify(work.developmentOffer), receivedAt: work.developmentOffer.at, link: '' });
@@ -1374,10 +1406,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     const topic = input.topic ?? parent?.work.topic;
     if (topic && !topicsFor(project).some(item => item.id === topic)) throw new WorkbenchError('该主题不属于当前项目。', 400);
     const agent = selectAgent(project, topic, input.agent, input.function);
-    if (input.material.some(id => {
-      const e = knowledge.get(id);
-      return !e || e.project !== project.id || e.state !== 'published' || (e.ticket && (!originOutput(e) || !outputUsable(e.ticket, originOutput(e)!)));
-    })) throw new WorkbenchError('引用资料已失效或不属于当前项目。');
+    const material = selectMaterials(project.id, input.material);
     const projectViews = views(project);
     const resources = [...new Set(input.resources ?? [])].map(ref =>
       requireValue(projectResourceRef(project.id, ref) && projectViews.find(source => source.ref === ref && source.state === 'bound'),
@@ -1393,7 +1422,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     const developmentApproval = development && agent?.owner === actor && authorizesDevelopment(project, development, actor)
       ? { actor, agent: agent.id, scope: digest(development), at: new Date().toISOString() } : undefined;
     const reuse = input.reusedLesson ? lessonFor(project.id, actor, input.reusedLesson) : undefined;
-    if (reuse && (!input.material.includes(reuse.entry.id) || input.parent !== reuse.entry.ticket
+    if (reuse && (!material.includes(reuse.entry.id) || input.parent !== reuse.entry.ticket
         || input.measure?.metric !== reuse.measure.metric || input.measure?.unit !== reuse.measure.unit
         || input.measure?.baseline !== reuse.observation.actual))
       throw new WorkbenchError('复用时请保留来源工单、观测指标和基线。', 409);
@@ -1417,7 +1446,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       throw new WorkbenchError('原话题已有工单，请在那里继续。', 409);
     const trigger = { ...origin, actor: { ...origin.actor, id: actor }, text: input.request, meta: {
       ...external?.meta, project: project.id, title: input.title, agent: agent.id,
-      agentVersion: version(agent), function: agent.function, material: input.material, resources, development, developmentApproval, priority: input.priority, parent: input.parent,
+      agentVersion: version(agent), function: agent.function, material, resources, development, developmentApproval, priority: input.priority, parent: input.parent,
       measure: input.measure, reusedLesson: input.reusedLesson, topic,
     } };
     engine.receive(trigger);
@@ -1471,7 +1500,8 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     });
   }
 
-  function openChannelTicket(event: ChannelRequest, actor: string, refs: ChannelRef[], confirmedBy?: string, topic?: string, parent?: string) {
+  function openChannelTicket(event: ChannelRequest, actor: string, refs: ChannelRef[], confirmedBy?: string, topic?: string,
+    parent?: string, material: string[] = []) {
     const channelActor = event.sender;
     // Channel messages stay at their original addresses. An Engine thread is owned only by this case.
     const trigger = { ...event.trigger, human: true, addressed: 'direct' as const,
@@ -1480,7 +1510,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
         : { ...event.trigger.meta, channelActor, confirmedBy } };
     const { ticket } = start(actor, {
       project: event.project, agent: event.agent, request: event.request, title: event.request.slice(0, 100),
-      nonce: trigger.id, material: [], priority: 'normal', topic: topic ?? event.topic, parent,
+      nonce: trigger.id, material, priority: 'normal', topic: topic ?? event.topic, parent,
     }, trigger, true);
     if (!ticket) throw new WorkbenchError('委托未获准。', 409);
     for (const ref of refs) linkOrigin(ref, ticket);
@@ -1599,7 +1629,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
         request: crossed ? decision.brief! : event.request,
         ...(crossed ? { topic: undefined, trigger: { ...event.trigger, channel: undefined, url: undefined } } : {}) } : event;
       const target = ticket ?? openChannelTicket(chosen, pending.member, [crossed ? messageRef(id) : ref], actor,
-        decisionTopic, decision.action === 'create' ? decision.parent : undefined);
+        decisionTopic, decision.action === 'create' ? decision.parent : undefined, decision.action === 'create' ? decision.material : undefined);
       const sameProject = workOf(target)?.project === project.id;
       linkOrigin(sameProject ? ref : messageRef(id), target);
       const parentTicket = event.parentMessage && links.ticket(event.parentMessage);
@@ -1813,19 +1843,21 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
           text: item.state, revision: item.updatedAt, url: item.ref.url, messages: [...known?.messages ?? [], msg.id] });
       }
     }
-    const namedQuotes = availableRefs(project).filter(ref => ref.source === 'feishu-doc' && ref.state === 'bound'
+    const configuredQuotes = availableRefs(project).filter(ref => ref.source === 'feishu-doc' && ref.state === 'bound'
       && ref.url && discussion.documents.includes(ref.url) && /^\/docx\//.test(new URL(ref.url).pathname));
+    const namedQuotes = configuredQuotes.filter(ref => !ref.knowledge && !knowledge.hasSource(project.id, resourceView(project.id, ref).ref));
     const readDocs = messages.length && discussion.history && maintain(project, discussion.history.member)
       ? await readDiscussionDocuments(reader, discussion.history, namedQuotes) : [];
-    if (messages.length && readDocs.length !== discussion.documents.length) failures.push('部分项目文档未能读取到正文');
+    if (messages.length && readDocs.length !== discussion.documents.length - (configuredQuotes.length - namedQuotes.length))
+      failures.push('部分项目文档未能读取到正文');
     const documents: SourceFact[] = namedQuotes.flatMap(ref => {
       if (readDocs.some(fact => fact.key === ref.externalId)) return [];
       return [{ kind: 'material' as const, key: ref.externalId, title: ref.label ?? '项目文档', url: ref.url, revision: ref.revision }];
     });
     if (messages.length) documents.push(...knowledge.search(knowledge.list(project.id).filter(entry => entry.state === 'published'
-      && entry.visibility === 'project' && (!entry.ticket || !!readableOutput(entry.ticket)) && !sensitiveFeishuText.test(entry.body)),
+      && entry.visibility === 'project' && entryEvidence(entry, new Set(), true) && !sensitiveFeishuText.test(entry.body)),
       messages.slice(0, 5).map(msg => msg.text).join('\n').slice(0, 1000), project.id).slice(0, 6).map(entry => ({
-      kind: 'material' as const, key: entry.id, title: entry.title, text: entry.body.slice(0, 1300), revision: entry.revision,
+      kind: 'material' as const, key: entry.id, title: entry.title, text: entry.body.slice(0, 1300), revision: entry.revision, knowledge: true as const,
     })));
     documents.push(...readDocs);
     const contextual = new Set(Object.values(matches));
@@ -1834,6 +1866,15 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       tickets: tickets.map(item => item.id), facts: [...documents, ...exactFacts, ...inferred.values()], matches, unavailable, relatedGithub,
       groups };
     return { scope, messages, topics, tickets, failures };
+  }
+
+  function discussionKnowledgeCurrent(scope: DigestScope) {
+    return scope.facts.every(fact => {
+      if (!fact.knowledge) return true;
+      const entry = fact.revision && knowledge.get(fact.key, fact.revision);
+      return !!entry && entry.project === scope.project && entry.state === 'published'
+        && entry.visibility === 'project' && entryEvidence(entry, new Set(), true);
+    });
   }
 
   async function prepareDiscussion(job: Job, project: Project): Promise<Job | undefined> {
@@ -1899,6 +1940,11 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       const selected = agentOfDigest(project)!;
       const isolated = await isolateJob({ ...selected, model: prepared.agent.model }, prepared,
         { project: project.id, discussion: job.run, attempt: job.attempt, scope });
+      if (!discussionKnowledgeCurrent(scope)) {
+        await discardIsolation(isolated.isolation);
+        if (isolated.isolation.boundary === 'os-sandbox') await cleanIsolationTemp(job.run, job.attempt);
+        throw new Error('群整理引用的知识版本已变化');
+      }
       prepared = isolated.job;
       store.atomic(() => executionEvidence.freeze(project.id, undefined, prepared, { agent: selected.id, owner: selected.owner,
         delegatedBy: project.discussion?.history?.member ?? intakeOwner(project) ?? selected.owner,
@@ -1970,7 +2016,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       : before.state === 'failed' ? { ...terminal, outcome: 'failed', error: '未收到完整的群整理结果' }
         : { ...terminal, outcome: 'cancelled', summary: '群整理已停止' });
     const project = projectById.get(scope.project);
-    if (!project || !digestEnabled(project) || result.outcome === 'cancelled') {
+    if (!project || !digestEnabled(project) || !discussionKnowledgeCurrent(scope) || result.outcome === 'cancelled') {
       discussions.saveRun(id, scope.project, scope.slot, 'cancelled', '群整理已停止');
       return finish({ ...terminal, outcome: 'cancelled', summary: '群整理已停止' });
     }
@@ -2359,7 +2405,8 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
 
   function lessonFor(project: string, actor: string, id: string) {
     const entry = knowledge.get(id);
-    if (!entry?.observation || !entry.ticket || entry.project !== project || entry.state !== 'published' || !canReadEntry(entry, actor))
+    if (!entry?.observation || !entry.ticket || entry.project !== project || entry.state !== 'published'
+      || !entryEvidence(entry, new Set(), true) || !canReadEntry(entry, actor))
       throw new WorkbenchError('此经验未采用或无法读取。', 409);
     const work = workOf(entry.ticket);
     const observation = observations.list(entry.ticket).find(item => item.id === entry.observation);
@@ -2416,14 +2463,15 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       || stored.sources.every(ref => knowledge.get(ref.id)?.visibility === 'project'));
     const output = permitted && outputUsable(ticket.id, stored) ? stored : undefined;
     const materialHidden = permitted && !output;
-    const hiddenAnswer = needed(id, work) || (actor !== work.requester && actor !== agentById.get(work.agent)?.owner
-      && work.material.some(id => knowledge.get(id)?.visibility === 'restricted'));
     const history = ticket.inputs.flatMap(item => {
       if (item.kind !== 'trigger') return [];
       const event = store.triggers.get(item.triggerId);
       if (!event?.human) return [];
+      const answer = event.meta.answer as { card: number } | undefined;
+      const card = answer && hub.one<{ run_id: number }>('SELECT run_id FROM cards WHERE id=?', [answer.card]);
+      const answered = card && manifestFor(card.run_id);
       const text = protectedReasons.has(event.id) ? '修改理由随资料授权收回或受限。'
-        : hiddenAnswer && event.meta.answer ? '答复正文随资料授权收回或受限。' : event.text;
+        : answer && (!answered || !canReadAssembly(actor, id, work, answered)) ? '答复正文随资料授权收回或受限。' : event.text;
       return [{ id: event.id, actor: event.actor.id, at: event.at, text }];
     });
     const timers = ticket.ended ? [] : timersFor(ticket.id);
@@ -2498,6 +2546,13 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       })) : [] };
   }
 
+  function canReadAssembly(actor: string, id: string, work: Work, manifest: Assembled) {
+    const reader = manifest.actor && { agent: manifest.actor.agent, owner: manifest.actor.owner };
+    return (actor === work.requester || actor === reader?.owner
+      || manifest.sources.every(ref => knowledge.get(ref.id, ref.revision)?.visibility === 'project'))
+      && usable(id, manifest.sources, new Set(), reader);
+  }
+
   function executionSnapshot(actor: string, id: string, run: number, attempt?: number) {
     const { work } = ticketFor(id, actor);
     const row = attempt === undefined
@@ -2505,14 +2560,86 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       : store.db.prepare('SELECT attempt,value FROM workbench_manifest WHERE ticket=? AND run=? AND attempt=?').get(id, run, attempt);
     requireValue(row, '找不到本工单的这次执行。');
     const manifest = JSON.parse(String(row!.value)) as Assembled;
-    const reader = manifest.actor && { agent: manifest.actor.agent, owner: manifest.actor.owner };
-    const allowed = (actor === work.requester || actor === reader?.owner
-      || manifest.sources.every(ref => knowledge.get(ref.id)?.visibility === 'project'))
-      && usable(id, manifest.sources, new Set(), reader);
+    const allowed = canReadAssembly(actor, id, work, manifest);
     return { run, attempt: Number(row!.attempt), agentVersion: manifest.agentVersion, policyVersion: manifest.policyVersion,
       isolation: manifest.isolation,
       assembly: manifest.assembly, recorded: !!manifest.assembly, readable: allowed,
-      ...(allowed && manifest.assembly ? { contents: executionEvidence.unpack(manifest.assembly) } : {}) };
+      ...(allowed && manifest.assembly ? { contents: executionEvidence.unpack(manifest.assembly),
+        materials: manifest.sources.map(({ id, revision }) => {
+          const source = knowledge.get(id, revision)?.source;
+          return { id, revision, sourceRevision: source?.revision, url: source?.url };
+        }) } : {}) };
+  }
+
+  function replacementFor(project: string, actor: string, replaces: KnowledgeRef) {
+    const prior = knowledge.get(replaces.id, replaces.revision);
+    if (!prior || prior.project !== project || prior.owner !== actor || prior.state !== 'published' || prior.retirement?.replacement)
+      throw new WorkbenchError('被替代版本、所属项目或负责人已变化，请刷新。', 409);
+    return prior;
+  }
+
+  function adoptKnowledge(actor: string, entry: KnowledgeEntry, revision: string, replaces?: KnowledgeRef) {
+    if (entry.state !== 'candidate' || entry.revision !== revision) throw new WorkbenchError('知识候选已更新，请重新核对。', 409);
+    if (entry.draft?.needsReview || !entry.conditions.trim()) throw new WorkbenchError('采用前请核对结论并补充适用条件。', 409);
+    if (!entryEvidence(entry, new Set(), true)) throw new WorkbenchError('候选的来源已失效，请按现行资料重新核对。', 409);
+    if (entry.replaces && replaces && (entry.replaces.id !== replaces.id || entry.replaces.revision !== replaces.revision))
+      throw new WorkbenchError('替代对象已变化，请重新提交候选。', 409);
+    const target = entry.replaces ?? replaces;
+    const previous = target && replacementFor(entry.project, actor, target);
+    if (previous && (previous.kind !== entry.kind || previous.visibility !== entry.visibility
+      || previous.source?.authority !== entry.source?.authority))
+      throw new WorkbenchError('新版必须保持同一资料范围、类型和可见性。', 409);
+    // The new knowledge may not cite a version that adopting it will retire, even through another conclusion.
+    if (previous && !entryEvidence(entry, new Set([previous.id]), true))
+      throw new WorkbenchError('新版须依据现行来源，不能依赖它将替代的知识。', 409);
+    knowledge.publish(entry, revision, actor, previous);
+    audit(entry.ticket ?? entry.project, 'knowledge.published', { actor, id: entry.id, revision, replaces: target });
+  }
+
+  async function readSource(connection: NonNullable<ReturnType<typeof knowledgeSource>>) {
+    try { return await readKnowledgeSource(connection, reader); }
+    catch {
+      throw new WorkbenchError('无法读取指定资料的正文和版本，请核对来源范围及连接授权。', 409);
+    }
+  }
+
+  async function importKnowledge(actor: string, projectId: string, input: { resource: string; path?: string }) {
+    const project = projectFor(projectId, actor);
+    const connection = configuredSource(project, input.resource, input.path);
+    if (!connection || connection.owner !== actor) throw new WorkbenchError('由已配置的资料负责人接入指定正文。', 403);
+    const { body, source } = await readSource(connection);
+    return store.atomic(() => {
+      projectFor(projectId, actor);
+      if (configuredSource(project, input.resource, input.path)?.authority !== source.authority)
+        throw new WorkbenchError('资料接入授权已变化。', 409);
+      const prior = knowledge.sourceHead(project.id, source);
+      if (prior && !prior.retirement && prior.source?.fingerprint === source.fingerprint)
+        return { id: prior.id, revision: prior.revision, state: prior.state, sourceRevision: source.revision };
+      const id = key('knowledge-source-version', project.id, source.authority, prior?.id ?? '', source.fingerprint);
+      const existing = knowledge.get(id);
+      const entry = existing ?? knowledge.save({ project: project.id, owner: actor, title: connection.title, kind: 'reference',
+        state: 'candidate', visibility: connection.visibility, body, conditions: connection.conditions, sources: [],
+        source, ...(prior ? { replaces: { id: prior.id, revision: prior.revision } } : {}) }, id);
+      if (!existing) audit(project.id, 'knowledge.imported', { actor, id, revision: entry.revision, resource: source.resource, sourceRevision: source.revision });
+      return { id, revision: entry.revision, state: entry.state, sourceRevision: source.revision };
+    });
+  }
+
+  async function adoptImported(actor: string, entry: KnowledgeEntry & { source: NonNullable<KnowledgeEntry['source']> }, revision: string, replaces?: KnowledgeRef) {
+    const source = entry.source;
+    const project = projectFor(entry.project, actor);
+    const connection = configuredSource(project, source.resource, source.path);
+    if (!connection || connection.authority !== source.authority) throw new WorkbenchError('资料接入授权已变化。', 409);
+    const latest = (await readSource(connection)).source;
+    if (latest.fingerprint !== source.fingerprint) throw new WorkbenchError('原资料已有新版本，请重新接入并核对。', 409);
+    store.atomic(() => {
+      projectFor(project.id, actor);
+      const current = requireValue(knowledge.get(entry.id, revision), '知识候选已更新，请重新核对。', 409);
+      const head = knowledge.sourceHead(project.id, source);
+      if (head?.id !== entry.replaces?.id || head?.revision !== entry.replaces?.revision || replaces && !entry.replaces)
+        throw new WorkbenchError('资料当前采用版本已变化，请重新接入。', 409);
+      adoptKnowledge(actor, current, revision, replaces);
+    });
   }
 
   function overview(actor: string) {
@@ -2847,20 +2974,31 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
           ...(verified ? { pr: verified.url, checks: verified.checks?.map(item => ({ id: item.id, head: item.head_sha })) } : {}) });
       });
     },
-    publish(actor: string, id: string, revision: string) {
+    importKnowledge,
+    publish(actor: string, id: string, revision: string, replaces?: KnowledgeRef) {
       const entry = requireValue(knowledge.get(id), '找不到知识候选。');
       projectFor(entry.project, actor);
       if (entry.owner !== actor) throw new WorkbenchError('由知识候选的所有者采用。', 403);
-      const origin = originOutput(entry);
-      if (entry.ticket && (!origin || !outputUsable(entry.ticket, origin))) throw new WorkbenchError('来源已失效。', 409);
       if (entry.state !== 'candidate' || entry.revision !== revision) throw new WorkbenchError('知识候选已更新，请重新核对。', 409);
-      if (entry.draft?.needsReview || !entry.conditions.trim()) throw new WorkbenchError('采用前请核对结论并补充适用条件。', 409);
-      knowledge.publish(entry, revision);
+      if (entry.source) return adoptImported(actor, { ...entry, source: entry.source }, revision, replaces);
+      store.atomic(() => adoptKnowledge(actor, entry, revision, replaces));
+    },
+    invalidateKnowledge(actor: string, id: string, revision: string, reason: string) {
+      const entry = requireValue(knowledge.get(id), '找不到知识。');
+      projectFor(entry.project, actor);
+      if (entry.owner !== actor) throw new WorkbenchError('由知识所有者确认失效。', 403);
+      if (entry.revision !== revision || entry.state !== 'published' || entry.retirement)
+        throw new WorkbenchError('当前知识版本已变化，请刷新。', 409);
+      store.atomic(() => {
+        knowledge.retire(entry, { kind: 'invalidated', by: actor, at: new Date().toISOString(), reason });
+        audit(entry.ticket ?? entry.project, 'knowledge.invalidated', { actor, id, revision, reason });
+      });
     },
     reviewKnowledge(actor: string, id: string, input: { revision: string; body: string; conditions: string }) {
       const entry = requireValue(knowledge.get(id), '找不到知识候选。');
       projectFor(entry.project, actor);
       if (entry.owner !== actor || !canReadEntry(entry, actor)) throw new WorkbenchError('由仍有来源权限的知识负责人核对。', 403);
+      if (entry.source) throw new WorkbenchError('接入的正文按原始版本保留。请在原处修改后重新接入。', 409);
       if (entry.state !== 'candidate' || entry.revision !== input.revision) throw new WorkbenchError('知识候选已更新，请重新核对。', 409);
       const updated = knowledge.review(entry, input.revision, input.body, input.conditions, actor);
       audit(entry.ticket ?? entry.id, 'knowledge.reviewed', { id, actor, from: entry.revision, revision: updated.revision });
@@ -2870,34 +3008,44 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       projectFor(id, actor);
       return { ...usage(id), attempts: executionEvidence.receipts(id) };
     },
-    addKnowledge(actor: string, projectId: string, input: { title: string; body: string; conditions: string; kind: string; visibility: 'project' | 'restricted' }) {
+    addKnowledge(actor: string, projectId: string, input: { title: string; body: string; conditions: string; kind: string;
+      visibility: 'project' | 'restricted'; replaces?: KnowledgeRef }) {
       const project = projectFor(projectId, actor);
       if (!mayStart(project, actor)) throw new WorkbenchError('当前角色不能添加项目资料。', 403);
-      return knowledge.save({ ...input, project: project.id, owner: actor, state: 'published', sources: [] }).id;
+      if (input.replaces) {
+        const prior = replacementFor(project.id, actor, input.replaces);
+        if (prior.ticket || prior.source || prior.kind !== input.kind || prior.visibility !== input.visibility || !input.conditions.trim())
+          throw new WorkbenchError('请按原来源准备新版，并填写适用条件。', 409);
+      }
+      return knowledge.save({ ...input, project: project.id, owner: actor, state: input.replaces ? 'candidate' : 'published', sources: [] }).id;
     },
-    browse(actor: string, projectId: string, query: string) {
+    browse(actor: string, projectId: string, query: string, history = false) {
       const project = projectFor(projectId, actor);
       const entries = knowledge.list(project.id).filter(entry => (entry.state === 'published' || entry.owner === actor)
-        && (!entry.ticket || !!originOutput(entry) && outputUsable(entry.ticket, originOutput(entry)!)));
-      const read = entries.filter(e => canReadEntry(e, actor));
+        && entryEvidence(entry, new Set(), !history || !!query));
+      const read = entries.filter(e => (!query || e.state === 'published') && canReadEntry(e, actor));
       const present = (e: KnowledgeEntry) => {
-        const lesson = e.observation && e.ticket && e.state === 'published' ? lessonFor(e.project, actor, e.id) : undefined;
+        const predecessor = e.replaces && knowledge.get(e.replaces.id, e.replaces.revision);
+        const lesson = e.observation && e.ticket && e.state === 'published' && entryEvidence(e, new Set(), true)
+          ? lessonFor(e.project, actor, e.id) : undefined;
         const learning = lesson ? { metric: lesson.measure.metric, unit: lesson.measure.unit, baseline: lesson.observation.actual,
           evidence: lesson.observation.evidence, observedAt: lesson.observation.at } : undefined;
         return {
-          ...e, learning, canPublish: e.owner === actor && e.state === 'candidate' && !e.draft?.needsReview && !!e.conditions.trim(),
-          canReview: e.owner === actor && e.state === 'candidate',
+          ...e, learning, canPublish: e.owner === actor && e.state === 'candidate' && !e.draft?.needsReview && !!e.conditions.trim()
+            && (!e.replaces || !!predecessor && !predecessor.retirement?.replacement) && entryEvidence(e, new Set(), true),
+          canReview: e.owner === actor && e.state === 'candidate' && !e.source,
           provenance: e.sources.flatMap<{ title: string; revision: string; ticket?: string; url?: string }>(ref => {
             const [source, revision] = ref.split('@');
             if (!source || !revision) return [];
             if (source === e.ticket) return [{ title: '验收工单', revision, ticket: source }];
             if (source.startsWith('https://github.com/')) return [{ title: 'GitHub 交付', revision, url: source }];
-            const material = knowledge.get(source);
+            const material = knowledge.get(source, revision);
             return material && canReadEntry(material, actor) ? [{ title: material.title, revision }] : [];
           }),
         };
       };
       if (query) return knowledge.search(read, query, actor).map(present);
+      if (history) return read.map(present);
       return entries.map(e => canReadEntry(e, actor) ? present(e)
         : { id: e.id, title: e.title, owner: e.owner, visibility: e.visibility, state: e.state, kind: e.kind });
     },
@@ -2907,6 +3055,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       const entry = requireValue(knowledge.get(entryId), '找不到资料。');
       if (entry.project !== work.project || entry.visibility !== 'restricted' || !work.material.includes(entry.id))
         throw new WorkbenchError('请在委托时选择当前项目内的资料。');
+      if (!entryEvidence(entry)) throw new WorkbenchError('资料或其来源已撤权。', 409);
       if (ticket.ended) {
         const output = outputFor(id);
         if (ticket.ended.outcome !== 'completed' || !output || work.accepted) throw new WorkbenchError('工单已结束。', 409);
@@ -2921,10 +3070,12 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     changeAccess(actor: string, id: string, requestId: string, state: 'granted' | 'revoked') {
       const { ticket, work } = ticketFor(id, actor);
       const request = requireValue(knowledge.requests(id).find(r => r.id === requestId), '找不到这条申请。');
-      const entry = requireValue(knowledge.get(request.entry), '找不到资料。');
+      const entry = requireValue(knowledge.get(request.entry, request.revision), '找不到这份资料版本。');
       if (entry.owner !== actor) throw new WorkbenchError('只有资料所有者可以授权或撤回。', 403);
       const review = request.purpose === 'review';
       const output = outputFor(id);
+      if (state === 'granted' && (!entryEvidence(entry) || !(review || work.material.includes(entry.id))))
+        throw new WorkbenchError('本轮需要的资料版本或上游权限已变化。', 409);
       if (state === 'granted' && work.developmentResponse)
         throw new WorkbenchError('委托已退回，请等项目负责人确认新的读取身份。', 409);
       if (state === 'granted' && ticket.ended && !(review && ticket.ended.outcome === 'completed' && !work.accepted && output?.revision === request.output))
@@ -2950,7 +3101,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
           }
           return;
         }
-        if (state === 'revoked' && request.readerAgent === accessReader(work)?.agent
+        if (state === 'revoked' && work.material.includes(entry.id) && request.readerAgent === accessReader(work)?.agent
           && request.readerOwner === accessReader(work)?.owner) renewExecutionAccess(id, ticket, work, request.id);
         if (state === 'granted' && mayRun(ticket, work) && !needed(id, work)) {
           effects.enqueue('delivery', id, { ticketId: id, assignmentId: ticket.assignments.at(-1)?.id });
