@@ -2005,13 +2005,6 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       hub.finish(job.run, job.token, { outcome: 'cancelled', summary: '群整理的来源或 Agent 已变更' });
       return;
     }
-    const budgetIssue = budgetBlock(project) ?? poolBlock(platformPool);
-    if (budgetIssue) {
-      discussions.saveRun(job.run, project.id, slot, 'cancelled', budgetIssue);
-      hub.finish(job.run, job.token, { outcome: 'cancelled', summary: budgetIssue });
-      askHuman(project, { kind: 'budget', subject: key('budget', project.id, budgetIssue), title: '群整理已暂停，请核对项目预算', detail: budgetIssue });
-      return;
-    }
     discussions.prune(Date.now());
     discussions.saveRun(job.run, project.id, slot, 'running');
     try {
@@ -2021,6 +2014,13 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
         const failed = failures.length > 0;
         discussions.saveRun(job.run, project.id, slot, failed ? 'failed' : 'empty', failures.join('。'));
         hub.finish(job.run, job.token, failed ? { outcome: 'failed', error: '群消息暂不可用' } : { outcome: 'nothing', summary: '这半天没有需要整理的消息' });
+        return;
+      }
+      const budgetIssue = budgetBlock(project) ?? poolBlock(platformPool);
+      if (budgetIssue) {
+        discussions.saveRun(job.run, project.id, slot, 'cancelled', budgetIssue);
+        hub.finish(job.run, job.token, { outcome: 'cancelled', summary: budgetIssue });
+        askHuman(project, { kind: 'budget', subject: key('budget', project.id, budgetIssue), title: '群整理已暂停，请核对额度', detail: budgetIssue });
         return;
       }
       const cwd = runtime('execution', 'discussion', project.id);

@@ -123,7 +123,9 @@ export async function isolateJob(agent: Agent, job: Job, authority: unknown, pre
   }
   const executableVersion = execFileSync(executable, ['--version'], { encoding: 'utf8', timeout: 10000,
     env: { PATH: '/usr/bin:/bin' }, stdio: ['ignore', 'pipe', 'ignore'] }).trim();
-  const isolation: Isolation = { scope: hash(JSON.stringify({ owner: agent.owner, agent, authority, credential: auth.version })),
+  const effort = job.agent.effort ?? agent.execution.effort;
+  const isolation: Isolation = { scope: hash(JSON.stringify({ owner: agent.owner, agent, authority, credential: auth.version,
+    ...(job.agent.effort && { effort }) })),
     owner: agent.owner, agent: agent.id, provider: agent.execution.provider, model: agent.model,
     credentialVersion: auth.version, boundary: 'os-sandbox', executableVersion };
   const folder = scopeRoot(isolation.scope);
@@ -173,7 +175,7 @@ export async function isolateJob(agent: Agent, job: Job, authority: unknown, pre
   const launch: Launch = { isolation, executable, workspace, home, input, temp, policy, baseline, canonical: code?.canonical, paths: code?.paths ?? [] };
   await privateFile(launchFile(job.run, job.attempt), launch);
   return { isolation, job: { ...job, session: previous?.scope === isolation.scope ? job.session : null,
-    agent: { ...job.agent, use: 'suitme-isolated', model: agent.model, effort: agent.execution.effort,
+    agent: { ...job.agent, use: 'suitme-isolated', model: agent.model, effort,
       command: [launchFile(job.run, job.attempt)] }, rule: { ...job.rule, cwd: workspace } } };
 }
 
