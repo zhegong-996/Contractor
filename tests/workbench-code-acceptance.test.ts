@@ -62,7 +62,7 @@ test('代码单验收绑定本单运行提交、PR 分支基线与当前 CI，�
         execution: { base: 'main', paths: ['collab-pilot/'] } }] }],
     functions: [{ id: 'delivery', title: '交付' }],
     agents: [{ id: 'review', title: '核对', projects: ['store'], active: true, owner: 'maker', function: 'delivery',
-      kind: 'personal', engine: 'command', command: [process.execPath, fixture], capability: '核对推荐理由', skill: '核对' }],
+      kind: 'personal', execution: { kind: 'test', provider: 'fixture' }, engine: 'command', command: [process.execPath, fixture], capability: '核对推荐理由', skill: '核对' }],
   });
   const messages: OutboundMessage[] = [];
   const work = await openCollaboration(config, auth, async message => { messages.push(message); return 'sent'; });

@@ -16,6 +16,7 @@
     "build": "tsc --noEmit"
   },
   "dependencies": {
+    "@anthropic-ai/sandbox-runtime": "0.0.83",
     "@backstage/catalog-model": "1.10.2",
     "casbin": "5.51.1",
     "tsx": "4.23.15",
@@ -24,5 +25,8 @@
   "devDependencies": {
     "@types/node": "24.0.0",
     "typescript": "7.0.2"
+  },
+  "overrides": {
+    "@anthropic-ai/sandbox-runtime": { "zod": "$zod" }
   }
 }

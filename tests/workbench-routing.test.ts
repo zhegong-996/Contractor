@@ -44,7 +44,7 @@ test('通用路由推送接单和执行决策，权限分离且旧进程退出�
   await auth.bootstrapOwner('owner', 'only-for-unit-test');
   for (const person of ['maker', 'decider', 'peer']) await auth.createAccount(person, 'only-for-unit-test', 'operator', 'owner');
   const agent = (id: string, owner: string, projects: string[], mode: string) => ({ id, title: id, owner, projects,
-    kind: 'personal', engine: 'command', command: [process.execPath, fixture, markers, mode], function: 'verification',
+    kind: 'personal', execution: { kind: 'test', provider: 'fixture' }, engine: 'command', command: [process.execPath, fixture, markers, mode], function: 'verification',
     active: true, capability: '验证门店推荐理由', skill: '按当前委托核对验收口径' });
   const config = settingsSchema.parse({
     feishu: { appId: 'app', botId: 'bot', profile: 'test' },

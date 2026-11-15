@@ -2,6 +2,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import type { Job } from '../../upstream/autoloop/protocol/job.ts';
 import type { Usage } from '../../upstream/autoloop/protocol/validate.ts';
 import { digest } from './knowledge.ts';
+import type { Isolation, modelReceipt } from './isolation.ts';
 
 type Assembly = {
   schema: 1;
@@ -12,6 +13,7 @@ type Assembly = {
 type FrozenRuntime = Omit<Job['agent'], 'command'> & { commandHash?: string; resumed: boolean };
 export type ExecutionActor = {
   agent: string; owner: string; delegatedBy: string; function: string; engine: string; model?: string;
+  isolation?: Isolation;
 };
 type Snapshot = {
   run: number; attempt: number; project: string; ticket?: string; assembly: Assembly; actor: ExecutionActor;
@@ -19,6 +21,8 @@ type Snapshot = {
 type UsageReceipt = ExecutionActor & {
   run: number; attempt: number; project: string;
   outcome: string; usage?: Usage;
+  modelReceipt?: Awaited<ReturnType<typeof modelReceipt>>;
+  billing?: { status: 'reported' | 'unreported'; amount: number | null; currency: 'USD'; source: 'native-cli' };
 };
 
 export function unpricedAttempts(attempts: number[], receipts: Pick<UsageReceipt, 'attempt' | 'usage'>[], activeAttempt?: number) {
@@ -81,7 +85,10 @@ export class ExecutionEvidence {
   recordUsage(receipt: UsageReceipt) {
     // A duplicate native result must not book another charge or replace an unknown price with a guess.
     this.db.prepare('INSERT OR IGNORE INTO workbench_usage_receipt VALUES (?,?,?,?)')
-      .run(receipt.run, receipt.attempt, receipt.project, JSON.stringify(receipt));
+      .run(receipt.run, receipt.attempt, receipt.project, JSON.stringify({ ...receipt, billing: {
+        status: receipt.usage?.cost === undefined ? 'unreported' : 'reported', amount: receipt.usage?.cost ?? null,
+        currency: 'USD', source: 'native-cli',
+      } }));
   }
 
   receipts(project: string): UsageReceipt[] {

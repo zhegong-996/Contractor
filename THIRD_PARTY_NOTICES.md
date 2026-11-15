@@ -118,3 +118,7 @@ Reviewed the [LobeHub inbox digest service](https://github.com/lobehub/lobehub/b
 [Acceptance v0.10.0](https://github.com/lobehub/acceptance/tree/f720feb862bdbe3acc653bdedc297e20e08be1ae) informed the local per-case acceptance and version-evidence design. The workbench stores its own acceptance records.
 
 Other npm dependencies retain the license files supplied by their packages.
+
+## Anthropic Sandbox Runtime (Apache-2.0)
+
+The AutoLoop adapter invokes the unmodified CLI from `@anthropic-ai/sandbox-runtime@0.0.83`, maintained at [anthropics/sandbox-runtime](https://github.com/anthropics/sandbox-runtime). Version and integrity are pinned in `package-lock.json`; the upstream license is retained in `licenses/sandbox-runtime-APACHE-2.0.txt`. SuitMe supplies the per-execution filesystem and network policy. Its `zod/v3` import is resolved through Zod 4.6.7's compatibility export using a package override; the published runtime source is not patched. See `docs/MEMBER-EXECUTION-ISOLATION.md` for the integration and tested limits.

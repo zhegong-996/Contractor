@@ -49,7 +49,7 @@ test('装配可复核、决策知识先审后用、撤权隐藏快照和候选�
   const config = settingsSchema.parse({ projects: ['store', 'unpriced', 'cancelled'].map(id => ({ id, title: id,
     members: ['product', 'engineering', 'observer', 'source-owner'], maintainers: ['product'], budget: id === 'unpriced' ? 10 : 1 })),
     functions: [{ id: 'review', title: '核对' }], agents: [{ id: 'reviewer', title: '研发的核对 Agent', kind: 'personal',
-      owner: 'engineering', projects: ['store', 'unpriced', 'cancelled'], function: 'review', engine: 'command',
+      owner: 'engineering', projects: ['store', 'unpriced', 'cancelled'], function: 'review', execution: { kind: 'test', provider: 'fixture' }, engine: 'command',
       command: [process.execPath, fixture, trace], model: 'configured-test-model', capability: '核对门店推荐理由', skill: '只核对已授权的门店资料', active: true }] });
   const work = await openCollaboration(config, auth);
   const db = new DatabaseSync(path.join(dir, 'orchestrator.sqlite'));
@@ -103,6 +103,8 @@ test('装配可复核、决策知识先审后用、撤权隐藏快照和候选�
   assert.equal(db.prepare('SELECT COUNT(*) AS n FROM workbench_knowledge_revision WHERE entry=?').get(candidateId)!.n, 2);
   const usage = work.projectUsage('product', 'store');
   assert.equal(usage.cost, 0.5); assert.equal(usage.unpriced, 0); assert.equal(usage.attempts.length, 2);
+  assert.equal(usage.billing.totalAmount, 0.5);
+  assert.ok(usage.attempts.every(receipt => receipt.billing?.status === 'reported' && receipt.billing.amount === 0.25));
   assert.ok(usage.attempts.every(receipt => receipt.owner === 'engineering' && receipt.delegatedBy === 'product' && receipt.function === 'review'));
 
   const entry = work.addKnowledge('source-owner', 'store', { title: '受限门店样本', kind: 'reference', body: '只有门店试点可见的事实',
@@ -137,6 +139,8 @@ test('装配可复核、决策知识先审后用、撤权隐藏快照和候选�
   const unpriced = await start('unpriced', '未报价的推荐理由核对');
   await wait(() => work.detail('product', unpriced).result);
   assert.equal(work.projectUsage('product', 'unpriced').unpriced, 1);
+  assert.equal(work.projectUsage('product', 'unpriced').billing.totalAmount, null);
+  assert.equal(work.projectUsage('product', 'unpriced').attempts[0]!.billing?.amount, null);
   const held = await start('unpriced', '费用不明时不能继续执行');
   await wait(() => work.detail('product', held).report?.state === 'blocked' || undefined);
   assert.match(work.detail('product', held).report!.summary, /费用/);

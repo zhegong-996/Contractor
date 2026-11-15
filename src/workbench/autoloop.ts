@@ -192,6 +192,10 @@ export async function openExecution(agents: Agent[], projects: Project[]) {
   await mkdir(home, { recursive: true, mode: 0o700 });
   const cwd = runtime('execution');
   await mkdir(cwd, { recursive: true, mode: 0o700 });
+  const isolatedPlugin = path.join(home, 'plugins', 'suitme-isolated');
+  await mkdir(isolatedPlugin, { recursive: true, mode: 0o700 });
+  await writeFile(path.join(isolatedPlugin, 'agent.ts'), 'export { default } from '
+    + JSON.stringify(pathToFileURL(path.join(root, 'src/workbench/isolated-adapter.ts')).href) + ';\n', { mode: 0o600 });
   if (agents.some(agent => agent.engine === 'cursor')) {
     const plugins = path.join(home, 'plugins', 'cursor');
     await mkdir(plugins, { recursive: true, mode: 0o700 });

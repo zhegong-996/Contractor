@@ -27,7 +27,9 @@
       "function": "design",
       "projects": ["store-pilot"],
       "engine": "codex",
-      "active": true,
+      "model": "gpt-6.1-sol",
+      "execution": { "kind": "sandbox", "provider": "openai", "credential": "codex", "effort": "low", "domains": ["chatgpt.com", "api.openai.com", "auth.openai.com"] },
+      "active": false,
       "capability": "评估预约入口、按钮反馈和用户预期。",
       "skill": "输出门店预约的体验建议。关键输入不足时用 AutoLoop 问题卡片追问，得到答复后继续。"
     },
@@ -39,7 +41,9 @@
       "function": "product",
       "projects": ["store-pilot"],
       "engine": "codex",
-      "active": true,
+      "model": "gpt-6.1-sol",
+      "execution": { "kind": "sandbox", "provider": "openai", "credential": "codex", "effort": "low", "domains": ["chatgpt.com", "api.openai.com", "auth.openai.com"] },
+      "active": false,
       "capability": "整理产品验收范围和交付证据。",
       "skill": "依据工单和授权资料整理验收建议，逐项注明证据与假设。"
     }

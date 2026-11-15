@@ -82,7 +82,7 @@ test('原生执行交接先停旧进程，再等新读取方授权；撤权重�
   await auth.bootstrapOwner('owner', 'only-for-unit-test');
   for (const user of ['requester', 'maker', 'replacement']) await auth.createAccount(user, 'only-for-unit-test', 'operator', 'owner');
   const agent = (id: string, owner: string, mode: string) => ({ id, title: id, owner, projects: ['store'], kind: 'personal',
-    engine: 'command', command: [process.execPath, fixture, marks, mode], function: 'verification', active: true,
+    execution: { kind: 'test', provider: 'fixture' }, engine: 'command', command: [process.execPath, fixture, marks, mode], function: 'verification', active: true,
     capability: '门店推荐理由核对', skill: '核对授权资料' });
   const config = settingsSchema.parse({ feishu: { appId: 'app', botId: 'bot', profile: 'test' }, crossChannel: {},
     projects: [{ id: 'store', title: '门店推荐理由', members: ['owner', 'requester', 'maker', 'replacement'], maintainers: ['owner'],

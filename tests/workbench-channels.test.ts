@@ -38,7 +38,7 @@ test('渠道身份绑定、同一引用去重和负责人确认共用原版工�
     ],
     functions: [{ id: 'delivery', title: '交付' }],
     agents: [{ id: 'review', title: '评审', projects: ['example'], active: true, owner: 'maker', function: 'delivery',
-      kind: 'personal', engine: 'command', command: ['/usr/bin/true'], capability: '评审文案', skill: '只读检查' }],
+      kind: 'personal', execution: { kind: 'test', provider: 'fixture' }, engine: 'command', command: ['/usr/bin/true'], capability: '评审文案', skill: '只读检查' }],
     crossChannel: {},
   });
   const work = await openCollaboration(config, auth);

@@ -29,7 +29,7 @@ test('原生工单带口径交接、阻塞接续、多版验收、成果重授�
   const auth = new ConsoleAuth(); await auth.ready(); await auth.bootstrapOwner('product', 'test-only-password');
   for (const name of ['engineering', 'replacement', 'resource']) await auth.createAccount(name, 'test-only-password', 'operator', 'product');
   const agent = (id: string, owner: string, mode: string) => ({ id, owner, title: id, function: 'review', projects: ['store'],
-    kind: 'personal', engine: 'command', command: [process.execPath, fixture, trace, mode], capability: '核对门店理由', skill: '核对', active: true });
+    kind: 'personal', execution: { kind: 'test', provider: 'fixture' }, engine: 'command', command: [process.execPath, fixture, trace, mode], capability: '核对门店理由', skill: '核对', active: true });
   const config = settingsSchema.parse({ projects: [{ id: 'store', title: '门店推荐理由',
     members: ['product', 'engineering', 'replacement', 'resource'], maintainers: ['product'],
     resources: [{ source: 'github', externalId: 'team/test', state: 'bound', contributors: ['engineering'],
@@ -38,7 +38,7 @@ test('原生工单带口径交接、阻塞接续、多版验收、成果重授�
     agents: [agent('review', 'engineering', 'review'), agent('old', 'engineering', 'old'),
       agent('new', 'replacement', 'new'), agent('failure', 'engineering', 'fail'),
       { id: 'coder', title: '研发 Agent', owner: 'engineering', function: 'review', projects: ['store'], kind: 'personal',
-        engine: 'codex', capability: '门店页面', skill: '仅测试路径', active: true }] });
+        execution: { kind: 'test', provider: 'fixture' }, engine: 'codex', capability: '门店页面', skill: '仅测试路径', active: true }] });
   const work = await openCollaboration(config, auth);
   const db = new DatabaseSync(path.join(dir, 'orchestrator.sqlite'));
   t.after(async () => { db.close(); await work.close(); await rm(dir, { recursive: true, force: true }); });

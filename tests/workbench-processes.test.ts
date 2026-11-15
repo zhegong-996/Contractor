@@ -34,7 +34,7 @@ test('原生 CLI 的脱离进程组子进程退出后才确认停止并交接', 
   await auth.ready();
   await auth.bootstrapOwner('owner', 'only-for-unit-test');
   for (const name of ['maker', 'replacement']) await auth.createAccount(name, 'only-for-unit-test', 'operator', 'owner');
-  const agent = (id: string, owner: string) => ({ id, title: id, owner, projects: ['store'], kind: 'personal', engine: 'command',
+  const agent = (id: string, owner: string) => ({ id, title: id, owner, projects: ['store'], kind: 'personal', execution: { kind: 'test', provider: 'fixture' }, engine: 'command',
     command: [process.execPath, fixture, id, marks, child], function: 'review', capability: '核对门店理由', skill: '核对试点要求', active: true });
   const config = settingsSchema.parse({ projects: [{ id: 'store', title: '门店推荐理由', members: ['owner', 'maker', 'replacement'],
     maintainers: ['owner'], dispatch: [{ agent: 'old', function: 'review' }] }], functions: [{ id: 'review', title: '需求核对' }],

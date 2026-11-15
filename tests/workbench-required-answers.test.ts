@@ -31,7 +31,7 @@ test('必答全部答复前保留同一待执行轮，定时事件不绕过，�
   const cfg = settingsSchema.parse({ projects: [{ id:'store',title:'门店推荐理由',members:['owner'],maintainers:['owner'],
     dispatch:[{function:'review',agent:'reviewer'}] }],functions:[{id:'review',title:'验收核对'}], agents:[{
     id:'reviewer',title:'核对 Agent',kind:'personal',owner:'owner',function:'review',projects:['store'],
-    engine:'command',command:[process.execPath,fixture,trace,forged],active:true,capability:'核对推荐理由',skill:'按工单整理',
+    execution: { kind: 'test', provider: 'fixture' }, engine: 'command',command:[process.execPath,fixture,trace,forged],active:true,capability:'核对推荐理由',skill:'按工单整理',
   }] });
   const work = await openCollaboration(cfg,auth);
   const db = new DatabaseSync(path.join(dir,'autoloop','hub.db'), { readOnly:true });

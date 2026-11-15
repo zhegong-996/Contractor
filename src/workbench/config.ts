@@ -40,6 +40,13 @@ const agent = z.object({
   engine: z.enum(['codex', 'claude', 'acp', 'command', 'cursor']),
   command: z.array(z.string().min(1)).min(1).optional(),
   model: z.string().max(100).optional(),
+  execution: z.object({
+    kind: z.enum(['sandbox', 'test']),
+    provider: z.string().regex(/^[a-z][a-z0-9-]{0,60}$/),
+    credential: id.optional(),
+    effort: z.enum(['low', 'medium', 'high']).default('low'),
+    domains: z.array(z.string().regex(/^(?:[a-z0-9-]+\.)+[a-z0-9-]+$/)).max(12).default([]),
+  }).strict().optional(),
   skill: z.string().trim().min(1).max(5000),
   active: z.boolean().default(false),
 }).strict();
