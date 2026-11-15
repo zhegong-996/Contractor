@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { command } from '../commands.ts';
-import { Github, parsePr } from '../github.ts';
+import { githubApi, parsePr } from '../github.ts';
 
 export const commitSha = z.string().regex(/^[a-f0-9]{40}$/);
 const identity = z.object({ id: z.number().int().positive(), login: z.string(), type: z.string().default('User') });
@@ -62,26 +62,24 @@ export async function inspectIssue(repository: string, number: number) {
   return value;
 }
 
-export async function inspectBranch(repository: string, url: string, port: number, checkout: string): Promise<GitHubBranch> {
+export async function inspectBranch(repository: string, url: string): Promise<GitHubBranch> {
   const address = new URL(url);
   const prefix = '/' + repository.toLowerCase() + '/tree/';
   if (address.hostname !== 'github.com' || !address.pathname.toLowerCase().startsWith(prefix)) throw new Error('分支链接无效');
   const name = decodeURIComponent(address.pathname.slice(prefix.length));
-  const github = new Github({ repository, checkout, allowedPaths: [], bridgePort: port });
   const [source, branch, pushes] = await Promise.all([
     command('gh', ['api', 'repos/' + repository]).then(value => repo.parse(JSON.parse(value))),
-    github.api('branches/' + encodeURIComponent(name)).then(value => z.object({ name: z.string(), commit: z.object({ sha: commitSha }) }).parse(value)),
-    github.api('activity?ref=' + encodeURIComponent(name) + '&per_page=100').then(value => z.array(activity).parse(value)).catch(() => []),
+    githubApi(repository, 'branches/' + encodeURIComponent(name)).then(value => z.object({ name: z.string(), commit: z.object({ sha: commitSha }) }).parse(value)),
+    githubApi(repository, 'activity?ref=' + encodeURIComponent(name) + '&per_page=100').then(value => z.array(activity).parse(value)).catch(() => []),
   ]);
   if (source.full_name.toLowerCase() !== repository.toLowerCase() || branch.name !== name) throw new Error('分支地址与 GitHub 记录不匹配');
   return { repository, repoId: source.id, name, sha: branch.commit.sha,
     push: pushes.find(row => row.ref === 'refs/heads/' + name && row.after === branch.commit.sha) };
 }
 
-export async function inspectPull(repository: string, url: string, port: number, checkout: string) {
+export async function inspectPull(repository: string, url: string) {
   const number = parsePr(url, repository);
-  const github = new Github({ repository, checkout, allowedPaths: [], bridgePort: port });
-  const live = pull.parse(await github.api('pulls/' + number));
+  const live = pull.parse(await githubApi(repository, 'pulls/' + number));
   if (live.base.repo?.full_name.toLowerCase() !== repository.toLowerCase() || live.number !== number) throw new Error('PR 仓库已变化');
   const reviewPages = command('gh', ['api', 'repos/' + repository + '/pulls/' + number + '/reviews?per_page=100', '--paginate', '--slurp']);
   const [shaChecks, listed, reviews, pushes] = await Promise.all([
@@ -92,10 +90,10 @@ export async function inspectPull(repository: string, url: string, port: number,
     command('gh', ['api', 'repos/' + repository + '/pulls/' + number + '/commits?per_page=100', '--paginate', '--slurp']),
     reviewPages,
     live.head.repo?.id === live.base.repo.id
-      ? github.api('activity?ref=' + encodeURIComponent(live.head.ref) + '&per_page=100').then(value => z.array(activity).parse(value)).catch(() => [])
+      ? githubApi(repository, 'activity?ref=' + encodeURIComponent(live.head.ref) + '&per_page=100').then(value => z.array(activity).parse(value)).catch(() => [])
       : Promise.resolve([] as GitHubPush[]),
   ]);
-  const after = pull.parse(await github.api('pulls/' + number));
+  const after = pull.parse(await githubApi(repository, 'pulls/' + number));
   if (JSON.stringify(after) !== JSON.stringify(live)) throw new Error('PR 正在更新，请刷新后再关联。');
   const observed = z.array(commits).parse(JSON.parse(listed)).flat();
   if (!observed.some(commit => commit.sha === live.head.sha)) throw new Error('未核对到 PR 的当前提交。');

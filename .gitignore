@@ -5,4 +5,3 @@ evidence/private/
 .env
 *.log
 .DS_Store
-plugins/*/dist/

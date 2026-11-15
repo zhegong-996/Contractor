@@ -8,8 +8,7 @@
 //   3. 确定性链路 modelCalls=0——所有事件模型调用数累加，非零即不通过。
 //
 // 四类投影：L1 证据图 / L2 组织图 / BM25 向量索引 / Context Pack。
-// 这里不替代现有 Cognee / Ladybug / SQLite 存储，而是给出可验证的重放口径，
-// 让「知识库 = Agent 共享记忆」有唯一真源可核对。
+// 投影按输入证据重建，工作台用 BM25 投影检索当前主体可见的项目资料。
 import { createHash } from 'node:crypto';
 import type { MemoryEvent } from './architecture-contracts.ts';
 

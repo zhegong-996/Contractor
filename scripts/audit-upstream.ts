@@ -1,160 +1,57 @@
-// Upstream-adapter boundary audit (P3 code tidy-up).
-// Read-only: verifies that we kept the "pinned submodule + separate adapter"
-// contract. It never modifies an upstream worktree or a gitlink.
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync, readdirSync, writeFileSync, mkdirSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
-import { root, runtime } from '../src/config.ts';
+import { root } from '../src/config.ts';
 
 const git = (...args: string[]) => execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim();
-const problems: string[] = [];
-const notes: string[] = [];
-
-const modules = readFileSync(path.join(root, '.gitmodules'), 'utf8');
-const paths = [...modules.matchAll(/^\s*path\s*=\s*(\S+)\s*$/gm)].map(m => m[1]!);
-const lock = JSON.parse(readFileSync(path.join(root, 'sources.lock.json'), 'utf8')) as {
+const read = (file: string) => readFileSync(path.join(root, file), 'utf8');
+const lock = JSON.parse(read('sources.lock.json')) as {
   sources: Record<string, { url: string; commit: string; license: string }>;
-  /** 协议语义移植：固定来源但不是 submodule，不得混入 sources / gitlink。 */
-  protocolReferences?: Record<string, { commit?: string; license?: string }>;
-  /** 仅借思想的网页 / 论文参考：无代码、无许可证原文，绝不进入 sources / gitlink。 */
-  conceptReferences?: Record<string, {
-    url?: string; rights?: string; usage?: string; files?: string[];
-  }>;
 };
-const notices = readFileSync(path.join(root, 'THIRD_PARTY_NOTICES.md'), 'utf8');
-const flat = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, '');
+const problems: string[] = [];
+const index = new Map(git('ls-files', '-s', 'upstream').split('\n').filter(Boolean).map(line => {
+  const [mode, sha, , file] = line.split(/\s+/);
+  if (mode !== '160000') problems.push(`${file} 应为上游 submodule`);
+  return [file!, sha!];
+}));
+const paths = [...read('.gitmodules').matchAll(/^\s*path\s*=\s*(\S+)\s*$/gm)].map(match => match[1]!);
+const expected = Object.keys(lock.sources).map(name => 'upstream/' + name).sort();
+if (JSON.stringify(paths.sort()) !== JSON.stringify(expected)
+  || JSON.stringify([...index.keys()].sort()) !== JSON.stringify(expected))
+  problems.push('.gitmodules、sources.lock.json 与上游 gitlink 不一致');
 
-/** Our own adapter surface. Upstream source is never edited or copied here. */
-const ADAPTERS: Record<string, string[]> = {
-  paperclip: ['src/paperclip.ts', 'src/store.ts', 'src/controller.ts', 'src/server.ts', 'src/commands.ts',
-    'plugins/knowledge-workspaces/src/ui/index.tsx', 'plugins/knowledge-workspaces/src/ui/styles.ts',
-    'plugins/knowledge-workspaces/src/ui/v06-panels.tsx', 'plugins/knowledge-workspaces/src/worker.ts',
-    'scripts/build-chinese-shell.ts', 'locales/i18n-zh-CN.json', 'src/shell-locale.ts', 'src/shell-domestic.ts',
-    'scripts/install-workspace-plugin.ts', 'scripts/install-wiki.ts'],
-  superagent: ['src/upstream.ts', 'src/feishu-sources.ts'],
-  autoloop: ['src/upstream.ts', 'src/native-worker.ts', 'src/assistant-turn.ts'],
-  'prime-agent': ['src/vendor/prime-query.ts', 'src/team-memory.ts'],
-  'deepseek-harness': ['src/upstream.ts', 'src/harness-composition.ts'],
-  cognee: ['src/graph.ts', 'src/org-extraction.ts', 'src/ontology.ts', 'src/team-memory.ts',
-    'scripts/cognee-graph.py', 'scripts/cognee-recall.py', 'scripts/setup-graph.ts'],
-  acceptance: ['src/acceptance-interop.ts', 'src/v06.ts', 'scripts/export-acceptance.ts'],
-};
-
-for (const submodulePath of paths) {
-  const name = path.basename(submodulePath);
-  const entry = lock.sources[name];
-  if (!entry) { problems.push(`${name}: .gitmodules 有条目但 sources.lock.json 未锁定`); continue; }
-  if (!existsSync(path.join(root, submodulePath, 'LICENSE')))
-    problems.push(`${name}: 缺少上游原版 LICENSE`);
-  if (!['MIT', 'Apache-2.0'].includes(entry.license))
-    problems.push(`${name}: 许可证 ${entry.license} 不在已评审的 MIT / Apache-2.0 白名单`);
-  if (!flat(notices).includes(flat(name)))
-    problems.push(`${name}: THIRD_PARTY_NOTICES.md 未提及`);
-  // Use the index (not HEAD) so a newly pinned submodule can be audited
-  // before its commit lands; after commit the index equals HEAD.
-  const indexLine = git('ls-files', '-s', submodulePath);
-  const gitlink = indexLine.split(/\s+/)[1] ?? '';
-  if (gitlink !== entry.commit)
-    problems.push(`${name}: gitlink ${gitlink.slice(0, 12)} 与锁文件 ${entry.commit.slice(0, 12)} 不一致`);
-  const head = git('-C', submodulePath, 'rev-parse', 'HEAD');
-  if (head !== entry.commit) problems.push(`${name}: 检出提交与锁文件不一致`);
-  for (const file of ADAPTERS[name] ?? []) if (!existsSync(path.join(root, file)))
-    problems.push(`${name}: 适配层文件 ${file} 缺失`);
-  notes.push(`${name}: ${entry.license} @ ${entry.commit.slice(0, 12)} · 适配层 ${(ADAPTERS[name] ?? []).length} 个文件`);
+for (const [name, source] of Object.entries(lock.sources)) {
+  const directory = 'upstream/' + name;
+  if (index.get(directory) !== source.commit) problems.push(`${directory} gitlink 与锁定提交不一致`);
+  const remote = git('config', '-f', '.gitmodules', '--get', `submodule.${directory}.url`);
+  if (remote.replace(/\.git$/, '') !== source.url) problems.push(`${directory} 来源地址不一致`);
+  if (!existsSync(path.join(root, directory, 'LICENSE'))) {
+    problems.push(`${directory} 缺少 LICENSE，请初始化 submodule`);
+    continue;
+  }
+  if (git('-C', directory, 'rev-parse', 'HEAD') !== source.commit)
+    problems.push(`${directory} 检出提交与锁文件不一致`);
+  if (git('-C', directory, 'status', '--porcelain'))
+    problems.push(`${directory} 存在上游源码改动`);
+  console.log(`${directory} · ${source.license} @ ${source.commit.slice(0, 12)}`);
 }
 
-// A staged gitlink (new/updated submodule) is normal; what must stay clean is
-// each upstream worktree itself. Check those instead of the parent index.
-for (const submodulePath of paths) {
-  let inner = '';
-  try { inner = git('-C', submodulePath, 'status', '--porcelain'); }
-  catch (error) { problems.push(`${submodulePath}: 无法读取上游工作树状态：${String(error).split('\n')[0]}`); continue; }
-  if (inner) problems.push(`${submodulePath}: 上游工作树存在改动或未跟踪内容：\n${inner}`);
+const manifest = JSON.parse(read('package.json'));
+const packages = JSON.parse(read('package-lock.json')).packages;
+for (const name of ['casbin', '@backstage/catalog-model']) {
+  const dependency = packages['node_modules/' + name];
+  if (dependency?.version !== manifest.dependencies[name] || !dependency?.integrity)
+    problems.push(`${name} 的版本或 integrity 未锁定`);
 }
-
-for (const file of ['THIRD_PARTY_NOTICES.md', 'licenses/cognee-APACHE-2.0.txt',
-  'licenses/a2a-js-APACHE-2.0.txt', 'licenses/harness-vendor-MIT.txt', 'licenses/acceptance-APACHE-2.0.txt',
-  'licenses/pg-MIT.txt', 'licenses/casbin-APACHE-2.0.txt', 'licenses/vue-MIT.txt', 'licenses/element-plus-MIT.txt'])
-  if (!existsSync(path.join(root, file))) problems.push(`缺少声明/许可证文件 ${file}`);
-
-// R7：C-1 新增的 npm 依赖必须精确锁版本、留许可证原文、写进声明。
-const packageJson = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8'));
-const npmLock = JSON.parse(readFileSync(path.join(root, 'package-lock.json'), 'utf8'));
-if (packageJson.dependencies?.pg !== '8.23.1') problems.push('pg 依赖未按精确版本锁定');
-if (!npmLock.packages?.['node_modules/pg']?.integrity) problems.push('pg 缺少 package-lock integrity');
-if (!flat(notices).includes(flat('node-postgres'))) problems.push('THIRD_PARTY_NOTICES.md 未声明 node-postgres (pg)');
-notes.push('npm: pg@8.23.1 MIT · licenses/pg-MIT.txt · package-lock integrity');
-
-// R7 扩展（第三十轮 P-12/P-13）：casbin（npm 运行时依赖，Apache-2.0）与
-// Vue 3 / Element Plus（本地 vendor 的前端运行时，MIT）同样必须精确锁版本、
-// 留许可证原文、写进声明；vendor 版本号与登记值逐一核对，防止悄悄换版。
-if (packageJson.dependencies?.casbin !== '5.51.1') problems.push('casbin 依赖未按精确版本锁定');
-if (!npmLock.packages?.['node_modules/casbin']?.integrity) problems.push('casbin 缺少 package-lock integrity');
-if (!flat(notices).includes(flat('casbin'))) problems.push('THIRD_PARTY_NOTICES.md 未声明 casbin');
-notes.push('npm: casbin@5.51.1 Apache-2.0 · licenses/casbin-APACHE-2.0.txt · package-lock integrity');
-for (const file of ['vue.global.prod.js', 'element-plus.full.min.js', 'element-plus.css',
-  'element-plus.dark.css', 'element-plus-locale-zh-cn.js'])
-  if (!existsSync(path.join(root, 'console/vendor', file))) problems.push(`缺少本地 vendor 前端库 console/vendor/${file}`);
-const vueVendor = readFileSync(path.join(root, 'console/vendor/vue.global.prod.js'), 'utf8');
-if (!vueVendor.includes('vue v3.5.45')) problems.push('console/vendor/vue.global.prod.js 版本不是登记的 3.5.45');
-const epVendor = readFileSync(path.join(root, 'console/vendor/element-plus.full.min.js'), 'utf8');
-if (!epVendor.includes('Element Plus v2.14.8')) problems.push('console/vendor/element-plus.full.min.js 版本不是登记的 2.14.8');
-if (!flat(notices).includes(flat('Vue.js'))) problems.push('THIRD_PARTY_NOTICES.md 未声明 Vue.js');
-if (!flat(notices).includes(flat('Element Plus'))) problems.push('THIRD_PARTY_NOTICES.md 未声明 Element Plus');
-notes.push('frontend vendor: vue@3.5.45 MIT + element-plus@2.14.8 MIT · console/vendor/ 本地化（离线可用，不依赖 CDN）');
-
-// R7 扩展（P-6）：Runner 的两块协议语义用 TypeScript 重写，不是 submodule，
-// 但同样必须固定 MIT 提交、留许可证原文、写进声明；且不得变成第 8 个上游。
-const runnerCommit = 'a42d133139bbe630e4ca3475426c7653fddd86db';
-const reference = lock.protocolReferences?.runner;
-if (!reference || reference.commit !== runnerCommit)
-  problems.push('Runner 协议参考未在 sources.lock.json 固定 MIT 提交');
-if (reference?.license !== 'MIT') problems.push('Runner 协议参考许可证不是已评审的 MIT');
-if (!existsSync(path.join(root, 'licenses/runner-MIT.txt')))
-  problems.push('缺少 Runner MIT 许可证原文 licenses/runner-MIT.txt');
-if (!flat(notices).includes(flat('yicheng47/runner')))
-  problems.push('THIRD_PARTY_NOTICES.md 未声明 Runner 协议参考');
-if (paths.length !== 7) problems.push('协议移植不得新增第 8 个上游 submodule / gitlink');
-notes.push(`Runner: MIT @ ${runnerCommit.slice(0, 12)} · 协议语义移植（TS 重写，未新增 submodule）`);
-
-// R7 等价口径（P-7）：网页研究文章没有可留存的代码许可证，按 conceptReferences
-// 登记；审计机器化校验「只借思想、不是上游、不复制正文 / 代码、涉及文件都在库内」。
-const concept = lock.conceptReferences?.['anthropic-agent-memory'];
-if (!concept) problems.push('Anthropic agent memory 概念参考未在 sources.lock.json 登记');
-else {
-  if (concept.url !== 'https://www.anthropic.com/research/components-of-agent-memory')
-    problems.push('Anthropic 概念参考 URL 与固定来源不一致');
-  if (!concept.usage || !/不复制正文|不复制代码/.test(concept.usage) || !/不引入依赖/.test(concept.usage))
-    problems.push('Anthropic 概念参考未声明「不复制正文 / 代码、不引入依赖」');
-  if (concept.files?.some(file => file.startsWith('upstream/')))
-    problems.push('概念参考不得涉及 upstream/ 下的上游源码');
-  for (const file of concept.files ?? [])
-    if (!existsSync(path.join(root, file))) problems.push(`概念参考声明的文件不存在：${file}`);
-  if (lock.sources['anthropic-agent-memory'] || lock.protocolReferences?.['anthropic-agent-memory'])
-    problems.push('概念参考不得混入 sources / protocolReferences（会变成第 8 个上游）');
-  if (!flat(notices).includes(flat('components of agent memory')))
-    problems.push('THIRD_PARTY_NOTICES.md 未声明 Anthropic agent memory 概念参考');
-  notes.push('Anthropic: components of agent memory (2026-11-06) · 仅思想参考，无代码 / 无 LICENSE 原文，conceptReferences 登记');
+for (const file of ['THIRD_PARTY_NOTICES.md', 'licenses/casbin-APACHE-2.0.txt',
+  'licenses/backstage-APACHE-2.0.txt', 'licenses/backstage-NOTICE.txt', 'licenses/entire-MIT.txt',
+  'licenses/harness-vendor-MIT.txt', 'licenses/vue-MIT.txt']) {
+  if (!existsSync(path.join(root, file))) problems.push(`缺少 ${file}`);
 }
-if (paths.length !== 7) problems.push('概念参考不得新增第 8 个上游 submodule / gitlink');
-for (const file of readdirSync(path.join(root, 'licenses'))) {
-  const text = readFileSync(path.join(root, 'licenses', file), 'utf8');
-  if (/\b(AGPL|SSPL|GPLv3|GNU General Public License version 3)\b/i.test(text))
-    problems.push(`${file}: 出现强传染性协议文本，需要重新评审`);
+if (!read('workbench/vendor/vue.global.prod.js').includes('vue v3.5.45'))
+  problems.push('Vue 本地版本与第三方声明不一致');
+
+if (problems.length) {
+  console.error(problems.join('\n'));
+  process.exitCode = 1;
 }
-
-// L2 extraction must stay read-only against Cognee: no project/cognify call.
-const extraction = readFileSync(path.join(root, 'src/org-extraction.ts'), 'utf8')
-  .replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
-if (/\b(cognify|embed|add_nodes|add_edges|project)\s*\(/.test(extraction))
-  problems.push('src/org-extraction.ts 疑似调用 Cognee 写入/模型管线');
-const graphSource = readFileSync(path.join(root, 'src/graph.ts'), 'utf8');
-if (!/readProjection/.test(graphSource)) problems.push('L1 只读投影 readProjection 缺失');
-
-const output = { at: new Date().toISOString(), scope: 'upstream adapter boundary',
-  submodules: paths.map(p => path.basename(p)), adapters: Object.fromEntries(Object.entries(ADAPTERS).map(([k, v]) => [k, v.length])),
-  notes, problems, clean: problems.length === 0 };
-mkdirSync(runtime(), { recursive: true, mode: 0o700 });
-writeFileSync(runtime('upstream-audit.json'), JSON.stringify(output, null, 2), { mode: 0o600 });
-console.log(JSON.stringify(output, null, 2));
-if (problems.length) { console.error('上游适配边界审计未通过'); process.exitCode = 1; }

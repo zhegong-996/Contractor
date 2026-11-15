@@ -9,7 +9,7 @@ SuitMe 是独立的协作产品，包含团队工作台、项目、个人与专�
 | **工单与权责** | 基于 [Super-agent 原版 Engine、Store 和 Effects](https://github.com/deepseek-ai/dsh-superagent-prototype/tree/8c32a9dc5d72c033816c6a8110b37f40cf94fba4)。原版持有 Thread、Decision、Ticket、Mandate、Assignment、Report 和出站回执。SuitMe 在入口绑定项目、核验外部身份、按资源限制权限，在出口做业务验收。 |
 | **后台执行** | 完整引入 [AutoLoop 原版 Runtime、内核和 worker](https://github.com/KKKKhazix/agent-autoloop/tree/ba8cf6d8cf24f9ce005958c15d88f2d9cff7f05d)。Super-agent 批准的 Assignment 映射为原版执行事件，执行回执归回该 Assignment。AutoLoop 的运行号只指一轮执行。人补充信息后由原版卡片机制接续，任务、授权和历史仍归原工单。 |
 | **产品交互与编排** | 借鉴 [LobeHub](https://github.com/lobehub/lobehub) 的来源信号归并、规则优先过滤、冻结运行配置、parked 和子 Agent 返回后的恢复、资源库入口。工作台以协作现场为主，展示来源、进行中的执行、待决定事项、交付证据和已引用知识。成员通过可上岗的个人或专项服务找到彼此的 Agent。 |
-| **存量与切换** | 既有工作台、身份和工单由现有宿主持有。独立分支使用独立 SQLite、测试会话和测试仓库。迁移时逐项目、逐入口确认写入所有者，每个工单有唯一可写业务账本。 |
+| **存量与切换** | 旧 Paperclip 宿主仍持有其身份和工单。Super-agent 工作台使用独立 SQLite、测试会话和测试仓库。迁移时逐项目、逐入口确认写入所有者，每个工单有唯一可写业务账本。 |
 
 ```mermaid
 flowchart LR
@@ -61,15 +61,9 @@ flowchart LR
 3. Codex 只交付静态预约页，运维端沿用 GitHub 交付适配器。核对 PR、对应提交 CI 及从 Actions 下载的静态预览。
 4. 发起人用完整提交号确认验收。确认写入独立账本，依据原答复和 PR 生成知识候选。采用后检索试点条目，再验证执行身份对同源原文和派生知识的权限同时收回。不会变更原飞书资料的外部 ACL。
 
-### 本机复跑
+### 试点与现行入口
 
-运行 `git submodule update --init --recursive` 与 `npm ci`。隔离工作目录以 `superagent-first-chain` 命名，在其中准备 `config.json`。字段为 `repository`（试点限定 `zhegong-996/desktop-tutorial`）、`checkout`（测试仓独立克隆的绝对路径）、`port`，以及 `feishu.profile`、`appId`、`botId`、`chat`、`requester`。使用一个已配对的真实飞书机器人单聊，保证此测试入口只由该链响应。沿用本机登录的 Codex 和 GitHub CLI。
-
-```sh
-COLLAB_STATE_DIR="$PWD/.runtime/superagent-first-chain" npm run pilot:superagent
-```
-
-`/health` 表示测试飞书事件通道就绪，`/tickets` 返回用于验收的本机摘要。工单账本、AutoLoop 日志和交付文件在忽略目录中。试点撤权阻断新的任务资料装配和检索。原版 worker 和 Codex 的本机历史可能已接收过正文，生产接入还需隔离执行身份、控制历史和产物访问，以及处理撤权时仍在运行的会话。口径以真实服务回执为准。
+该次试点使用单独的飞书单聊、测试仓库与本地账本。[历史试点实现](https://github.com/zhegong-996/suitme-collab/tree/a7b8b1f7c97cf3fe4cba6894e14590448c0d8ae7/src/superagent-pilot)记录当时的入口。当前复跑从[工作台说明](WORKBENCH.md)配置独立实例。工单账本、AutoLoop 日志和交付文件保存在忽略目录中。部署时需按执行身份隔离原版 worker 和 CLI 的会话目录。
 
 ### 联调记录 · 2026-11-14
 

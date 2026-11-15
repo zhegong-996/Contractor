@@ -80,7 +80,7 @@ async function serve() {
     ['/', [path.join(staticRoot, 'index.html'), 'text/html'] ],
     ['/app.js', [path.join(staticRoot, 'app.js'), 'text/javascript']],
     ['/workbench.css', [path.join(staticRoot, 'style.css'), 'text/css']],
-    ['/vue.js', [path.join(root, 'console/vendor/vue.global.prod.js'), 'text/javascript']],
+    ['/vue.js', [path.join(staticRoot, 'vendor/vue.global.prod.js'), 'text/javascript']],
   ]);
 
   const server = createServer(async (req, res) => {

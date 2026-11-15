@@ -1,21 +1,9 @@
-[submodule "upstream/paperclip"]
-	path = upstream/paperclip
-	url = https://github.com/paperclipai/paperclip.git
 [submodule "upstream/superagent"]
 	path = upstream/superagent
 	url = https://github.com/deepseek-ai/dsh-superagent-prototype.git
 [submodule "upstream/autoloop"]
 	path = upstream/autoloop
 	url = https://github.com/KKKKhazix/agent-autoloop.git
-[submodule "upstream/prime-agent"]
-	path = upstream/prime-agent
-	url = https://github.com/PrimeIntellect-ai/prime-agent.git
 [submodule "upstream/deepseek-harness"]
 	path = upstream/deepseek-harness
 	url = https://github.com/deepseek-ai/deepseek-harness.git
-[submodule "upstream/cognee"]
-	path = upstream/cognee
-	url = https://github.com/topoteretes/cognee.git
-[submodule "upstream/acceptance"]
-	path = upstream/acceptance
-	url = https://github.com/lobehub/acceptance.git

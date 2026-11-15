@@ -2175,7 +2175,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     let latest: DeliveryEvidence;
     try {
       const target = pullTarget(project, pull.url);
-      const observed = await inspectPull(target.externalId, pull.url, config.port, runtime('execution'));
+      const observed = await inspectPull(target.externalId, pull.url);
       if (observed.snapshot.repoId !== pull.repoId || observed.snapshot.pr !== pull.pr) throw new Error('PR 身份已变化');
       latest = { ...observed.snapshot, attachedBy: pull.attachedBy, workReference: referencesTicket(observed.body, id),
         creator: githubMember(observed.snapshot.creator, project, observed.snapshot.createdAt)!,
@@ -2589,7 +2589,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       const { project, work, ticket } = ticketFor(id, actor);
       const target = pullTarget(project, url);
       if (!canAttach(project, target, actor, work.requester) || work.accepted) throw new WorkbenchError('请由此仓库的交付成员在验收前关联。', 403);
-      const observed = await inspectPull(target.externalId, url, config.port, runtime('execution'));
+      const observed = await inspectPull(target.externalId, url);
       const { snapshot } = observed;
       const evidence: DeliveryEvidence = { ...snapshot, creator: githubMember(snapshot.creator, project, snapshot.createdAt)!,
         attachedBy: actor, workReference: referencesTicket(observed.body, id),
@@ -2614,7 +2614,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
         new URL(url).pathname.toLowerCase().startsWith('/' + ref.externalId.toLowerCase() + '/tree/')),
       '分支仓库未登记为这个项目的交付仓库。', 403);
       if (!canAttach(project, target, actor, work.requester)) throw new WorkbenchError('由交付成员关联分支。', 403);
-      const branch = await inspectBranch(target.externalId, url, config.port, runtime('execution'));
+      const branch = await inspectBranch(target.externalId, url);
       const urlPath = branch.name.split('/').map(encodeURIComponent).join('/');
       store.atomic(() => {
         const { work: current } = ticketFor(id, actor);
@@ -2636,7 +2636,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       let verified: DeliveryEvidence | undefined;
       if (work.delivery) {
         const target = pullTarget(project, work.delivery.url);
-        const fresh = await inspectPull(target.externalId, work.delivery.url, config.port, runtime('execution'));
+        const fresh = await inspectPull(target.externalId, work.delivery.url);
         const observed = fresh.snapshot;
         const selected = ticketFor(id, actor).work.delivery;
         if (observed.state === 'draft' || observed.state === 'closed' || observed.ci !== 'passed'

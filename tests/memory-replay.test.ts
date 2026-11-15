@@ -1,19 +1,20 @@
-// B 阶段验收：append-only 记忆主干、四类投影重放、撤权 lineage 阻断、确定性链路。
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, appendFileSync, readFileSync } from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { memoryEventSchema } from '../src/architecture-contracts.ts';
-import { MemoryLog, FileMemorySink, InMemorySink, memoryEvent, readMemoryEvents,
-  bridgeRoutingEvent, sourceKey, sourceEventId } from '../src/memory-log.ts';
+import { createHash } from 'node:crypto';
+import { memoryEventSchema, type MemoryEvent } from '../src/architecture-contracts.ts';
 import { replayMemory, projectionChecksum, recallMemory, assertDeterministic,
   memoryReplayReport, tokenize } from '../src/memory-projections.ts';
 
-const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const read = (file: string) => readFileSync(path.join(root, file), 'utf8');
-const tmp = () => path.join(mkdtempSync(path.join(os.tmpdir(), 'suitme-memory-')), 'events.jsonl');
+function memoryEvent({ idempotencyKey, ...input }: Pick<MemoryEvent, 'kind' | 'actor'>
+  & Partial<Omit<MemoryEvent, 'id'>> & { idempotencyKey?: string }): MemoryEvent {
+  const at = input.at ?? '2026-11-07T00:00:00.000Z';
+  const id = createHash('sha256').update(idempotencyKey ?? JSON.stringify({ ...input, at })).digest('hex').slice(0, 32);
+  return memoryEventSchema.parse({ ...input, at, id });
+}
+
+const sourceKey = (sourceId: string, revision: string) => `${sourceId}@${revision}`;
+const sourceEventId = (sourceId: string, revision: string) => createHash('sha256')
+  .update('source:' + sourceKey(sourceId, revision)).digest('hex').slice(0, 32);
 
 const SRC = 'src-1', REV = 'r1';
 const ref = { sourceId: SRC, revision: REV };
@@ -43,23 +44,6 @@ test('记忆事件契约：溯源字段强制，modelCalls 只能是非负整数
   const later = memoryEvent({ kind: 'fact-extracted', actor: 'a', at: '2026-11-07T00:00:01.000Z', payload: { x: 1 } });
   assert.notEqual(another.id, later.id);
   assert.deepEqual(tokenize('验收 知识'), ['验', '收', '知', '识', '验收', '知识']);
-});
-
-test('主干落盘 → 读回 → 幂等，坏行如实报错', () => {
-  const file = tmp(), sink = new InMemorySink();
-  const log = new MemoryLog([new FileMemorySink(file), sink]);
-  const first = log.append({ kind: 'source-ingested', actor: 'u', sourceRef: ref, idempotencyKey: 'same' });
-  const again = log.append({ kind: 'source-ingested', actor: 'u', sourceRef: ref, idempotencyKey: 'same' });
-  assert.equal(first.written, true);
-  assert.equal(again.duplicate, true);
-  assert.equal(sink.lines.length, 1);
-  const { events, errors } = readMemoryEvents(file);
-  assert.equal(events.length, 1);
-  assert.deepEqual(errors, []);
-  appendFileSync(file, '{broken\n');
-  assert.equal(readMemoryEvents(file).errors.length, 1);
-  const broken = new MemoryLog([{ write: () => { throw new Error('disk full'); } }]);
-  assert.equal(broken.append({ kind: 'fact-extracted', actor: 'u' }).written, false);
 });
 
 test('重放可复现：两次 checksum 一致，基准时间取事件流而非 Date.now()', () => {
@@ -174,13 +158,6 @@ test('B2 收尾：确认使 revision 前进后，派生事件仍挂在真实来�
   assert.equal(recallMemory(revoked, '验收 知识', { principal: 'any-agent' }).hits.length, 0);
 });
 
-test('接线守卫：reviewSource 用评审后的 revision 写来源事件', () => {
-  const source = read('src/workspaces.ts');
-  assert.match(source, /const reviewedRevision = /);
-  assert.match(source, /sourceKey\(id, reviewedRevision\)/);
-  assert.match(source, /sourceRef: \{ sourceId: id, revision: reviewedRevision \}/);
-});
-
 test('红线：多级 lineage 派生（自身无 sourceRef）也被撤权阻断', () => {
   const a = sourceEvent();
   const b = memoryEvent({ kind: 'fact-extracted', actor: 'a', sourceRef: ref, causedBy: a.id,
@@ -234,17 +211,6 @@ test('撤权分层：严格集合只含资料撤回，授权撤销单列主体�
   assert.equal(both.principalRevocations.length, 1);
 });
 
-test('桥接路由事件：业务 causedBy 归一化到 payload，不制造悬空 lineage', () => {
-  const routing = memoryEvent({ kind: 'routing-decided', actor: 'owner', causedBy: 'trigger:om_1',
-    payload: { decision: { taskId: 'T1' } }, idempotencyKey: 'routing-bridge' });
-  const bridged = bridgeRoutingEvent(routing);
-  assert.equal(bridged.causedBy, undefined);
-  assert.equal((bridged.payload as Record<string, unknown>).routingCausedBy, 'trigger:om_1');
-  assert.equal(bridged.id, routing.id);
-  assert.deepEqual(replayMemory([bridged]).integrity.danglingCausedBy, []);
-  assert.deepEqual(replayMemory([routing]).integrity.danglingCausedBy, [routing.id]);
-});
-
 test('RoutingDecision 事件可并入主干重放，不参与四类知识投影、不破坏确定性', () => {
   const routing = memoryEvent({ kind: 'routing-decided', actor: 'owner',
     payload: { decision: { taskId: 'T1', stage: 'dispatch' } }, idempotencyKey: 'routing-1' });
@@ -255,24 +221,4 @@ test('RoutingDecision 事件可并入主干重放，不参与四类知识投影�
   assert.equal(bundle.l2Organization.length, 0);
   assert.equal(bundle.deterministic, true);
   assert.equal(memoryReplayReport([routing, indexed]).replayTwiceEqual, true);
-});
-
-test('真实写入点全部接到同一份记忆主干，测试进程与真实业务日志隔离', () => {
-  const targets = ['src/workspaces.ts', 'src/v06.ts', 'src/team-memory.ts', 'src/controller.ts'];
-  for (const file of targets) {
-    const source = read(file);
-    assert.match(source, /from '\.\/memory-log\.ts'/, `${file} 未引入主干`);
-    assert.match(source, /recordMemory\(/, `${file} 没有写入事件`);
-  }
-  const server = read('src/server.ts');
-  assert.match(server, /getMemoryLog\(\)\.attachAudit/);
-  assert.match(server, /memory-replay/);
-  assert.match(read('src/members.ts'), /'memory-replay'/);
-  assert.match(read('scripts/test.ts'), /COLLAB_TEST_MEMORY: 'memory'/);
-  assert.match(read('scripts/memory-replay.ts'), /replayTwiceEqual/);
-  assert.match(read('src/memory-log.ts'), /readBridgedEvents/);
-  assert.match(read('src/v06.ts'), /v06\.memory-lineage-filtered/);
-  assert.match(read('src/v06.ts'), /sourceRevocations/, 'Context Pack 运行时必须按资料撤回过滤');
-  assert.match(read('src/server.ts'), /bridgedRoutingEvents/);
-  assert.match(read('src/architecture-contracts.ts'), /'source-revoked', 'grant-revoked', 'memory-indexed', 'projection-rebuilt'/);
 });

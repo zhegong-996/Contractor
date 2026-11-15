@@ -16,25 +16,6 @@ jobs:
           node-version: '24'
           cache: npm
       - run: npm ci
-      - run: npm run setup -- --prepare-only
+      - run: npm run audit:upstream
       - run: npm test
       - run: npm run typecheck
-  workspace-plugin:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-        with:
-          submodules: recursive
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
-        with:
-          node-version: '24'
-          cache: npm
-      - run: npm ci
-      - run: npm install --global corepack@0.35.0
-      - run: corepack enable
-      - run: corepack pnpm install --frozen-lockfile
-        working-directory: upstream/paperclip
-      - run: corepack pnpm --filter @paperclipai/plugin-sdk build
-        working-directory: upstream/paperclip
-      - run: npm run build:workspaces
-      - run: npm run build:chinese-shell
