@@ -6,6 +6,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { setTimeout as delay } from 'node:timers/promises';
 import test from 'node:test';
 import type { PullCheck } from '../src/workbench/github-delivery.ts';
+import type { OutboundMessage } from '../upstream/superagent/src/core/index.ts';
 
 const directory = await mkdtemp(path.join(os.tmpdir(), 'suitme-code-acceptance-'));
 process.env.COLLAB_STATE_DIR = directory;
@@ -55,6 +56,7 @@ test('代码单验收绑定本单运行提交、PR 分支基线与当前 CI，�
   await auth.bootstrapOwner('owner', 'only-for-unit-test');
   await auth.createAccount('maker', 'only-for-unit-test', 'operator', 'owner');
   const config = settingsSchema.parse({
+    feishu: { appId: 'app', botId: 'bot', profile: 'test' },
     projects: [{ id: 'store', title: '门店推荐理由', members: ['owner', 'maker'], maintainers: ['owner'],
       resources: [{ source: 'github', externalId: 'team/test', state: 'bound', contributors: ['owner', 'maker'],
         execution: { base: 'main', paths: ['collab-pilot/'] } }] }],
@@ -62,7 +64,13 @@ test('代码单验收绑定本单运行提交、PR 分支基线与当前 CI，�
     agents: [{ id: 'review', title: '核对', projects: ['store'], active: true, owner: 'maker', function: 'delivery',
       kind: 'personal', engine: 'command', command: [process.execPath, fixture], capability: '核对推荐理由', skill: '核对' }],
   });
-  const work = await openCollaboration(config, auth);
+  const messages: OutboundMessage[] = [];
+  const work = await openCollaboration(config, auth, async message => { messages.push(message); return 'sent'; });
+  for (const member of ['owner', 'maker']) {
+    const identity = { provider: 'feishu' as const, namespace: 'app', id: 'ou_' + member, label: member };
+    work.proveAccount(work.accountProof(member, 'feishu').command.split(' ')[1]!, identity);
+    work.confirmAccount(member, 'feishu', identity);
+  }
   const db = new DatabaseSync(path.join(directory, 'orchestrator.sqlite'));
   t.after(async () => { db.close(); await work.close(); process.env.PATH = oldPath;
     await rm(directory, { recursive: true, force: true }); });
@@ -94,6 +102,15 @@ test('代码单验收绑定本单运行提交、PR 分支基线与当前 CI，�
   const accept = (commit?: string) => work.accept('owner', id, output.revision, '本轮范围', '', commit);
   await assert.rejects(accept(), /代码工单必须/);
   await assert.rejects(accept(sha), /代码工单必须/);
+  const refresh = () => work.refreshGithubEvidence({ id: String(repository.id), name: 'team/test' }, new Set());
+  const pending = (actor: string, kind: 'acceptance' | 'delivery') => work.needsYou(actor).find(d => d.ticket === id && d.kind === kind);
+  await refresh();
+  const missing = await wait(() => {
+    const decision = pending('maker', 'delivery');
+    return decision?.notification === 'sent' ? decision : undefined;
+  });
+  assert.equal(pending('owner', 'acceptance'), undefined);
+  assert.equal(work.overview('owner').tickets.find(ticket => ticket.id === id)?.attention, false);
   await save();
   remote.pull.head.ref = 'suitme/another-ticket'; await save();
   await assert.rejects(work.linkDelivery('owner', id, remote.pull.html_url), /本工单当前成果/);
@@ -110,8 +127,12 @@ test('代码单验收绑定本单运行提交、PR 分支基线与当前 CI，�
   remote.pull.base.sha = foreign; await save();
   await assert.rejects(work.linkDelivery('owner', id, remote.pull.html_url), /本工单当前成果/);
   remote.pull.base.sha = base;
+  remote.checks = [check(1, { status: 'in_progress', conclusion: null })];
   await save();
   await work.linkDelivery('owner', id, remote.pull.html_url);
+  assert.equal(work.detail('owner', id).deliveryStatus?.state, 'ci-pending');
+  assert.equal(pending('owner', 'acceptance'), undefined);
+  assert.equal(pending('maker', 'delivery'), undefined);
   await assert.rejects(accept(), /代码工单必须/);
   await assert.rejects(work.accept('maker', id, output.revision, '', '', sha), /原发起人验收/);
   for (const checks of [[], [check(1, { head_sha: foreign })], [check(1), check(2, { status: 'in_progress', conclusion: null })],
@@ -120,17 +141,46 @@ test('代码单验收绑定本单运行提交、PR 分支基线与当前 CI，�
     await assert.rejects(accept(sha), /CI 已变化/);
     assert.equal(work.detail('owner', id).work.accepted, undefined);
   }
+  await refresh(); await refresh();
+  const failed = await wait(() => {
+    const decision = pending('maker', 'delivery');
+    return decision?.notification === 'sent' ? decision : undefined;
+  });
+  assert.equal(work.detail('owner', id).deliveryStatus?.state, 'ci-failed');
+  assert.notEqual(failed.id, missing.id);
+  assert.equal(messages.filter(message => message.channel.address.decision === failed.id).length, 1);
+  assert.equal(pending('owner', 'acceptance'), undefined);
   remote.checks = [check(3)];
   remote.pull.head.sha = foreign; remote.commits[0]!.sha = foreign; await save();
   await assert.rejects(accept(sha), /CI 已变化/);
+  await refresh();
+  assert.equal(work.detail('owner', id).work.delivery, undefined, 'a newer but unrelated head is only a PR observation');
+  assert.equal(work.detail('owner', id).work.deliveryPr?.url, remote.pull.html_url);
+  assert.equal(pending('owner', 'acceptance'), undefined);
   remote.pull.head.sha = sha; remote.commits[0]!.sha = sha;
   remote.pull.draft = true; await save();
+  await refresh();
   await assert.rejects(accept(sha), /CI 已变化/);
   remote.pull.draft = false; await save();
+  // Migrate a prior revision that had cleared its current delivery. The historical explicit link is enough to follow the same PR.
+  db.prepare("UPDATE workbench_ticket SET value=json_remove(value,'$.delivery','$.deliveryPr') WHERE id=?").run(id);
+  await refresh(); await refresh();
+  const ready = await wait(() => {
+    const decision = pending('owner', 'acceptance');
+    return decision?.notification === 'sent' ? decision : undefined;
+  });
+  assert.equal(messages.filter(message => message.channel.address.decision === ready.id).length, 1);
+  assert.equal(pending('maker', 'delivery'), undefined);
+  // A later failed attempt hides the review inbox item. Restoring green for the same output doesn't push again.
+  remote.checks = [check(4, { conclusion: 'failure' })]; await save(); await refresh();
+  assert.equal(pending('owner', 'acceptance'), undefined);
+  remote.checks = [check(5)]; await save(); await refresh();
+  assert.equal(pending('owner', 'acceptance')?.id, ready.id);
+  assert.equal(messages.filter(message => message.channel.address.decision === ready.id).length, 1);
   await accept(sha);
   const accepted = work.detail('owner', id).work;
   assert.equal(accepted.accepted?.commit, sha);
   assert.equal(accepted.delivery?.commits?.find(item => item.sha === sha)?.run?.ticket, id);
-  assert.equal(accepted.delivery?.checks?.[0]?.id, 3);
+  assert.equal(accepted.delivery?.checks?.[0]?.id, 5);
   assert.equal(accepted.delivery?.checks?.[0]?.head_sha, sha);
 });

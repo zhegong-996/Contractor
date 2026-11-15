@@ -144,16 +144,40 @@ test('原生工单带口径交接、阻塞接续、多版验收、成果重授�
   const proposed = work.start('product', { project: 'store', agent: 'coder', title: '委托研发修改门店页', request: '受托路径内修改',
     target, material: [], priority: 'normal', nonce: randomUUID() });
   const code = await wait(() => work.resolveStart('product', proposed.trigger) ?? undefined);
-  assert.ok(work.needsYou('engineering').some(d => d.kind === 'development' && d.ticket === code));
+  const offer = work.needsYou('engineering').find(d => d.kind === 'development' && d.ticket === code)!;
+  assert.ok(offer);
   assert.throws(() => work.approveDevelopment('product', code), { status: 403 });
   assert.equal(detail(code).runs.length, 0);
   await assert.rejects(work.linkDelivery('product', code, 'https://github.com/team/test/pull/1'), { status: 403 });
   await assert.rejects(work.linkBranch('product', code, 'https://github.com/team/test/tree/main'), { status: 403 });
-  work.approveDevelopment('engineering', code);
-  work.approveDevelopment('engineering', code);
+  const declined = { offer: offer.id, response: 'decline' as const, reason: '本轮研发排期已满' };
+  assert.throws(() => work.respondDevelopment('product', code, declined), { status: 403 });
+  assert.deepEqual(work.respondDevelopment('engineering', code, declined), work.respondDevelopment('engineering', code, declined));
+  assert.equal(work.needsYou('product').filter(d => d.kind === 'development-returned' && d.ticket === code).length, 1);
+  assert.throws(() => work.approveDevelopment('engineering', code, offer.id), { status: 409 });
+  assert.throws(() => work.resume('engineering', code, { nonce: randomUUID(), version: 1, reason: '尝试绕过退回状态' }), { status: 409 });
+  assert.equal(assignments(code), 1);
+  assert.equal(detail(code).runs.length, 0);
+
+  const reoffer = { offer: offer.id, agent: 'coder', reason: '时间已协调，仍只改门店页' };
+  assert.throws(() => work.reofferDevelopment('engineering', code, reoffer), { status: 403 });
+  work.reofferDevelopment('product', code, reoffer);
+  work.reofferDevelopment('product', code, reoffer);
+  const second = work.needsYou('engineering').find(d => d.kind === 'development' && d.ticket === code)!;
+  assert.notEqual(second.id, offer.id);
+  assert.throws(() => work.approveDevelopment('engineering', code, offer.id), { status: 409 });
+  const returned = { offer: second.id, response: 'return' as const, reason: '请明确试穿提示口径' };
+  work.respondDevelopment('engineering', code, returned);
+  assert.match(work.needsYou('product').find(d => d.kind === 'development-returned' && d.ticket === code)!.title, /退回/);
+  work.reofferDevelopment('product', code, { ...reoffer, offer: second.id, reason: '只改两句推荐理由' });
+  const third = work.needsYou('engineering').find(d => d.kind === 'development' && d.ticket === code)!;
+  work.approveDevelopment('engineering', code, third.id);
+  work.approveDevelopment('engineering', code, third.id);
+  assert.equal(detail(code).report?.state, 'progress');
   // Never launch the real CLI in this unit fixture; real Codex delivery is exercised separately.
   work.setAgent('engineering', 'coder', false);
   assert.equal(detail(code).work.developmentApproval?.actor, 'engineering');
   assert.equal(detail(code).work.requester, 'product');
+  assert.equal(assignments(code), 1);
   assert.ok(!work.needsYou('engineering').some(d => d.kind === 'development' && d.ticket === code));
 });

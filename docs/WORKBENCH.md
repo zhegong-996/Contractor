@@ -76,6 +76,7 @@ Super-agent 复用了原版消息归一、话题根、来源准入策略和人�
 - `attribution.checkouts` 为交付仓库指定专用本地副本，`attribution.entireCommand` 指向 Entire CLI。选择开发仓库的 Codex 或 Cursor 任务先获取远端基线，在工单专用 worktree 中执行。工作台检查改动范围、记录本地提交，研发通过自己有权的账号推送并关联 PR。因权限、基线或交付范围变化而被阻断的任务会显式提示。
 - GitHub 的 Issue 和 PR 用仓库 ID 与各自编号定位，分支用仓库和引用名定位，再记录实际提交哈希。已关联的普通评论和 PR 状态更新只增加来源记录或更新交付。按 `base SHA + head SHA` 保留交付版本，项目成员可以回看；关 Issue 或改 PR 状态不会签署业务验收。
 - 代码工单关联与验收时核对当前成果对应的运行和受托提交。PR 的仓库、head 分支、head SHA、base 分支与基线必须匹配本单执行记录；验收重新读取该 SHA 最新的 GitHub Actions `collab-pilot` 检查，保存检查编号和版本。缺少 PR／提交、其他工单的 PR、旧版本 CI、草稿或已关闭且未合并的 PR 都不能验收。资料整理类成果仍按自身成果修订验收。
+- 交付成员首次关联 PR 后，下一版由 GitHub 轮询跟踪同一 PR 上的受托提交与对应 CI。缺证据或 CI 失败先通知本版研发，通过后通知发起人验收。研发可以拒接、退回或确认委托，负责人可在原单重新安排。后端接口见 [交付通知与研发退回](WORKBENCH-ITERATIONS.md#交付通知与研发退回)。
 - Entire 安装本地 hooks，由 `checkpoint explain --json --commit` 读取检查点元数据。工作台用已登记的精确仓库、提交和执行记录归因；只有对应的 Agent 会话也被 Entire 确认时，界面才显示「会话已核对」。GitHub 的账号和记录保留原始信息，可与已验证的内部成员映射一同查看。
 
 ## 当前范围

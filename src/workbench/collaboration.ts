@@ -50,6 +50,8 @@ type Work = {
   resources?: ResourceView[];
   development?: DevelopmentTarget;
   developmentApproval?: { actor: string; agent: string; scope: string; at: string };
+  developmentOffer?: { replaces: string; agent: string; reason: string; by: string; at: string };
+  developmentResponse?: { offer: string; response: 'decline' | 'return'; actor: string; agent: string; reason: string; at: string };
   approvalRequired?: boolean;
   version?: number;
   continuation?: { id: string; reason: string; actor: string; at: string; previous?: string; baseSha?: string };
@@ -63,6 +65,7 @@ type Work = {
   handoff?: { assignment: string; from: string; to: string; by: string; reason: string; runs: number[];
     requestedAt: string; completedAt?: string; cancelledAt?: string; accessRequests?: Record<string, string>; cause?: 'access' | 'resume' };
   delivery?: DeliveryEvidence;
+  deliveryPr?: DeliveryPull;
   accepted?: { actor: string; revision: string; at: string; commit?: string };
 };
 type MappedIdentity = GitHubIdentity & { member?: string };
@@ -74,6 +77,9 @@ type CommitProvenance = {
 type PullSnapshot = Awaited<ReturnType<typeof inspectPull>>['snapshot'];
 type DeliveryEvidence = Pick<PullSnapshot, 'repository' | 'url' | 'pr' | 'baseSha' | 'headSha' | 'ci'> &
   Partial<PullSnapshot> & { creator?: MappedIdentity; commits?: CommitProvenance[]; attachedBy?: string; workReference?: boolean };
+type DeliveryPull = Pick<PullSnapshot, 'repository' | 'url' | 'pr' | 'repoId'> & { attachedBy?: string };
+type DeliveryIssue = 'missing-evidence' | 'ci-failed';
+type CodeDeliveryState = { state: DeliveryIssue | 'ci-pending' | 'ready'; detail: string; output: Output; issue?: DeliveryIssue };
 type RunActor = {
   delegatedBy: string; requestedVia: Work['source']; delegatedAccount?: PlatformActor;
   agent: string; owner: string; function: string; engine: string;
@@ -317,20 +323,32 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     const ticket = decision.ticket && store.tickets.get(decision.ticket);
     const work = decision.ticket && workOf(decision.ticket);
     if (!ticket || !work) return false;
-    if (decision.kind === 'acceptance') return work.requester === actor && !work.accepted && ticket.ended?.outcome === 'completed'
-      && (decision.subject === ticket.id || decision.subject === acceptanceSubject(ticket.id) || decision.subject.startsWith(acceptanceSubject(ticket.id) + ':'))
-      && !!readableOutput(ticket.id);
+    if (decision.kind === 'acceptance') {
+      const output = readableOutput(ticket.id);
+      if (work.requester !== actor || work.accepted || ticket.ended?.outcome !== 'completed' || !output) return false;
+      if (work.development) return decision.subject === codeAcceptanceSubject(ticket.id, output)
+        && codeDeliveryState(ticket, work)?.state === 'ready';
+      return decision.subject === ticket.id || decision.subject === acceptanceSubject(ticket.id) || decision.subject.startsWith(acceptanceSubject(ticket.id) + ':');
+    }
+    if (decision.kind === 'delivery') {
+      const status = codeDeliveryState(ticket, work);
+      return !!status?.issue && decision.subject === deliverySubject(ticket.id, status.output, status.issue)
+        && deliveryOwner(work, status.output) === actor;
+    }
     if (decision.kind === 'development') {
       const next = handingOff(work) ? work.handoff!.to : work.agent;
-      return !ticket.ended && agentById.get(next)?.owner === actor && !!work.development
+      return !ticket.ended && !work.developmentResponse && isActive(agentById.get(next), project)
+        && agentById.get(next)?.owner === actor && !!work.development && decision.subject === developmentSubject(ticket.id, work, next)
         && authorizesDevelopment(project, work.development, actor) && !developmentAuthorized(work, next);
     }
+    if (decision.kind === 'development-returned') return !ticket.ended && maintain(project, actor)
+      && work.developmentResponse?.offer === decision.subject;
     if (decision.kind === 'access') {
       const request = knowledge.requests(ticket.id).find(item => item.id === decision.subject);
       const review = request?.purpose === 'review' && outputFor(ticket.id)?.revision === request.output && !work.accepted;
       const reader = review ? outputReader(outputFor(ticket.id)!, work) : accessReader(work, true);
       return request?.state === 'requested' && knowledge.get(request.entry)?.owner === actor
-        && request.readerAgent === reader?.agent && request.readerOwner === reader?.owner && (!ticket.ended || review);
+        && request.readerAgent === reader?.agent && request.readerOwner === reader?.owner && (!ticket.ended && !work.developmentResponse || review);
     }
     if (ticket.ended) return false;
     if (decision.kind === 'answer') return mayRun(ticket, work) && !needed(ticket.id, work) && executionDecider(project, work) === actor
@@ -344,7 +362,10 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       const item = decision.kind === 'discussion' ? discussions.item(decision.subject) : undefined;
       const intake = decision.kind === 'intake' ? store.db.prepare('SELECT actor,value FROM workbench_intake WHERE id=? AND resolved=0').get(decision.subject) : undefined;
       const request: Start | undefined = intake && JSON.parse(String(intake.value));
+      const issue = decision.kind === 'delivery' && decision.ticket
+        ? codeDeliveryState(store.tickets.get(decision.ticket)!, workOf(decision.ticket)!) : undefined;
       return { ...decision, notification: store.replyStatus(decisionReceipt(decision)) ?? 'no-channel',
+        ...(issue ? { detail: issue.detail } : {}),
         ...(channel && { request: { text: channel.request.request, topic: channel.request.topic, sender: channel.member,
           url: channel.request.trigger.url ?? channel.request.origin.url, reference: visibleReference(channel.request.reference, actor),
           sourceTicket: visibleTicket(channel.request.origin, actor) } }),
@@ -416,29 +437,90 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
   }
   const acceptanceSubject = (id: string) => id + ':v' + (workOf(id)?.version ?? 1);
   const developmentSubject = (id: string, work: Work, agentId: string) => key('development', id, agentId, digest(work.development),
-    handingOff(work) ? work.handoff!.requestedAt : store.tickets.get(id)?.assignments.at(-1)?.id ?? 'initial');
+    handingOff(work) ? work.handoff!.requestedAt : 'initial',
+    ...(work.developmentOffer ? [work.developmentOffer.replaces] : []));
   function askDevelopment(id: string, work: Work, agentId = work.agent) {
     const agent = agentById.get(agentId);
     if (!work.development || !agent) return;
     return askHuman(projectById.get(work.project)!, { kind: 'development', subject: developmentSubject(id, work, agentId),
       title: '请确认接下产品委托的代码任务', ticket: id,
-      detail: '仅本工单、' + work.development.repository + ' 的 ' + work.development.paths.join('、') + '；产品保留验收权，不获得代码交付权限。' }, agent.owner);
+      detail: ['仅本工单、' + work.development.repository + ' 的 ' + work.development.paths.join('、') + '。',
+        work.developmentOffer?.reason].filter(Boolean).join('\n') }, agent.owner);
   }
-  function approveDevelopment(actor: string, id: string) {
+  function approveDevelopment(actor: string, id: string, offer?: string) {
     const { ticket, work, project } = ticketFor(id, actor);
     const next = handingOff(work) ? work.handoff!.to : work.agent;
     const agent = agentById.get(next);
     if (ticket.ended || !work.development || !isActive(agent, project) || agent.owner !== actor
       || !['codex', 'cursor'].includes(agent.engine) || !authorizesDevelopment(project, work.development, actor))
       throw new WorkbenchError('只有承担本次代码执行且有仓库交付资格的研发可以接单。', 403);
+    if (work.developmentResponse) throw new WorkbenchError('本次委托已退回，等待项目负责人重新安排。', 409);
+    if ((offer || work.developmentOffer) && (!offer || decisions.get(offer)?.subject !== developmentSubject(id, work, next)))
+      throw new WorkbenchError('接单待办已变化，请核对最新委托。', 409);
     if (developmentAuthorized(work, next)) return;
     store.atomic(() => {
       const approval = { actor, agent: next, scope: digest(work.development), at: new Date().toISOString() };
-      saveWork(id, { ...work, developmentApproval: approval });
+      const approved = { ...work, developmentApproval: approval };
+      saveWork(id, approved);
       for (const decision of decisions.pending(actor).filter(d => d.kind === 'development' && d.ticket === id))
         closeDecision('development', decision.subject);
+      if (!handingOff(work) && !needed(id, approved))
+        engine.report(id, { state: 'progress', summary: '研发已接单，准备执行', question: null });
       audit(id, 'development.approved', approval);
       effects.enqueue('delivery', id, { ticketId: id, assignmentId: ticket.assignments.at(-1)?.id });
+    });
+  }
+
+  function respondDevelopment(actor: string, id: string, input: { offer: string; response: 'decline' | 'return'; reason: string }) {
+    const { ticket, work, project } = ticketFor(id, actor);
+    const offer = decisions.get(input.offer);
+    if (offer?.kind !== 'development' || offer.ticket !== id || offer.member !== actor)
+      throw new WorkbenchError('只有受托研发可以处理自己的接单待办。', 403);
+    const previous = work.developmentResponse;
+    if (previous?.offer === input.offer && previous.response === input.response && previous.reason === input.reason) return previous;
+    if (!decisionAllowed(offer, actor)) throw new WorkbenchError('此接单待办已处理，请刷新。', 409);
+    const agent = handingOff(work) ? work.handoff!.to : work.agent;
+    const record = { ...input, actor, agent, at: new Date().toISOString() };
+    return store.atomic(() => {
+      saveWork(id, { ...work, developmentResponse: record });
+      closeDecision('development', offer.subject);
+      const title = record.response === 'decline' ? '研发拒接，请重新安排' : '研发退回，请核对委托后重新安排';
+      engine.report(ticket.id, { state: 'waiting', summary: title, question: null });
+      askHuman(project, { kind: 'development-returned', subject: record.offer, ticket: id, title, detail: record.reason });
+      audit(id, 'development.' + (record.response === 'decline' ? 'declined' : 'returned'), record);
+      return record;
+    });
+  }
+
+  function reofferDevelopment(actor: string, id: string, input: { offer: string; agent: string; reason: string }) {
+    const { ticket, work, project } = ticketFor(id, actor);
+    if (!maintain(project, actor)) throw new WorkbenchError('由项目维护人重新安排研发委托。', 403);
+    if (work.developmentOffer?.replaces === input.offer && work.developmentOffer.agent === input.agent
+      && work.developmentOffer.reason === input.reason) return { agent: input.agent };
+    if (ticket.ended || !work.development || work.developmentResponse?.offer !== input.offer || !policy().revalidate(ticket.mandate))
+      throw new WorkbenchError('退回记录或原委托已变化，请刷新。', 409);
+    const agent = agentById.get(input.agent);
+    if (!isActive(agent, project) || !['codex', 'cursor'].includes(agent.engine) || !authorizesDevelopment(project, work.development, agent.owner))
+      throw new WorkbenchError('请选择当前项目有此仓库交付资格的在岗研发 Agent。', 403);
+    const pending = handingOff(work);
+    const next: Work = { ...work, approvalRequired: true, developmentApproval: undefined, developmentResponse: undefined,
+      developmentOffer: { replaces: input.offer, agent: agent.id, reason: input.reason, by: actor, at: new Date().toISOString() },
+      ...(pending ? { handoff: { ...work.handoff!, to: agent.id, by: actor, reason: input.reason, accessRequests: undefined } }
+        : { agent: agent.id, agentVersion: version(agent), function: agent.function }) };
+    return store.atomic(() => {
+      saveWork(id, next);
+      closeDecision('development-returned', input.offer);
+      engine.report(id, { state: 'waiting', summary: '等待研发重新确认委托', question: null });
+      // Initial offers have not started a worker. An existing handoff must still use its stop barrier.
+      if (!pending) {
+        askDevelopment(id, next);
+        for (const ref of next.material) {
+          const entry = knowledge.get(ref);
+          if (entry?.visibility === 'restricted') requestAccess(id, next, entry, actor, '请按重新安排的研发执行身份核对资料授权');
+        }
+      }
+      audit(id, 'development.reoffered', { actor, ...next.developmentOffer });
+      return { agent: agent.id };
     });
   }
   const needed = (id: string, work: Work) => work.material.some(ref => {
@@ -446,7 +528,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     return !entry || !sourceAllowed(id, entry, new Set(), accessReader(work));
   });
   const valid = (ticket: Ticket | undefined, work: Work | undefined) => {
-    if (!ticket || !work || ticket.ended || !policy().revalidate(ticket.mandate)) return false;
+    if (!ticket || !work || ticket.ended || work.developmentResponse || !policy().revalidate(ticket.mandate)) return false;
     const agent = agentById.get(work.agent);
     const project = projectById.get(work.project)!;
     return isActive(agent, project) && version(agent!) === work.agentVersion
@@ -619,10 +701,13 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
         const result = { run: id, version: work.version ?? 1, text, sources: manifest.sources, at: new Date().toISOString(),
           revision: digest({ id, text, sources: manifest.sources }) };
         store.db.prepare('INSERT OR IGNORE INTO workbench_output VALUES (?,?,?)').run(ticket.id, id, JSON.stringify(result));
-        engine.report(ticket.id, { state: 'ready', summary: 'Agent 已提交意见，等待发起人验收', question: null });
-        askHuman(projectById.get(work.project)!, { kind: 'acceptance', subject: acceptanceSubject(ticket.id), title: '第 ' + (work.version ?? 1) + ' 版交付待验收', ticket: ticket.id }, work.requester);
+        const finished = engine.report(ticket.id, { state: 'ready',
+          summary: work.development ? 'Agent 已提交本版成果，等待 GitHub 交付证据' : 'Agent 已提交意见，等待发起人验收', question: null });
+        if (work.development) notifyCodeDelivery(finished, work);
+        else askHuman(projectById.get(work.project)!, { kind: 'acceptance', subject: acceptanceSubject(ticket.id),
+          title: '第 ' + (work.version ?? 1) + ' 版交付待验收', ticket: ticket.id }, work.requester);
         // Only a human in the workbench sees the draft. Shared topic receipts carry state, never private source text.
-        if (ticket.channels.length) engine.reply({ purpose: 'result', ticketId: ticket.id, text: '专业意见已准备好。请在 SuitMe 核对当前版本。' });
+        if (!work.development && ticket.channels.length) engine.reply({ purpose: 'result', ticketId: ticket.id, text: '专业意见已准备好。请在 SuitMe 核对当前版本。' });
       }
       if (!store.tickets.get(ticket.id)?.ended) engine.turnEnded(ticket.id, assignment.id);
     });
@@ -682,7 +767,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     const ticket = store.tickets.get(id);
     const work = workOf(id);
     const plan = work?.handoff;
-    if (!ticket || !work || !plan || !handingOff(work)) return;
+    if (!ticket || !work || !plan || !handingOff(work) || work.developmentResponse) return;
     const oldRuns = runsFor(id).filter(run => run.lane === activeLane(id));
     for (const run of oldRuns)
       if (run.state === 'queued' || run.state === 'claimed' && !run.cancel_at) hub.cancel(run.id);
@@ -782,6 +867,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     if (!maintain(project, actor)) throw new WorkbenchError('由项目维护人决定执行交接。', 403);
     if (work.handoff?.completedAt && work.handoff.to === input.agent && work.handoff.reason === input.reason) return work.handoff;
     if (ticket.ended) throw new WorkbenchError('该工单的执行已结束。', 409);
+    if (work.developmentResponse) throw new WorkbenchError('请先处理已退回的研发委托。', 409);
     if (cardsFor(id).some(card => card.state === 'open'))
       throw new WorkbenchError('仍有必答事项，请先由执行决策人答复，再交接 Agent。', 409);
     if (handingOff(work)) {
@@ -809,6 +895,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     const { ticket, work, project } = ticketFor(id, actor);
     if (!mayStart(project, actor) || !(actor === work.requester || maintain(project, actor) || agentById.get(work.agent)?.owner === actor))
       throw new WorkbenchError('由发起人、执行 Agent 所有者或项目维护人接续。', 403);
+    if (work.developmentResponse) throw new WorkbenchError('请先处理已退回的研发委托。', 409);
     const request = key('resume', id, actor, input.nonce);
     if ((work.version ?? 1) !== input.version) throw new WorkbenchError('交付版本已变化，请刷新。', 409);
     if (store.db.prepare("SELECT 1 FROM workbench_audit WHERE ticket=? AND kind='execution.resume-requested' AND value ->> '$.request'=?")
@@ -886,6 +973,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
         at: new Date().toISOString(), previous: output.revision } };
       saveWork(id, next);
       closeAcceptance(id);
+      closeDeliveryIssues(id, output);
       for (const ref of next.material) {
         const entry = knowledge.get(ref);
         if (entry?.visibility === 'restricted' && !knowledge.usable(id, entry, accessReader(next)))
@@ -1087,6 +1175,9 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       ] };
       if (work.continuation) context.events.push({ id: work.continuation.id, type: 'task.continuation', source: 'suitme', sourceName: '本版执行要求',
         subject: ticket.id, summary: '第 ' + (work.version ?? 1) + ' 版接续', detail: JSON.stringify(work.continuation), receivedAt: work.continuation.at, link: '' });
+      if (work.developmentOffer) context.events.push({ id: 'development:' + work.developmentOffer.replaces, type: 'task.development-note',
+        source: 'suitme', sourceName: '研发委托', subject: ticket.id, summary: '负责人补充的委托说明',
+        detail: JSON.stringify(work.developmentOffer), receivedAt: work.developmentOffer.at, link: '' });
       if (work.handoff?.completedAt) context.events.push({
         id: key('handoff-context', a.id), type: 'task.handoff', source: 'suitme', sourceName: '工单交接', subject: ticket.id,
         summary: '当前执行委托已交接', detail: work.handoff.reason, receivedAt: work.handoff.completedAt, link: '',
@@ -1968,23 +2059,88 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     saveWork(id, { ...current, delivery: evidence });
   }
 
-  function verifyCodeDelivery(ticket: Ticket, work: Work, evidence: DeliveryEvidence) {
-    if (!work.development) return;
-    const output = readableOutput(ticket.id);
+  function matchesCodeDelivery(ticket: Ticket, work: Work, output: Output | undefined, evidence: DeliveryEvidence) {
+    if (!work.development) return false;
     const run = output && hub.one<Run>('SELECT id,lane,state,session,usage,summary,cancel_at FROM runs WHERE id=?', [output.run]);
     const manifest = output && manifestFor(output.run);
     const development = manifest?.development;
     const proof = evidence.commits?.find(item => item.sha === evidence.headSha)?.run;
-    if (!output || !run || run.state !== 'done' || ticketOfLane(run.lane) !== ticket.id
-      || !manifest || ticket.assignments.at(-1)?.id !== manifest.assignment
-      || !development?.commit || development.commit !== evidence.headSha
-      || development.repository.toLowerCase() !== work.development.repository.toLowerCase()
-      || development.base !== work.development.base || digest(development.paths) !== digest(work.development.paths)
-      || evidence.repository.toLowerCase() !== work.development.repository.toLowerCase()
-      || evidence.headRepoId !== evidence.repoId || evidence.headBranch !== development.branch
-      || evidence.baseBranch !== development.base || evidence.baseSha !== development.baseSha
-      || proof?.ticket !== ticket.id || proof.id !== output.run)
+    return !!output && run?.state === 'done' && ticketOfLane(run.lane) === ticket.id
+      && !!manifest && ticket.assignments.at(-1)?.id === manifest.assignment
+      && !!development?.commit && development.commit === evidence.headSha
+      && development.repository.toLowerCase() === work.development.repository.toLowerCase()
+      && development.base === work.development.base && digest(development.paths) === digest(work.development.paths)
+      && evidence.repository.toLowerCase() === work.development.repository.toLowerCase()
+      && evidence.headRepoId === evidence.repoId && evidence.headBranch === development.branch
+      && evidence.baseBranch === development.base && evidence.baseSha === development.baseSha
+      && proof?.ticket === ticket.id && proof.id === output.run;
+  }
+
+  function verifyCodeDelivery(ticket: Ticket, work: Work, evidence: DeliveryEvidence) {
+    if (work.development && !matchesCodeDelivery(ticket, work, readableOutput(ticket.id), evidence))
       throw new WorkbenchError('PR 必须对应本工单当前成果的受托提交、分支和代码基线。', 409);
+  }
+
+  const pullKey = (ref: DeliveryPull) => 'github:' + ref.repoId + ':' + ref.pr;
+  function followedPull(id: string, work: Work): DeliveryPull | undefined {
+    let evidence = work.deliveryPr ?? work.delivery;
+    if (!evidence?.repoId) {
+      // Older revisions cleared the current delivery while retaining the explicit PR link and its history.
+      const saved = store.db.prepare(`SELECT v.value FROM workbench_pull_version v
+        WHERE v.ticket=? AND json_extract(v.value,'$.url')=(SELECT json_extract(a.value,'$.pr')
+          FROM workbench_audit a WHERE a.ticket=? AND a.kind='delivery.linked' ORDER BY a.id DESC LIMIT 1)
+        ORDER BY v.rowid DESC LIMIT 1`).get(id, id);
+      evidence = saved ? JSON.parse(String(saved.value)) as DeliveryEvidence : undefined;
+    }
+    if (!evidence?.repoId) return;
+    const ref = { repository: evidence.repository, repoId: evidence.repoId, pr: evidence.pr, url: evidence.url, attachedBy: evidence.attachedBy };
+    return links.ticket({ key: pullKey(ref), label: ref.repository }) === id ? ref : undefined;
+  }
+
+  function codeDeliveryState(ticket: Ticket, work: Work): CodeDeliveryState | undefined {
+    if (!work.development || work.accepted || ticket.ended?.outcome !== 'completed') return;
+    const output = outputFor(ticket.id);
+    if (!output) return;
+    const missing = (detail: string): CodeDeliveryState => ({ state: 'missing-evidence', issue: 'missing-evidence', detail, output });
+    const evidence = work.delivery;
+    if (!evidence || !matchesCodeDelivery(ticket, work, output, evidence))
+      return missing(followedPull(ticket.id, work) ? '原 PR 尚未核对到本版受托提交和基线，请研发核对推送。'
+        : '本版尚未关联 PR，请研发推送受托提交并关联交付。');
+    if (evidence.state !== 'open' && evidence.state !== 'merged') return missing('请研发核对 PR 是否已转为正式交付。');
+    const check = evidence.checks?.find(item => item.head_sha === evidence.headSha && item.name === 'collab-pilot' && item.app?.slug === 'github-actions');
+    if (!check) return missing('本版提交尚无对应的 GitHub Actions 检查，请研发核对 CI。');
+    if (evidence.ci === 'failed') return { state: 'ci-failed', issue: 'ci-failed', detail: '本版提交的 CI 未通过，请研发核对检查结果。', output };
+    return evidence.ci === 'passed' && check.status === 'completed' && check.conclusion === 'success'
+      ? { state: 'ready', detail: '本版提交和 CI 已核对。', output }
+      : { state: 'ci-pending', detail: '等待本版提交的 CI 结束。', output };
+  }
+
+  function deliveryOwner(work: Work, output: Output) {
+    const actor = outputReader(output, work)?.owner;
+    return actor && work.development && authorizesDevelopment(projectById.get(work.project)!, work.development, actor) ? actor : undefined;
+  }
+
+  const codeAcceptanceSubject = (id: string, output: Output) => key('code-acceptance', id, output.revision);
+  const deliverySubject = (id: string, output: Output, issue: DeliveryIssue) => key('delivery-issue', id, output.revision, issue);
+  function notifyCodeDelivery(ticket: Ticket, work: Work) {
+    const status = codeDeliveryState(ticket, work);
+    if (!status) return;
+    const { output, issue } = status;
+    const project = projectById.get(work.project)!;
+    const title = '第 ' + (work.version ?? 1) + ' 版';
+    if (status.state === 'ready' && readableOutput(ticket.id)) {
+      askHuman(project, { kind: 'acceptance', subject: codeAcceptanceSubject(ticket.id, output), ticket: ticket.id,
+        title: title + '交付已核对，请验收' }, work.requester);
+    } else if (issue) {
+      const owner = deliveryOwner(work, output);
+      if (owner) askHuman(project, { kind: 'delivery', subject: deliverySubject(ticket.id, output, issue), ticket: ticket.id,
+        title: title + (issue === 'ci-failed' ? ' CI 未通过，请研发处理' : '缺少交付证据，请研发核对'), detail: status.detail }, owner);
+    }
+  }
+
+  function closeDeliveryIssues(id: string, output: Output) {
+    closeDecision('delivery', deliverySubject(id, output, 'missing-evidence'));
+    closeDecision('delivery', deliverySubject(id, output, 'ci-failed'));
   }
 
   function storeDeliveryVersion(id: string, evidence: DeliveryEvidence) {
@@ -1999,25 +2155,54 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     const ticket = store.tickets.get(id);
     const work = workOf(id);
     const project = work && projectById.get(work.project);
-    if (!ticket || !work?.delivery || !project || (expectedProject && work.project !== expectedProject) || !ref.url) return;
-    const parts = /^github:(\d+):(\d+)$/.exec(ref.key);
-    if (!parts) return;
+    if (!ticket || !work || !project || (expectedProject && work.project !== expectedProject)) return;
+    const pull = followedPull(id, work);
+    if (!pull || pullKey(pull) !== ref.key) return;
+    const output = outputFor(id);
+    if (work.development && !work.accepted && (!output || ticket.ended?.outcome !== 'completed')) return;
     const versionQuery = 'SELECT value FROM workbench_pull_version WHERE ticket=? AND repository=? AND number=? ORDER BY rowid DESC LIMIT 1';
-    const oldVersion = store.db.prepare(versionQuery).get(id, Number(parts[1]), Number(parts[2]));
+    const oldVersion = store.db.prepare(versionQuery).get(id, pull.repoId, pull.pr);
     const old = oldVersion && JSON.parse(String(oldVersion.value)) as DeliveryEvidence;
-    if (!old?.repoId) return;
-    const target = pullTarget(project, old.url);
-    const observed = await inspectPull(target.externalId, old.url, config.port, runtime('execution'));
-    if (observed.snapshot.repoId !== old.repoId) return;
-    const latest = { ...observed.snapshot, attachedBy: old.attachedBy, workReference: referencesTicket(observed.body, id),
-      creator: githubMember(observed.snapshot.creator, project, observed.snapshot.createdAt)!,
-      commits: await provenance(ticket, work, project, observed, old) };
-    if (digest(latest) === digest(old)) return;
-    store.atomic(() => {
+    const currentObservation = () => {
       const current = workOf(id);
-      if (!current?.delivery || store.db.prepare(versionQuery).get(id, old.repoId!, old.pr)?.value !== oldVersion?.value) return;
-      if (current.delivery.url === old.url && !current.accepted) writeDelivery(id, current, latest);
-      else storeDeliveryVersion(id, latest);
+      const currentTicket = store.tickets.get(id);
+      if (!current || !currentTicket || digest(followedPull(id, current) ?? null) !== digest(pull)
+        || (current.version ?? 1) !== (work.version ?? 1) || outputFor(id)?.revision !== output?.revision
+        || digest(current.delivery ?? null) !== digest(work.delivery ?? null)
+        || store.db.prepare(versionQuery).get(id, pull.repoId, pull.pr)?.value !== oldVersion?.value) return;
+      return { current, currentTicket };
+    };
+    let latest: DeliveryEvidence;
+    try {
+      const target = pullTarget(project, pull.url);
+      const observed = await inspectPull(target.externalId, pull.url, config.port, runtime('execution'));
+      if (observed.snapshot.repoId !== pull.repoId || observed.snapshot.pr !== pull.pr) throw new Error('PR 身份已变化');
+      latest = { ...observed.snapshot, attachedBy: pull.attachedBy, workReference: referencesTicket(observed.body, id),
+        creator: githubMember(observed.snapshot.creator, project, observed.snapshot.createdAt)!,
+        commits: await provenance(ticket, work, project, observed, old) };
+    } catch (error) {
+      if (!work.development || work.accepted) throw error;
+      store.atomic(() => {
+        const state = currentObservation();
+        if (!state || state.current.accepted) return;
+        const next = { ...state.current, deliveryPr: pull, delivery: undefined };
+        if (state.current.delivery) saveWork(id, next);
+        notifyCodeDelivery(state.currentTicket, next);
+      });
+      return;
+    }
+    store.atomic(() => {
+      const state = currentObservation();
+      if (!state) return;
+      const { current, currentTicket } = state;
+      if (digest(latest) !== digest(old ?? null)) storeDeliveryVersion(id, latest);
+      if (current.accepted) return;
+      const matches = !current.development || matchesCodeDelivery(currentTicket, current, output, latest);
+      const next = { ...current, deliveryPr: pull, delivery: matches ? latest : undefined };
+      if (digest(next) !== digest(current)) saveWork(id, next);
+      if (current.development && matches && current.delivery?.headSha !== latest.headSha)
+        audit(id, 'delivery.followed', { version: current.version ?? 1, pr: latest.url, head: latest.headSha, revision: output?.revision });
+      notifyCodeDelivery(currentTicket, next);
     });
   }
   async function refreshIssue(ref: ChannelRef, repository: string, project: Project) {
@@ -2152,6 +2337,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       return item && member(projectById.get(attached?.project ?? ''), actor) ? [{ id, title: item.title, project: attached!.project }] : [];
     });
     const { lane: _lane, related: _related, ...visibleWork } = work;
+    const delivery = codeDeliveryState(ticket, work);
     return { id, title: ticket.title, project: project.id, work: visibleWork, origin: opening.id, request: opening.text,
       createdAt: ticket.createdAt, history, report, children, related, topicTitle: topicsFor(project).find(topic => topic.id === work.topic)?.title,
       mayLinkDelivery: !work.accepted && deliveryTargets(project).some(ref => canAttach(project, ref, actor, work.requester)),
@@ -2162,6 +2348,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       channelHistory, channelReferences: links.references(id), discussionNotes: project.discussion
         ? discussions.linked(id).filter(item => member(projectById.get(item.project), actor)).map(item => ({ ...item, sources: discussions.sources(item) })) : [],
       stage: ticketStage(ticket), result: output, materialHidden, decision: decision && { at: decision.at, scope: ticket.mandate.scope }, questions: question, requests, runs, timers,
+      deliveryStatus: delivery && { state: delivery.state, detail: delivery.detail, version: delivery.output.version ?? 1 },
       candidate: output && knowledge.get(knowledgeId(id, output))?.owner === actor ? knowledgeId(id, output) : undefined,
       versions: store.db.prepare('SELECT value FROM workbench_output WHERE ticket=? ORDER BY run').all(id).map(row => {
         const prior: Output = JSON.parse(String(row.value));
@@ -2187,7 +2374,8 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       const subject = detail(actor, ticket.id);
       const needsObservation = work.requester === actor && !!work.measure && !!work.accepted
         && !!subject.result && !subject.observations.length;
-      const attention = needsObservation || subject.questions.length > 0 || (!!subject.result && !work.accepted && work.requester === actor)
+      const attention = needsObservation || subject.questions.length > 0 || (!!subject.result && !work.accepted && work.requester === actor
+          && (!work.development || subject.deliveryStatus?.state === 'ready'))
         || subject.requests.some(r => r.state === 'requested' && r.canManage);
       return [{ id: ticket.id, title: ticket.title, work: subject.work, stage: subject.stage, attention, updatedAt: ticket.updatedAt,
         result: !!subject.result, needsObservation, nextReview: subject.timers[0]?.at, waitingAccess: needed(ticket.id, work) && !ticket.ended, blocked: subject.report?.state === 'blocked' }];
@@ -2233,7 +2421,8 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
   }, 700);
 
   return {
-    start, reply, resume, revise, approveDevelopment, overview, detail, boundProject, recordObservation, receiveChannel, receiveNote, resolveChannel, channelView, confirmAccount, refreshDelivery, refreshIssue,
+    start, reply, resume, revise, approveDevelopment, respondDevelopment, reofferDevelopment, overview, detail, boundProject, recordObservation,
+    receiveChannel, receiveNote, resolveChannel, channelView, confirmAccount, refreshDelivery, refreshIssue,
     rememberDiscussion, discussionView, discussionRevisions, resolveDiscussion, needsYou, answerDecision, resolveIntake, handoff,
     setTopic(actor: string, id: string, topic?: string) {
       const { project, work } = ticketFor(id, actor);
@@ -2305,11 +2494,19 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       }
       for (const ticket of store.tickets.list()) {
         const work = workOf(ticket.id);
-        const delivery = work?.delivery;
-        if (!work || work.accepted || !delivery?.repoId || delivery.repository.toLowerCase() !== repository.name.toLowerCase()
-          || delivery.ci !== 'pending' || delivery.state === 'closed') continue;
-        const key = 'github:' + delivery.repoId + ':' + delivery.pr;
-        if (!refreshed.has(key)) await refreshDelivery({ key, label: delivery.repository, url: delivery.url }, work.project);
+        if (!work || work.accepted) continue;
+        if (work.development) {
+          if (ticket.ended?.outcome !== 'completed' || work.development.repository.toLowerCase() !== repository.name.toLowerCase()) continue;
+          const pull = followedPull(ticket.id, work);
+          if (!pull) { store.atomic(() => notifyCodeDelivery(ticket, work)); continue; }
+          if (String(pull.repoId) !== repository.id || refreshed.has(pullKey(pull))) continue;
+          await refreshDelivery({ key: pullKey(pull), label: pull.repository, url: pull.url }, work.project);
+        } else {
+          const delivery = work.delivery;
+          const pull = followedPull(ticket.id, work);
+          if (!pull || String(pull.repoId) !== repository.id || delivery?.ci !== 'pending' || delivery.state === 'closed') continue;
+          if (!refreshed.has(pullKey(pull))) await refreshDelivery({ key: pullKey(pull), label: pull.repository, url: pull.url }, work.project);
+        }
       }
     },
     githubRepositories(projectId?: string) {
@@ -2385,6 +2582,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
         engine.stopTicket(id, '成员停止');
         clearExecutionDecisions(id);
         for (const request of knowledge.requests(id)) closeDecision('access', request.id);
+        if (work.developmentResponse) closeDecision('development-returned', work.developmentResponse.offer);
       });
     },
     async linkDelivery(actor: string, id: string, url: string) {
@@ -2404,7 +2602,9 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
         verifyCodeDelivery(ticketFor(id, actor).ticket, current, evidence);
         linkOrigin({ key: 'github:' + snapshot.repoId + ':' + snapshot.pr, url: snapshot.url,
           label: snapshot.repository + ' #' + snapshot.pr }, id);
-        writeDelivery(id, current, evidence);
+        writeDelivery(id, { ...current, deliveryPr: { repository: snapshot.repository, repoId: snapshot.repoId,
+          url: snapshot.url, pr: snapshot.pr, attachedBy: actor } }, evidence);
+        notifyCodeDelivery(ticketFor(id, actor).ticket, workOf(id)!);
         audit(id, 'delivery.linked', { actor, pr: snapshot.url, head: snapshot.headSha });
       });
     },
@@ -2457,6 +2657,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
         iterations.record(id, { version: current.version ?? 1, revision, kind: 'accepted', actor, at: new Date().toISOString(),
           ...(commit ? { commit } : {}), delivery: verified ?? current.delivery });
         closeAcceptance(id);
+        closeDeliveryIssues(id, output);
         if (body) knowledge.save({ project: work.project, owner: actor, ticket: id, title: ticket.title, kind: 'decision', body, conditions,
           visibility: output.sources.some(ref => knowledge.get(ref.id)?.visibility === 'restricted') ? 'restricted' : 'project',
           state: 'candidate', sources: [id + '@' + revision, ...(work.delivery ? [work.delivery.url + '@' + work.delivery.headSha] : []),
@@ -2527,6 +2728,8 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       if (entry.owner !== actor) throw new WorkbenchError('只有资料所有者可以授权或撤回。', 403);
       const review = request.purpose === 'review';
       const output = outputFor(id);
+      if (state === 'granted' && work.developmentResponse)
+        throw new WorkbenchError('委托已退回，请等项目负责人确认新的读取身份。', 409);
       if (state === 'granted' && ticket.ended && !(review && ticket.ended.outcome === 'completed' && !work.accepted && output?.revision === request.output))
         throw new WorkbenchError('工单已结束或待查阅成果已变化。', 409);
       if (state === 'granted' && review && (!output || output.revision !== request.output || work.accepted))
@@ -2542,7 +2745,8 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
         audit(id, 'access.' + state, { actor, entry: entry.id, revision: entry.revision,
           request: request.id, readerAgent: request.readerAgent, readerOwner: request.readerOwner, generation: request.generation, purpose: request.purpose, output: request.output });
         if (review) {
-          if (state === 'granted' && readableOutput(id)) {
+          if (work.development) notifyCodeDelivery(ticket, work);
+          else if (state === 'granted' && readableOutput(id)) {
             closeAcceptance(id);
             askHuman(projectById.get(work.project)!, { kind: 'acceptance', subject: acceptanceSubject(id) + ':' + request.id,
               title: '资料已重新授权，请验收本版成果', ticket: id }, work.requester);
