@@ -73,8 +73,13 @@ function json(res: ServerResponse, status: number, body: unknown) {
   res.end(JSON.stringify(body));
 }
 
+function replyError(res: ServerResponse, error: unknown) {
+  if (error instanceof WorkbenchError) json(res, error.status, { error: error.message });
+  else if (error instanceof z.ZodError || error instanceof SyntaxError) json(res, 400, { error: '请检查输入的格式与长度。' });
+  else { console.error('SuitMe 工作台请求失败：', String(error)); json(res, 500, { error: '操作暂未完成，请刷新状态后重试。' }); }
+}
+
 async function serve() {
-  // Defined above before the first HTTP request. Hosting remains on the local machine.
   const config = await loadSettings();
   const deviceKey = Buffer.from(await localDeviceKey(), 'hex');
   const feishu = config.feishu;
@@ -86,6 +91,49 @@ async function serve() {
     ['/', [path.join(staticRoot, 'index.html'), 'text/html'] ],
     ['/licenses/paperclip', [path.join(staticRoot, 'paperclip-MIT.txt'), 'text/plain']],
   ]);
+
+  async function runnerRequest(req: IncomingMessage, res: ServerResponse, action: string, remote = false) {
+    if (!work) throw new WorkbenchError('工作台正在启动。', 503);
+    const native = await body(req);
+    if (action === 'pair') {
+      const input = z.object({ code: z.string().regex(/^[a-f0-9]{24}$/), name: title,
+        host: z.string().regex(/^[a-f0-9]{64}$/).optional() }).strict().parse(native);
+      if (remote ? !!input.host : !input.host || !timingSafeEqual(deviceKey, Buffer.from(input.host, 'hex')))
+        throw new WorkbenchError('请通过配对码对应的执行端入口。', 403);
+      json(res, 200, work.pairDevice(input.code, input.name, remote));
+      return;
+    }
+    const token = req.headers.authorization?.match(/^Bearer ([A-Za-z0-9_-]{43})$/)?.[1];
+    if (!token) throw new WorkbenchError('请使用已配对的执行端。', 401);
+    if (action === 'work') {
+      const input = z.object({ claim: nonce, wait: z.number().min(0).max(50), capacity: z.boolean(),
+        running: z.array(z.number().int().positive()).max(1) }).strict().parse(native);
+      json(res, 200, await work.deviceWork(token, input, remote));
+    } else if (action === 'started' || action === 'result') {
+      const input = z.object({ run: z.number().int().positive(), lease: z.string().min(1).max(500), value: z.unknown(),
+        stop: z.object({ attempt: z.number().int().positive(), state: z.enum(['exited', 'not-launched']),
+          model: title.optional() }).strict().optional() }).strict().parse(native);
+      const value = action === 'started'
+        ? work.deviceStarted(token, input.run, input.lease, z.object({ session: z.string().min(1).max(240), link: z.string().max(1000).optional() }).strict().parse(input.value), remote)
+        : await work.deviceResult(token, input.run, input.lease, input.value as Parameters<typeof work.deviceResult>[3], remote, input.stop);
+      json(res, 200, value ?? { ok: true });
+    } else if (action === 'offline') {
+      work.deviceOffline(token, remote);
+      json(res, 200, { ok: true });
+    } else throw new WorkbenchError('找不到执行端操作。', 404);
+  }
+
+  // Forward only this listener through an authenticated tunnel or TLS proxy.
+  const remoteServer = config.remoteRunnerPort && createServer(async (req, res) => {
+    res.setHeader('cache-control', 'no-store');
+    try {
+      const route = /^\/api\/runner\/(pair|work|started|result|offline)$/.exec(req.url ?? '');
+      if (req.method !== 'POST' || !route) throw new WorkbenchError('未找到。', 404);
+      if (req.headers.origin || req.headers.cookie) throw new WorkbenchError('请使用配对的执行端连接。', 403);
+      if (!req.headers['content-type']?.startsWith('application/json')) throw new WorkbenchError('请求格式无效。', 415);
+      await runnerRequest(req, res, route[1]!, true);
+    } catch (error) { replyError(res, error); }
+  });
 
   const server = createServer(async (req, res) => {
     res.setHeader('cache-control', 'no-store');
@@ -134,30 +182,7 @@ async function serve() {
         return;
       }
       if (post && view === 'runner') {
-        const native = await body(req);
-        if (item === 'pair') {
-          const input = z.object({ code: z.string().regex(/^[a-f0-9]{24}$/), host: z.string().regex(/^[a-f0-9]{64}$/), name: title }).strict().parse(native);
-          if (!timingSafeEqual(deviceKey, Buffer.from(input.host, 'hex')))
-            throw new WorkbenchError('请在工作台所在设备完成配对。', 403);
-          json(res, 200, work.pairDevice(input.code, input.name));
-          return;
-        }
-        const token = req.headers.authorization?.match(/^Bearer ([A-Za-z0-9_-]{43})$/)?.[1];
-        if (!token) throw new WorkbenchError('请使用已配对的本机执行端。', 401);
-        if (item === 'work') {
-          const input = z.object({ claim: nonce, wait: z.number().min(0).max(50), capacity: z.boolean(),
-            running: z.array(z.number().int().positive()).max(1) }).strict().parse(native);
-          json(res, 200, await work.deviceWork(token, input));
-        } else if (item === 'started' || item === 'result') {
-          const input = z.object({ run: z.number().int().positive(), lease: z.string().min(1).max(500), value: z.unknown() }).strict().parse(native);
-          const value = item === 'started'
-            ? work.deviceStarted(token, input.run, input.lease, z.object({ session: z.string().min(1).max(240), link: z.string().max(1000).optional() }).strict().parse(input.value))
-            : await work.deviceResult(token, input.run, input.lease, input.value as Parameters<typeof work.deviceResult>[3]);
-          json(res, 200, value ?? { ok: true });
-        } else if (item === 'offline') {
-          work.deviceOffline(token);
-          json(res, 200, { ok: true });
-        } else throw new WorkbenchError('找不到执行端操作。', 404);
+        await runnerRequest(req, res, item);
         return;
       }
       const session = auth.sessionFromRequest(req.headers.cookie);
@@ -214,8 +239,8 @@ async function serve() {
           maxMinutes: z.number().int().min(1).max(8).optional() }).strict().parse(await body(req));
         work.setBudget(actor, { kind: input.kind, subject: input.subject }, input.period, input.limit, input.maxMinutes);
       } else if (post && view === 'device' && item === 'pair') {
-        const input = z.object({ project: id, agent: id }).strict().parse(await body(req));
-        output = work.issueDevicePair(actor, input.project, input.agent);
+        const input = z.object({ project: id, agent: id, remote: z.boolean().default(false) }).strict().parse(await body(req));
+        output = work.issueDevicePair(actor, input.project, input.agent, input.remote);
       } else if (post && view === 'device' && item) {
         const input = z.object({ active: z.boolean() }).strict().parse(await body(req));
         work.setDevice(actor, z.uuid().parse(item), input.active);
@@ -235,7 +260,7 @@ async function serve() {
       else if (post && view === 'ticket' && action === 'answer') work.reply(actor, item, settingsRoutes.answer.parse(await body(req)));
       else if (post && view === 'ticket' && action === 'stop') work.stop(actor, item);
       else if (post && view === 'ticket' && action === 'handoff')
-        output = work.handoff(actor, item, z.object({ agent: id, reason: prose }).strict().parse(await body(req)));
+        output = work.handoff(actor, item, z.object({ agent: id, reason: prose, device: z.uuid().optional() }).strict().parse(await body(req)));
       else if (post && view === 'ticket' && action === 'resume')
         output = work.resume(actor, item, z.object({ nonce, reason: prose, version: z.number().int().positive(),
           baseSha: z.string().regex(/^[a-f0-9]{40}$/).optional(), device: z.uuid().nullable().optional() }).strict().parse(await body(req)));
@@ -284,9 +309,7 @@ async function serve() {
       else throw new WorkbenchError('未找到。', 404);
       json(res, 200, output ?? { ok: true });
     } catch (error) {
-      if (error instanceof WorkbenchError) json(res, error.status, { error: error.message });
-      else if (error instanceof z.ZodError || error instanceof SyntaxError) json(res, 400, { error: '请检查输入的格式与长度。' });
-      else { console.error('SuitMe 工作台请求失败：', String(error)); json(res, 500, { error: '操作暂未完成，请刷新状态后重试。' }); }
+      replyError(res, error);
     }
   });
 
@@ -295,6 +318,10 @@ async function serve() {
     server.listen(config.port, '127.0.0.1', resolve);
   });
   try {
+    if (remoteServer && config.remoteRunnerPort) await new Promise<void>((resolve, reject) => {
+      remoteServer.once('error', reject);
+      remoteServer.listen(config.remoteRunnerPort, '127.0.0.1', resolve);
+    });
     await prepareAuth();
     const collaboration = await openCollaboration(config, auth, feishu && (async message => {
       const lark = (args: string[]) => command('lark-cli', ['--profile', feishu.profile, ...args, '--as', 'bot']);
@@ -425,11 +452,12 @@ async function serve() {
       closing = true;
       feishuWatch?.close();
       server.close();
+      if (remoteServer) remoteServer.close();
       void Promise.resolve(stopGithub ? stopGithub() : undefined).then(() => collaboration.close()).catch(console.error);
     };
     process.once('SIGTERM', close);
     process.once('SIGINT', close);
-  } catch (error) { server.close(); throw error; }
+  } catch (error) { server.close(); if (remoteServer) remoteServer.close(); throw error; }
 }
 
 async function body(req: IncomingMessage) {

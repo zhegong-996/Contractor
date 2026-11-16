@@ -43,7 +43,7 @@ flowchart TD
 
 macOS 的 Seatbelt 不能嵌套安装。Codex 的内层 `sandbox_mode` 在适配器中设为 `danger-full-access`，但该命令始终包在 SRT 的 OS 沙箱内部，实际权限由外层更严格的读写和网络规则限定。没有绕过 SRT 的回退路径，也不能只取内部 CLI 参数单独执行。原生任务仍记录业务上的 `read/edit` 范围，不能把内部 CLI 参数当成宿主无限权限。
 
-本次真实验证使用 macOS Seatbelt。Linux 需要可用的 bubblewrap 等 SRT 依赖，尚未完成同等原生工具实跑；不声称 Linux 多成员隔离已经验收。当前隔离适配允许 Codex + OpenAI；Claude Code、Cursor、ACP 和其他 command 配置会明确阻断，直到各自完成凭据、会话与工具兼容验证。现有受控回归夹具用 `execution.kind=test`，仅 Node 测试进程可用。
+此前完整的成员隔离验证使用 macOS Seatbelt。同主机代码执行使用明确配置的 Codex + OpenAI，Linux 使用可用的 bubblewrap、socat 和 ripgrep 等 SRT 依赖。远程只读执行支持独立的 Codex 运行目录，以及 Claude Code 加执行机的本地 Ollama。现有受控回归夹具用 `execution.kind=test`，仅 Node 测试进程可用。[远程执行范围与配置](WORKBENCH-REMOTE-RUNNER.md)
 
 ## 配置与迁移
 

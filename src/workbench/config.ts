@@ -41,7 +41,7 @@ const agent = z.object({
   command: z.array(z.string().min(1)).min(1).optional(),
   model: z.string().max(100).optional(),
   execution: z.object({
-    kind: z.enum(['sandbox', 'test']),
+    kind: z.enum(['sandbox', 'remote', 'test']),
     provider: z.string().regex(/^[a-z][a-z0-9-]{0,60}$/),
     credential: id.optional(),
     effort: z.enum(['low', 'medium', 'high']).default('low'),
@@ -50,8 +50,11 @@ const agent = z.object({
   skill: z.string().trim().min(1).max(5000),
   active: z.boolean().default(false),
 }).strict();
+export const runnerAgentSchema = agent.pick({ id: true, owner: true, engine: true, model: true, execution: true });
+export type RunnerAgent = z.infer<typeof runnerAgentSchema>;
 export const settingsSchema = z.object({
   port: z.number().int().min(1024).max(65535).default(4280),
+  remoteRunnerPort: z.number().int().min(1024).max(65535).optional(),
   projects: z.array(project).min(1),
   functions: z.array(z.object({ id, title, lead: id.optional() }).strict()).min(1),
   agents: z.array(agent),
@@ -65,6 +68,7 @@ export const settingsSchema = z.object({
   }).strict().optional(),
 }).strict().superRefine((value, context) => {
   const flag = (message: string) => context.addIssue({ code: 'custom', message });
+  if (value.remoteRunnerPort === value.port) flag('远程执行端须使用独立端口');
   for (const entries of [value.projects, value.functions, value.agents]) {
     if (new Set(entries.map(x => x.id)).size !== entries.length) flag('项目、职能或 Agent 标识重复');
   }
@@ -88,7 +92,7 @@ export const settingsSchema = z.object({
     if (p.responsibilities.some(r => !p.members.includes(r.member) || !value.functions.some(fn => fn.id === r.function)))
       flag('项目职责须由项目成员承担，并引用已定义的职责');
     if (p.discussion && (!value.feishu || !value.crossChannel || !p.resources.some(ref => ref.digest)
-      || !value.agents.some(agent => agent.id === p.discussion!.agent && agent.projects.includes(p.id) && agent.active)))
+      || !value.agents.some(agent => agent.id === p.discussion!.agent && agent.projects.includes(p.id) && agent.active && agent.execution?.kind !== 'remote')))
       flag('群整理须配置飞书身份、渠道绑定和当前项目的在岗 Agent');
     if (p.discussion?.history && !p.maintainers.includes(p.discussion.history.member))
       flag('补读账号须由项目维护人授权并指定对应成员');
@@ -140,6 +144,7 @@ export const settingsSchema = z.object({
     if ((['command', 'cursor'].includes(service.engine)) !== Boolean(service.command)) flag('通用命令与 Cursor 需要配置命令参数');
     if (service.engine === 'cursor' && service.command?.length !== 1) flag('Cursor 配置只接受可执行文件路径');
     if (service.command && !path.isAbsolute(service.command[0]!)) flag('通用命令必须使用可执行文件绝对路径');
+    if (service.execution?.kind === 'remote' && !remoteEngine(service)) flag('远程执行须明确配置支持的引擎、模型和凭据方式');
   }
   for (const fn of value.functions) {
     if (fn.lead && !value.agents.some(a => a.id === fn.lead && a.function === fn.id && a.kind === 'specialist'))
@@ -151,3 +156,14 @@ export type Settings = z.infer<typeof settingsSchema>;
 export type Project = Settings['projects'][number];
 export type Agent = Settings['agents'][number];
 export const loadSettings = async () => settingsSchema.parse(JSON.parse(await readFile(runtime('workbench.json'), 'utf8')));
+export const runnerOllamaUrl = 'http://127.0.0.1:11434';
+
+export function remoteEngine(agent: RunnerAgent) {
+  return agent.execution?.kind === 'remote' && !!agent.model?.trim()
+    && (agent.engine === 'claude' && agent.execution.provider === 'ollama' && !agent.execution.credential
+      || agent.engine === 'codex' && agent.execution.provider === 'openai' && !!agent.execution.credential);
+}
+
+export function runnerAgent(agent: Agent): RunnerAgent {
+  return runnerAgentSchema.parse({ id: agent.id, owner: agent.owner, engine: agent.engine, model: agent.model, execution: agent.execution });
+}

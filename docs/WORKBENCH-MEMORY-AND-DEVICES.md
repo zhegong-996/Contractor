@@ -29,7 +29,7 @@ Agent 档案记录负责人、职责、可服务的项目、模型和凭据引�
 
 首版同主机接单进程直接调用固定版 AutoLoop worker。服务端复用其领取、心跳、启动、停止和回执语义，并按项目、Agent 和本轮设备筛选原生队列。连接凭据保存在当前运行目录，配对还需证明可读同一主机私有文件。每台登记的执行端有独立的 worker 目录。工单、授权、代码准备和沙箱仍由工作台统一核对。切换前继续使用原有停止证据，并将确认人答复、资料版本和获准的代码改动带入新一轮。
 
-当前可配对的是同主机的隔离 Codex。Claude Code 和 Cursor 已有命令适配，业务派工还需要各自的凭据隔离、会话隔离和完整停机验证。执行端的凭据与 Agent 的模型凭据分别存放。
+同主机的隔离 Codex 使用现有的配对方式。远程执行端使用单独的入口。执行端的配对凭据与 Agent 的模型凭据分别存放。[远程执行端](WORKBENCH-REMOTE-RUNNER.md)
 
 后续接第三方服务可以沿用 AutoLoop 领取、回执和取消的接口，将厂商任务 ID 挂到本轮租约。CLI 适配器负责启动、解析结果以及确认进程退出。HTTP/A2A 适配器负责把领取映射为服务任务，查询终态、追回执以及确认取消。端点、凭据和资料权限从受信配置提供，按本轮授权装配。收到取消请求后需要核对任务终态再办理交接。[AutoLoop 协议](https://github.com/KKKKhazix/agent-autoloop/blob/ba8cf6d8cf24f9ce005958c15d88f2d9cff7f05d/docs/protocol.md) · [A2A 任务协议](https://a2a-protocol.org/latest/specification/agent-card/)
 

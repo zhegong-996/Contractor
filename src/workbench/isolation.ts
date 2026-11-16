@@ -9,7 +9,7 @@ import type { Job } from '../../upstream/autoloop/protocol/job.ts';
 import type { Turn } from '../../upstream/autoloop/worker/agents.ts';
 import { root, runtime } from '../config.ts';
 import { allowedFile } from '../github.ts';
-import type { Agent } from './config.ts';
+import type { RunnerAgent } from './config.ts';
 
 const hash = (value: string | Buffer) => createHash('sha256').update(value).digest('hex');
 const scopeRoot = (scope: string) => runtime('isolated', scope);
@@ -20,7 +20,7 @@ const privateFile = async (file: string, value: unknown) => {
 };
 export type Isolation = {
   scope: string; owner: string; agent: string; provider: string; model: string; credentialVersion: string;
-  boundary: 'os-sandbox' | 'test'; executableVersion?: string;
+  boundary: 'os-sandbox' | 'remote' | 'test'; executableVersion?: string;
 };
 type Launch = {
   isolation: Isolation; executable: string; workspace: string; home: string; input: string; temp: string;
@@ -38,7 +38,7 @@ async function plainPath(file: string) {
 }
 
 // A member's authentication slot is provisioned by the host, never by task text or another member's fallback.
-async function credential(agent: Agent) {
+async function credential(agent: RunnerAgent) {
   if (!agent.execution?.credential) throw new Error('请为此成员配置独立的模型凭据');
   const file = runtime('member-credentials', agent.owner, agent.execution.credential + '.json');
   // Resolve the trusted state root first (macOS /var is itself a system symlink).
@@ -82,7 +82,8 @@ async function files(folder: string): Promise<Record<string, string>> {
 export function sandboxPolicy(workspace: string, home: string, input: string, executable: string, paths: string[], domains: string[], temp = path.join(home, 'tmp')) {
   const system = process.platform === 'darwin'
     ? ['/System/Library', '/usr/lib', '/usr/bin', '/usr/share', '/bin', '/sbin', '/Library/Apple', '/private/etc/ssl', '/private/etc/hosts', '/private/etc/resolv.conf', '/private/etc/codex', '/private/var/select/sh']
-    : ['/usr', '/bin', '/sbin', '/lib', '/lib64', '/etc/ssl', '/etc/ld.so.cache', '/etc/resolv.conf', '/etc/hosts', '/etc/codex', '/proc/self', '/proc/thread-self'];
+    : ['/usr', '/bin', '/sbin', '/lib', '/lib64', '/etc/ssl', '/etc/ld.so.cache', '/etc/resolv.conf', '/etc/hosts', '/etc/codex', '/proc/self', '/proc/thread-self',
+      path.join(root, 'node_modules/@anthropic-ai/sandbox-runtime/vendor/seccomp', process.arch, 'apply-seccomp')];
   const literal = (item: string) => ({ path: item, literal: true as const });
   return {
     network: { allowedDomains: domains, deniedDomains: [], allowLocalBinding: false, strictAllowlist: true },
@@ -100,7 +101,7 @@ export function sandboxPolicy(workspace: string, home: string, input: string, ex
 }
 
 /** Prepare an AutoLoop job; no queue, lease, retry or parallel execution is introduced here. */
-export async function isolateJob(agent: Agent, job: Job, authority: unknown, previous?: Isolation,
+export async function isolateJob(agent: RunnerAgent, job: Job, authority: unknown, previous?: Isolation,
   code?: { canonical: string; paths: string[] }): Promise<{ job: Job; isolation: Isolation }> {
   if (!agent.execution) throw new Error('请配置本轮模型、成员凭据和隔离执行方式');
   if (agent.execution.kind === 'test') {
@@ -240,9 +241,21 @@ export async function cleanIsolationTemp(run: number, attempt: number) {
   await rm(launch.temp, { recursive: true, force: true });
 }
 
-export async function modelReceipt(isolation: Isolation | undefined, session?: string) {
+export async function readIsolation(run: number, attempt: number): Promise<Isolation | undefined> {
+  return readFile(launchFile(run, attempt), 'utf8').then(text => (JSON.parse(text) as Launch).isolation, error => {
+    if (error.code !== 'ENOENT') throw error;
+    return undefined;
+  });
+}
+
+export async function modelReceipt(isolation: Isolation | undefined, session?: string, runnerModel?: string) {
   if (!isolation) return { verification: 'legacy-unverified' as const };
   const receipt = { provider: isolation.provider, requested: isolation.model, verification: 'requested-only' as 'requested-only' | 'session-reported', reported: undefined as string | undefined };
+  if (isolation.boundary === 'remote' && runnerModel) {
+    receipt.reported = runnerModel;
+    receipt.verification = 'session-reported';
+    return receipt;
+  }
   if (isolation.boundary !== 'os-sandbox' || !session || !/^[a-zA-Z0-9-]+$/.test(session)) return receipt;
   const sessions = path.join(scopeRoot(isolation.scope), 'home', 'sessions');
   async function walk(folder: string): Promise<string | undefined> {

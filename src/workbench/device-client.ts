@@ -1,21 +1,34 @@
-import { chmod, copyFile, mkdir, readFile, stat, unlink, writeFile } from 'node:fs/promises';
+import { chmod, copyFile, mkdir, readFile, readdir, stat, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
 import { z } from 'zod';
 import type { WorkerHub } from '../../upstream/autoloop/worker/worker.ts';
-import { runtime } from '../config.ts';
+import { parseResult } from '../../upstream/autoloop/protocol/validate.ts';
+import { root, runtime } from '../config.ts';
 import { trackWorkerProcesses } from './autoloop.ts';
-import { deviceHome } from './devices.ts';
+import { remoteEngine, runnerAgentSchema, runnerOllamaUrl } from './config.ts';
+import { deviceHome, type DeviceJob, type ReleasedLease } from './devices.ts';
+import { cleanAcknowledged, cleanRemoteCodex, neverLaunched, prepareRemote, remoteStop } from './remote-runner.ts';
 
 if (!process.env.COLLAB_STATE_DIR || !path.isAbsolute(process.env.COLLAB_STATE_DIR))
   throw new Error('请使用工作台的 COLLAB_STATE_DIR 绝对路径。');
 const portSchema = z.coerce.number().int().min(1024).max(65535);
-const credentials = z.object({ id: z.uuid(), port: portSchema, token: z.string().regex(/^[A-Za-z0-9_-]{43}$/) }).strict();
+const fields = { id: z.uuid(), token: z.string().regex(/^[A-Za-z0-9_-]{43}$/) };
+const endpointSchema = z.url().refine(value => {
+  const url = new URL(value);
+  return (url.protocol === 'https:' || url.protocol === 'http:' && url.hostname === '127.0.0.1')
+    && !url.username && !url.password && url.pathname === '/' && !url.search && !url.hash;
+}, '请用 HTTPS 入口，或指向加密隧道的 127.0.0.1');
+const credentials = z.union([
+  z.object({ ...fields, port: portSchema }).strict(),
+  z.object({ ...fields, endpoint: endpointSchema, profile: runnerAgentSchema.refine(remoteEngine) }).strict(),
+]);
 const argv = process.argv.slice(2);
 
-async function request<T>(port: number, action: string, data: unknown, token?: string): Promise<T> {
-  const response = await fetch('http://127.0.0.1:' + port + '/api/runner/' + action, {
-    method: 'POST', signal: AbortSignal.timeout(90000),
+async function request<T>(endpoint: string, action: string, data: unknown, token?: string, remote = false): Promise<T> {
+  const response = await fetch(new URL('/api/runner/' + action, endpoint), {
+    method: 'POST', signal: AbortSignal.timeout(remote ? 6000 : 90000), redirect: 'error',
     headers: { 'content-type': 'application/json', ...(token ? { authorization: 'Bearer ' + token } : {}) },
     body: JSON.stringify(data),
   });
@@ -24,13 +37,21 @@ async function request<T>(port: number, action: string, data: unknown, token?: s
   return result;
 }
 
-if (argv[0] === 'pair') {
-  const port = portSchema.parse(argv[1]);
+if (argv[0] === 'pair' || argv[0] === 'pair-remote') {
+  const remote = argv[0] === 'pair-remote';
+  const port = remote ? undefined : portSchema.parse(argv[1]);
+  const endpoint = remote ? endpointSchema.parse(argv[1]) : 'http://127.0.0.1:' + port;
   const name = z.string().trim().min(1).max(100).parse(argv[2]);
   const code = z.string().regex(/^[a-f0-9]{24}$/).parse((await readFile('/dev/stdin', 'utf8')).trim());
-  const host = await readFile(runtime('devices', 'host.key'), 'utf8');
-  const result = await request<{ id: string; token: string }>(port, 'pair', { code, name, host: host.trim() });
-  const connection = credentials.parse({ ...result, port });
+  let proof: { code: string; name: string; host?: string } = { code, name };
+  if (remote) {
+    const members: string[] = await readdir(runtime()).catch(error => { if (error.code !== 'ENOENT') throw error; return []; });
+    const devices = await readdir(runtime('devices')).catch(error => { if (error.code !== 'ENOENT') throw error; return []; });
+    if (members.includes('workbench.json') || members.includes('orchestrator.sqlite') || devices.length)
+      throw new Error('每个远程执行端须使用独立的数据目录');
+  } else proof = { ...proof, host: (await readFile(runtime('devices', 'host.key'), 'utf8')).trim() };
+  const result = await request<{ id: string; token: string }>(endpoint, 'pair', proof, undefined, remote);
+  const connection = credentials.parse(remote ? { ...result, endpoint } : { ...result, port });
   await mkdir(runtime('devices', connection.id), { mode: 0o700, recursive: true });
   await writeFile(runtime('devices', connection.id, 'connection.json'), JSON.stringify(connection), { mode: 0o600, flag: 'wx' });
   console.log('已配对。执行端 ID ' + connection.id);
@@ -39,6 +60,8 @@ if (argv[0] === 'pair') {
   const id = z.uuid().parse(argv[1]);
   const connection = credentials.parse(JSON.parse(await readFile(runtime('devices', id, 'connection.json'), 'utf8')));
   if (id !== connection.id) throw new Error('执行端配置与 ID 不一致。');
+  const profile = 'profile' in connection ? connection.profile : undefined;
+  const endpoint = 'endpoint' in connection ? connection.endpoint : 'http://127.0.0.1:' + connection.port;
   const home = deviceHome(id);
   const lock = runtime('devices', id, 'running.pid');
   await writeFile(lock, String(process.pid), { flag: 'wx', mode: 0o600 }).catch(async error => {
@@ -57,18 +80,61 @@ if (argv[0] === 'pair') {
   try {
     const connectionFile = runtime('devices', id, 'connection.json');
     if ((await stat(connectionFile)).mode & 0o077) throw new Error('执行端凭据应只允许当前用户读取。');
-    const plugin = path.join(home, 'plugins', 'suitme-isolated');
-    await mkdir(plugin, { recursive: true, mode: 0o700 });
-    await copyFile(runtime('autoloop', 'plugins', 'suitme-isolated', 'agent.ts'), path.join(plugin, 'agent.ts'));
-    await chmod(path.join(plugin, 'agent.ts'), 0o600);
+    // The original plugin loader and worker capture this path on their first import.
     process.env.AGENT_AUTOLOOP_HOME = home;
-    // Environment paths are captured once by the native worker module.
+    if (profile?.engine === 'claude') {
+      const listing = await fetch(runnerOllamaUrl + '/api/tags', { signal: AbortSignal.timeout(3000), redirect: 'error' });
+      const available = z.object({ models: z.array(z.object({ name: z.string() })) }).parse(await listing.json());
+      if (!listing.ok || !available.models.some(item => item.name === profile.model))
+        throw new Error('请在此设备的 Ollama 启动已登记的本地模型');
+    }
+    const adapter = profile?.engine === 'claude' ? 'suitme-remote-claude' : 'suitme-isolated';
+    const plugin = path.join(home, 'plugins', adapter);
+    await mkdir(plugin, { recursive: true, mode: 0o700 });
+    if (profile) {
+      const source = profile.engine === 'claude' ? 'claude-runner-adapter.ts' : 'isolated-adapter.ts';
+      await writeFile(path.join(plugin, 'agent.ts'), 'export { default } from '
+        + JSON.stringify(pathToFileURL(path.join(root, 'src/workbench', source)).href), { mode: 0o600 });
+    } else await copyFile(runtime('autoloop', 'plugins', 'suitme-isolated', 'agent.ts'), path.join(plugin, 'agent.ts'));
+    await chmod(path.join(plugin, 'agent.ts'), 0o600);
     const { createWorker } = await import('../../upstream/autoloop/worker/worker.ts');
-    const send = <T>(action: string, data: unknown) => request<T>(connection.port, action, data, connection.token);
+    const send = <T>(action: string, data: unknown) => request<T>(endpoint, action, data, connection.token, !!profile);
     const hub: WorkerHub = {
-      work: data => send('work', data),
+      async work(data) {
+        const answer = await send<{ job?: DeviceJob | null; cancel?: number[]; release?: ReleasedLease }>('work', data);
+        if (profile) {
+          for (const run of answer.cancel ?? []) trackWorkerProcesses(run, true, home);
+          if (answer.release) {
+            const lease = answer.release;
+            if (!await neverLaunched(home, lease)) throw new Error('有未归档的旧执行，请保留原机器和执行目录');
+            await send('result', { run: lease.run, lease: lease.lease, stop: { attempt: lease.attempt, state: 'not-launched' },
+              value: { outcome: 'cancelled', summary: '远端未启动此轮' } });
+            if (profile.engine === 'codex') await cleanRemoteCodex(lease.run, lease.attempt);
+          }
+          if (answer.job) {
+            try { answer.job = await prepareRemote(home, profile, answer.job); }
+            catch {
+              const lease = { run: answer.job.run, attempt: answer.job.attempt, lease: answer.job.token };
+              if (!await neverLaunched(home, lease)) throw new Error('等待旧执行记录接续');
+              await send('result', { run: lease.run, lease: lease.lease, stop: { attempt: lease.attempt, state: 'not-launched' },
+                value: { outcome: 'failed', error: '远端 Agent 或隔离工作区未能准备，请检查对应设备' } });
+              if (profile.engine === 'codex') await cleanRemoteCodex(lease.run, lease.attempt);
+              answer.job = undefined;
+            }
+          }
+        }
+        return answer;
+      },
       started: (run, lease, value) => send('started', { run, lease, value }),
-      result: (run, lease, value) => send('result', { run, lease, value }),
+      async result(run, lease, value) {
+        if (!profile) return send('result', { run, lease, value });
+        const entry = worker.entries().find(entry => entry.run === run && entry.token === lease);
+        if (!entry) throw new Error('缺少远端本轮的原生执行记录');
+        const stop = await remoteStop(home, entry, parseResult(value).session);
+        const ack = await send<Awaited<ReturnType<WorkerHub['result']>>>('result', { run, lease, value, stop });
+        await writeFile(path.join(entry.dir, 'suitme-acknowledged'), '', { mode: 0o600 });
+        return ack;
+      },
     };
     const worker = createWorker({ hub, name: id, capacity: 1, wait: 0, log(line) {
       const started = /^run (\d+) .* turn \d+ started, pid \d+$/.exec(line);
@@ -83,6 +149,7 @@ if (argv[0] === 'pair') {
     while (!stop.signal.aborted) {
       for (const entry of worker.entries()) trackWorkerProcesses(entry.run, false, home);
       await worker.tick();
+      if (profile) await cleanAcknowledged(home, profile.engine === 'codex');
       if (!stop.signal.aborted) await delay(800);
     }
     await send('offline', {}).catch(() => {});
@@ -90,5 +157,5 @@ if (argv[0] === 'pair') {
     if (await readFile(lock, 'utf8').catch(() => '') === String(process.pid)) await unlink(lock);
   }
 } else {
-  throw new Error('用 runner -- pair <端口> <设备名称> 配对，或用 runner -- connect <执行端 ID> 接单。');
+  throw new Error('用 runner -- pair <端口> <名称>、runner -- pair-remote <URL> <名称> 配对，或用 runner -- connect <ID> 接单。');
 }

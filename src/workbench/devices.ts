@@ -4,9 +4,13 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { runtime } from '../config.ts';
 import type { Job } from '../../upstream/autoloop/protocol/job.ts';
+import type { RunnerAgent } from './config.ts';
 
-type Binding = { owner: string; agent: string; projects: string[] };
+type Binding = { owner: string; agent: string; projects: string[]; remote?: RunnerAgent };
 export type Device = Binding & { id: string; name: string; active: boolean; lastSeen: number | null };
+export type DeviceJob = Job & { remote?: { authority: string } };
+export type ReleasedLease = { run: number; attempt: number; lease: string };
+export type RemoteStop = { attempt: number; state: 'exited' | 'not-launched'; model?: string };
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 const onlineWindow = 10_000;
 
@@ -38,7 +42,13 @@ export class Devices {
       CREATE TABLE IF NOT EXISTS workbench_device_claim (
         device TEXT PRIMARY KEY, claim TEXT NOT NULL, run INTEGER NOT NULL, attempt INTEGER NOT NULL, value TEXT
       );
+      CREATE TABLE IF NOT EXISTS workbench_device_stop (
+        run INTEGER NOT NULL, attempt INTEGER NOT NULL, device TEXT NOT NULL, lease_hash TEXT NOT NULL,
+        result_hash TEXT NOT NULL, state TEXT NOT NULL, confirmed INTEGER NOT NULL, PRIMARY KEY(run,attempt)
+      );
     `);
+    if (!db.prepare('PRAGMA table_info(workbench_device_claim)').all().some(column => column.name === 'lease'))
+      db.exec('ALTER TABLE workbench_device_claim ADD COLUMN lease TEXT');
   }
 
   begin(binding: Binding) {
@@ -49,9 +59,10 @@ export class Devices {
     return { code, expires };
   }
 
-  pair(code: string, name: string, permitted: (binding: Binding) => boolean) {
-    const row = this.db.prepare('DELETE FROM workbench_device_pair WHERE hash=? AND expires>? RETURNING binding')
-      .get(hash(code), this.now());
+  pair(code: string, name: string, permitted: (binding: Binding) => boolean, remote = false) {
+    const row = this.db.prepare(`DELETE FROM workbench_device_pair WHERE hash=? AND expires>?
+      AND COALESCE(json_type(binding,'$.remote')='object',0)=? RETURNING binding`)
+      .get(hash(code), this.now(), Number(remote));
     if (!row) return;
     const binding = JSON.parse(String(row.binding)) as Binding;
     if (!permitted(binding)) return;
@@ -59,7 +70,7 @@ export class Devices {
     const id = randomUUID();
     const device = { ...binding, id, name, active: true };
     this.db.prepare('INSERT INTO workbench_device VALUES(?,?,?,NULL)').run(id, hash(token), JSON.stringify(device));
-    return { id, token };
+    return { id, token, ...(binding.remote && { profile: binding.remote }) };
   }
 
   private decode(row: Record<string, unknown>): Device {
@@ -104,18 +115,33 @@ export class Devices {
   }
 
   hold(device: string, claim: string, job: Job) {
-    this.db.prepare('INSERT OR REPLACE INTO workbench_device_claim VALUES(?,?,?,?,NULL)').run(device, claim, job.run, job.attempt);
+    this.db.prepare('INSERT OR REPLACE INTO workbench_device_claim(device,claim,run,attempt,lease) VALUES(?,?,?,?,?)')
+      .run(device, claim, job.run, job.attempt, job.token);
   }
 
-  prepared(device: string, job: Job) {
+  prepared(device: string, job: DeviceJob) {
     this.db.prepare('UPDATE workbench_device_claim SET value=? WHERE device=? AND run=? AND attempt=?')
       .run(JSON.stringify(job), device, job.run, job.attempt);
   }
 
   held(device: string) {
-    const row = this.db.prepare('SELECT claim,run,attempt,value FROM workbench_device_claim WHERE device=?').get(device);
+    const row = this.db.prepare('SELECT claim,run,attempt,value,lease FROM workbench_device_claim WHERE device=?').get(device);
     return row && { claim: String(row.claim), run: Number(row.run), attempt: Number(row.attempt),
-      job: row.value && JSON.parse(String(row.value)) as Job | null };
+      lease: typeof row.lease === 'string' ? row.lease : undefined,
+      job: row.value ? JSON.parse(String(row.value)) as DeviceJob : undefined };
+  }
+
+  verifyStop(device: string, run: number, lease: string, stop: RemoteStop, receipt: unknown) {
+    if (this.leasedTo(run, stop.attempt) !== device) return false;
+    const receiptHash = hash(JSON.stringify({ stop, receipt }));
+    const leaseHash = hash(lease);
+    const prior = this.db.prepare('SELECT * FROM workbench_device_stop WHERE run=? AND attempt=?').get(run, stop.attempt);
+    if (prior) return prior.device === device && prior.lease_hash === leaseHash && prior.result_hash === receiptHash;
+    const held = this.held(device);
+    if (held?.run !== run || held.attempt !== stop.attempt || held.lease !== lease) return false;
+    this.db.prepare('INSERT INTO workbench_device_stop VALUES(?,?,?,?,?,?,?)')
+      .run(run, stop.attempt, device, leaseHash, receiptHash, stop.state, this.now());
+    return true;
   }
 
   clear(device: string, run: number, attempt: number) {
