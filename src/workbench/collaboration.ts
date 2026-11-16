@@ -67,12 +67,12 @@ type Work = {
   device?: string;
   resources?: ResourceView[];
   development?: DevelopmentTarget;
-  developmentApproval?: { actor: string; agent: string; scope: string; at: string };
+  developmentApproval?: { actor: string; agent: string; scope: string; at: string; version?: number };
   developmentOffer?: { replaces: string; agent: string; reason: string; by: string; at: string };
   developmentResponse?: { offer: string; response: 'decline' | 'return'; actor: string; agent: string; reason: string; at: string };
   approvalRequired?: boolean;
   version?: number;
-  continuation?: { id: string; reason: string; actor: string; at: string; previous?: string; baseSha?: string };
+  continuation?: { id: string; reason: string; actor: string; at: string; previous?: string; baseSha?: string; consultation?: { ticket: string; revision: string } };
   topic?: string;
   consultation?: { message: string; name: string; feishu?: NonNullable<Trigger['channel']>; account?: PlatformActor };
   related?: string[];
@@ -300,7 +300,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
         return [{ ticket: id, speaker: { id: work.agent, name: work.consultation.name },
           status: evidence && result ? 'answered' : result ? 'unavailable' : ticket.ended ? 'stopped'
             : stage.stage === 'person' ? stage.action : stage.stage === 'working' && !stage.action ? 'running' : 'queued',
-          ...(evidence && result && { text: result.text, at: result.at, evidence }) }];
+          ...(evidence && result && { text: result.text, at: result.at, revision: result.revision, evidence }) }];
       }) };
     });
   }
@@ -365,6 +365,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     const approval = work.developmentApproval;
     if (!work.approvalRequired && !approval) return authorizesDevelopment(project, work.development, work.requester);
     return !!approval && approval.agent === agentId && approval.scope === digest(work.development)
+      && (approval.version === undefined || approval.version === (work.version ?? 1))
       && approval.actor === agentById.get(agentId)?.owner && authorizesDevelopment(project, work.development, approval.actor);
   };
   const boundProject = (source: string, externalId: string) => config.projects.find(p => availableRefs(p).some(ref =>
@@ -811,14 +812,18 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
   const acceptanceSubject = (id: string) => id + ':v' + (workOf(id)?.version ?? 1);
   const developmentSubject = (id: string, work: Work, agentId: string) => key('development', id, agentId, digest(work.development),
     handingOff(work) ? work.handoff!.requestedAt : 'initial',
+    ...((work.version ?? 1) > 1 ? ['version:' + work.version] : []),
     ...(work.developmentOffer ? [work.developmentOffer.replaces] : []));
   function askDevelopment(id: string, work: Work, agentId = work.agent) {
     const agent = agentById.get(agentId);
     if (!work.development || !agent) return;
+    const previous = work.continuation?.previous && outputByRevision(id, work.continuation.previous);
+    const scope = previous && previous.sources.every(ref => knowledge.get(ref.id, ref.revision)?.visibility === 'project')
+      && outputUsable(id, previous) && work.continuation?.reason;
     return askHuman(projectById.get(work.project)!, { kind: 'development', subject: developmentSubject(id, work, agentId),
-      title: '请确认接下产品委托的代码任务', ticket: id,
+      title: (work.version ?? 1) > 1 ? '请确认接下第 ' + work.version + ' 版代码任务' : '请确认接下产品委托的代码任务', ticket: id,
       detail: ['仅本工单、' + work.development.repository + ' 的 ' + work.development.paths.join('、') + '。',
-        work.developmentOffer?.reason].filter(Boolean).join('\n') }, agent.owner);
+        work.developmentOffer?.reason ?? (scope && !sensitiveFeishuText.test(scope) ? scope : undefined)].filter(Boolean).join('\n') }, agent.owner);
   }
   function approveDevelopment(actor: string, id: string, offer?: string) {
     const { ticket, work, project } = ticketFor(id, actor);
@@ -828,11 +833,11 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       || !executionCapabilities(agent).code || !authorizesDevelopment(project, work.development, actor))
       throw new WorkbenchError('只有承担本次代码执行且有仓库交付资格的研发可以接单。', 403);
     if (work.developmentResponse) throw new WorkbenchError('本次委托已退回，等待项目负责人重新安排。', 409);
-    if ((offer || work.developmentOffer) && (!offer || decisions.get(offer)?.subject !== developmentSubject(id, work, next)))
+    if ((offer || work.developmentOffer || (work.version ?? 1) > 1) && (!offer || decisions.get(offer)?.subject !== developmentSubject(id, work, next)))
       throw new WorkbenchError('接单待办已变化，请核对最新委托。', 409);
     if (developmentAuthorized(work, next)) return;
     store.atomic(() => {
-      const approval = { actor, agent: next, scope: digest(work.development), at: new Date().toISOString() };
+      const approval = { actor, agent: next, scope: digest(work.development), at: new Date().toISOString(), version: work.version ?? 1 };
       const approved = { ...work, developmentApproval: approval };
       saveWork(id, approved);
       for (const decision of decisions.pending(actor).filter(d => d.kind === 'development' && d.ticket === id))
@@ -1087,9 +1092,11 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     const channel = !sensitive && decision.kind !== 'access' && (!question || decision.member === work.requester)
       ? ticket.channels.find(c => c.source === 'feishu' && !c.address.direct && c.address.messageId
         && boundProject('feishu', c.address.chatId ?? '')?.id === project.id) : undefined;
-    const outputVersion = decision.kind === 'acceptance' && output ? ' · 第 ' + (work.version ?? 1) + ' 版' : '';
+    const outputVersion = decision.kind === 'acceptance' && output || decision.kind === 'development' ? ' · 第 ' + (work.version ?? 1) + ' 版' : '';
     const title = !sensitive && !sensitiveFeishuText.test(ticket.title) ? ticket.title.slice(0, 130) : '工单 ' + ticket.id.slice(0, 8);
     const text = [plainCardText(title + outputVersion), ...(question ? [plainCardText(question.title + '\n' + question.text)] : []),
+      ...(decision.kind === 'development' && !sensitive && decision.detail && !sensitiveFeishuText.test(decision.detail)
+        ? [plainCardText(decision.detail.slice(0, 400))] : []),
       channel ? '<at id=' + user + '></at> 请确认。' : '请确认。'].join('\n\n');
     return { target: channel ? { message: channel.address.messageId! } : { user },
       fields: { text, options, group: !!channel,
@@ -1513,7 +1520,8 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     return { version: work.version ?? 1, pending: true };
   }
 
-  function revise(actor: string, id: string, input: { revision: string; reason: string; kind?: 'rejected' | 'continued'; material?: string[]; device?: string }) {
+  function revise(actor: string, id: string, input: { revision: string; reason: string; kind?: 'rejected' | 'continued'; material?: string[]; device?: string;
+    consultation?: NonNullable<NonNullable<Work['continuation']>['consultation']> }) {
     const { ticket, work, project } = ticketFor(id, actor);
     if (work.consultation) throw new WorkbenchError('请在原主题发起后续咨询。', 409);
     if (actor !== work.requester || !mayStart(project, actor)) throw new WorkbenchError('由原发起人决定打回或开启下一版。', 403);
@@ -1524,6 +1532,14 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     if (!output || output.revision !== input.revision || ticket.ended?.outcome !== 'completed'
       || kind === 'rejected' && work.accepted || kind === 'continued' && !work.accepted)
       throw new WorkbenchError('请核对当前可读取的交付版本；已通过的版本应选择后续迭代。', 409);
+    if (input.consultation) {
+      const source = ticketFor(input.consultation.ticket, actor).work;
+      const result = outputFor(input.consultation.ticket);
+      if (!work.topic || !source.consultation || source.project !== project.id || source.topic !== work.topic
+        || !result || result.revision !== input.consultation.revision || !consultationEvidence(project, result.sources, result.cited)
+          ?.some(ref => ref.acceptedSource?.ticket === id && ref.acceptedSource.revision === input.revision))
+        throw new WorkbenchError('请选择引用本工单当前验收版本的同主题咨询。', 409);
+    }
     const assigned = agentById.get(work.agent);
     if (!policy().revalidate(ticket.mandate) || !isActive(assigned, project))
       throw new WorkbenchError('原委托或 Agent 已失效，请重新确认接单。', 409);
@@ -1545,14 +1561,15 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
         iterations.record(id, { version: currentVersion, ...work.accepted, kind: 'accepted', delivery: work.delivery });
       iterations.record(id, { version: currentVersion, revision: output.revision, kind, actor, at: new Date().toISOString(),
         reason: input.reason, delivery: work.delivery, commit: work.delivery?.headSha });
-      const { accepted: _accepted, delivery: _delivery, handoff: _handoff, ...rest } = work;
+      const { accepted: _accepted, delivery: _delivery, handoff: _handoff, developmentOffer: _offer, developmentResponse: _response, ...rest } = work;
       const marker = key('work-revision', id, output.revision);
       const recall = work.recall?.flatMap(ref => {
         const entry = knowledge.current(ref);
         return entry && material.includes(entry.id) ? [entry.id] : [];
       });
       const next: Work = { ...rest, material, recall, device, agentVersion, version: currentVersion + 1, continuation: { id: marker, reason: input.reason, actor,
-        at: new Date().toISOString(), previous: output.revision } };
+        at: new Date().toISOString(), previous: output.revision, consultation: input.consultation },
+        ...(work.development && { approvalRequired: true, developmentApproval: undefined }) };
       saveWork(id, next);
       closeAcceptance(id);
       closeDeliveryIssues(id, output);
@@ -1569,7 +1586,8 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       const resumed = store.tickets.get(id)!;
       if (resumed.ended) throw new WorkbenchError('原工单未能接续。', 409);
       saveWork(id, { ...next, lane: id + ':' + resumed.assignments.at(-1)!.id });
-      audit(id, 'version.opened', { actor, version: currentVersion + 1, previous: output.revision, kind, reason: input.reason });
+      if (next.development) askDevelopment(id, next);
+      audit(id, 'version.opened', { actor, version: currentVersion + 1, previous: output.revision, kind, reason: input.reason, consultation: input.consultation });
       return { version: currentVersion + 1 };
     });
   }
@@ -1828,7 +1846,8 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
         id: key('measure', ticket.id), type: 'task.measure', source: 'suitme', sourceName: '项目观测',
         subject: ticket.id, summary: work.measure.metric, detail: JSON.stringify(work.measure), receivedAt: ticket.createdAt, link: '',
       });
-      const prompt = agent.skill + '\n在最后一条答复首行用一段完整中文给出结论。'
+      const prompt = agent.skill + (continuation ? '\n原始需求用于理解背景。以本版已确认的修改要求为准，并保留既有范围和验收约束。' : '')
+        + '\n在最后一条答复首行用一段完整中文给出结论。'
         + (entries.length ? '\n如结论实际使用了某条项目记忆，请在首行相应结论后附该条资料内的「记忆引用标识」。未使用的不要附。' : '')
         + (development ? '\n仅编辑此工作区内的受托路径 ' + development.paths.join('、')
           + '。提交由工作台完成。禁止自行执行 Git 提交、推送、合并、发布或修改工具配置。'

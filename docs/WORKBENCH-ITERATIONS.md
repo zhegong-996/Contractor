@@ -35,7 +35,7 @@ flowchart TD
 | 交接 | 原有 `handoff`；必答先答齐，旧执行及观测到的子进程确认退出后才安排替换 | 原生新 Assignment、新执行范围；旧运行和答复留存 |
 | 阻塞接续 | `POST /api/ticket/:id/resume`：`nonce`、当前 `version`、`reason`，可选完整 `baseSha` | 幂等接续请求、旧执行停止证据、新 Assignment；保持业务版本 |
 | 验收打回 | `POST /api/ticket/:id/revise`：精确成果 `revision`、`reason`、`kind: rejected` | 不可覆盖的打回记录；同 Ticket 与 Mandate 开启下一版。重复提交不重复派工 |
-| 验收后继续优化 | 同一接口，`kind: continued` | 已通过版本的验收及知识出处保留；清空当前验收与已核对交付，保留原 PR 关联供下一版追踪 |
+| 验收后继续优化 | 同一接口，`kind: continued`。可提交同主题 `consultation` 的工单 ID 和成果修订，要求该咨询引用当前验收版本 | 已通过版本的验收与知识出处保留。代码单新发接单待办并保留原 PR 关联，研发确认本版后才启动 |
 | 重审到期成果 | 完成但未验收时，`resume` 或原有 `access` 重新向资料负责人申请 | `purpose: review`、精确成果 hash；仅恢复该成果查阅，不启动 Agent，也不能充当下一版执行授权 |
 | 最终验收 | 原有 `accept`；原发起人提交当前成果修订及代码 SHA | 重新读取 GitHub PR 和对应 SHA 的 CI，核对本单运行提交、分支、仓库及基线后写入版本化验收 |
 

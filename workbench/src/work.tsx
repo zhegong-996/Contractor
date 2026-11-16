@@ -378,7 +378,8 @@ function Delivery(props: PageProps & { ticket: Ticket }) {
       </form> : <div className="actions"><span className="muted-text">{ticket.deliveryStatus?.detail ?? '等待本版达到验收条件。'}</span>
         {ticket.actions.revise && <Button variant="outline" size="sm" onClick={() => setAction('revision')}>打回修改</Button>}</div>}
     </Section>}
-    {accepted && ticket.actions.revise && <Button variant="outline" className="self-start" onClick={() => setAction('revision')}>在原单开启下一版 <ArrowRight /></Button>}
+    {accepted && ticket.actions.revise && <Button variant="outline" className="self-start" onClick={() => setAction('revision')}>
+      {props.route.consultation ? '确认咨询对应的改动范围' : '在原单开启下一版'} <ArrowRight /></Button>}
     {ticket.versions.length > 0 && <Section title="版本历史">
       {ticket.versions.slice().reverse().map(version => <details className="version-record" key={version.revision}>
         <summary><Version version={version.version} /><code>{short(version.revision, 12)}</code><time>{date(version.at)}</time>
@@ -395,7 +396,7 @@ function Delivery(props: PageProps & { ticket: Ticket }) {
       }}><Field label="GitHub 链接"><Input name="url" type="url" required placeholder="https://github.com/…" /></Field>
         <div className="form-actions"><Button type="submit" disabled={busy}>关联</Button></div></form>
     </Modal>}
-    {action === 'revision' && result && <Revise ticket={ticket} project={project} close={() => setAction('')} />}
+    {action === 'revision' && result && <Revise ticket={ticket} project={project} consultation={props.route.consultation} close={() => setAction('')} />}
   </div>;
 }
 
@@ -426,7 +427,8 @@ function VersionBody({ version, project }: { version: Ticket['versions'][number]
   </>;
 }
 
-function Revise({ ticket, project, close }: { ticket: Ticket; project: PageProps['project']; close: () => void }) {
+function Revise({ ticket, project, consultation, close }: { ticket: Ticket; project: PageProps['project'];
+  consultation?: PageProps['route']['consultation']; close: () => void }) {
   const catalog = useData<Knowledge[]>('knowledge/' + project.id);
   const [selected, select] = useState<string[] | undefined>();
   const { busy, run } = useActions();
@@ -435,14 +437,15 @@ function Revise({ ticket, project, close }: { ticket: Ticket; project: PageProps
       e.preventDefault();
       const reason = String(new FormData(e.currentTarget).get('reason') ?? '').trim();
       if (await run(() => api('ticket/' + ticket.id + '/revise', { revision: ticket.result?.revision, reason,
-        kind: ticket.work.accepted ? 'continued' : 'rejected', ...(selected ? { material: selected } : {}) }), '已开启下一版')) close();
+        kind: ticket.work.accepted ? 'continued' : 'rejected', ...(selected ? { material: selected } : {}), consultation }),
+      ticket.work.development ? '已开启下一版，等待研发接单' : '已开启下一版')) close();
     }}>
       <Field label="修改要求"><textarea name="reason" rows={4} required maxLength={3500} /></Field>
       <details className="form-disclosure"><summary>本版资料</summary>
         <p className="muted-text">沿用原单引用的现行版本，可另行选择。</p>
         <MaterialPicker entries={catalog.data ?? []} values={selected ?? ticket.work.material} onChange={select} />
       </details>
-      <div className="form-actions"><Button type="submit" disabled={busy}>提交下一版</Button></div>
+      <div className="form-actions"><Button type="submit" disabled={busy}>{ticket.work.development ? '确认范围并请研发接单' : '提交下一版'}</Button></div>
     </form>
   </Modal>;
 }

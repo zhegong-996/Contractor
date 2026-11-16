@@ -6,6 +6,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { setTimeout as delay } from 'node:timers/promises';
 import test from 'node:test';
 import type { PullCheck } from '../src/workbench/github-delivery.ts';
+import { digest } from '../src/workbench/knowledge.ts';
 import type { OutboundMessage } from '../upstream/superagent/src/core/index.ts';
 
 const directory = await mkdtemp(path.join(os.tmpdir(), 'suitme-code-acceptance-'));
@@ -202,6 +203,25 @@ test('自定义 CI 门禁绑定本单运行提交、PR 分支基线与当前 CI�
     [[6, 'failure'], [5, 'success'], [4, 'failure']]);
   assert.equal(work.detail('owner', id).work.delivery?.checks?.[0]?.id, 5);
   assert.equal(work.detail('owner', id).work.accepted?.commit, sha);
+  const initialScope = { repository: development.repository, base: development.base, paths: development.paths };
+  db.prepare("UPDATE workbench_ticket SET value=json_set(value,'$.developmentApproval',json(?),'$.approvalRequired',json('true')) WHERE id=?")
+    .run(JSON.stringify({ actor: 'maker', agent: 'review', scope: digest(initialScope), at: new Date().toISOString(), version: 1 }), id);
+  const continuation = { revision: output.revision, kind: 'continued' as const, reason: '仅补 320px 长词换行验收' };
+  const savedRuns = work.detail('owner', id).runs.map(run => run.id);
+  assert.deepEqual(work.revise('owner', id, continuation), { version: 2 });
+  assert.deepEqual(work.revise('owner', id, continuation), { version: 2 });
+  const offer = work.needsYou('maker').find(decision => decision.ticket === id && decision.kind === 'development');
+  assert.ok(offer);
+  assert.match(offer.title, /第 2 版/);
+  assert.throws(() => work.approveDevelopment('owner', id, offer.id), { status: 403 });
+  assert.throws(() => work.approveDevelopment('maker', id), { status: 409 });
+  assert.throws(() => work.approveDevelopment('maker', id, ready.id), { status: 409 });
+  await delay(150);
+  const continued = work.detail('owner', id);
+  assert.deepEqual(continued.runs.map(run => run.id), savedRuns);
+  assert.equal(continued.work.developmentApproval, undefined);
+  assert.equal(continued.work.deliveryPr?.url, remote.pull.html_url);
+  assert.equal(continued.versions[0]?.acceptedSource?.delivery?.commit, sha);
 });
 
 test('仓库的多个必需检查全部通过才可验收，第三方同名检查与旧重跑不顶替', () => {

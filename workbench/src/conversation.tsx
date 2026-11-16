@@ -26,7 +26,9 @@ export function Conversation({ project, workspace, openTask, ticket, topic, canR
           <div className="message-meta"><strong>{item.actor}</strong><time>{date(item.at)}</time></div>
           <Markdown text={item.text} />
         </div>
-      </article>{item.consultations?.map(reply => <SignedTopicReply key={reply.ticket} project={project.id} reply={reply} />)}</Fragment>)}
+      </article>{item.consultations?.map(reply => <SignedTopicReply key={reply.ticket} project={project.id} reply={reply}
+        canContinue={(id, revision) => project.mayStart && workspace.tickets.some(ticket => ticket.id === id
+          && ticket.work.requester === workspace.actor && ticket.work.accepted?.revision === revision && !!ticket.work.development)} />)}</Fragment>)}
     </div>}
     {project.mayStart && <form className="form" onSubmit={async event => {
       event.preventDefault();

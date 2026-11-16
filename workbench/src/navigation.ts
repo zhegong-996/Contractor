@@ -3,7 +3,8 @@ import type { Overview, Project } from './api.ts';
 
 export const titles = { inbox: '待我处理', work: '协作工单', knowledge: '知识与记忆', agents: 'Agent', project: '项目', accounts: '连接与账号' } as const;
 export type View = keyof typeof titles;
-export type Route = { project: string; view: View; item?: string; tab?: string; run?: number; attempt?: number; revision?: string };
+export type Route = { project: string; view: View; item?: string; tab?: string; run?: number; attempt?: number; revision?: string;
+  consultation?: { ticket: string; revision: string } };
 export type TaskPreset = {
   request?: string;
   agent?: string; parent?: string; topic?: string; material?: string[];
@@ -37,11 +38,13 @@ export function useRoute(): Route {
   try {
     const [project = '', view = 'inbox', item] = (pathname ?? '').split('/').map(decodeURIComponent);
     const params = new URLSearchParams(search);
+    const consultation = /^([a-z0-9-]{1,80})\.([a-f0-9]{64})$/.exec(params.get('consultation') ?? '');
     const positive = (key: string) => {
       const value = Number(params.get(key));
       return Number.isSafeInteger(value) && value > 0 ? value : undefined;
     };
     return { project, view: Object.hasOwn(titles, view) ? view as View : 'inbox', item, tab: params.get('tab') ?? undefined,
-      run: positive('run'), attempt: positive('attempt'), revision: params.get('revision') ?? undefined };
+      run: positive('run'), attempt: positive('attempt'), revision: params.get('revision') ?? undefined,
+      ...(consultation && { consultation: { ticket: consultation[1]!, revision: consultation[2]! } }) };
   } catch { return { project: '', view: 'inbox' }; }
 }

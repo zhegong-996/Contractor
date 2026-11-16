@@ -10,7 +10,8 @@ const statuses: Record<string, string> = {
   running: '查询中', queued: '已分派', blocked: '执行受阻', answer: '待答复', failed: '执行失败',
 };
 
-export function SignedTopicReply({ reply, project }: { reply: Reply; project: string }) {
+export function SignedTopicReply({ reply, project, canContinue }: { reply: Reply; project: string;
+  canContinue: (ticket: string, revision: string) => boolean }) {
   const { speaker } = reply;
   return <article className="timeline-entry topic-reply">
     <Avatar value={speaker.name} kind="agent" /><div className="message">
@@ -24,6 +25,9 @@ export function SignedTopicReply({ reply, project }: { reply: Reply; project: st
         {reply.evidence.map(ref => <div className="revision-note" key={ref.id + ':' + ref.revision}>
           <a href={routeFor(project, 'knowledge', ref.id)}>{ref.title}</a> <code>{short(ref.revision, 12)}</code>
           {ref.acceptedSource && <AcceptedEvidence source={ref.acceptedSource} project={project} />}
+          {ref.acceptedSource && reply.revision && canContinue(ref.acceptedSource.ticket, ref.acceptedSource.revision)
+            && <a className="text-button" href={routeFor(project, 'work', ref.acceptedSource.ticket, 'delivery')
+              + '&consultation=' + encodeURIComponent(reply.ticket + '.' + reply.revision)}>按此咨询开启原单下一版</a>}
         </div>)}
       </details>}
     </div>

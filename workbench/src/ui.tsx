@@ -142,6 +142,7 @@ export function ticketStatus(ticket: Ticket | TicketRow): [string, string] {
   if (work.handoff && !work.handoff.completedAt && !work.handoff.cancelledAt) return ['交接或恢复中', 'blue'];
   if (work.developmentResponse) return ['待重新安排', 'amber'];
   if (work.accepted) return ['已验收', 'green'];
+  if (work.development && work.approvalRequired && !work.developmentApproval && stage.stage !== 'ended') return ['待研发接单', 'amber'];
   if (work.consultation && ticket.result) return ['咨询已回复', 'green'];
   if ('deliveryStatus' in ticket && ticket.deliveryStatus && ticket.deliveryStatus.state !== 'ready') return ['待交付证据', 'amber'];
   if (ticket.result) return ['待验收', 'amber'];
