@@ -19,8 +19,13 @@ test('主题咨询通过原生执行隔离来源，重放只派一次，且只�
     "const scope=JSON.stringify(context);",
     "const marker=process.argv[2]; const other=marker==='COPY_ONLY'?'WRAP_ONLY':'COPY_ONLY';",
     "if(!scope.includes(marker)||scope.includes(other)) process.exit(1);",
+    "const prompt=process.argv[3];",
+    "if(!prompt.includes('项目主题内的只读咨询')||!prompt.includes('knowledge.source')||prompt.includes('CODE_TEMPLATE_ONLY')) process.exit(1);",
     "const citation=context.events.find(e=>e.type==='knowledge.source').detail.match(/\\[记忆:[^\\]]+\\]/)[0];",
-    "console.log('查询结论 '+marker+' 文案'.repeat(110)+' '+citation);",
+    "const body='查询结论 '+marker+'\\n\\n'+('详细说明。'.repeat(110))+'\\n\\n- 最后一项验收条件 '+citation;",
+    "if(scope.includes('仅返回摘要测试')) { console.log('查询结论 '+citation); process.exit(0); }",
+    "if(scope.includes('错误引用测试')) { console.log('咨询已回复\\n```agent-autoloop\\n'+JSON.stringify({events:[{id:'consultation-reply',type:'suitme.consultation-reply',detail:'没有引用的正文'}]})+'\\n```'); process.exit(0); }",
+    "console.log('咨询已回复\\n```agent-autoloop\\n'+JSON.stringify({events:[{id:'consultation-reply',type:'suitme.consultation-reply',detail:body}]})+'\\n```');",
   ].join('\n'));
   const [{ openCollaboration }, { settingsSchema }, { ConsoleAuth }, { feishuTrigger }] = await Promise.all([
     import('../src/workbench/collaboration.ts'), import('../src/workbench/config.ts'), import('../src/console-auth.ts'), import('../src/upstream.ts'),
@@ -39,8 +44,8 @@ test('主题咨询通过原生执行隔离来源，重放只派一次，且只�
     functions: [{ id: 'review', title: '查资料' }],
     agents: [['copy-agent', 'product', 'COPY_ONLY'], ['wrap-agent', 'engineer', 'WRAP_ONLY']].map(([id, owner, marker]) => ({
       id, title: id, owner, kind: 'specialist', function: 'review', projects: ['store'], capability: '核对资料',
-      active: true, engine: 'command', execution: { kind: 'test', provider: 'fixture' }, skill: '读取本次提供的资料',
-      command: [process.execPath, worker, marker],
+      active: true, engine: 'command', execution: { kind: 'test', provider: 'fixture' }, skill: 'CODE_TEMPLATE_ONLY 修改测试代码',
+      command: [process.execPath, worker, marker, '{prompt}'],
     })),
     feishu: { profile: 'fixture', appId: 'app', botId: 'ou_bot', allowedGroups: ['oc_test'] },
   });
@@ -84,6 +89,8 @@ test('主题咨询通过原生执行隔离来源，重放只派一次，且只�
   const answers = conversation.find(row => row.id === batch.id)?.consultations;
   assert.deepEqual(answers?.map(item => [item.speaker.id, item.status, item.evidence?.map(ref => ref.id)]),
     [['copy-agent', 'answered', [material[0]]], ['wrap-agent', 'answered', [material[1]]]]);
+  assert.ok(answers?.every(reply => reply.text && reply.text.length > 500
+    && reply.text.endsWith('\n\n- 最后一项验收条件') && !reply.text.includes('[记忆:')));
   assert.equal(replies.length, 2);
   assert.ok(replies.every(reply => reply.root === 'om_consult'));
   assert.ok(replies.every(reply => wordCount(reply.text) <= IM_WORDS));
@@ -98,6 +105,15 @@ test('主题咨询通过原生执行隔离来源，重放只派一次，且只�
     await assert.rejects(work.accept('product', ticket, item.result.revision, '', ''), { status: 409 });
   }
   assert.equal(work.needsYou('product').some(item => item.kind === 'acceptance'), false);
+  for (const [text, summary] of [['仅返回摘要测试', '完整回复'], ['错误引用测试', '资料引用']] as const) {
+    const rejected = work.consultTopic('product', 'store', { ...web, text, nonce: randomUUID() });
+    const ticket = rejected.tickets[0]!;
+    for (let step = 0; step < 40 && work.detail('product', ticket).report?.state !== 'blocked'; step++) await delay(150);
+    const detail = work.detail('product', ticket);
+    assert.equal(detail.report?.state, 'blocked');
+    assert.ok(detail.report.summary.includes(summary));
+    assert.equal(detail.result, undefined);
+  }
   const wantsChange = work.start('product', { project: 'store', topic: input.topic, title: '确需修改小屏', priority: 'normal',
     request: '经人决定后再调整小屏', nonce: randomUUID(), material: [], agent: 'wrap-agent',
     target: work.overview('product').projects[0]!.deliveryTargets[0]!.ref }, undefined, true);

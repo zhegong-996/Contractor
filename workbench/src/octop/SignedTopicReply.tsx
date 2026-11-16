@@ -21,7 +21,7 @@ export function SignedTopicReply({ reply, project, canContinue }: { reply: Reply
         <a href={routeFor(project, 'work', reply.ticket)}>执行记录</a>
       </div>
       {reply.text && <Markdown text={reply.text} />}
-      {!!reply.evidence?.length && <details className="minor-disclosure"><summary>查询依据</summary>
+      {!!reply.evidence?.length && <details className="minor-disclosure" open><summary>查询依据</summary>
         {reply.evidence.map(ref => <div className="revision-note" key={ref.id + ':' + ref.revision}>
           <a href={routeFor(project, 'knowledge', ref.id)}>{ref.title}</a> <code>{short(ref.revision, 12)}</code>
           {ref.acceptedSource && <AcceptedEvidence source={ref.acceptedSource} project={project} />}
