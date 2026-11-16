@@ -80,7 +80,7 @@ if (argv[0] === 'pair' || argv[0] === 'pair-remote') {
     if ((await stat(connectionFile)).mode & 0o077) throw new Error('执行端凭据应只允许当前用户读取。');
     // The original plugin loader and worker capture this path on their first import.
     process.env.AGENT_AUTOLOOP_HOME = home;
-    if (profile?.engine === 'claude') {
+    if (profile?.engine === 'claude' && profile.execution?.provider === 'ollama') {
       const listing = await fetch(runnerOllamaUrl + '/api/tags', { signal: AbortSignal.timeout(3000), redirect: 'error' });
       const available = z.object({ models: z.array(z.object({ name: z.string() })) }).parse(await listing.json());
       if (!listing.ok || !available.models.some(item => item.name === profile.model))
@@ -91,8 +91,11 @@ if (argv[0] === 'pair' || argv[0] === 'pair-remote') {
     await mkdir(plugin, { recursive: true, mode: 0o700 });
     if (profile) {
       const source = profile.engine === 'claude' ? 'claude-runner-adapter.ts' : 'isolated-adapter.ts';
-      await writeFile(path.join(plugin, 'agent.ts'), 'export { default } from '
-        + JSON.stringify(pathToFileURL(path.join(root, 'src/workbench', source)).href), { mode: 0o600 });
+      const module = JSON.stringify(pathToFileURL(path.join(root, 'src/workbench', source)).href);
+      const entry = profile.engine === 'claude' ? 'import { claudeRunnerAdapter } from ' + module
+        + '; export default claudeRunnerAdapter(' + JSON.stringify(profile.execution!.provider) + ');'
+        : 'export { default } from ' + module;
+      await writeFile(path.join(plugin, 'agent.ts'), entry, { mode: 0o600 });
     } else await copyFile(runtime('autoloop', 'plugins', 'suitme-isolated', 'agent.ts'), path.join(plugin, 'agent.ts'));
     await chmod(path.join(plugin, 'agent.ts'), 0o600);
     const { createWorker } = await import('../../upstream/autoloop/worker/worker.ts');

@@ -1346,7 +1346,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     return { version: work.version ?? 1, pending: true };
   }
 
-  function revise(actor: string, id: string, input: { revision: string; reason: string; kind?: 'rejected' | 'continued'; material?: string[] }) {
+  function revise(actor: string, id: string, input: { revision: string; reason: string; kind?: 'rejected' | 'continued'; material?: string[]; device?: string }) {
     const { ticket, work, project } = ticketFor(id, actor);
     if (actor !== work.requester || !mayStart(project, actor)) throw new WorkbenchError('由原发起人决定打回或开启下一版。', 403);
     const kind = input.kind ?? 'rejected';
@@ -1356,10 +1356,20 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     if (!output || output.revision !== input.revision || ticket.ended?.outcome !== 'completed'
       || kind === 'rejected' && work.accepted || kind === 'continued' && !work.accepted)
       throw new WorkbenchError('请核对当前可读取的交付版本；已通过的版本应选择后续迭代。', 409);
-    if (!policy().revalidate(ticket.mandate) || !isActive(agentById.get(work.agent), project))
+    const assigned = agentById.get(work.agent);
+    if (!policy().revalidate(ticket.mandate) || !isActive(assigned, project))
       throw new WorkbenchError('原委托或 Agent 已失效，请重新确认接单。', 409);
     if (runsFor(id).some(run => ['claimed', 'unknown'].includes(run.state)))
       throw new WorkbenchError('须先确认旧执行停止。', 409);
+    const agentVersion = version(assigned);
+    let device = work.device;
+    if (input.device) {
+      if (work.development || assigned.owner !== actor || assigned.function !== work.function || manifestFor(output.run)?.actor?.owner !== actor)
+        throw new WorkbenchError('仅原发起人自己的只读 Agent 可以在开下一版时选择新执行端。', 403);
+      device = selectDevice(project, assigned, input.device);
+    } else if (work.agentVersion !== agentVersion) {
+      throw new WorkbenchError('Agent 配置已变化，请核对后选择本版的执行端。', 409);
+    }
     const material = selectMaterials(work.project, input.material ?? work.material);
     return store.atomic(() => {
       const currentVersion = work.version ?? 1;
@@ -1373,7 +1383,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
         const entry = knowledge.current(ref);
         return entry && material.includes(entry.id) ? [entry.id] : [];
       });
-      const next: Work = { ...rest, material, recall, version: currentVersion + 1, continuation: { id: marker, reason: input.reason, actor,
+      const next: Work = { ...rest, material, recall, device, agentVersion, version: currentVersion + 1, continuation: { id: marker, reason: input.reason, actor,
         at: new Date().toISOString(), previous: output.revision } };
       saveWork(id, next);
       closeAcceptance(id);

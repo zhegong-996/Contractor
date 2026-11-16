@@ -356,7 +356,7 @@ async function serve() {
           baseSha: z.string().regex(/^[a-f0-9]{40}$/).optional(), device: z.uuid().nullable().optional() }).strict().parse(await body(req)));
       else if (post && view === 'ticket' && action === 'revise')
         output = work.revise(actor, item, z.object({ revision: z.string().length(64), reason: prose,
-          kind: z.enum(['rejected', 'continued']).optional(), material: materials.optional() }).strict().parse(await body(req)));
+          kind: z.enum(['rejected', 'continued']).optional(), material: materials.optional(), device: z.uuid().optional() }).strict().parse(await body(req)));
       else if (post && view === 'ticket' && action === 'approve-development')
         work.approveDevelopment(actor, item, z.object({ offer: id.optional() }).strict().parse(await body(req)).offer);
       else if (post && view === 'ticket' && action === 'respond-development')

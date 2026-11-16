@@ -10,7 +10,7 @@ export function executionCapabilities(agent: RunnerAgent) {
     && !!config.credential && !!agent.model?.trim();
   const local = test || config?.kind === 'sandbox' && codex;
   const remote = config?.kind === 'remote' && !!agent.model?.trim()
-    && (codex || agent.engine === 'claude' && config.provider === 'ollama' && !config.credential);
+    && (codex || agent.engine === 'claude' && ['ollama', 'deepseek'].includes(config.provider) && !config.credential);
   const available = local || remote;
   const reason = available ? undefined : !config ? '尚未配置隔离执行方式'
     : config.kind === 'test' ? '测试执行器不能在生产环境使用'

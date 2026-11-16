@@ -9,9 +9,10 @@
 | 引擎 | 执行配置 | 执行机准备 |
 | --- | --- | --- |
 | Claude Code | `"engine": "claude"`，`"model": "qwen2.5:1.5b"`，`"execution": {"kind":"remote","provider":"ollama","effort":"low"}` | 在执行机装好 Claude Code 和 Ollama，在回环端口 11434 启动 Ollama 的本地模式并准备所登记的模型。每轮有独立的 CLI 配置目录，Claude 使用标准输入取得本轮上下文，以受限、无工具模式运行。 |
+| Claude Code | `"engine": "claude"`，`"model": "deepseek-v4-pro"`，`"execution": {"kind":"remote","provider":"deepseek","effort":"low"}` | 从已配置 Claude Code 的本机终端启动执行端。执行端读取本机进程已有的 `ANTHROPIC_BASE_URL` 和 `ANTHROPIC_AUTH_TOKEN`，仅使用 DeepSeek 的官方 Anthropic 兼容端点。工单经标准输入提供，工具关闭，本轮临时会话在回执确认后清理。 |
 | Codex | `"engine": "codex"`，`"model": "gpt-6.1-sol"`，`"execution": {"kind":"remote","provider":"openai","credential":"codex","domains":["chatgpt.com","api.openai.com","auth.openai.com"]}` | 在执行机装好 Codex 和与宿主系统匹配的隔离依赖。在 Runner 数据目录下按现有约定配置 `member-credentials/<owner>/codex.json`。 |
 
-远程 Codex 现在支持只读任务和受限代码任务；Claude Code + Ollama 仍为只读。代码任务沿用工作台已有的研发接单、仓库基线、提交回收和验收路径。平台群整理继续用 `discussion.agent` 选择工作台本机执行 Agent。项目的 `dispatch` 可把工单交给已登记的远程 Agent。Cursor、ACP 及其他引擎尚未完成隔离适配，登记名称或声明能力不会使它们自动可执行。
+远程 Codex 支持只读任务和受限代码任务。Claude Code 只处理只读任务。代码任务沿用工作台已有的研发接单、仓库基线、提交回收和验收路径。平台群整理继续用 `discussion.agent` 选择工作台本机执行 Agent。项目的 `dispatch` 可把工单交给已登记的远程 Agent。Cursor、ACP 及其他引擎尚未完成隔离适配，登记名称或声明能力不会使它们自动可执行。
 
 远端代码运行取得冻结的代码包，不取得工作台 Git 凭据或 `.git`。每包最多 8 MiB、4000 个文件，最多十个写入范围；大仓库当前会明确阻塞，尚不支持分片下载。回传必须包含本轮代码包哈希、路径差异和停止证明。工作台重新检查资料授权、写入路径及本地基线，再复用原有隔离工作区导入和 Git 提交。重复回传不会覆盖新改动，也不会产生第二个提交。远端的 CLI 模型回报与本轮配置不一致时交付失败。
 
@@ -28,7 +29,7 @@ suitme connect https://collab.example.com
 
 浏览器里登录工作台并选定项目、自己的 Agent，确认后执行端启动接单。命令会打印链接，支持把无图形执行机的确认链接在自己的浏览器打开。默认后台运行。连接身份保存在执行用户的 `~/.suitme-runner`，保留该目录并在重启后重复相同的 `connect` 命令即可上线。若同一台机器要挂载多个 Agent，在命令末尾加 `--profile <名称>`，每个名称独立配对。`suitme stop <团队地址> [--profile <名称>]` 停止接单并保留本地身份及待回传记录。部署方可使用 `--foreground` 交由操作系统的服务管理器守护进程。
 
-首次使用 Codex 时，若所选 Agent 的本机凭据槽位为空，交互终端会启动该槽位独立的 Codex 登录。Debian 执行机一次性安装隔离依赖 `sudo apt-get install bubblewrap socat ripgrep`。Claude Code 目前使用执行机本地 Ollama 和已配置的模型。浏览器的项目授权和模型服务登录分别生效。
+首次使用 Codex 时，若所选 Agent 的本机凭据槽位为空，交互终端会启动该槽位独立的 Codex 登录。Debian 执行机一次性安装隔离依赖 `sudo apt-get install bubblewrap socat ripgrep`。Claude Code 使用已登记的 Ollama 或 DeepSeek 配置。浏览器的项目授权和模型服务凭据分别生效。
 
 ## 旧版 API 配对与派单
 
