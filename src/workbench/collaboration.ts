@@ -946,10 +946,20 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     const card = feishuCards.get(event.card);
     const decision = card && decisions.get(card.decision);
     const binding = decision && dmAccount(decision.member);
-    if (!config.feishu || !card || !decision || binding?.id !== event.operator || card.ref !== event.ref || card.chat !== event.chat
+    if (!config.feishu || !card || !decision || card.ref !== event.ref || card.chat !== event.chat
       || card.group && boundProject('feishu', event.chat)?.id !== decision.project
       || !member(projectById.get(decision.project), decision.member)) throw new WorkbenchError('你不能处理这张卡片。', 403);
-    if (decision.closedAt || card.outcome || workingCards.has(card.id)) return { changed: false };
+    if (binding?.id !== event.operator) {
+      const actor = links.member({ provider: 'feishu', namespace: config.feishu.appId, id: event.operator, label: '' });
+      if (actor && member(projectById.get(decision.project), actor)) audit(decision.ticket ?? decision.project, 'feishu.card-ignored',
+        { actor, decision: decision.id, event: event.nonce, reason: 'other-member' });
+      throw new WorkbenchError('你不能处理这张卡片。', 403);
+    }
+    if (decision.closedAt || card.outcome || workingCards.has(card.id)) {
+      audit(decision.ticket ?? decision.project, 'feishu.card-ignored',
+        { actor: decision.member, decision: decision.id, event: event.nonce, reason: 'already-handled' });
+      return { changed: false };
+    }
     if (!decision.ticket || !decisionAllowed(decision, decision.member) || !card.options[event.choice])
       throw new WorkbenchError('卡片或工单版本已失效。', 409);
     workingCards.add(card.id);
