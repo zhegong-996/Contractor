@@ -22,7 +22,7 @@ const busStatus = z.object({ apps: z.array(z.object({ running: z.boolean(), stat
 })) });
 
 export function watchFeishu(profile: string, receive: (line: string) => void, log: (message: string) => void,
-  options: { healthIntervalMs?: number } = {}) {
+  options: { healthIntervalMs?: number; onReady?: () => void } = {}) {
   let child: ChildProcessWithoutNullStreams | undefined;
   let retry: ReturnType<typeof setTimeout> | undefined;
   let state: 'connecting' | 'ready' | 'reconnecting' | 'stopped' = 'connecting';
@@ -103,6 +103,7 @@ export function watchFeishu(profile: string, receive: (line: string) => void, lo
       readyAt = Date.now();
       log('飞书实时订阅已就绪。');
       createInterface({ input: consumer.stdout }).on('line', value => { if (!closed) receive(value); });
+      options.onReady?.();
     });
     consumer.once('close', () => {
       clearTimeout(startup);

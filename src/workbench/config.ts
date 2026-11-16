@@ -4,7 +4,7 @@ import path from 'node:path';
 import { z } from 'zod';
 import { nextRun, parseCron } from '../../upstream/autoloop/kernel/cron.ts';
 import { runtime } from '../config.ts';
-import { canonicalResourceId, feishuDocLocation, githubRepository, resourcePurpose, resourceSchema, routesEvents, topicInputSchema } from './project-resources.ts';
+import { canonicalResourceId, feishuDocLocation, figmaNodeLocation, githubRepository, resourcePurpose, resourceSchema, routesEvents, topicInputSchema } from './project-resources.ts';
 import { digestAgentId, discussionZone } from './discussion.ts';
 
 const id = z.string().regex(/^[a-z][a-z0-9-]{0,47}$/);
@@ -140,8 +140,9 @@ export const settingsSchema = z.object({
         if (ref.state !== 'bound' || !p.members.includes(ref.knowledge.owner))
           flag('知识接入须绑定项目资料，并指定该项目的资料负责人');
         if (ref.knowledge.format === 'feishu-docx' ? !feishuDocLocation(ref)
+          : ref.knowledge.format === 'figma-node' ? !figmaNodeLocation(ref)
           : ref.source !== 'github' || !githubRepository.test(ref.externalId))
-          flag('知识正文接入只接受明确的飞书 Docx 或 GitHub Markdown 配置');
+          flag('知识正文接入须指定飞书 Docx、GitHub Markdown 或 Figma 节点');
       }
       if (ref.state === 'bound' && routesEvents(ref)) {
         if (refs.has(key)) flag('接收消息的来源只能路由到一个项目');

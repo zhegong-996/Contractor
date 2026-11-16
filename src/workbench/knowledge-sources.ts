@@ -3,7 +3,8 @@ import { z } from 'zod';
 import { FeishuSources, sensitiveFeishuText } from '../feishu-sources.ts';
 import { githubApi } from '../github.ts';
 import { digest, type SourceVersion } from './knowledge.ts';
-import { canonicalResourceId, feishuDocLocation, resourceView, type ProjectResource } from './project-resources.ts';
+import { canonicalResourceId, feishuDocLocation, figmaNodeLocation, resourceView, type ProjectResource } from './project-resources.ts';
+import { FigmaSources } from './figma-source.ts';
 
 const maxChars = 12_000;
 const sha = z.string().regex(/^[a-f0-9]{40}$/);
@@ -31,6 +32,14 @@ export function knowledgeSource(project: string, ref: ProjectResource, file?: st
     return { resource, path: undefined, owner, visibility, conditions, title: reference.title,
       authority: digest({ scope, resource, profile, appId, userOpenId, location }), reference };
   }
+  if (settings.format === 'figma-node') {
+    const location = !file && figmaNodeLocation(ref);
+    if (!location) return;
+    const figma = { ...location, credential: settings.credential, preview: settings.preview };
+    return { resource, path: undefined, owner, visibility, conditions, title: ref.label ?? 'Figma 原型',
+      authority: digest({ scope, resource, file: location.file, node: location.node,
+        version: location.version, credential: settings.credential }), figma };
+  }
   if (ref.source !== 'github' || !file || !settings.files.includes(file)) return;
   const repository = canonicalResourceId('github', ref.externalId);
   const { branch } = settings;
@@ -40,7 +49,7 @@ export function knowledgeSource(project: string, ref: ProjectResource, file?: st
 
 type Connection = NonNullable<ReturnType<typeof knowledgeSource>>;
 
-export async function readKnowledgeSource(connection: Connection, feishu: FeishuSources, github = githubApi) {
+export async function readKnowledgeSource(connection: Connection, feishu: FeishuSources, github = githubApi, figma = new FigmaSources()) {
   let body: string;
   let url: string;
   let revision: string;
@@ -50,6 +59,8 @@ export async function readKnowledgeSource(connection: Connection, feishu: Feishu
     ({ body, url, revision } = doc);
     if (!/^\d+$/.test(revision)) throw new Error('飞书未返回有效的文档修订号');
     fingerprint = doc.hash;
+  } else if (connection.figma) {
+    ({ body, url, revision, fingerprint } = await figma.node(connection.figma));
   } else {
     const { repository, branch, path: file } = connection;
     const head = gitBranch.parse(await github(repository, 'branches/' + encodeURIComponent(branch))).commit;

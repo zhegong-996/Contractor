@@ -1,10 +1,10 @@
 # 资料接入与知识版本
 
-在项目的已绑定来源上配置正文接入。飞书 Docx 使用既有的用户授权和官方 CLI，保存文档修订号和当次读取的正文。GitHub Markdown 使用既有 GitHub CLI，先确定配置分支的提交，再按 Git tree 找到获准路径的普通文件，核对 blob 后保存正文和提交链接。两种接入均使用现有 Backstage 资料引用、Super-agent 账本、AutoLoop 执行和项目 BM25 检索。
+在项目的已绑定来源上配置正文接入。飞书 Docx 使用既有的用户授权和官方 CLI，保存文档修订号和当次读取的正文。GitHub Markdown 使用既有 GitHub CLI，先确定配置分支的提交，再按 Git tree 找到获准路径的普通文件，核对 blob 后保存正文和提交链接。Figma 按文件或分支及节点读取可见文本，冻结 Figma 返回的文件版本。三种接入使用现有 Backstage 资料引用、Super-agent 账本、AutoLoop 执行和项目 BM25 检索。
 
 ```mermaid
 flowchart LR
-    A[飞书 Docx 或 GitHub Markdown] --> B[资料负责人导入候选]
+    A[飞书 Docx、GitHub Markdown 或 Figma 节点] --> B[资料负责人导入候选]
     B --> C[核对上游修订并由负责人采用]
     C --> D[现行版本进入检索与新委托]
     C --> E[旧版本留在原工单的证据中]
@@ -32,11 +32,36 @@ flowchart LR
 | `POST /api/knowledge/:entry/publish` | 提交候选的 `revision`。验收生成的结论可附 `replaces: {id, revision}`，由两个版本的共同所有者确认 |
 | `POST /api/knowledge/:entry/invalidate` | 所有者提供现行 `revision` 和 `reason`，旧版本退出现行检索 |
 | `GET /api/knowledge/:project` | `q` 只检索仍可采用和有权读取的内容。没有 `q` 时可以用 `history=1` 核对有权限的历史条目 |
+| `GET /api/knowledge/:entry/preview?revision=…` | 使用工作台修订号读取该次 Figma 原型的 PNG。服务端按原始 Figma 版本获取图片，调用前后都核对工作台权限 |
 | `POST /api/channels/:event/resolve` | 负责人确认 `action=create` 时可附 `material` 选择已采用资料，渠道身份、项目归属和受限授权仍分别校验 |
 | `POST /api/ticket/:ticket/revise` | 默认根据原单引用找到当前可用版本，可显式传入本版选用的 `material` |
 | `GET /api/ticket/:ticket/runs/:run` | 正文可读时在 `materials` 中记录工作台知识版本及真实资料版本，`contents` 保留实际输入 |
 
-在本机 `workbench.json` 的 `projects[].resources[]` 为已绑定资源加 `knowledge`。两个类型都需要 `owner` 和 `conditions`，`visibility` 默认 `restricted`。飞书用 `format=feishu-docx`，配置 `profile`、`appId`、`userOpenId` 和原本已登记的 Docx 链接。GitHub 用 `format=github-markdown`，配置 `branch` 和具体 `files`。既有普通链接仍可用。导入支持最多 12,000 字符的文本，附件或图片正文仍由对应来源链接承载。
+在本机 `workbench.json` 的 `projects[].resources[]` 为已绑定资源加 `knowledge`。每种类型都需要 `owner` 和 `conditions`，`visibility` 默认 `restricted`。飞书用 `format=feishu-docx`，配置 `profile`、`appId`、`userOpenId` 和原本已登记的 Docx 链接。GitHub 用 `format=github-markdown`，配置 `branch` 和具体 `files`。既有普通链接仍可用。导入支持最多 12,000 字符的文本。
+
+Figma 使用 `format=figma-node`。例如下列配置将项目内已登记的原型节点交给 `design` 管理。已有动态登记的同一节点由本机有正文授权的配置接管。
+
+```json
+{
+  "source": "figma",
+  "externalId": "FileKey/1:2",
+  "label": "门店推荐理由原型",
+  "url": "https://www.figma.com/design/FileKey/prototype?node-id=1-2",
+  "state": "bound",
+  "knowledge": {
+    "format": "figma-node",
+    "credential": "STORE",
+    "owner": "design",
+    "conditions": "仅用于门店推荐理由的试点验收",
+    "visibility": "restricted",
+    "preview": false
+  }
+}
+```
+
+凭据由部署方通过 `SUITME_FIGMA_STORE` 提供，使用已有节点访问权限且包含 `file_content:read` 的个人访问令牌。分支链接的 `externalId` 使用分支 key。链接带 `version-id` 会固定到该历史版本，省略时每次导入读取服务端最新版本。资料负责人可重新导入，发现新版时生成候选。采用仍需要人的确认，旧版工单按原修订保留证据。
+
+`preview` 默认关闭。启用后才向 Figma 请求 PNG 渲染。图片只从限定的 Figma 图像地址读取，接口返回同源 PNG，临时外链和令牌不进入知识库、模型上下文或浏览器。业务端若需持续同步 Figma 修订和源站 ACL，需要另接事件和授权变更管道。当前撤销工作台任务权限按原规则即时生效。
 
 ## 门店推荐理由实跑
 

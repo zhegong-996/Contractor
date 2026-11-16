@@ -71,13 +71,16 @@ function historyMessages(items: unknown[], history: History, feishu: Feishu, cha
   return { inputs, withdrawn };
 }
 
-export async function readDiscussionHistory(reader: FeishuSources, history: History, feishu: Feishu, chat: string, start: number, end: number) {
+export async function readDiscussionHistory(reader: FeishuSources, history: History, feishu: Feishu, chat: string, start: number, end: number,
+  signal?: AbortSignal) {
+  signal?.throwIfAborted();
   await confirmReader(reader, history);
   const inputs: DiscussionInput[] = [];
   const withdrawn: string[] = [];
   const cursors = new Set<string>();
   let cursor: string | undefined;
   do {
+    signal?.throwIfAborted();
     const params = { container_id_type: 'chat', container_id: chat, sort_type: 'ByCreateTimeAsc', page_size: 50,
       start_time: String(Math.floor(start / 1000)), end_time: String(Math.ceil(end / 1000)), page_token: cursor };
     const page = pageSchema.parse(await reader.command(['api', 'GET', '/open-apis/im/v1/messages', '--params', JSON.stringify(params),
@@ -85,6 +88,7 @@ export async function readDiscussionHistory(reader: FeishuSources, history: Hist
     if (page.has_more && (!page.page_token || cursors.has(page.page_token))) throw new Error('飞书群补读分页不完整');
     cursor = page.has_more ? page.page_token : undefined;
     if (cursor) cursors.add(cursor);
+    if (cursors.size >= 100) throw new Error('飞书补读超过单次分页上限');
     const batch = historyMessages(page.items, history, feishu, chat, start, end);
     inputs.push(...batch.inputs);
     withdrawn.push(...batch.withdrawn);

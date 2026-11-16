@@ -15,6 +15,7 @@ import { openSuperAgentEffects, openSuperAgentStore } from '../superagent-ports.
 import { assignmentEvent, openExecution, ruleName, trackWorkerProcesses, workerName, workerStopped, type Card, type Run } from './autoloop.ts';
 import { digest, ProjectKnowledge, type AccessReader, type KnowledgeEntry, type KnowledgeRef } from './knowledge.ts';
 import { knowledgeSource, readKnowledgeSource } from './knowledge-sources.ts';
+import { FigmaSources } from './figma-source.ts';
 import { measureSchema, WorkObservations, type Measure, type ObservationInput } from './learning.ts';
 import { bundleHash } from './code-bundle.ts';
 import { executionCapabilities } from './execution-capabilities.ts';
@@ -133,6 +134,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
   const decisions = new HumanDecisions(store.db);
   const discussions = new Discussions(store);
   const reader = new FeishuSources();
+  const figma = new FigmaSources();
   const { hub, createWorker } = await openExecution(config.agents, config.projects);
   store.db.exec(`
     CREATE TABLE IF NOT EXISTS workbench_binding (
@@ -211,7 +213,8 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     });
     const extra = store.db.prepare('SELECT value FROM workbench_project_resource WHERE project=? ORDER BY rowid')
       .all(p.id).map(row => JSON.parse(String(row.value)) as ProjectResource);
-    return [...refs.filter(ref => !extra.some(item => sameResource(item, ref))), ...extra];
+    return [...refs.filter(ref => ref.knowledge || !extra.some(item => sameResource(item, ref))),
+      ...extra.filter(ref => !refs.some(item => item.knowledge && sameResource(item, ref)))];
   };
   const views = (project: Project) => availableRefs(project).map(ref => resourceView(project.id, ref));
   const topicsFor = (project: Project): ProjectTopic[] => [...project.topics,
@@ -2072,7 +2075,8 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     discussions.track(project.id, chat, Date.now());
     const channel = links.event(trigger.id);
     if (channel && channel.request.project !== project.id) return;
-    if (trigger.addressed || channel || trigger.text.trimStart().startsWith('/')) {
+    const historicalCommand = input.history && /\/(?:协作|答|绑定协作)(?:\s|$)/.test(trigger.text);
+    if (trigger.addressed || channel || historicalCommand || trigger.text.trimStart().startsWith('/')) {
       // Authored channel requests are immutable mandates. Store their observed Feishu revisions as evidence.
       if (!channel || channel.request.sender.provider !== 'feishu') return;
       const record = observation(project.id, input, channel.member, source.topic);
@@ -2120,6 +2124,65 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     });
   }
 
+  const historyReads = new Map<string, Promise<{ listed: boolean; checked: boolean }>>();
+  const historyStatus = new Map<string, { at: number; state: 'ready' | 'partial' | 'failed' | 'unauthorized' }>();
+  function syncDiscussionSource(project: Project, ref: ProjectResource, slot: number) {
+    const chat = ref.externalId;
+    const id = key('discussion-history', project.id, chat);
+    const previous = historyReads.get(id);
+    const task = Promise.resolve(previous).catch(() => undefined).then(async () => {
+      const history = project.discussion!.history!;
+      const allowed = () => maintain(project, history.member)
+        && project.discussion?.history === history
+        && discussionSources(project).some(source => source.externalId === chat);
+      if (!allowed()) {
+        historyStatus.set(id, { at: Date.now(), state: 'unauthorized' });
+        return { listed: false, checked: false };
+      }
+      end.signal.throwIfAborted();
+      discussions.track(project.id, chat, Date.now());
+      const { since, cursor } = discussions.chat(project.id, chat)!;
+      const start = Math.max(since, cursor - 120_000, slot - discussionLookback);
+      const watched = discussions.watchMessages(project.id, chat);
+      const [listed, checked] = await withFeishuReads(() => Promise.allSettled([
+        start < slot ? readDiscussionHistory(reader, history, config.feishu!, chat, start, slot, end.signal) : undefined,
+        refreshDiscussionMessages(reader, history, config.feishu!, chat, watched.map(message => message.native)),
+      ]));
+      end.signal.throwIfAborted();
+      if (!allowed()) {
+        historyStatus.set(id, { at: Date.now(), state: 'unauthorized' });
+        return { listed: false, checked: false };
+      }
+      const page = listed.status === 'fulfilled' ? listed.value : undefined;
+      const refreshed = checked.status === 'fulfilled' ? checked.value : undefined;
+      store.atomic(() => {
+        for (const input of [...page?.inputs ?? [], ...refreshed?.inputs ?? []]) rememberDiscussion(input);
+        for (const removed of new Set([...page?.withdrawn ?? [], ...refreshed?.withdrawn ?? []])) {
+          const ticket = discussions.withdraw(project.id, chat, removed, start);
+          if (ticket) links.unlinkReference(messageRef(removed), ticket);
+        }
+        if (refreshed) discussions.checked(watched.map(message => message.id));
+        if (listed.status === 'fulfilled') discussions.advance(project.id, chat, slot);
+      });
+      historyStatus.set(id, { at: Date.now(), state: listed.status === 'rejected' ? 'failed' : checked.status === 'rejected' ? 'partial' : 'ready' });
+      return { listed: listed.status === 'fulfilled', checked: checked.status === 'fulfilled' };
+    });
+    historyReads.set(id, task);
+    return task.finally(() => { if (historyReads.get(id) === task) historyReads.delete(id); });
+  }
+
+  async function refreshFeishuHistory() {
+    // Allow the history API to catch up before committing the cursor. The overlap covers normal delivery lag.
+    const until = Date.now() - 15_000;
+    for (const project of digestProjects.values()) {
+      if (!project.discussion?.history) continue;
+      for (const ref of discussionSources(project)) {
+        if (end.signal.aborted) return;
+        await syncDiscussionSource(project, ref, until);
+      }
+    }
+  }
+
   async function discussionContext(project: Project, slot: number) {
     const discussion = project.discussion!;
     const sources = discussionSources(project);
@@ -2127,34 +2190,13 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     const unreadable = new Set<string>();
     pruneDiscussionSources(project);
     for (const ref of sources) {
-      discussions.track(project.id, ref.externalId, Date.now());
       if (!discussion.history) continue;
-      const history = discussion.history;
-      if (!maintain(project, history.member)) { failures.push('补读成员的授权已变化'); unreadable.add(ref.externalId); continue; }
-      const { since, cursor } = discussions.chat(project.id, ref.externalId)!;
-      const start = Math.max(since, cursor - 120_000, slot - discussionLookback);
-      const watched = discussions.watchMessages(project.id, ref.externalId);
-      const [listed, checked] = await withFeishuReads(() => Promise.allSettled([
-        start < slot ? readDiscussionHistory(reader, history, config.feishu!, ref.externalId, start, slot) : undefined,
-        refreshDiscussionMessages(reader, history, config.feishu!, ref.externalId, watched.map(message => message.native)),
-      ]));
-      end.signal.throwIfAborted();
-      if (listed.status === 'rejected') {
+      const { listed, checked } = await syncDiscussionSource(project, ref, slot);
+      if (!listed) {
         failures.push('飞书补读失败，下一轮会从原位置继续');
         unreadable.add(ref.externalId);
       }
-      if (checked.status === 'rejected') failures.push('部分飞书原消息暂时无法复查');
-      const page = listed.status === 'fulfilled' ? listed.value : undefined;
-      const refreshed = checked.status === 'fulfilled' ? checked.value : undefined;
-      store.atomic(() => {
-        for (const input of [...page?.inputs ?? [], ...refreshed?.inputs ?? []]) rememberDiscussion(input);
-        for (const removed of new Set([...page?.withdrawn ?? [], ...refreshed?.withdrawn ?? []])) {
-          const ticket = discussions.withdraw(project.id, ref.externalId, removed, start);
-          if (ticket) links.unlinkReference(messageRef(removed), ticket);
-        }
-        if (refreshed) discussions.checked(watched.map(message => message.id));
-        if (listed.status === 'fulfilled') discussions.advance(project.id, ref.externalId, slot);
-      });
+      if (!checked) failures.push('部分飞书原消息暂时无法复查');
     }
     const messages = discussions.batch(project.id, slot).filter(msg =>
       stillObserved(project, msg) && (!msg.history || !unreadable.has(msg.chat)));
@@ -2441,7 +2483,11 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     if (!project.discussion) throw new WorkbenchError('项目尚未开启群消息整理。', 404);
     const next = hub.one<{ next_at: string }>('SELECT next_at FROM schedules WHERE rule=?', [discussionRule(id)]);
     const status = discussions.view(id, project.discussion.cron, next ? Date.parse(next.next_at) : undefined);
-    return { ...status, last: status.last ? { ...status.last, detail: maintain(project, actor) ? status.last.detail : undefined } : undefined,
+    const history = maintain(project, actor) && project.discussion.history
+      ? discussionSources(project).map(ref => ({ resource: resourceView(project.id, ref).ref,
+        ...discussions.chat(project.id, ref.externalId),
+        ...historyStatus.get(key('discussion-history', project.id, ref.externalId)) })) : undefined;
+    return { ...status, history, last: status.last ? { ...status.last, detail: maintain(project, actor) ? status.last.detail : undefined } : undefined,
       items: discussions.list(id).filter(item => item.status === 'applied' || maintain(project, actor))
         .map(item => ({ ...item, sources: discussions.sources(item) })),
     };
@@ -3200,7 +3246,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
   }
 
   async function readSource(connection: NonNullable<ReturnType<typeof knowledgeSource>>) {
-    try { return await readKnowledgeSource(connection, reader); }
+    try { return await readKnowledgeSource(connection, reader, undefined, figma); }
     catch {
       throw new WorkbenchError('无法读取指定资料的正文和版本，请核对来源范围及连接授权。', 409);
     }
@@ -3226,6 +3272,24 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       if (!existing) audit(project.id, 'knowledge.imported', { actor, id, revision: entry.revision, resource: source.resource, sourceRevision: source.revision });
       return { id, revision: entry.revision, state: entry.state, sourceRevision: source.revision };
     });
+  }
+
+  async function knowledgePreview(actor: string, id: string, revision: string) {
+    const read = () => {
+      const entry = requireValue(knowledge.get(id, revision), '找不到这个知识版本。');
+      const project = projectFor(entry.project, actor);
+      const source = entry.source;
+      const connection = source && configuredSource(project, source.resource, source.path);
+      if (!source || !connection?.figma?.preview || !canReadEntry(entry, actor))
+        throw new WorkbenchError('当前没有查看该原型预览的权限。', 403);
+      return { ...connection.figma, version: source.revision };
+    };
+    const scope = read();
+    const bytes = await figma.preview(scope).catch(() => {
+      throw new WorkbenchError('暂时无法读取该版本的 Figma 预览。', 409);
+    });
+    if (digest(read()) !== digest(scope)) throw new WorkbenchError('原型授权已变化。', 409);
+    return bytes;
   }
 
   async function adoptImported(actor: string, entry: KnowledgeEntry & { source: NonNullable<KnowledgeEntry['source']> }, revision: string, replaces?: KnowledgeRef) {
@@ -3308,7 +3372,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
   return {
     start, reply, resume, revise, approveDevelopment, respondDevelopment, reofferDevelopment, overview, detail, executionSnapshot, boundProject, recordObservation,
     receiveChannel, receiveNote, resolveChannel, channelView, confirmAccount, refreshDelivery, refreshIssue,
-    rememberDiscussion, discussionView, discussionRevisions, resolveDiscussion, needsYou, answerDecision, resolveIntake, handoff,
+    rememberDiscussion, refreshFeishuHistory, discussionView, discussionRevisions, resolveDiscussion, needsYou, answerDecision, resolveIntake, handoff,
     memoryHome, memoryUses, projectKnowledgeGraph, setMemoryPin, budgetPools, setBudget, issueDevicePair, pairDevice, projectDevices, deviceWork, deviceStarted, deviceResult,
     recallMemory(actor: string, id: string, query: string) {
       const project = projectFor(id, actor);
@@ -3594,7 +3658,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
           ...(verified ? { pr: verified.url, checks: verified.checks?.map(item => ({ id: item.id, head: item.head_sha })) } : {}) });
       });
     },
-    importKnowledge,
+    importKnowledge, knowledgePreview,
     publish(actor: string, id: string, revision: string, replaces?: KnowledgeRef) {
       const entry = requireValue(knowledge.get(id), '找不到知识候选。');
       projectFor(entry.project, actor);
@@ -3733,6 +3797,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       clearInterval(timer);
       end.abort();
       await tick;
+      await Promise.allSettled(historyReads.values());
       await effects.drain();
       hub.db.close();
       store.close();

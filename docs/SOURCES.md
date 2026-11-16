@@ -29,3 +29,5 @@ LobeHub 的前端参考包括项目话题列表与搜索、Agent 分页档案、
 受控父子任务使用 AutoLoop 原版 `parseResult` 和原生事件协议，子单通过 Super-agent 原版 Engine 创建。`delegations.ts` 仅增加授权提案与父子关系投影，不形成新 scheduler。父子结果回流借鉴 LobeHub 的协作机制；没有复制其 supervisor 或声称已经整合其全部能力。
 
 `knowledge-graph.ts` 实际复用 `@backstage/catalog-model@1.10.2` 的 `stringifyEntityRef`、`RELATION_OWNED_BY`、`RELATION_PART_OF`、`RELATION_DEPENDS_ON`，输入来自 SuitMe 现有授权知识与执行证据。它是来源及使用关系的后端投影，不是 Backstage 完整目录服务或自动语义图谱。
+
+`figma-source.ts` 使用 Figma 官方生成的 `@figma/rest-api-spec@0.47.0` 响应类型和官方节点、版本及 PNG 渲染接口，接入现有知识候选与版本账本。飞书恢复补读继续调用官方 CLI，复用 Super-agent 原消息标识与既有整理游标。 [Figma OpenAPI 源码](https://github.com/figma/rest-api-spec) · [Figma 文件接口](https://developers.figma.com/docs/rest-api/file-endpoints/) · [飞书历史消息接口](https://open.feishu.cn/document/uAjLw4CM/ukTMukTMukTM/reference/im-v1/message/list)

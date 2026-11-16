@@ -105,6 +105,10 @@ The workbench uses the published `casbin@5.51.1` package for role-based authoriz
 
 The workbench imports `parseEntityRef` and `stringifyEntityRef` from the published `@backstage/catalog-model@1.10.2` package. The package version and integrity are recorded in `package-lock.json`. The source reference is [Backstage `catalog-model/src/entity/ref.ts`](https://github.com/backstage/backstage/blob/40525466a0f70119579cbfc4a60b9d2aa6c8a52d/packages/catalog-model/src/entity/ref.ts). Copyright 2020 The Backstage Authors. The upstream materials are retained in `licenses/backstage-APACHE-2.0.txt` and `licenses/backstage-NOTICE.txt`.
 
+## Figma REST API specification (MIT)
+
+The backend uses generated response types from [`@figma/rest-api-spec@0.47.0`](https://www.npmjs.com/package/@figma/rest-api-spec/v/0.47.0) as a development dependency. The package includes the upstream MIT license, and the locked artifact is recorded in `package-lock.json`. [Upstream license](https://github.com/figma/rest-api-spec/blob/main/LICENSE)
+
 ## Entire CLI (MIT)
 
 The workbench invokes an operator-configured Entire CLI for local hooks and its commit-specific JSON metadata exporter. The exercised release was [Entire CLI v0.13.4](https://github.com/entireio/cli/releases/tag/v0.13.4), upstream commit `95eabf579d7aa6e5dbe994a6956c8e3fb44d4465`. Copyright (c) 2026 Entire Inc. The license is retained in `licenses/entire-MIT.txt`. The executable and session data are local runtime files. No Entire binary is committed here.

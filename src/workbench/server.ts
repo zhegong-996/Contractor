@@ -237,6 +237,13 @@ async function serve() {
       else if (get && view === 'project' && item && action === 'devices') output = work.projectDevices(actor, item);
       else if (get && view === 'project' && item && action === 'budgets') output = work.budgetPools(actor, item);
       else if (get && view === 'knowledge' && item && action === 'uses') output = work.memoryUses(actor, item);
+      else if (get && view === 'knowledge' && item && action === 'preview') {
+        const revision = z.string().regex(/^[a-f0-9]{64}$/).parse(url.searchParams.get('revision'));
+        const bytes = await work.knowledgePreview(actor, item, revision);
+        res.writeHead(200, { 'content-type': 'image/png', 'content-length': bytes.byteLength });
+        res.end(bytes);
+        return;
+      }
       else if (post && view === 'knowledge' && item && action === 'pin')
         work.setMemoryPin(actor, item, z.object({ pinned: z.boolean() }).strict().parse(await body(req)).pinned);
       else if (post && view === 'budget') {
@@ -248,8 +255,11 @@ async function serve() {
         const input = z.object({ project: id, agent: id, remote: z.boolean().default(false) }).strict().parse(await body(req));
         output = work.issueDevicePair(actor, input.project, input.agent, input.remote);
       } else if (post && view === 'device' && item) {
-        const input = z.object({ active: z.boolean() }).strict().parse(await body(req));
-        work.setDevice(actor, z.uuid().parse(item), input.active);
+        const input = z.union([
+          z.object({ active: z.boolean() }).strict(),
+          z.object({ state: z.enum(['active', 'suspended', 'lost', 'retired']) }).strict(),
+        ]).parse(await body(req));
+        work.transitionDevice(actor, z.uuid().parse(item), 'state' in input ? input.state : input.active ? 'active' : 'suspended');
       }
       else if (post && view === 'project' && item && action === 'bind') {
         const value = z.object({ source: resourceSource, externalId: z.string().min(1).max(200) }).parse(await body(req));
@@ -400,6 +410,15 @@ async function serve() {
     available = true;
     console.log('SuitMe 工作台 http://127.0.0.1:' + config.port);
     let closing = false;
+    let historyRead: Promise<void> | undefined;
+    const refreshHistory = () => {
+      if (closing || historyRead) return;
+      historyRead = collaboration.refreshFeishuHistory()
+        .catch(error => { if (!closing) console.error('飞书历史补读未完成：', (error as Error).name); })
+        .finally(() => { historyRead = undefined; });
+    };
+    const historyTimer = feishu && setInterval(refreshHistory, 60_000);
+    if (historyTimer) historyTimer.unref();
     if (feishu) {
       feishuWatch = watchFeishu(feishu.profile, line => {
         try {
@@ -451,11 +470,12 @@ async function serve() {
               ...(/^\d+$/.test(value) ? { choice: Number(value) - 1 } : { text: value }) }, trigger);
           }
         } catch (error) { console.error('飞书事件未受理：', (error as Error).name); }
-      }, message => console.info(message));
+      }, message => console.info(message), { onReady: refreshHistory });
     }
     const close = () => {
       if (closing) return;
       closing = true;
+      if (historyTimer) clearInterval(historyTimer);
       feishuWatch?.close();
       server.close();
       if (remoteServer) remoteServer.close();

@@ -21,6 +21,9 @@ const knowledge = z.discriminatedUnion('format', [
     appId: connectionId, userOpenId: connectionId }).strict(),
   z.object({ ...sourceOwner, format: z.literal('github-markdown'), branch: branchName,
     files: z.array(markdownPath).min(1).max(12) }).strict(),
+  z.object({ ...sourceOwner, format: z.literal('figma-node'),
+    credential: z.string().regex(/^[A-Z][A-Z0-9_]{0,47}$/), preview: z.boolean().default(false),
+  }).strict(),
 ]);
 const https = z.url({ protocol: /^https$/ }).refine(value => {
   const url = new URL(value);
@@ -105,6 +108,16 @@ export function feishuDocLocation(ref: ProjectResource) {
   if (!canonical || canonical.externalId !== ref.externalId || !url.hostname.endsWith('.feishu.cn')
     || !token || url.hash.startsWith('#share-')) return;
   return { token, block: url.hash.slice(1) || undefined, url: url.origin + url.pathname + url.hash };
+}
+
+export function figmaNodeLocation(ref: ProjectResource) {
+  if (ref.source !== 'figma' || !ref.url) return;
+  const canonical = referenceResource({ source: 'figma', label: ref.label ?? 'Figma', url: ref.url });
+  if (!canonical || canonical.externalId !== ref.externalId) return;
+  const [file, node] = canonical.externalId.split('/');
+  if (!file || !node) return;
+  const url = new URL(ref.url);
+  return { file, node, version: url.searchParams.get('version-id') || undefined, url: url.origin + url.pathname };
 }
 
 export function projectResourceRef(project: string, value: string) {
