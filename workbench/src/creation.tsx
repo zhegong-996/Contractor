@@ -28,7 +28,7 @@ type Draft = {
   recall: boolean; device: string;
 };
 function initialDraft(preset: TaskPreset): Draft {
-  return { title: preset.lesson ? preset.lesson.title.slice(0, 94) + ' · 复查' : '', request: '', topic: preset.topic ?? '',
+  return { title: preset.lesson ? preset.lesson.title.slice(0, 94) + ' · 复查' : preset.request?.split('\n')[0]?.slice(0, 100) ?? '', request: preset.request ?? '', topic: preset.topic ?? '',
     agent: preset.agent ?? '', target: '', material: preset.material ?? (preset.lesson ? [preset.lesson.id] : []), resources: [],
     priority: 'normal', nonce: uid(), metric: preset.lesson?.metric ?? '', unit: preset.lesson?.unit ?? '',
     baseline: preset.lesson ? String(preset.lesson.baseline) : '', targetValue: '', recall: !!preset.personal, device: '' };
@@ -37,7 +37,7 @@ function initialDraft(preset: TaskPreset): Draft {
 export function Composer({ project, workspace, preset, close }: PageProps & { preset: TaskPreset; close: () => void }) {
   const defaultDraft = useState(() => initialDraft(preset))[0];
   const key = ['composer', project.id, preset.agent, preset.parent, preset.topic, preset.material?.join(','), preset.lesson?.id, preset.personal].join('/');
-  const [draft, setDraft] = useStored(key, defaultDraft);
+  const [draft, setDraft] = useStored(preset.request ? key + '/' + defaultDraft.nonce : key, defaultDraft);
   const { busy, run } = useActions();
   const catalog = useData<Knowledge[]>('knowledge/' + project.id);
   const devices = useData<DeviceRow[]>('project/' + project.id + '/devices', 3500);

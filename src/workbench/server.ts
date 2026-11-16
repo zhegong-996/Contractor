@@ -17,6 +17,7 @@ import { githubReference, watchGithub } from './github-intake.ts';
 import { referenceSchema, resourceSource, topicInputSchema } from './project-resources.ts';
 import { discussionInput } from './discussion-intake.ts';
 import { watchFeishu } from './feishu-events.ts';
+import { feishuCardTransport, readCardClick } from './feishu-cards.ts';
 import { localDeviceKey } from './devices.ts';
 import { runnerConnectInput, runnerRequestId, runnerSecret } from './runner-connection.ts';
 import { runnerConnectPage } from './runner-connect-page.ts';
@@ -88,6 +89,7 @@ async function serve() {
   const feishu = config.feishu;
   let work: Awaited<ReturnType<typeof openCollaboration>> | undefined;
   let feishuWatch: ReturnType<typeof watchFeishu> | undefined;
+  let cardWatch: ReturnType<typeof watchFeishu> | undefined;
   let available = false;
   const connectionUrl = config.runnerConnectUrl && new URL(config.runnerConnectUrl);
   const publicWorkbench = config.workbenchPublicUrl && new URL(config.workbenchPublicUrl);
@@ -202,7 +204,7 @@ async function serve() {
       if (req.method === 'GET' && url.pathname === '/health') {
         const subscription = feishu && (feishuWatch?.status() ?? { state: 'connecting' });
         const ready = available && (!subscription || subscription.state === 'ready' && (!('busHealth' in subscription) || subscription.busHealth !== 'unavailable'));
-        json(res, ready ? 200 : 503, { ready, engine: 'superagent', executor: 'autoloop', feishu: subscription });
+        json(res, ready ? 200 : 503, { ready, engine: 'superagent', executor: 'autoloop', feishu: subscription, feishuCards: cardWatch?.status() });
         return;
       }
       if (req.method === 'GET' && url.pathname === '/favicon.ico') { res.writeHead(204).end(); return; }
@@ -317,7 +319,23 @@ async function serve() {
         ]).parse(await body(req));
         work.transitionDevice(actor, z.uuid().parse(item), 'state' in input ? input.state : input.active ? 'active' : 'suspended');
       }
-      else if (post && view === 'project' && item && action === 'bind') {
+      else if (post && view === 'project' && !item) {
+        output = work.createProject(actor, z.object({ nonce, title, parent: id.optional() }).strict().parse(await body(req)));
+      } else if (post && view === 'project' && action === 'member') {
+        work.addProjectMember(actor, item, z.object({ member: id }).strict().parse(await body(req)).member);
+      } else if (post && view === 'project' && action === 'agent') {
+        work.addProjectAgent(actor, item, z.object({ agent: id }).strict().parse(await body(req)).agent);
+      } else if (get && view === 'project' && action === 'messages') {
+        output = work.conversation(actor, item, {
+          topic: url.searchParams.has('topic') ? id.parse(url.searchParams.get('topic')) : undefined,
+          ticket: url.searchParams.has('ticket') ? id.parse(url.searchParams.get('ticket')) : undefined,
+        });
+      } else if (post && view === 'project' && action === 'messages') {
+        output = work.postConversation(actor, item, z.object({ nonce, text: prose, topic: id.optional(), ticket: id.optional(),
+          feishu: z.boolean().optional() }).strict().parse(await body(req)));
+      } else if (post && view === 'project' && action === 'feishu-group') {
+        work.bindFeishuGroup(actor, item, z.object({ chat: z.string().regex(/^oc_[a-zA-Z0-9_-]+$/), label: title, topic: id.optional() }).strict().parse(await body(req)));
+      } else if (post && view === 'project' && item && action === 'bind') {
         const value = z.object({ source: resourceSource, externalId: z.string().min(1).max(200) }).parse(await body(req));
         work.bindResource(actor, item, value.source, value.externalId);
       } else if (post && view === 'project' && item && action === 'reference') {
@@ -401,7 +419,10 @@ async function serve() {
       if (!userId) return sendFeishu({ commands: { lark } }, message);
       await lark(['im', '+messages-send', '--user-id', userId, '--text', message.text, '--idempotency-key', message.id]);
       return 'sent';
-    }));
+    }), feishu?.decisionCards ? { ...feishuCardTransport(feishu.profile), available: () => {
+      const status = cardWatch?.status();
+      return status?.state === 'ready' && status.busHealth !== 'unavailable';
+    } } : undefined);
     work = collaboration;
     const processChannel = async (text: string, trigger: Trigger, sender: PlatformActor, origin: ChannelRef, project?: string, topic?: string,
       revision?: string) => {
@@ -486,6 +507,14 @@ async function serve() {
     figmaTimer.unref();
     refreshFigma();
     if (feishu) {
+      if (feishu.decisionCards) cardWatch = watchFeishu(feishu.profile, line => {
+        try {
+          const event = readCardClick(line);
+          void collaboration.clickFeishuCard(event).catch(error => {
+            if (!(error instanceof WorkbenchError && [403, 409].includes(error.status))) console.error('飞书卡片处理未完成：', (error as Error).name);
+          });
+        } catch { /* Other Feishu card applications may share this profile. */ }
+      }, message => console.error('飞书卡片：', message), { event: 'card.action.trigger' });
       feishuWatch = watchFeishu(feishu.profile, line => {
         try {
           const event = JSON.parse(line);
@@ -507,11 +536,21 @@ async function serve() {
           const action = config.crossChannel && channelCommand(text);
           if (action && ((['proof', 'answer'].includes(action.kind) && trigger.meta.direct) || (action.kind === 'work' && trigger.addressed && project))) {
             void processChannel(text, trigger, sender, origin, project?.id,
-              project?.resources.find(ref => ref.source === 'feishu' && ref.externalId === chat)?.topic)
+              project && collaboration.feishuTopic(project, chat))
               .catch(error => console.error('飞书协作未受理：', (error as Error).name));
             return;
           }
           if (config.crossChannel && action) return;
+          if (!text.startsWith('/') && project && collaboration.receiveFeishuReply(input, project.id)) return;
+          if (config.crossChannel && project && trigger.addressed && !text.startsWith('/') && text.trim()) {
+            const directAgent = /^@([a-z][a-z0-9-]{0,47})\s+([\s\S]+)$/.exec(text);
+            const wanted = directAgent?.[1] ?? 'auto';
+            const request = directAgent?.[2] ?? text;
+            if (request.length <= 3500) void processChannel('/协作 ' + wanted + ' ' + request, trigger, sender, origin, project.id,
+              collaboration.feishuTopic(project, chat))
+              .catch(error => console.error('飞书委托未受理：', (error as Error).name));
+            return;
+          }
           if (!trigger.addressed && !text.startsWith('/')) collaboration.rememberDiscussion(input);
           const boundMember = config.crossChannel && collaboration.channelMember(sender, trigger.at);
           const matches = auth.listAccounts().filter(a => !a.disabled && (config.crossChannel
@@ -546,6 +585,7 @@ async function serve() {
       if (historyTimer) clearInterval(historyTimer);
       clearInterval(figmaTimer);
       feishuWatch?.close();
+      cardWatch?.close();
       server.close();
       if (remoteServer) remoteServer.close();
       void Promise.resolve(stopGithub ? stopGithub() : undefined).then(() => collaboration.close()).catch(console.error);

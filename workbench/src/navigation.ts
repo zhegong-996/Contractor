@@ -5,6 +5,7 @@ export const titles = { inbox: '待我处理', work: '协作工单', knowledge: 
 export type View = keyof typeof titles;
 export type Route = { project: string; view: View; item?: string; tab?: string; run?: number; attempt?: number };
 export type TaskPreset = {
+  request?: string;
   agent?: string; parent?: string; topic?: string; material?: string[];
   personal?: boolean;
   lesson?: { id: string; title: string; ticket: string; metric: string; unit: string; baseline: number };

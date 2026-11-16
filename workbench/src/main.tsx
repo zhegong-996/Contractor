@@ -2,7 +2,7 @@ import { lazy, Suspense, useEffect, useRef, useState, type FormEvent } from 'rea
 import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query';
 import { ArrowRight, BookOpen, Bot, ChevronDown, CircleCheck, FolderKanban, Inbox, ListChecks, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Plug2, Plus } from 'lucide-react';
-import { api, useData, type Overview } from './api.ts';
+import { api, uid, useData, type Overview } from './api.ts';
 import { ActionContext, Avatar, Failure, Field, IconButton, Loading, Logo, Modal, useActions } from './ui.tsx';
 import { Button } from './paperclip/button.tsx';
 import { Input } from './paperclip/input.tsx';
@@ -60,7 +60,7 @@ function useNarrow() {
   return narrow;
 }
 
-function Navigation({ workspace, project, route, close }: PageProps & { close?: () => void }) {
+function Navigation({ workspace, project, route, close, newProject }: PageProps & { close?: () => void; newProject: () => void }) {
   const { run } = useActions();
   const query = useQueryClient();
   const [expanded, setExpanded] = useState(true);
@@ -78,6 +78,7 @@ function Navigation({ workspace, project, route, close }: PageProps & { close?: 
       <button className="group-toggle" type="button" aria-expanded={expanded} onClick={() => setExpanded(value => !value)}>
         <span>项目</span><ChevronDown size={15} className={expanded ? '' : '-rotate-90'} />
       </button>
+      {workspace.canCreateProject && <button className="nav-row" type="button" onClick={() => { close?.(); newProject(); }}><Plus size={16} />新建项目</button>}
       {expanded && <nav aria-label="可访问项目">{workspace.projects.map(item => <a className={'nav-row project-row' + (item.parent ? ' project-child' : '')}
         key={item.id} href={routeFor(item.id, 'project')} aria-current={item.id === project.id && route.view === 'project' ? 'page' : undefined}
         data-selected={item.id === project.id || undefined} onClick={close}>
@@ -104,6 +105,26 @@ function Navigation({ workspace, project, route, close }: PageProps & { close?: 
   </div>;
 }
 
+function NewProject({ workspace, close }: { workspace: Overview; close: () => void }) {
+  const { run, busy } = useActions();
+  const [nonce] = useState(uid);
+  const parents = workspace.projects.filter(project => project.maintain);
+  return <Modal title="新建项目" close={close}><form className="form" onSubmit={async event => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const result = await run(() => api<{ id: string }>('project', {
+      nonce, title: String(form.get('title')).trim(), parent: form.get('parent') || undefined,
+    }), '项目已创建');
+    if (result) { go(result.id, 'project', undefined, 'structure'); close(); }
+  }}>
+    <Field label="项目名称"><Input name="title" autoFocus maxLength={100} required /></Field>
+    {!!parents.length && <Field label="上级项目"><select name="parent"><option value="">独立项目</option>
+      {parents.map(project => <option value={project.id} key={project.id}>{project.title}</option>)}
+    </select></Field>}
+    <div className="form-actions"><Button disabled={busy} type="submit">创建</Button></div>
+  </form></Modal>;
+}
+
 function Workspace() {
   const overview = useData<Overview>('overview', 2600);
   const requested = useRoute();
@@ -111,19 +132,25 @@ function Workspace() {
   const narrow = useNarrow();
   const [drawer, setDrawer] = useState(false);
   const [composer, setComposer] = useState<TaskPreset | null>(null);
+  const [creatingProject, setCreatingProject] = useState(false);
   const { error, clearError } = useActions();
   useEffect(() => { clearError(); }, [requested.project, requested.view, requested.item]);
   const workspace = overview.data;
   if (overview.error) return <div className="app-placeholder"><Failure error={overview.error} retry={() => void overview.refetch()} /></div>;
   if (!workspace) return <Loading />;
   const project = workspace.projects.find(p => p.id === requested.project) ?? workspace.projects[0];
-  if (!project) return <div className="app-placeholder"><Failure error={new Error('当前账号尚未加入项目。')} /></div>;
+  const newProject = () => setCreatingProject(true);
+  const projectModal = creatingProject && <NewProject workspace={workspace} close={() => setCreatingProject(false)} />;
+  if (!project) return <div className="app-placeholder">
+    <Failure error={new Error('当前账号尚未加入项目。')} />
+    {workspace.canCreateProject && <Button onClick={newProject}>新建项目</Button>}{projectModal}
+  </div>;
   const route = { ...requested, project: project.id, item: requested.project && requested.project !== project.id ? undefined : requested.item };
   const props = { workspace, project, route, openTask: (preset: TaskPreset = {}) => { clearError(); setComposer(preset); } };
   const Page = { inbox: InboxPage, work: WorkPage, knowledge: KnowledgePage, agents: AgentsPage, project: ProjectPage, accounts: AccountsPage }[route.view];
   return <div className="shell" data-collapsed={collapsed || undefined}>
-    {!narrow && <SidebarShell open collapsed={collapsed} resizable storageKey="suitme.sidebar.width" className="suitme-sidebar"><Navigation {...props} /></SidebarShell>}
-    {narrow && drawer && <Modal title="工作台导航" close={() => setDrawer(false)}><Navigation {...props} close={() => setDrawer(false)} /></Modal>}
+    {!narrow && <SidebarShell open collapsed={collapsed} resizable storageKey="suitme.sidebar.width" className="suitme-sidebar"><Navigation {...props} newProject={newProject} /></SidebarShell>}
+    {narrow && drawer && <Modal title="工作台导航" close={() => setDrawer(false)}><Navigation {...props} newProject={newProject} close={() => setDrawer(false)} /></Modal>}
     <div className="workspace">
       <header className="toolbar">
         <IconButton label={narrow ? '打开导航' : collapsed ? '展开侧栏' : '收起侧栏'} className="sidebar-toggle"
@@ -143,6 +170,7 @@ function Workspace() {
       </main>
     </div>
     {composer && <Composer {...props} preset={composer} close={() => setComposer(null)} />}
+    {projectModal}
   </div>;
 }
 

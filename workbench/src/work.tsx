@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef, useState } from 'react';
 import { ArrowLeft, ArrowRight, Bot, Check, ChevronRight, CircleCheck, FileCheck2, GitBranch, GitPullRequest, History, Link2, ListChecks, LockKeyhole, PanelRightClose, PanelRightOpen, Plus, ShieldCheck } from 'lucide-react';
 import { api, uid, useData, type DeviceRow, type Knowledge, type Snapshot, type Ticket } from './api.ts';
 import { AgentOptions, MaterialPicker } from './creation.tsx';
+import { Conversation } from './conversation.tsx';
 import { go, routeFor, type PageProps } from './navigation.ts';
 import { Button } from './paperclip/button.tsx';
 import { Input } from './paperclip/input.tsx';
@@ -122,6 +123,7 @@ function TicketDetail(props: PageProps & { ticket: Ticket; tab: WorkTab }) {
             {ticket.questions.map(question => <Question ticket={ticket.id} key={question.id} question={question} />)}
           </section>}
           <Timeline {...props} ticket={ticket} />
+          <Conversation {...props} ticket={ticket.id} topic={ticket.work.topic} canReplyInFeishu={ticket.canReplyInFeishu} />
           {ticket.report && !ticket.result && !ticket.questions.length && !status && <div className="info-callout"><Bot size={17} /><span>{ticket.report.summary}</span></div>}
           {(canResume || actions.handoff || actions.stop) && <div className="actions context-actions">
             {canResume && <Button variant="outline" size="sm" onClick={() => setDialog('resume')}>{ticket.materialHidden ? '重新申请查阅' : '接续执行'}</Button>}

@@ -3,8 +3,6 @@ import { createInterface } from 'node:readline';
 import { promisify } from 'node:util';
 import { z } from 'zod';
 
-const eventKey = 'im.message.receive_v1';
-const readyMarker = '[event] ready event_key=' + eventKey;
 const execute = promisify(execFile);
 async function isConsumerProcess(pid: number, launcher: number | undefined) {
   // The npm CLI launcher starts the native subscriber as a child. Match its ancestry,
@@ -22,7 +20,9 @@ const busStatus = z.object({ apps: z.array(z.object({ running: z.boolean(), stat
 })) });
 
 export function watchFeishu(profile: string, receive: (line: string) => void, log: (message: string) => void,
-  options: { healthIntervalMs?: number; onReady?: () => void } = {}) {
+  options: { healthIntervalMs?: number; onReady?: () => void; event?: 'card.action.trigger' } = {}) {
+  const eventKey = options.event ?? 'im.message.receive_v1';
+  const readyMarker = '[event] ready event_key=' + eventKey;
   let child: ChildProcessWithoutNullStreams | undefined;
   let retry: ReturnType<typeof setTimeout> | undefined;
   let state: 'connecting' | 'ready' | 'reconnecting' | 'stopped' = 'connecting';
@@ -36,6 +36,7 @@ export function watchFeishu(profile: string, receive: (line: string) => void, lo
   let probing = false;
   let failedProbes = 0;
   let lostEvents = 0;
+  let issue: 'callback-subscription-required' | undefined;
   const environment = { ...process.env, LARKSUITE_CLI_NO_UPDATE_NOTIFIER: '1', LARKSUITE_CLI_NO_SKILLS_NOTIFIER: '1' };
 
   // The official CLI exposes local bus and consumer health, not a remote websocket heartbeat.
@@ -94,9 +95,14 @@ export function watchFeishu(profile: string, receive: (line: string) => void, lo
     consumer.on('error', () => { if (!closed) state = 'reconnecting'; });
     consumer.on('exit', () => { if (!closed) state = 'reconnecting'; });
     createInterface({ input: consumer.stderr }).on('line', line => {
+      if (options.event && line.includes('requires callbacks not subscribed in console') && !issue) {
+        issue = 'callback-subscription-required';
+        log('请在飞书开放平台开启卡片回传交互。');
+      }
       if (closed || connected || consumer.exitCode !== null || consumer.signalCode !== null || line.trim() !== readyMarker) return;
       clearTimeout(startup);
       connected = true;
+      issue = undefined;
       state = 'ready';
       health = 'unknown';
       failedProbes = 0;
@@ -120,7 +126,7 @@ export function watchFeishu(profile: string, receive: (line: string) => void, lo
 
   launch();
   return {
-    status: () => ({ state, attempt, readyAt, disconnectedAt, busHealth: health, checkedAt, lostEvents }),
+    status: () => ({ state, attempt, readyAt, disconnectedAt, busHealth: health, checkedAt, lostEvents, ...(issue && { issue }) }),
     close() {
       closed = true;
       state = 'stopped';

@@ -39,6 +39,7 @@ import { Discussions, confirmedDiscussionDestination, digestAgentId, digestPropo
 import { discussionThread, readDiscussionDocuments, readDiscussionHistory, readDiscussionThread, refreshDiscussionMessages, type DiscussionInput, type SourceFact } from './discussion-intake.ts';
 import { githubReferenceDetails, recentGithubWork } from './github-intake.ts';
 import { HumanDecisions, type HumanDecision, type HumanDecisionKind } from './human-decisions.ts';
+import { cardContent, FeishuDecisionCards, type CardTransport, type readCardClick } from './feishu-cards.ts';
 import { AgentBudgets, type BudgetPool, type BudgetPeriod } from './agent-budget.ts';
 import { Devices, deviceHome, type Device, type DeviceState, type DeviceJob, type ReleasedLease, type RemoteStop } from './devices.ts';
 
@@ -122,8 +123,31 @@ type IntakeDecision = { action: 'link'; ticket: string }
   | { action: 'topic'; topic: string }
   | { action: 'dismiss' };
 
-export async function openCollaboration(config: Settings, auth: ConsoleAuth, send?: (message: import('../../upstream/superagent/src/core/index.ts').OutboundMessage) => Promise<'sent' | 'gone'>) {
+export async function openCollaboration(config: Settings, auth: ConsoleAuth, send?: (message: import('../../upstream/superagent/src/core/index.ts').OutboundMessage) => Promise<'sent' | 'gone'>, cardTransport?: CardTransport) {
   const store = await openSuperAgentStore(runtime('orchestrator.sqlite'));
+  store.db.exec(`
+    CREATE TABLE IF NOT EXISTS workbench_created_project (id TEXT PRIMARY KEY, value TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS workbench_project_member (project TEXT NOT NULL, member TEXT NOT NULL, PRIMARY KEY(project,member));
+    CREATE TABLE IF NOT EXISTS workbench_project_agent (project TEXT NOT NULL, agent TEXT NOT NULL, owner TEXT NOT NULL, PRIMARY KEY(project,agent));
+    CREATE TABLE IF NOT EXISTS workbench_conversation_message (
+      id TEXT PRIMARY KEY, project TEXT NOT NULL, scope TEXT NOT NULL, actor TEXT NOT NULL, text TEXT NOT NULL, at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS workbench_conversation_scope ON workbench_conversation_message(project,scope);
+  `);
+  const createdProjects = store.db.prepare('SELECT value FROM workbench_created_project ORDER BY rowid').all()
+    .map(row => JSON.parse(String(row.value)) as Project);
+  const projectMembers = store.db.prepare('SELECT project,member FROM workbench_project_member ORDER BY rowid').all();
+  const projectAgents = store.db.prepare('SELECT project,agent,owner FROM workbench_project_agent ORDER BY rowid').all();
+  const configuredAgentProjects = new Map(config.agents.map(a => [a.id, a.projects]));
+  const projects = [...config.projects, ...createdProjects.filter(p => !config.projects.some(existing => existing.id === p.id))];
+  for (const p of projects) for (const row of projectMembers) {
+    if (row.project === p.id && !p.members.includes(String(row.member))) p.members.push(String(row.member));
+  }
+  config = { ...config,
+    projects,
+    agents: config.agents.map(a => ({ ...a, projects: [...new Set([...a.projects, ...projectAgents.filter(row => row.agent === a.id && row.owner === a.owner)
+      .map(row => String(row.project))])] })),
+  };
   const effects = await openSuperAgentEffects(store);
   const knowledge = new ProjectKnowledge(store);
   const delegations = new Delegations(store.db);
@@ -134,6 +158,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
   const devices = new Devices(store.db);
   const links = new ChannelLinks(store.db);
   const decisions = new HumanDecisions(store.db);
+  const feishuCards = new FeishuDecisionCards(store.db);
   const discussions = new Discussions(store);
   const reader = new FeishuSources();
   const figma = new FigmaSources();
@@ -196,6 +221,90 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     return project;
   };
   const maintain = (p: Project, actor: string) => p.maintainers.includes(actor) && mayStart(p, actor);
+  const mayCreateProject = (actor: string) => !!account(actor) && rbacEnforce('user:' + actor, 'task-control');
+  function createProject(actor: string, input: { nonce: string; title: string; parent?: string }) {
+    if (!mayCreateProject(actor)) throw new WorkbenchError('当前账号没有创建项目的权限。', 403);
+    if (input.parent && !maintain(projectFor(input.parent, actor), actor)) throw new WorkbenchError('由上级项目维护人建立子项目。', 403);
+    const id = 'project-' + key('project-create', actor, input.nonce);
+    const prior = projectById.get(id);
+    if (prior) {
+      if (prior.title !== input.title || prior.parent !== input.parent) throw new WorkbenchError('这次项目创建请求已被使用。', 409);
+      return { id };
+    }
+    const project: Project = { id, title: input.title, parent: input.parent, members: [actor], maintainers: [actor],
+      relatedProjects: [], delegations: [], dispatch: [], responsibilities: [], topics: [], resources: [] };
+    store.atomic(() => {
+      store.db.prepare('INSERT INTO workbench_created_project VALUES (?,?)').run(id, JSON.stringify(project));
+      audit(id, 'project.created', { actor, parent: input.parent });
+    });
+    projectById.set(id, project);
+    config.projects.push(project);
+    return { id };
+  }
+
+  function addProjectMember(actor: string, id: string, person: string) {
+    const project = projectFor(id, actor);
+    if (!maintain(project, actor)) throw new WorkbenchError('由项目维护人添加成员。', 403);
+    if (!account(person)) throw new WorkbenchError('找不到已启用的工作台账号。', 404);
+    if (project.members.includes(person)) return;
+    store.atomic(() => {
+      store.db.prepare('INSERT INTO workbench_project_member VALUES (?,?)').run(id, person);
+      audit(id, 'project.member-added', { actor, member: person });
+    });
+    project.members.push(person);
+  }
+
+  function addProjectAgent(actor: string, id: string, agentId: string) {
+    const project = projectFor(id, actor);
+    const agent = agentById.get(agentId);
+    if (!agent || agent.owner !== actor || !mayStart(project, actor))
+      throw new WorkbenchError('由 Agent 所有者将自己的 Agent 加入项目。', 403);
+    if (agent.projects.includes(id)) return;
+    store.atomic(() => {
+      store.db.prepare('INSERT INTO workbench_project_agent VALUES (?,?,?)').run(id, agentId, actor);
+      audit(id, 'project.agent-added', { actor, agent: agentId });
+    });
+    agent.projects.push(id);
+  }
+
+  function conversationScope(project: Project, actor: string, input: { topic?: string; ticket?: string }) {
+    if (input.ticket) {
+      if (ticketFor(input.ticket, actor).project.id !== project.id) throw new WorkbenchError('找不到工单讨论。', 404);
+      return 'ticket:' + input.ticket;
+    }
+    if (!input.topic) return 'project';
+    if (!topicsFor(project).some(topic => topic.id === input.topic)) throw new WorkbenchError('找不到项目主题。', 404);
+    return 'topic:' + input.topic;
+  }
+
+  function conversationRows(project: string, scope: string, pageSize = 100) {
+    return (store.db.prepare(`SELECT id,actor,text,at FROM workbench_conversation_message
+      WHERE project=? AND scope=? ORDER BY rowid DESC LIMIT ?`).all(project, scope, pageSize) as { id: string; actor: string; text: string; at: string }[]).reverse();
+  }
+
+  function conversation(actor: string, id: string, target: { topic?: string; ticket?: string }) {
+    const project = projectFor(id, actor);
+    return conversationRows(id, conversationScope(project, actor, target));
+  }
+
+  function postConversation(actor: string, id: string, input: { topic?: string; ticket?: string; text: string; nonce: string; feishu?: boolean }) {
+    const project = projectFor(id, actor);
+    if (!mayStart(project, actor)) throw new WorkbenchError('当前账号没有发言权限。', 403);
+    const scope = conversationScope(project, actor, input);
+    if (sensitiveFeishuText.test(input.text)) throw new WorkbenchError('请移除敏感凭据后再发到项目讨论。', 400);
+    const message = key('conversation', id, scope, actor, input.nonce);
+    const thread = input.feishu && input.ticket && feishuDiscussionThread(input.ticket, project);
+    if (input.feishu && (!thread || !send)) throw new WorkbenchError('这张工单目前不能向飞书同步公开讨论。', 409);
+    const prior = store.db.prepare('SELECT text FROM workbench_conversation_message WHERE id=?').get(message);
+    if (prior && prior.text !== input.text) throw new WorkbenchError('这条发送请求已被使用，请重试。', 409);
+    store.atomic(() => {
+      const inserted = store.db.prepare('INSERT OR IGNORE INTO workbench_conversation_message VALUES (?,?,?,?,?,?)')
+        .run(message, id, scope, actor, input.text, new Date().toISOString());
+      if (inserted.changes && thread) queueReply({ id: key('conversation-reply', message), ticketId: input.ticket, kind: 'reply',
+        channel: { ...thread, address: { ...thread.address, conversationAuthor: actor } }, text: '**' + actor + '**\n' + input.text });
+    });
+    return { id: message };
+  }
   const relatedProjects = (a: Project, b: Project) => {
     const ancestor = (child: Project, parent: Project) => {
       for (let id = child.parent; id; id = projectById.get(id)?.parent) if (id === parent.id) return true;
@@ -215,7 +324,8 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       return { ...ref, state: (configured?.id ?? saved?.project) === p.id ? 'bound' as const : 'observe' as const };
     });
     const extra = store.db.prepare('SELECT value FROM workbench_project_resource WHERE project=? ORDER BY rowid')
-      .all(p.id).map(row => JSON.parse(String(row.value)) as ProjectResource);
+      .all(p.id).map(row => JSON.parse(String(row.value)) as ProjectResource)
+      .filter(ref => ref.source !== 'feishu' || !routesEvents(ref) || config.feishu?.allowedGroups?.includes(ref.externalId));
     return [...refs.filter(ref => ref.knowledge || !extra.some(item => sameResource(item, ref))),
       ...extra.filter(ref => !refs.some(item => item.knowledge && sameResource(item, ref)))];
   };
@@ -242,6 +352,26 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
   const boundProject = (source: string, externalId: string) => config.projects.find(p => availableRefs(p).some(ref =>
     ref.source === source && routesEvents(ref) && ref.state === 'bound'
     && canonicalResourceId(ref.source, ref.externalId) === canonicalResourceId(ref.source, externalId)));
+  const feishuTopic = (project: Project, chat: string) => availableRefs(project).find(ref =>
+    ref.source === 'feishu' && ref.externalId === chat && ref.state === 'bound')?.topic;
+
+  function bindFeishuGroup(actor: string, id: string, input: { chat: string; label: string; topic?: string }) {
+    const project = projectFor(id, actor);
+    if (!maintain(project, actor) || account(actor)?.role !== 'owner' || !config.feishu?.allowedGroups?.includes(input.chat))
+      throw new WorkbenchError('由工作台所有者绑定已获准接入的飞书群。', 403);
+    if (input.topic && !topicsFor(project).some(topic => topic.id === input.topic)) throw new WorkbenchError('请选择当前项目的主题。');
+    const previous = boundProject('feishu', input.chat);
+    if (previous && previous.id !== id) throw new WorkbenchError('飞书群已绑定另一项目。', 409);
+    if (project.resources.some(ref => ref.source === 'feishu' && ref.externalId === input.chat))
+      throw new WorkbenchError('这个飞书群由项目配置管理。', 409);
+    const ref: ProjectResource = { source: 'feishu', externalId: input.chat, label: input.label, purpose: 'discussion',
+      state: 'bound', topic: input.topic, url: 'https://applink.feishu.cn/client/chat/open?openChatId=' + encodeURIComponent(input.chat) };
+    store.atomic(() => {
+      store.db.prepare('INSERT OR REPLACE INTO workbench_project_resource VALUES (?,?,?)')
+        .run(id, resourceView(id, ref).ref, JSON.stringify(ref));
+      audit(id, 'resource.feishu-bound', { actor, chat: input.chat, topic: input.topic });
+    });
+  }
   const mayStart = (p: Project, actor: string) => member(p, actor) && rbacEnforce('user:' + actor, 'task-control');
   const agentEnabled = (a: Agent) => {
     const row = store.db.prepare('SELECT active FROM workbench_agent WHERE id=?').get(a.id);
@@ -309,7 +439,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
   function intakeOwner(project: Project) {
     return [project.decisionOwner, ...project.maintainers].find((name): name is string => !!name && maintain(project, name));
   }
-  const version = (a: Agent) => digest(a);
+  const version = (a: Agent) => digest({ ...a, projects: configuredAgentProjects.get(a.id) });
   const discussionSources = (project: Project) => project.discussion ? availableRefs(project).filter(ref =>
     ref.source === 'feishu' && ref.state === 'bound' && routesEvents(ref) && ref.digest) : [];
   const digestProjects = new Map(config.projects.filter(p => p.discussion).map(p => [discussionRule(p.id), p]));
@@ -373,6 +503,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
   function closeDecision(kind: HumanDecisionKind, subject: string) {
     for (const decision of decisions.subject(kind, subject)) {
       decisions.close(decision);
+      if (cardTransport && feishuCards.get(decision.id)) effects.enqueue('reply', 'card:' + decision.id, {});
       if (store.replyStatus(decisionReceipt(decision)) === 'pending') store.receipts.withdraw(decisionReceipt(decision));
     }
   }
@@ -732,8 +863,23 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
   }
 
   effects.handle('reply', async (_payload, id) => {
+    if (id.startsWith('card:')) {
+      const card = feishuCards.get(id.slice(5));
+      if (cardTransport && card?.ref) await cardTransport.update(card.ref, cardContent({ ...card, outcome: card.outcome ?? '已在工作台处理' }));
+      return;
+    }
     const message = store.receipts.get(id);
     if (!message || store.replyStatus(id) !== 'pending') return;
+    const author = message.channel.address.conversationAuthor;
+    if (author) {
+      const work = message.ticketId && workOf(message.ticketId);
+      const project = work && projectById.get(work.project);
+      const thread = project && feishuDiscussionThread(message.ticketId!, project);
+      if (!project || !mayStart(project, author) || !thread || thread.address.messageId !== message.channel.address.messageId) {
+        store.receipts.withdraw(id);
+        return;
+      }
+    }
     const decisionId = message.channel.address.decision;
     let outgoing = message;
     if (decisionId) {
@@ -745,10 +891,97 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       const notice = message.text.replace(/\n本机待办 http:\/\/127\.0\.0\.1:\d+\/api\/needs-you$/, '');
       const inbox = config.workbenchPublicUrl && config.workbenchPublicUrl + '/#/' + encodeURIComponent(record.project) + '/inbox';
       outgoing = { ...message, text: inbox ? notice + '\n打开项目待办 ' + inbox : notice };
+      const existing = feishuCards.get(decisionId);
+      if (existing?.ref) {
+        store.receipts.settle(message, 'sent');
+        return;
+      }
+      if (existing && cardTransport?.available?.() === false) throw new Error('等待飞书卡片订阅恢复后确认原卡');
+      const plan = cardTransport && cardTransport.available?.() !== false && cardPlan(record);
+      if (cardTransport && plan) {
+        const card = feishuCards.register({ decision: decisionId, title: record.title, ...plan.fields });
+        if (!card.ref) {
+          const sent = await cardTransport.send(plan.target, message.id, cardContent(card));
+          feishuCards.save({ ...card, ...sent });
+          if (!decisionAllowed(decisions.get(decisionId)!, record.member)) effects.enqueue('reply', 'card:' + decisionId, {});
+        }
+        store.receipts.settle(message, 'sent');
+        return;
+      }
     }
     const outcome = send && message.channel.source === 'feishu' ? await send(outgoing) : 'gone';
     store.receipts.settle(message, outcome === 'sent' ? 'sent' : 'channelGone');
   });
+
+  function cardPlan(decision: HumanDecision) {
+    if (!decision.ticket) return;
+    const work = workOf(decision.ticket);
+    const ticket = store.tickets.get(decision.ticket);
+    const user = dmAccount(decision.member)?.id;
+    if (!work || !ticket || !user) return;
+    const output = readableOutput(ticket.id);
+    const question = decision.kind === 'answer' && cardsFor(ticket.id).find(item => item.id === decision.card);
+    const answerOptions: string[] = question ? JSON.parse(question.options) : [];
+    const sensitive = work.material.some(id => knowledge.get(id)?.visibility !== 'project');
+    const options = decision.kind === 'development' ? ['确认接单'] : decision.kind === 'access' ? ['授权本工单']
+      : decision.kind === 'acceptance' && output ? ['验收当前版本']
+      : question && !sensitive && decision.detail && !sensitiveFeishuText.test([question.title, question.text, ...answerOptions].join('\n'))
+        ? answerOptions : [];
+    if (!options.length || options.length > 8) return;
+    const project = projectById.get(work.project)!;
+    const channel = !sensitive && decision.kind !== 'access' && (!question || decision.member === work.requester)
+      ? ticket.channels.find(c => c.source === 'feishu' && !c.address.direct && c.address.messageId
+        && boundProject('feishu', c.address.chatId ?? '')?.id === project.id) : undefined;
+    const outputVersion = decision.kind === 'acceptance' && output ? ' · 第 ' + (work.version ?? 1) + ' 版' : '';
+    const title = !sensitive && !sensitiveFeishuText.test(ticket.title) ? ticket.title.slice(0, 130) : '工单 ' + ticket.id.slice(0, 8);
+    const text = [plainCardText(title + outputVersion), ...(question ? [plainCardText(question.title + '\n' + question.text)] : []),
+      channel ? '<at id=' + user + '></at> 请确认。' : '请确认。'].join('\n\n');
+    return { target: channel ? { message: channel.address.messageId! } : { user },
+      fields: { text, options, group: !!channel,
+        ...(decision.kind === 'acceptance' && output ? { revision: output.revision, commit: work.delivery?.headSha } : {}) } };
+  }
+
+  const workingCards = new Set<number>();
+  async function clickFeishuCard(event: ReturnType<typeof readCardClick>): Promise<{ changed: boolean }> {
+    const card = feishuCards.get(event.card);
+    const decision = card && decisions.get(card.decision);
+    const binding = decision && dmAccount(decision.member);
+    if (!config.feishu || !card || !decision || binding?.id !== event.operator || card.ref !== event.ref || card.chat !== event.chat
+      || card.group && boundProject('feishu', event.chat)?.id !== decision.project
+      || !member(projectById.get(decision.project), decision.member)) throw new WorkbenchError('你不能处理这张卡片。', 403);
+    if (decision.closedAt || card.outcome || workingCards.has(card.id)) return { changed: false };
+    if (!decision.ticket || !decisionAllowed(decision, decision.member) || !card.options[event.choice])
+      throw new WorkbenchError('卡片或工单版本已失效。', 409);
+    workingCards.add(card.id);
+    try {
+      const actor = decision.member;
+      const id = decision.ticket;
+      if (decision.kind === 'answer') {
+        const trigger = { id: key('feishu-card-answer', card.decision), source: 'feishu', actor: { source: 'feishu', id: actor },
+          human: true, addressed: 'direct' as const, at: new Date().toISOString(), text: String(event.choice + 1), threads: [], meta: {} };
+        answerDecision(actor, card.decision, trigger.text, trigger);
+      } else if (decision.kind === 'development') approveDevelopment(actor, id, decision.id);
+      else if (decision.kind === 'access') api.changeAccess(actor, id, decision.subject, 'granted');
+      else if (decision.kind === 'acceptance' && card.revision) await api.accept(actor, id, card.revision, '', '', card.commit);
+      else throw new WorkbenchError('这个事项需要在工作台核对。', 409);
+      store.atomic(() => {
+        feishuCards.save({ ...card, chosen: event.choice, outcome: '已处理' });
+        effects.enqueue('reply', 'card:' + decision.id, {});
+        audit(id, 'feishu.card-acted', { actor, decision: decision.id, message: event.ref, event: event.nonce });
+      });
+      return { changed: true };
+    } finally { workingCards.delete(card.id); }
+  }
+
+  function plainCardText(value: string) {
+    return value.replace(/[\\`*_~<>[\]]/g, ' ').replace(/https?:\/\/\S+/gi, '[链接请在工单内查看]');
+  }
+
+  function feishuDiscussionThread(id: string, project: Project) {
+    if (workOf(id)?.material.some(material => knowledge.get(material)?.visibility !== 'project')) return;
+    return store.tickets.get(id)?.channels.find(channel => channel.source === 'feishu' && !channel.address.direct
+      && channel.address.messageId && boundProject('feishu', channel.address.chatId ?? '')?.id === project.id);
+  }
 
   effects.handle('delivery', async ({ ticketId, assignmentId }) => {
     const ticket = store.tickets.get(ticketId);
@@ -1348,6 +1581,10 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
         ...job.context.events.map(event => continuationEvent && event.id === key('assignment-input', a.id, continuationEvent.id)
           ? { ...event, detail: '原工单开启了下一版。请依据本轮选定的资料重新核对。' } : event),
         { id: opening.id, type: 'task.request', source: work.source, sourceName: '原始需求', subject: ticket.id, summary: ticket.title, detail: opening.text, receivedAt: opening.at, link: '' },
+        ...conversationRows(project.id, 'ticket:' + ticket.id, 16).filter(row => member(project, row.actor)).map(row => ({
+          id: row.id, type: 'task.discussion', source: 'suitme', sourceName: '工单讨论', subject: ticket.id,
+          summary: row.actor + ' 的补充', detail: row.text.slice(0, 1500), receivedAt: row.at, link: '',
+        })),
         ...confirmed.map(card => ({ id: 'confirmation:' + card.id, type: 'task.confirmation', source: 'suitme', sourceName: '已确认口径',
           subject: ticket.id, summary: card.title, detail: JSON.stringify({ question: card.text,
             answer: card.choice === null ? card.answer : JSON.parse(card.options)[card.choice], by: card.by, at: card.decided_at,
@@ -1963,6 +2200,26 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       }
       if (event.revision) links.revise(event.trigger.id, event.revision, event.request, share);
     });
+  }
+
+  function receiveFeishuReply(input: DiscussionInput, projectId: string) {
+    if (!input.trigger.human || input.trigger.meta.direct) return false;
+    const actor = links.member(input.sender, input.trigger.at);
+    const project = projectById.get(projectId);
+    if (!actor || !project || !member(project, actor)) return false;
+    const prior = links.event(input.trigger.id);
+    if (prior) return !!prior.ticket && prior.request.project === projectId;
+    const targets = [input.origin, ...[input.trigger.meta.parentId, input.trigger.meta.rootId].flatMap(ref =>
+      typeof ref === 'string' ? [messageRef(feishuTriggerId(ref))] : [])];
+    const matched = routingMatch(project, actor, targets);
+    if (!matched.ticket || matched.reason || workOf(matched.ticket)?.project !== project.id) return false;
+    const text = input.trigger.text.trim();
+    if (!text || text.length > 3500 || sensitiveFeishuText.test(text)) return false;
+    store.atomic(() => {
+      linkOrigin(messageRef(input.trigger.id, input.trigger.url), matched.ticket!);
+      links.record({ ...input, project: projectId, agent: '', request: text, note: true }, actor, { ticket: matched.ticket! });
+    });
+    return true;
   }
 
   function mayReviewChannel(project: Project, actor: string, pending: NonNullable<ReturnType<typeof links.getPending>>) {
@@ -3126,6 +3383,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     };
     return { id, title: ticket.title, project: project.id, work: { ...visibleWork, continuation: visibleContinuation }, origin: opening.id, request: opening.text,
       createdAt: ticket.createdAt, history, report, children, related, actions, endReason: ticket.ended?.outcome,
+      canReplyInFeishu: !!send && mayStart(project, actor) && !!feishuDiscussionThread(id, project),
       device: selectedDevice && { id: selectedDevice.id, name: selectedDevice.name, online: devices.online(selectedDevice), active: selectedDevice.active },
       topicTitle: topicsFor(project).find(topic => topic.id === work.topic)?.title,
       mayLinkDelivery: !work.accepted && deliveryTargets(project).some(ref => canAttach(project, ref, actor, work.requester)),
@@ -3631,7 +3889,9 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
         result: !!subject.result, needsObservation, nextReview: subject.timers[0]?.at, waitingAccess: needed(ticket.id, work) && !ticket.ended, blocked: subject.report?.state === 'blocked' }];
     }).sort((a, b) => Number(b.attention) - Number(a.attention)
       || Number(b.work.priority === 'urgent') - Number(a.work.priority === 'urgent') || b.updatedAt.localeCompare(a.updatedAt));
-    return { actor, crossChannel: !!config.crossChannel, needsYou: needsYou(actor),
+    return { actor, crossChannel: !!config.crossChannel, needsYou: needsYou(actor), canCreateProject: mayCreateProject(actor),
+      feishuGroups: account(actor)?.role === 'owner' ? (config.feishu?.allowedGroups ?? []).filter(chat => !boundProject('feishu', chat)) : [],
+      ownAgents: config.agents.filter(agent => agent.owner === actor).map(({ id, title, projects }) => ({ id, title, projects })),
       projects: projects.map(p => ({ id: p.id, title: p.title, parent: p.parent && ids.has(p.parent) ? p.parent : undefined,
         relatedProjects: projects.filter(target => target.id !== p.id && relatedProjects(target, p)
           && (p.relatedProjects.includes(target.id) || target.relatedProjects.includes(p.id))).map(target => target.id),
@@ -3675,8 +3935,9 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     }).catch(error => console.error('SuitMe 执行状态：', String(error))).finally(() => { busy = false; });
   }, 700);
 
-  return {
+  const api = {
     start, reply, resume, revise, approveDevelopment, respondDevelopment, reofferDevelopment, overview, detail, executionSnapshot, boundProject, recordObservation,
+    createProject, addProjectMember, addProjectAgent, clickFeishuCard, conversation, postConversation, receiveFeishuReply, bindFeishuGroup, feishuTopic,
     receiveChannel, receiveNote, resolveChannel, resolveChannelFromHttp, channelView, confirmAccount, refreshDelivery, refreshIssue,
     rememberDiscussion, trackFeishuThread, refreshFeishuHistory, discussionView, discussionRevisions, resolveDiscussion, needsYou, answerDecision, resolveIntake, handoff,
     memoryHome, memoryUses, projectKnowledgeGraph, setMemoryPin, budgetPools, setBudget, issueDevicePair, pairDevice, projectDevices, deviceWork, deviceStarted, deviceResult,
@@ -4111,5 +4372,6 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       store.close();
     },
   };
+  return api;
 }
 export type Collaboration = Awaited<ReturnType<typeof openCollaboration>>;

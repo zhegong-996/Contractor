@@ -65,7 +65,8 @@ export const settingsSchema = z.object({
   projects: z.array(project).min(1),
   functions: z.array(z.object({ id, title, lead: id.optional() }).strict()).min(1),
   agents: z.array(agent),
-  feishu: z.object({ profile: z.string(), appId: z.string(), botId: z.string() }).strict().optional(),
+  feishu: z.object({ profile: z.string(), appId: z.string(), botId: z.string(), decisionCards: z.boolean().optional(),
+    allowedGroups: z.array(z.string().regex(/^oc_[a-zA-Z0-9_-]+$/)).max(100).optional() }).strict().optional(),
   crossChannel: z.object({
     githubPollSeconds: z.number().int().min(15).max(300).default(30),
   }).strict().optional(),
