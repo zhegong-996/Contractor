@@ -3,7 +3,7 @@ import type { Overview, Project } from './api.ts';
 
 export const titles = { inbox: '待我处理', work: '协作工单', knowledge: '知识与记忆', agents: 'Agent', project: '项目', accounts: '连接与账号' } as const;
 export type View = keyof typeof titles;
-export type Route = { project: string; view: View; item?: string; tab?: string; run?: number; attempt?: number };
+export type Route = { project: string; view: View; item?: string; tab?: string; run?: number; attempt?: number; revision?: string };
 export type TaskPreset = {
   request?: string;
   agent?: string; parent?: string; topic?: string; material?: string[];
@@ -24,6 +24,9 @@ export function go(project: string, view: View, item?: string, tab?: string) {
 export function runRoute(project: string, ticket: string, run: number, attempt: number) {
   return routeFor(project, 'work', ticket, 'context') + '&run=' + run + '&attempt=' + attempt;
 }
+export function deliveryVersionRoute(project: string, ticket: string, revision: string) {
+  return routeFor(project, 'work', ticket, 'delivery') + '&revision=' + encodeURIComponent(revision);
+}
 function subscribe(listener: () => void) {
   window.addEventListener('hashchange', listener);
   return () => window.removeEventListener('hashchange', listener);
@@ -39,6 +42,6 @@ export function useRoute(): Route {
       return Number.isSafeInteger(value) && value > 0 ? value : undefined;
     };
     return { project, view: Object.hasOwn(titles, view) ? view as View : 'inbox', item, tab: params.get('tab') ?? undefined,
-      run: positive('run'), attempt: positive('attempt') };
+      run: positive('run'), attempt: positive('attempt'), revision: params.get('revision') ?? undefined };
   } catch { return { project: '', view: 'inbox' }; }
 }

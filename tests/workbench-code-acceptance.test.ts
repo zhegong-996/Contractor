@@ -26,7 +26,7 @@ test('版本 CI 只采信当前 SHA 的原生 Actions 最新检查，缺少或�
   assert.deepEqual(pullChecks(sha, [check(1), check(2)]).checks.map(item => item.id), [2]);
 });
 
-test('代码单验收绑定本单运行提交、PR 分支基线与当前 CI，缺参数及外来交付均拒绝', { timeout: 25000 }, async t => {
+test('自定义 CI 门禁绑定本单运行提交、PR 分支基线与当前 CI，缺参数及外来交付均拒绝', { timeout: 25000 }, async t => {
   // Local admission regression: real native lifecycle, trusted ledger fixtures, mocked GitHub transport.
   // Live Codex, Git and GitHub evidence is collected separately by the integration journey.
   const oldPath = process.env.PATH;
@@ -55,11 +55,13 @@ test('代码单验收绑定本单运行提交、PR 分支基线与当前 CI，�
   await auth.ready();
   await auth.bootstrapOwner('owner', 'only-for-unit-test');
   await auth.createAccount('maker', 'only-for-unit-test', 'operator', 'owner');
+  const requiredName = 'store-mobile-layout';
+  const codeCheck = (id: number, change: Partial<PullCheck> = {}) => check(id, { name: requiredName, ...change });
   const config = settingsSchema.parse({
     feishu: { appId: 'app', botId: 'bot', profile: 'test' },
     projects: [{ id: 'store', title: '门店推荐理由', members: ['owner', 'maker'], maintainers: ['owner'],
       resources: [{ source: 'github', externalId: 'team/test', state: 'bound', contributors: ['owner', 'maker'],
-        execution: { base: 'main', paths: ['collab-pilot/'] } }] }],
+        execution: { base: 'main', paths: ['collab-pilot/'], requiredChecks: [{ name: requiredName, app: 'github-actions', appId: 15368 }] } }] }],
     functions: [{ id: 'delivery', title: '交付' }],
     agents: [{ id: 'review', title: '核对', projects: ['store'], active: true, owner: 'maker', function: 'delivery',
       kind: 'personal', execution: { kind: 'test', provider: 'fixture' }, engine: 'command', command: [process.execPath, fixture], capability: '核对推荐理由', skill: '核对' }],
@@ -96,7 +98,7 @@ test('代码单验收绑定本单运行提交、PR 分支基线与当前 CI，�
       base: { sha: base, ref: 'main', repo: repository }, head: { sha, ref: development.branch, repo: repository },
       user: identity, state: 'open', draft: false, merged: false, created_at: '2026-11-01T00:00:00Z',
       updated_at: '2026-11-01T00:00:00Z', merged_at: null, requested_reviewers: [], assignees: [], labels: [] },
-    commits: [{ sha, author: identity, committer: identity }], checks: [check(1)],
+    commits: [{ sha, author: identity, committer: identity }], checks: [codeCheck(1)],
   };
   const save = () => writeFile(remoteFile, JSON.stringify(remote));
   const accept = (commit?: string) => work.accept('owner', id, output.revision, '本轮范围', '', commit);
@@ -127,7 +129,12 @@ test('代码单验收绑定本单运行提交、PR 分支基线与当前 CI，�
   remote.pull.base.sha = foreign; await save();
   await assert.rejects(work.linkDelivery('owner', id, remote.pull.html_url), /本工单当前成果/);
   remote.pull.base.sha = base;
-  remote.checks = [check(1, { status: 'in_progress', conclusion: null })];
+  remote.checks = [check(99)];
+  await save();
+  await work.linkDelivery('owner', id, remote.pull.html_url);
+  assert.equal(work.detail('owner', id).deliveryStatus?.state, 'missing-evidence');
+  assert.equal(pending('owner', 'acceptance'), undefined);
+  remote.checks = [codeCheck(1, { status: 'in_progress', conclusion: null })];
   await save();
   await work.linkDelivery('owner', id, remote.pull.html_url);
   assert.equal(work.detail('owner', id).deliveryStatus?.state, 'ci-pending');
@@ -135,8 +142,8 @@ test('代码单验收绑定本单运行提交、PR 分支基线与当前 CI，�
   assert.equal(pending('maker', 'delivery'), undefined);
   await assert.rejects(accept(), /代码工单必须/);
   await assert.rejects(work.accept('maker', id, output.revision, '', '', sha), /原发起人验收/);
-  for (const checks of [[], [check(1, { head_sha: foreign })], [check(1), check(2, { status: 'in_progress', conclusion: null })],
-    [check(2, { conclusion: 'failure' })]]) {
+  for (const checks of [[], [codeCheck(1, { head_sha: foreign })], [codeCheck(1), codeCheck(2, { status: 'in_progress', conclusion: null })],
+    [codeCheck(2, { conclusion: 'failure' })]]) {
     remote.checks = checks; await save();
     await assert.rejects(accept(sha), /CI 已变化/);
     assert.equal(work.detail('owner', id).work.accepted, undefined);
@@ -150,7 +157,7 @@ test('代码单验收绑定本单运行提交、PR 分支基线与当前 CI，�
   assert.notEqual(failed.id, missing.id);
   assert.equal(messages.filter(message => message.channel.address.decision === failed.id).length, 1);
   assert.equal(pending('owner', 'acceptance'), undefined);
-  remote.checks = [check(3)];
+  remote.checks = [codeCheck(3)];
   remote.pull.head.sha = foreign; remote.commits[0]!.sha = foreign; await save();
   await assert.rejects(accept(sha), /CI 已变化/);
   await refresh();
@@ -172,9 +179,9 @@ test('代码单验收绑定本单运行提交、PR 分支基线与当前 CI，�
   assert.equal(messages.filter(message => message.channel.address.decision === ready.id).length, 1);
   assert.equal(pending('maker', 'delivery'), undefined);
   // A later failed attempt hides the review inbox item. Restoring green for the same output doesn't push again.
-  remote.checks = [check(4, { conclusion: 'failure' })]; await save(); await refresh();
+  remote.checks = [codeCheck(4, { conclusion: 'failure' })]; await save(); await refresh();
   assert.equal(pending('owner', 'acceptance'), undefined);
-  remote.checks = [check(5)]; await save(); await refresh();
+  remote.checks = [codeCheck(5)]; await save(); await refresh();
   assert.equal(pending('owner', 'acceptance')?.id, ready.id);
   assert.equal(messages.filter(message => message.channel.address.decision === ready.id).length, 1);
   const attempts = () => work.detail('owner', id).ciAttempts.filter(item => item.head_sha === sha);
@@ -187,10 +194,10 @@ test('代码单验收绑定本单运行提交、PR 分支基线与当前 CI，�
   assert.equal(accepted.delivery?.checks?.[0]?.id, 5);
   assert.equal(accepted.delivery?.checks?.[0]?.head_sha, sha);
   // A CI rerun on a signed SHA is also tracked. It cannot change the recorded acceptance.
-  remote.checks = [check(6, { status: 'in_progress', conclusion: null })]; await save(); await refresh();
+  remote.checks = [codeCheck(6, { status: 'in_progress', conclusion: null })]; await save(); await refresh();
   assert.equal(attempts().find(item => item.id === 6)?.status, 'in_progress');
-  remote.checks = [check(6, { conclusion: 'failure' })]; await save(); await refresh();
-  remote.checks = [check(6, { status: 'queued', conclusion: null })]; await save(); await refresh();
+  remote.checks = [codeCheck(6, { conclusion: 'failure' })]; await save(); await refresh();
+  remote.checks = [codeCheck(6, { status: 'queued', conclusion: null })]; await save(); await refresh();
   assert.deepEqual(attempts().filter(item => [4, 5, 6].includes(item.id)).map(item => [item.id, item.conclusion]),
     [[6, 'failure'], [5, 'success'], [4, 'failure']]);
   assert.equal(work.detail('owner', id).work.delivery?.checks?.[0]?.id, 5);

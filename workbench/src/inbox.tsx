@@ -87,15 +87,18 @@ function DecisionModal({ workspace, decision, close }: PageProps & { decision: D
     ? decision.request.sourceTicket : '';
   const [draft, set] = useStored('decision:' + decision.id, { action: sourceTicket ? 'link' : 'create',
     ticket: sourceTicket, agent: '', topic: decision.request?.topic ?? '', material: [] as string[],
-    project: project.id, brief: '', separate: false });
+    project: project.id, brief: '', separate: false, repository: '' });
   const scope = [project, ...workspace.projects.filter(p => p.id !== project.id
     && (p.parent === project.id || p.id === project.parent || project.relatedProjects.includes(p.id))
     && p.members.some(m => m.name === decision.request?.sender))];
   const destinations = scope.filter(p => p.maintain);
   const target = channel && draft.action === 'create' ? destinations.find(p => p.id === draft.project) ?? project : project;
   const crossed = target.id !== project.id;
+  const repositories = target.deliveryTargets.filter(ref => ref.eligibleAgents.length);
+  const repository = repositories.find(ref => ref.ref === draft.repository);
   const candidates = workspace.tickets.filter(t => scope.some(p => p.id === t.work.project && p.mayStart));
-  const agents = workspace.agents.filter(a => a.active && a.projects.includes(target.id));
+  const agents = workspace.agents.filter(a => a.active && a.projects.includes(target.id)
+    && (!repository || repository.eligibleAgents.includes(a.id)));
   const materials = useData<Knowledge[]>(channel && draft.action === 'create' ? 'knowledge/' + target.id : '');
   const { run, busy } = useActions();
   return <Modal title={decision.title} close={close}><form className="form" onSubmit={async e => {
@@ -103,6 +106,7 @@ function DecisionModal({ workspace, decision, close }: PageProps & { decision: D
     const data = draft.action === 'link' ? { action: 'link', ticket: draft.ticket }
       : draft.action === 'create' ? { action: 'create', agent: draft.agent || undefined,
         ...(channel ? { topic: draft.topic || undefined, material: draft.material, separate: draft.separate,
+          target: draft.repository || undefined,
           ...(crossed ? { project: target.id, brief: draft.brief.trim() } : {}) } : {}) }
       : draft.action === 'topic' ? { action: 'topic', topic: draft.topic } : { action: draft.action };
     const result = await run(() => api<{ ticket?: string }>((channel ? 'channels/' : 'intake/') + decision.subject + '/resolve', data), '已处理待办');
@@ -127,13 +131,23 @@ function DecisionModal({ workspace, decision, close }: PageProps & { decision: D
         {t.work.project !== project.id && ' · ' + scope.find(p => p.id === t.work.project)?.title}</option>)}
     </select></Field>}
     {channel && draft.action === 'create' && destinations.length > 1 && <Field label="工单项目"><select value={target.id}
-      onChange={e => set({ ...draft, project: e.target.value, topic: '', agent: '', material: [] })}>
+      onChange={e => set({ ...draft, project: e.target.value, topic: '', agent: '', material: [], repository: '' })}>
       {destinations.map(p => <option key={p.id} value={p.id}>{p.title}</option>)}
     </select></Field>}
     {crossed && <Field label="可共享的委托说明" hint="目标项目按这份说明建立工单。"><textarea rows={3} required maxLength={3500}
       value={draft.brief} onChange={e => set({ ...draft, brief: e.target.value })} /></Field>}
-    {draft.action === 'create' && <Field label="执行 Agent"><select required={!channel} value={draft.agent}
-      onChange={e => set({ ...draft, agent: e.target.value })}><AgentOptions agents={agents} allLabel={channel ? '沿用请求或项目配置' : '选择 Agent'} /></select></Field>}
+    {channel && draft.action === 'create' && (repositories.length > 0 || draft.repository) && <Field label="交付仓库"><select value={draft.repository ?? ''}
+      onChange={e => {
+        const selected = repositories.find(ref => ref.ref === e.target.value);
+        set({ ...draft, repository: e.target.value, agent: !selected || selected.eligibleAgents.includes(draft.agent) ? draft.agent : '' });
+      }}>
+      <option value="">只读协作</option>
+      {draft.repository && !repository && <option value={draft.repository} disabled>原交付仓库已不可用</option>}
+      {repositories.map(ref => <option key={ref.ref} value={ref.ref}>{ref.label} · {ref.externalId}</option>)}
+    </select></Field>}
+    {draft.action === 'create' && <Field label="执行 Agent"><select required={!channel || !!repository} value={draft.agent}
+      onChange={e => set({ ...draft, agent: e.target.value })}><AgentOptions agents={agents}
+        allLabel={repository ? '选择有交付资格的 Agent' : channel ? '沿用请求或项目配置' : '选择 Agent'} /></select></Field>}
     {channel && ['topic', 'create'].includes(draft.action) && <Field label="主题"><select value={draft.topic} required={draft.action === 'topic'}
       onChange={e => set({ ...draft, topic: e.target.value })}><TopicOptions project={target} empty={crossed ? '未归入主题' : '按来源默认'} /></select></Field>}
     {channel && draft.action === 'create' && <details className="form-disclosure"><summary>资料与单独开单</summary>

@@ -25,7 +25,7 @@ import { remoteEngine, runnerAgent, type Agent, type Project, type Settings } fr
 import { ChannelLinks, messageRef, type ChannelRef, type ChannelRequest, type PlatformActor, type Provider } from './channel-links.ts';
 import { canonicalResourceId, projectResourceRef, referenceResource, resourcePurpose, resourceView, routesEvents,
   type ProjectResource, type ProjectTopic, type ReferenceInput, type ResourceView } from './project-resources.ts';
-import { inspectBranch, inspectCommitChecks, inspectIssue, inspectPull, referencesTicket, type GitHubIdentity, type GitHubIssue, type GitHubPush, type PullCheck } from './github-delivery.ts';
+import { inspectBranch, inspectCommitChecks, inspectIssue, inspectPull, pullChecks, referencesTicket, type GitHubIdentity, type GitHubIssue, type GitHubPush, type PullCheck } from './github-delivery.ts';
 import { checkpointAgent, entireCheckpoint } from './entire.ts';
 import { checkoutFor, commitDevelopment, developmentCheckout, developmentFolder, developmentChanges, type Development, type DevelopmentTarget } from './development.ts';
 import { Iterations } from './iterations.ts';
@@ -197,8 +197,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     INSERT OR IGNORE INTO workbench_ci_attempt
       SELECT v.ticket,v.repository,v.number,v.head,json_extract(c.value,'$.id'),c.value
       FROM workbench_pull_version v, json_each(v.value,'$.checks') c
-      WHERE json_type(c.value,'$.id')='integer' AND json_extract(c.value,'$.head_sha')=v.head
-        AND json_extract(c.value,'$.name')='collab-pilot' AND json_extract(c.value,'$.app.slug')='github-actions';
+      WHERE json_type(c.value,'$.id')='integer' AND json_extract(c.value,'$.head_sha')=v.head;
     CREATE TABLE IF NOT EXISTS workbench_issue_state (
       ticket TEXT NOT NULL, ref TEXT NOT NULL, value TEXT NOT NULL, PRIMARY KEY(ticket,ref)
     );
@@ -490,7 +489,10 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     const decision = decisions.open({ ...input, project: project.id, member: recipient });
     const target = dmAccount(recipient);
     const question = input.kind === 'answer' && input.detail ? input.detail.slice(0, 200) : undefined;
-    if (!decision.closedAt && target && send) queueReply({ id: decisionReceipt(decision), kind: 'notice',
+    const receipt = decisionReceipt(decision);
+    // Recover a decision whose text notice was already sent by an older server while cards were disconnected.
+    const missingCard = cardTransport && store.replyStatus(receipt) === 'sent' && !feishuCards.get(decision.id)?.ref && cardPlan(decision);
+    if (!decision.closedAt && target && send) queueReply({ id: missingCard ? key('human-decision-card', decision.id) : receipt, kind: 'notice',
       channel: { source: 'feishu', thread: 'feishu:person:' + recipient,
         address: { userId: target.id, decision: decision.id } }, ticketId: input.ticket,
       text: ['SuitMe 协作台 · 有一项需要你决定', input.title, ...(question ? [question] : []),
@@ -627,17 +629,20 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     const output = originOutput(entry);
     const ticket = entry.ticket && store.tickets.get(entry.ticket);
     if (!output || !ticket || workOf(ticket.id)?.project !== entry.project) return;
+    return ticketAcceptanceSource(ticket, output, entry.project);
+  }
+  function ticketAcceptanceSource(ticket: Ticket, output: Output, project: string) {
     const review = iterations.get(ticket.id, output.revision, 'accepted');
     if (!review) return;
     const opening = store.triggers.get(ticket.origin.triggerId);
     const address = opening?.channel?.source === 'feishu' ? opening.channel.address : undefined;
     const feishu = address?.chatId && address.messageId && !address.direct
-      && boundProject('feishu', address.chatId)?.id === entry.project
+      && boundProject('feishu', address.chatId)?.id === project
       ? { message: address.messageId, chatUrl: feishuChatLink('feishu', address.chatId) } : undefined;
     const delivery = review.delivery as DeliveryEvidence | undefined;
     return { ticket: ticket.id, version: review.version, revision: review.revision, acceptedBy: review.actor, acceptedAt: review.at,
       ...(opening && { origin: { channel: opening.source, ...(feishu && { feishu }), ...(opening.url && { url: opening.url }) } }),
-      ...(review.commit && delivery?.headSha === review.commit && { delivery: { url: delivery.url, commit: review.commit,
+      ...(review.commit && delivery?.headSha === review.commit && { delivery: { url: delivery.url, pr: delivery.pr, commit: review.commit,
         checks: delivery.checks?.filter(check => check.head_sha === review.commit).map(check => ({ id: check.id, name: check.name,
           conclusion: check.conclusion, url: check.html_url?.startsWith('https://github.com/') ? check.html_url : undefined })) ?? [] } }) };
   }
@@ -914,8 +919,8 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
         store.receipts.settle(message, 'sent');
         return;
       }
-      if (existing && cardTransport?.available?.() === false) throw new Error('等待飞书卡片订阅恢复后确认原卡');
-      const plan = cardTransport && cardTransport.available?.() !== false && cardPlan(record);
+      const plan = cardTransport && cardPlan(record);
+      if ((existing || plan) && cardTransport?.available?.() === false) throw new Error('等待飞书卡片订阅恢复后发送');
       if (cardTransport && plan) {
         const card = feishuCards.register({ decision: decisionId, title: record.title, ...plan.fields });
         if (!card.ref) {
@@ -3152,10 +3157,13 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       return missing(followedPull(ticket.id, work) ? '原 PR 尚未核对到本版受托提交和基线，请研发核对推送。'
         : '本版尚未关联 PR，请研发推送受托提交并关联交付。');
     if (evidence.state !== 'open' && evidence.state !== 'merged') return missing('请研发核对 PR 是否已转为正式交付。');
-    const check = evidence.checks?.find(item => item.head_sha === evidence.headSha && item.name === 'collab-pilot' && item.app?.slug === 'github-actions');
-    if (!check) return missing('本版提交尚无对应的 GitHub Actions 检查，请研发核对 CI。');
-    if (evidence.ci === 'failed') return { state: 'ci-failed', issue: 'ci-failed', detail: '本版提交的 CI 未通过，请研发核对检查结果。', output };
-    return evidence.ci === 'passed' && check.status === 'completed' && check.conclusion === 'success'
+    const target = deliveryTargets(projectById.get(work.project)!).find(ref => ref.execution
+      && ref.externalId.toLowerCase() === evidence.repository.toLowerCase());
+    if (!target) return missing('本版交付仓库配置已变化，请研发核对。');
+    const { ci, checks } = pullChecks(evidence.headSha, evidence.checks ?? [], target.execution?.requiredChecks);
+    if (!checks.length) return missing('本版提交尚无配置要求的 CI 检查，请研发核对。');
+    if (ci === 'failed') return { state: 'ci-failed', issue: 'ci-failed', detail: '本版提交的 CI 未通过，请研发核对检查结果。', output };
+    return ci === 'passed'
       ? { state: 'ready', detail: '本版提交和 CI 已核对。', output }
       : { state: 'ci-pending', detail: '等待本版提交的 CI 结束。', output };
   }
@@ -3450,7 +3458,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       versions: outputs.map(prior => {
         const readable = readableRevisions.has(prior.revision);
         return { version: prior.version ?? 1, run: prior.run, revision: prior.revision, at: prior.at,
-          ...(readable ? { text: prior.text } : {}),
+          ...(readable ? { text: prior.text, acceptedSource: ticketAcceptanceSource(ticket, prior, project.id) } : {}),
           reviews: reviews.filter(review => review.revision === prior.revision)
             .map(({ reason, ...review }) => ({ ...review, ...(readable ? { reason } : {}) })) };
       }),
@@ -3951,7 +3959,8 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
           .map(person => ({ name: person, responsibilities: p.responsibilities.filter(r => r.member === person).map(r => r.function),
             maintain: maintain(p, person) })),
         deliveryTargets: deliveryTargets(p).filter(ref => mayStart(p, actor) && ref.execution && checkoutFor(config.attribution, ref.externalId))
-          .map(ref => resourceView(p.id, ref)),
+          .map(ref => ({ ...resourceView(p.id, ref), eligibleAgents: config.agents.filter(agent => isActive(agent, p)
+            && executionCapabilities(agent).code && canAttach(p, ref, agent.owner, agent.owner)).map(agent => agent.id) })),
         mayStart: mayStart(p, actor), maintain: maintain(p, actor), usage: usage(p.id), budget: p.budget,
         discussion: p.discussion ? { pending: maintain(p, actor) ? discussions.pendingCount(p.id) : 0 } : undefined })),
       agents: config.agents.flatMap(a => {

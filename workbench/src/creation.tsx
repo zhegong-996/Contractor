@@ -46,12 +46,13 @@ export function Composer({ project, workspace, preset, close }: PageProps & { pr
     && (!preset.personal || a.kind === 'personal' && a.owner === workspace.actor));
   const chosenAgent = options.find(a => a.id === draft.agent);
   const attached = devices.data?.filter(device => device.agent === chosenAgent?.id && device.eligible && device.active) ?? [];
-  const codeAgents = options.filter(a => ['codex', 'cursor'].includes(a.engine));
+  const codeTargets = project.deliveryTargets.filter(ref => ref.eligibleAgents.some(id => options.some(agent => agent.id === id)));
   const resources = project.resources.filter(ref => ref.state === 'bound');
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
     const outcome = await run(async () => {
-      if (draft.target && !codeAgents.some(a => a.id === draft.agent)) throw new Error('请选择有交付资格的代码 Agent。');
+      if (draft.target && !codeTargets.find(ref => ref.ref === draft.target)?.eligibleAgents.includes(draft.agent))
+        throw new Error('请选择具有该仓库交付资格的 Agent。');
       const hasMeasure = Boolean(draft.metric || draft.unit || draft.baseline || draft.targetValue);
       if (hasMeasure && (!draft.metric.trim() || !draft.unit.trim())) throw new Error('请填写观测指标和单位。');
       const measure = hasMeasure ? { metric: draft.metric.trim(), unit: draft.unit.trim(),
@@ -110,11 +111,11 @@ export function Composer({ project, workspace, preset, close }: PageProps & { pr
             <span>{ref.label}</span><Source channel={ref.source} /></label>)}
         </fieldset>}
       </details>
-      {!preset.personal && project.deliveryTargets.length > 0 && <details className="form-disclosure">
+      {!preset.personal && codeTargets.length > 0 && <details className="form-disclosure">
         <summary><GitPullRequest size={15} />代码交付</summary>
         <Field label="交付仓库" hint="代码委托须由有仓库权限的研发确认。"><select value={draft.target} onChange={e => change('target', e.target.value)}>
           <option value="">不涉及代码</option>
-          {project.deliveryTargets.map(ref => <option key={ref.ref} value={ref.ref}>{ref.label}</option>)}
+          {codeTargets.map(ref => <option key={ref.ref} value={ref.ref} disabled={!!chosenAgent && !ref.eligibleAgents.includes(chosenAgent.id)}>{ref.label}</option>)}
         </select></Field>
       </details>}
       <details className="form-disclosure" open={preset.lesson ? true : undefined}>

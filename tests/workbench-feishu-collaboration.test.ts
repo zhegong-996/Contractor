@@ -39,7 +39,9 @@ test('新项目的成员、主题和两个 Agent 隔离，飞书原卡只允许�
   });
   const deliveries: { target: { message: string } | { user: string }; ref: string; card: any }[] = [];
   const updated: string[] = [];
+  let cardsAvailable = false;
   const transport: CardTransport = {
+    available: () => cardsAvailable,
     async send(target, _key, content) {
       const ref = 'om_card' + deliveries.length;
       deliveries.push({ target, ref, card: JSON.parse(content) });
@@ -119,6 +121,11 @@ test('新项目的成员、主题和两个 Agent 隔离，飞书原卡只允许�
   type Sent = (typeof deliveries)[number];
   const forMessage = (message: string) => deliveries.find(item => 'message' in item.target && item.target.message === message
     && item.card.header.title.content === 'Agent 等待你答复一项执行问题');
+  await wait(() => work.detail('product', copy).questions.length && work.detail('engineering', wrap).questions.length || undefined);
+  assert.equal(forMessage('om_copy'), undefined);
+  assert.equal(forMessage('om_wrap'), undefined);
+  assert.ok(!replies.some(item => item.text.includes('Agent 等待你答复一项执行问题')));
+  cardsAvailable = true;
   const copyCard = await wait(() => forMessage('om_copy'));
   const wrapCard = await wait(() => forMessage('om_wrap'));
   assert.deepEqual(replies.filter(item => item.text.includes(web.text)).map(item => item.message), ['om_copy']);

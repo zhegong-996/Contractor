@@ -3,6 +3,7 @@ import { ArrowLeft, ArrowRight, Bot, Check, ChevronRight, CircleCheck, FileCheck
 import { api, uid, useData, type DeviceRow, type Knowledge, type Snapshot, type Ticket } from './api.ts';
 import { AgentOptions, MaterialPicker } from './creation.tsx';
 import { Conversation } from './conversation.tsx';
+import { AcceptedEvidence } from './accepted-evidence.tsx';
 import { go, routeFor, type PageProps } from './navigation.ts';
 import { Button } from './paperclip/button.tsx';
 import { Input } from './paperclip/input.tsx';
@@ -74,7 +75,7 @@ export function WorkPage(props: PageProps) {
 }
 
 function TicketDetail(props: PageProps & { ticket: Ticket; tab: WorkTab }) {
-  const { ticket, tab, workspace, project } = props;
+  const { ticket, tab, workspace, project, route } = props;
   const [side, setSide] = useStored('ticket-inspector', true);
   const [dialog, setDialog] = useState('');
   const { busy, run } = useActions();
@@ -82,11 +83,16 @@ function TicketDetail(props: PageProps & { ticket: Ticket; tab: WorkTab }) {
   const decision = workspace.needsYou.find(d => d.ticket === ticket.id && (d.kind === 'development' || d.kind === 'development-returned'));
   const status = ticket.work.handoff && !ticket.work.handoff.completedAt && !ticket.work.handoff.cancelledAt;
   const agentChoices = workspace.agents.filter(a => a.active && a.projects.includes(project.id)
-    && (!ticket.work.development || ['codex', 'cursor'].includes(a.engine)));
+    && (!ticket.work.development || project.deliveryTargets.some(ref => ref.externalId === ticket.work.development!.repository
+      && ref.eligibleAgents.includes(a.id))));
   const actions = ticket.actions;
   const deviceWaiting = !!ticket.device && !ticket.device.online && !ticket.endReason;
   const canResume = actions.resume && !status && (deviceWaiting || ticket.materialHidden || ticket.report?.state === 'blocked' || ticket.report?.state === 'failed'
     || ticket.requests.some(r => r.state === 'revoked' || r.state === 'expired') || ticket.stage.stage === 'idle');
+  const viewedVersion = tab === 'delivery' && route.revision !== undefined
+    ? ticket.versions.find(version => version.revision === route.revision) : undefined;
+  const versionAccepted = viewedVersion?.reviews.some(review => review.kind === 'accepted');
+  const versionAgent = viewedVersion && ticket.runs.find(run => run.id === viewedVersion.run)?.attribution?.agent;
   const send = (action: string, data: unknown, message: string) => run(() => api('ticket/' + ticket.id + '/' + action, data), message);
   const upcoming = ticket.work.version ?? 1;
   return <div className="ticket-shell">
@@ -99,9 +105,14 @@ function TicketDetail(props: PageProps & { ticket: Ticket; tab: WorkTab }) {
           {project.mayStart && <IconButton label="新建子工单" onClick={() => props.openTask({ parent: ticket.id, topic: ticket.work.topic })}><Plus /></IconButton>}
         </div>
       </div>
-      <div className="ticket-head-meta"><TicketStatus ticket={ticket} /><Version version={ticket.work.version} /><Source channel={ticket.work.source} />
-        <span>{agent ? agent.title : ticket.work.agent}</span>
-        {ticket.device && <span>{ticket.device.name}{deviceWaiting ? ' · 离线' : ''}</span>}</div>
+      <div className="ticket-head-meta">{viewedVersion ? <>
+        <Pill tone={versionAccepted ? 'green' : 'neutral'}>{versionAccepted ? '已验收'
+          : viewedVersion.reviews.some(review => review.kind === 'rejected') ? '已打回' : '未验收'}</Pill>
+        <Version version={viewedVersion.version} />
+      </> : <><TicketStatus ticket={ticket} /><Version version={ticket.work.version} /></>}
+        <Source channel={ticket.work.source} />
+        <span>{versionAgent ? workspace.agents.find(item => item.id === versionAgent)?.title ?? versionAgent : agent?.title ?? ticket.work.agent}</span>
+        {!viewedVersion && ticket.device && <span>{ticket.device.name}{deviceWaiting ? ' · 离线' : ''}</span>}</div>
     </div>
     <div className="ticket-frame" data-inspector={side && tab !== 'context'}>
       <PageTabs value={tab} onChange={value => go(project.id, 'work', ticket.id, value)} items={workTabs} label="工单详情">
@@ -267,6 +278,9 @@ function Delivery(props: PageProps & { ticket: Ticket }) {
   const accepted = ticket.work.accepted;
   const [acceptDraft, saveDraft] = useStored('accept:' + ticket.id + ':' + result?.revision, { body: '', conditions: '' });
   const scope = ticket.work.development;
+  const ci = ticket.deliveryStatus ? ticket.deliveryStatus.state === 'ready' ? 'passed'
+    : ticket.deliveryStatus.state === 'ci-failed' ? 'failed' : 'pending' : delivery?.ci;
+  if (props.route.revision !== undefined) return <DeliveryVersion {...props} revision={props.route.revision} />;
   return <div className="detail-stack">
     <Section title="当前成果" action={<Version version={ticket.work.version} />}>
       {ticket.materialHidden ? <div className="info-callout"><LockKeyhole size={16} />
@@ -279,6 +293,12 @@ function Delivery(props: PageProps & { ticket: Ticket }) {
       {ticket.candidate && <a className="text-button" href={routeFor(project.id, 'knowledge', ticket.candidate, ticket.candidateTab)}>
         {ticket.candidateTab === 'review' ? '查看知识候选' : '查看关联知识'} <ArrowRight size={15} /></a>}
     </Section>
+    {!!result?.citations.length && <Section title="引用依据">
+      {result.citations.map(citation => <article className="revision-note" key={citation.id + ':' + citation.revision}>
+        <strong>{citation.title}</strong>
+        {citation.acceptedSource && <AcceptedEvidence source={citation.acceptedSource} project={project.id} />}
+      </article>)}
+    </Section>}
     {(scope || delivery || ticket.mayLinkDelivery || ticket.githubIssues.length > 0 || ticket.work.branches?.length) && <Section title="GitHub 交付"
       action={ticket.mayLinkDelivery ? <Button variant="outline" size="sm" onClick={() => setAction('pull')}><GitPullRequest />{delivery ? '更新 PR 关联' : '关联 PR'}</Button> : undefined}>
       {scope && <dl className="facts">
@@ -287,8 +307,10 @@ function Delivery(props: PageProps & { ticket: Ticket }) {
       {delivery && <div className="delivery-summary">
         <Ext href={delivery.url}><GitPullRequest size={16} />PR #{delivery.pr}</Ext><code title={delivery.headSha}>{short(delivery.headSha, 12)}</code>
         {delivery.state && <span>{pullStates[delivery.state]}</span>}
-        <Pill tone={delivery.ci === 'passed' ? 'green' : delivery.ci === 'failed' ? 'red' : 'amber'}>{({ passed: 'CI 通过', pending: 'CI 待完成', failed: 'CI 失败' })[delivery.ci]}</Pill>
+        {ci && <Pill tone={ci === 'passed' ? 'green' : ci === 'failed' ? 'red' : 'amber'}>{({ passed: 'CI 通过', pending: 'CI 待完成', failed: 'CI 失败' })[ci]}</Pill>}
       </div>}
+      {!!delivery?.checks?.length && <div className="record-row">{delivery.checks.map(check =>
+        <Ext key={check.id} href={check.html_url ?? undefined}>CI · {check.name}</Ext>)}</div>}
       {ticket.deliveryStatus && <p className="muted-text">{ticket.deliveryStatus.detail}</p>}
       {ticket.githubIssues.map(issue => <div className="record-row" key={issue.html_url}>
         <Ext href={issue.html_url}>Issue #{issue.number}</Ext><span>{issue.state === 'open' ? '开启' : '已关闭'}</span>
@@ -361,11 +383,7 @@ function Delivery(props: PageProps & { ticket: Ticket }) {
       {ticket.versions.slice().reverse().map(version => <details className="version-record" key={version.revision}>
         <summary><Version version={version.version} /><code>{short(version.revision, 12)}</code><time>{date(version.at)}</time>
           {version.reviews.some(r => r.kind === 'accepted') && <Pill tone="green">已验收</Pill>}</summary>
-        {version.text ? <Markdown text={version.text} /> : <p className="muted-text">此版本正文当前受限。</p>}
-        {version.reviews.map(review => <div className="record-row" key={review.kind + review.at}>
-          <strong>{({ accepted: '验收', rejected: '打回', continued: '开启下一版' })[review.kind]}</strong><span>{review.actor}</span>
-          <time>{date(review.at)}</time>{review.reason && <span>{review.reason}</span>}
-        </div>)}
+        <VersionBody version={version} project={project.id} />
       </details>)}
     </Section>}
     {ticket.work.measure && <ObservationPane {...props} ticket={ticket} />}
@@ -379,6 +397,33 @@ function Delivery(props: PageProps & { ticket: Ticket }) {
     </Modal>}
     {action === 'revision' && result && <Revise ticket={ticket} project={project} close={() => setAction('')} />}
   </div>;
+}
+
+function DeliveryVersion({ ticket, project, revision }: PageProps & { ticket: Ticket; revision: string }) {
+  const version = ticket.versions.find(item => item.revision === revision);
+  const panel = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    panel.current?.scrollIntoView({ block: 'start' });
+    panel.current?.focus({ preventScroll: true });
+  }, [revision]);
+  const back = <a className="text-button" href={routeFor(project.id, 'work', ticket.id, 'delivery')}><ArrowLeft size={15} />返回交付</a>;
+  return <div ref={panel} tabIndex={-1} className="detail-stack">
+    {version ? <Section title={'第 ' + version.version + ' 版成果'} action={back}>
+      <div className="inline-meta">成果修订 <code title={version.revision}>{short(version.revision, 12)}</code><time>{date(version.at)}</time></div>
+      <VersionBody version={version} project={project.id} />
+    </Section> : <Empty title="找不到指定的交付版本" action={back} />}
+  </div>;
+}
+
+function VersionBody({ version, project }: { version: Ticket['versions'][number]; project: string }) {
+  return <>
+    {version.text !== undefined ? <Markdown text={version.text} /> : <p className="muted-text">此版本正文当前受限。</p>}
+    {version.reviews.map(review => <div className="record-row" key={review.kind + review.at}>
+      <strong>{({ accepted: '验收', rejected: '打回', continued: '开启下一版' })[review.kind]}</strong><span>{review.actor}</span>
+      <time>{date(review.at)}</time>{review.reason && <span>{review.reason}</span>}
+    </div>)}
+    {version.acceptedSource && <AcceptedEvidence source={version.acceptedSource} project={project} linkVersion={false} />}
+  </>;
 }
 
 function Revise({ ticket, project, close }: { ticket: Ticket; project: PageProps['project']; close: () => void }) {

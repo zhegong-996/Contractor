@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { ArrowLeft, ArrowRight, BookOpen, Check, FilePlus2, History, Import, LockKeyhole, PencilLine, Plus, XCircle } from 'lucide-react';
 import { api, readable, useData, type Imported, type Knowledge, type MemoryRow, type MemoryUse, type ReadableKnowledge, type RecallHit } from './api.ts';
+import { AcceptedEvidence } from './accepted-evidence.tsx';
 import { go, routeFor, runRoute, type PageProps } from './navigation.ts';
 import { Button } from './paperclip/button.tsx';
 import { Input } from './paperclip/input.tsx';
@@ -152,8 +153,9 @@ function KnowledgeDetail({ entry, project, workspace, openTask, route }: PagePro
         {full?.retirement?.replacement && <a className="text-button" href={routeFor(project.id, 'knowledge', full.retirement.replacement.id)}>查看替代版本 <ArrowRight size={15} /></a>}
         {full?.retirement?.reason && <p className="muted-text">失效原因 {full.retirement.reason}</p>}
         {full?.replaces && <a className="text-button" href={routeFor(project.id, 'knowledge', full.replaces.id, 'history')}><History size={15} />回看被替代版本</a>}
-        {full?.ticket && <a className="text-button" href={routeFor(project.id, 'work', full.ticket, 'delivery')}>来源工单 <ArrowRight size={15} /></a>}
-        {full?.provenance?.filter(e => !e.ticket).map((e, index) => <div className="record-row" key={e.revision + index}>
+        {full?.acceptedSource ? <AcceptedEvidence source={full.acceptedSource} project={project.id} />
+          : full?.ticket && <a className="text-button" href={routeFor(project.id, 'work', full.ticket, 'delivery')}>来源工单 <ArrowRight size={15} /></a>}
+        {full?.provenance?.filter(e => !e.ticket && (!full.acceptedSource?.delivery || e.url !== full.acceptedSource.delivery.url)).map((e, index) => <div className="record-row" key={e.revision + index}>
           <Ext href={e.url}>{e.title}</Ext><code>{short(e.revision, 12)}</code>
         </div>)}
       </Section>}
@@ -219,7 +221,7 @@ function KnowledgeEditor({ project, entry, mode, close }: PageProps & { entry?: 
   async function submit(e: FormEvent) {
     e.preventDefault();
     const outcome = await run(() => mode === 'review' && entry
-      ? api<{ id: string }>('knowledge/' + entry.id + '/review', { revision: entry.revision, body: draft.body.trim(), conditions: draft.conditions.trim() })
+      ? api<{ id: string }>('knowledge/' + entry.id + '/review', { revision: entry.revision, title: draft.title.trim(), body: draft.body.trim(), conditions: draft.conditions.trim() })
       : api<{ id: string }>('knowledge/' + project.id, { ...draft, ...(entry ? { replaces: { id: entry.id, revision: entry.revision } } : {}) }),
       mode === 'review' ? '复核已保存，等待采用' : '知识已保存');
     if (outcome) {
@@ -230,7 +232,7 @@ function KnowledgeEditor({ project, entry, mode, close }: PageProps & { entry?: 
   }
   return <Modal title={mode === 'review' ? '核对知识候选' : mode === 'replace' ? '拟定知识新版' : '新增项目知识'} close={close}>
     <form className="form" onSubmit={submit}>
-      {mode !== 'review' && <Field label="标题"><Input autoFocus maxLength={100} value={draft.title} onChange={e => update('title', e.target.value)} required /></Field>}
+      <Field label="标题"><Input autoFocus maxLength={100} value={draft.title} onChange={e => update('title', e.target.value)} required /></Field>
       <Field label="正文"><textarea value={draft.body} onChange={e => update('body', e.target.value)} rows={8} maxLength={16000} required /></Field>
       <Field label="适用条件"><textarea value={draft.conditions} onChange={e => update('conditions', e.target.value)} rows={2} maxLength={600} required={!!mode} /></Field>
       {!entry && <div className="form-grid">
