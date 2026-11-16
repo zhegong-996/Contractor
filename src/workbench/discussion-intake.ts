@@ -2,11 +2,20 @@ import { z } from 'zod';
 import { FeishuSources, withFeishuReads } from '../feishu-sources.ts';
 import { feishuChatLink, feishuHistory, feishuTrigger, feishuTriggerId, type NativeTrigger } from '../upstream.ts';
 import type { Trigger } from '../../upstream/superagent/src/core/index.ts';
-import type { ChannelRef, PlatformActor } from './channel-links.ts';
+import { channelCommand, feishuCommandText, type ChannelRef, type PlatformActor } from './channel-links.ts';
 import type { Project, Settings } from './config.ts';
 import type { ProjectResource } from './project-resources.ts';
 
-export type DiscussionInput = { trigger: Trigger; origin: ChannelRef; sender: PlatformActor; history?: boolean; updatedAt?: number };
+export type DiscussionInput = { trigger: Trigger; origin: ChannelRef; sender: PlatformActor; history?: boolean; updatedAt?: number;
+  command?: ReturnType<typeof channelCommand>; answer?: string };
+export type DiscussionThread = { id: string; root: string; at: number };
+const threadKey = /^omt_[A-Za-z0-9_-]+$/;
+export function discussionThread(meta: Record<string, unknown>, at: number): DiscussionThread | undefined {
+  const id = meta.threadId;
+  const root = meta.rootId || meta.messageId;
+  if (typeof id === 'string' && threadKey.test(id) && typeof root === 'string' && /^om_[A-Za-z0-9_-]+$/.test(root)
+    && Number.isFinite(at)) return { id, root, at };
+}
 export type SourceFact = { kind: 'material' | 'github'; key: string; title: string; text?: string; revision?: string; url?: string; knowledge?: true;
   messages?: string[]; exact?: boolean };
 
@@ -23,7 +32,7 @@ export function discussionInput(trigger: Trigger, app: string, senderApp = app):
 const pageSchema = z.object({ ok: z.literal(true), identity: z.literal('user'), data: z.object({
   items: z.array(z.unknown()), has_more: z.boolean().default(false), page_token: z.string().optional(),
 }) });
-const rawMessage = z.looseObject({ chat_id: z.string(), msg_type: z.string(), message_position: z.string().regex(/^\d+$/).optional(),
+const rawMessage = z.looseObject({ chat_id: z.string(), msg_type: z.string(), message_position: z.string().regex(/^-?\d+$/).optional(),
   message_id: z.string(), update_time: z.string().regex(/^\d+$/).optional(),
   sender: z.looseObject({ id: z.string(), sender_type: z.string(), id_type: z.string().optional() }) });
 const tombstone = z.object({ chat_id: z.string(), message_id: z.string(), deleted: z.literal(true) });
@@ -39,10 +48,18 @@ async function confirmReader(reader: FeishuSources, history: History) {
 }
 
 function historyMessages(items: unknown[], history: History, feishu: Feishu, chat: string, start: number, end: number,
-  expected?: ReadonlySet<string>) {
+  expected?: ReadonlySet<string>, thread?: DiscussionThread) {
   const inputs: DiscussionInput[] = [];
   const withdrawn: string[] = [];
+  const threads: DiscussionThread[] = [];
   for (const row of items) {
+    const envelope = z.object({ chat_id: z.string(), thread_id: z.string().optional(),
+      root_id: z.string().optional(), message_id: z.string(), create_time: z.string().regex(/^\d+$/).optional() }).safeParse(row);
+    if (!envelope.success || envelope.data.chat_id !== chat) continue;
+    const { thread_id, root_id, message_id, create_time } = envelope.data;
+    if (thread && (thread_id && thread_id !== thread.id || (root_id || message_id) !== thread.root)) continue;
+    const found = discussionThread({ threadId: thread_id, rootId: root_id, messageId: message_id }, Number(create_time));
+    if (found) threads.push(found);
     const removed = tombstone.safeParse(row);
     if (removed.success) {
       const { chat_id, message_id } = removed.data;
@@ -56,19 +73,25 @@ function historyMessages(items: unknown[], history: History, feishu: Feishu, cha
     if (!native || native.deleted) continue;
     const sender = raw.data.sender;
     if (sender.sender_type !== 'user' || (sender.id_type && sender.id_type !== 'open_id')) continue;
-    const trigger = feishuTrigger(native.event, feishu.botId, feishu.appId) as (NativeTrigger & Trigger) | undefined;
+    const event = native.event as Record<string, unknown> & { mentions?: { id: string; key?: string; name?: string }[]; content: string };
+    const trigger = feishuTrigger(thread ? { ...event, thread_id: thread.id,
+      ...(message_id !== thread.root && { root_id: thread.root }) } : event, feishu.botId, feishu.appId) as (NativeTrigger & Trigger) | undefined;
     if (!trigger || Date.parse(trigger.at) < start || Date.parse(trigger.at) >= end) continue;
-    if (!trigger.url && raw.data.message_position) {
+    if (!trigger.url && raw.data.message_position && Number(raw.data.message_position) >= 0) {
       const url = new URL(feishuChatLink('feishu', chat));
       url.searchParams.set('position', raw.data.message_position);
       trigger.url = url.href;
     }
     // The reader's application scopes its Open IDs, even though the message and thread IDs are shared.
     const updatedAt = raw.data.update_time && Number(raw.data.update_time);
+    const text = feishuCommandText(event.content, event.mentions?.find(mention => mention.id === feishu.botId || mention.id === feishu.appId));
+    const command = channelCommand(text);
+    const answer = /^\/答\s+([\s\S]{1,3500})$/.exec(text)?.[1];
     inputs.push({ ...discussionInput(trigger, feishu.appId, history.appId), history: true,
+      ...(command?.kind === 'work' && { command }), ...(answer && !command && { answer }),
       updatedAt: typeof updatedAt === 'number' && Number.isSafeInteger(updatedAt) ? updatedAt : undefined });
   }
-  return { inputs, withdrawn };
+  return { inputs, withdrawn, threads };
 }
 
 export async function readDiscussionHistory(reader: FeishuSources, history: History, feishu: Feishu, chat: string, start: number, end: number,
@@ -77,6 +100,7 @@ export async function readDiscussionHistory(reader: FeishuSources, history: Hist
   await confirmReader(reader, history);
   const inputs: DiscussionInput[] = [];
   const withdrawn: string[] = [];
+  const threads: DiscussionThread[] = [];
   const cursors = new Set<string>();
   let cursor: string | undefined;
   do {
@@ -92,6 +116,33 @@ export async function readDiscussionHistory(reader: FeishuSources, history: Hist
     const batch = historyMessages(page.items, history, feishu, chat, start, end);
     inputs.push(...batch.inputs);
     withdrawn.push(...batch.withdrawn);
+    threads.push(...batch.threads);
+  } while (cursor);
+  return { inputs, withdrawn, threads };
+}
+
+export async function readDiscussionThread(reader: FeishuSources, history: History, feishu: Feishu, chat: string,
+  thread: DiscussionThread, start: number, end: number, signal: AbortSignal) {
+  await confirmReader(reader, history);
+  const inputs: DiscussionInput[] = [];
+  const withdrawn: string[] = [];
+  const cursors = new Set<string>();
+  let cursor: string | undefined;
+  do {
+    signal.throwIfAborted();
+    const params = { container_id_type: 'thread', container_id: thread.id, sort_type: 'ByCreateTimeDesc',
+      page_size: 50, page_token: cursor };
+    const page = pageSchema.parse(await reader.command(['api', 'GET', '/open-apis/im/v1/messages', '--params', JSON.stringify(params),
+      '--as', 'user', '--profile', history.profile, '--format', 'json'])).data;
+    const batch = historyMessages(page.items, history, feishu, chat, start, end, undefined, thread);
+    inputs.push(...batch.inputs);
+    withdrawn.push(...batch.withdrawn);
+    const last = z.object({ chat_id: z.literal(chat), create_time: z.string().regex(/^\d+$/) }).safeParse(page.items.at(-1));
+    if (last.success && Number(last.data.create_time) < start) break;
+    if (page.has_more && (!page.page_token || cursors.has(page.page_token))) throw new Error('飞书话题分页不完整');
+    cursor = page.has_more ? page.page_token : undefined;
+    if (cursor) cursors.add(cursor);
+    if (cursors.size >= 100) throw new Error('飞书话题超过单次分页上限');
   } while (cursor);
   return { inputs, withdrawn };
 }
@@ -99,7 +150,8 @@ export async function readDiscussionHistory(reader: FeishuSources, history: Hist
 export async function refreshDiscussionMessages(reader: FeishuSources, history: History, feishu: Feishu, chat: string, ids: string[]) {
   const inputs: DiscussionInput[] = [];
   const withdrawn: string[] = [];
-  if (!ids.length) return { inputs, withdrawn };
+  const threads: DiscussionThread[] = [];
+  if (!ids.length) return { inputs, withdrawn, threads };
   await confirmReader(reader, history);
   for (let offset = 0; offset < ids.length; offset += 50) {
     const message_ids = ids.slice(offset, offset + 50);
@@ -108,9 +160,10 @@ export async function refreshDiscussionMessages(reader: FeishuSources, history: 
     const batch = historyMessages(page.items, history, feishu, chat, -Infinity, Infinity, new Set(message_ids));
     inputs.push(...batch.inputs);
     withdrawn.push(...batch.withdrawn);
+    threads.push(...batch.threads);
   }
   // An omitted item is ambiguous (it can be a permission change). Only a confirmed tombstone withdraws a source.
-  return { inputs, withdrawn };
+  return { inputs, withdrawn, threads };
 }
 
 export async function readDiscussionDocuments(reader: FeishuSources, history: History, refs: ProjectResource[]): Promise<SourceFact[]> {

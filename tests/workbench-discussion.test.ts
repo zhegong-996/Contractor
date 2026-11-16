@@ -4,7 +4,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { nextRun, parseCron } from '../upstream/autoloop/kernel/cron.ts';
 import { feishuTriggerId } from '../src/upstream.ts';
 import { confirmedDiscussionDestination, digestProposals, Discussions, discussionText, discussionZone, type DigestScope, type Observation } from '../src/workbench/discussion.ts';
-import { readDiscussionHistory, refreshDiscussionMessages } from '../src/workbench/discussion-intake.ts';
+import { readDiscussionHistory, readDiscussionThread, refreshDiscussionMessages } from '../src/workbench/discussion-intake.ts';
 import { FeishuSources } from '../src/feishu-sources.ts';
 import type { SuperAgentStore } from '../src/superagent-ports.ts';
 
@@ -134,4 +134,32 @@ test('补读校验授权身份与时间窗，沿用 Super-agent 原消息编号�
   assert.deepEqual(refreshed.inputs.map(row => row.trigger.id), [feishuTriggerId('om_message')]);
   assert.deepEqual(refreshed.withdrawn, [feishuTriggerId('om_withdrawn')]);
   await assert.rejects(readDiscussionHistory(reader, { ...settings, userOpenId: 'ou_changed' }, feishu, 'oc_room', start, start + 1000), /身份已变化/);
+});
+
+test('话题补读接收真实 API 的负数群位置，保留根消息并忽略其他话题的回复', async () => {
+  const start = 1794793440000;
+  const history = { profile: 'reader', appId: 'cli_reader', userOpenId: 'ou_reader', member: 'product' };
+  const feishu = { profile: 'bot', appId: 'cli_bot', botId: 'ou_bot' };
+  const thread = { id: 'omt_one', root: 'om_root', at: start };
+  const sample = { message_id: 'om_reply', chat_id: 'oc_room', root_id: thread.root, thread_id: thread.id,
+    msg_type: 'text', create_time: String(start + 1), message_position: '-3',
+    sender: { id: history.userOpenId, id_type: 'open_id', sender_type: 'user' },
+    body: { content: JSON.stringify({ text: '/答 先场景后事实' }) } };
+  const reader = new FeishuSources(async args => {
+    if (args[0] === 'whoami') return { identity: 'user', available: true, appId: history.appId, onBehalfOf: { openId: history.userOpenId } };
+    const params = JSON.parse(args[args.indexOf('--params') + 1]!);
+    assert.equal(params.container_id_type, 'thread');
+    assert.equal(params.container_id, thread.id);
+    assert.equal(params.start_time, undefined);
+    return { ok: true, identity: 'user', data: { items: [
+      sample, { ...sample, message_id: 'om_outside', root_id: 'om_other_root' },
+      { ...sample, message_id: 'om_other_chat', chat_id: 'oc_other' },
+    ] } };
+  });
+  const result = await readDiscussionThread(reader, history, feishu, 'oc_room', thread, start, start + 200, AbortSignal.timeout(1000));
+  assert.equal(result.inputs.length, 1);
+  const reply = result.inputs[0]!;
+  assert.equal(reply.answer, '先场景后事实');
+  assert.equal(reply.trigger.id, feishuTriggerId('om_reply'));
+  assert.equal(reply.origin.key, 'feishu:cli_bot:oc_room:om_root');
 });

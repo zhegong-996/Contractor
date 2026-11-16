@@ -17,6 +17,7 @@ export type ChannelRequest = {
   reference?: ChannelRef | string;
   parentMessage?: ChannelRef;
   revision?: string;
+  recovered?: { kind: 'work' } | { kind: 'answer'; ticket: string; card: number };
 };
 
 type Binding = {
@@ -198,6 +199,18 @@ export class ChannelLinks {
   getPending(id: string) {
     const row = this.db.prepare('SELECT * FROM workbench_channel_event WHERE id=? AND resolved=0').get(id);
     return row && this.read(row);
+  }
+
+  updatePending(request: ChannelRequest) {
+    this.db.prepare('UPDATE workbench_channel_event SET request=? WHERE id=? AND resolved=0')
+      .run(JSON.stringify(request), request.trigger.id);
+  }
+
+  redactPending(id: string, ticket?: string) {
+    const row = this.getPending(id);
+    if (!row) return;
+    this.updatePending({ ...row.request, request: '', trigger: { ...row.request.trigger, text: '' } });
+    this.settle(id, ticket);
   }
 
   history(ticket: string) {

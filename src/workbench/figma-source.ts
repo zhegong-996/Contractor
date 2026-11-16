@@ -1,4 +1,4 @@
-import type { GetFileNodesResponse, GetImagesResponse } from '@figma/rest-api-spec';
+import type { GetFileMetaResponse, GetFileNodesResponse, GetImagesResponse } from '@figma/rest-api-spec';
 import { z } from 'zod';
 import { digest } from './knowledge.ts';
 
@@ -12,6 +12,11 @@ export type FigmaNodeScope = {
 };
 
 const versionId = z.string().regex(/^[A-Za-z0-9-]{1,120}$/);
+const fileMetadata = z.object({
+  file: z.object({ version: versionId, role: z.enum(['viewer', 'editor', 'owner']) }),
+}) satisfies z.ZodType<{ file: Required<Pick<GetFileMetaResponse['file'], 'version' | 'role'>> }>;
+
+export class FigmaAccessUnavailable extends Error {}
 const nodeResult = z.object({
   version: versionId, nodes: z.record(z.string(), z.object({ document: z.unknown() }).nullable()),
 }) satisfies z.ZodType<Pick<GetFileNodesResponse, 'version'> & { nodes: Record<string, { document: unknown } | null> }>;
@@ -51,21 +56,38 @@ async function boundedResponse(response: Response, limit: number) {
 export class FigmaSources {
   constructor(private readonly request = fetch, private readonly credential = (name: string) => process.env['SUITME_FIGMA_' + name]) {}
 
+  credentialVersion(scope: FigmaNodeScope) {
+    const value = this.credential(scope.credential);
+    return value?.trim() && !/[\r\n]/.test(value) ? digest(value) : undefined;
+  }
+
   private async read(scope: FigmaNodeScope, path: string, query: Record<string, string>) {
     const token = this.credential(scope.credential);
-    if (!token?.trim() || /[\r\n]/.test(token)) throw new Error('未配置 Figma 读取连接');
+    if (!token?.trim() || /[\r\n]/.test(token)) throw new FigmaAccessUnavailable('未配置 Figma 读取连接');
     const url = new URL('https://api.figma.com/v1/' + path);
     url.search = new URLSearchParams({ ...query, ...(scope.version && { version: scope.version }) }).toString();
     const response = await this.request(url, {
       headers: { 'X-Figma-Token': token }, redirect: 'error', signal: AbortSignal.timeout(15000),
     });
+    if ([401, 403, 404].includes(response.status)) {
+      await response.body?.cancel();
+      throw new FigmaAccessUnavailable('Figma 连接当前无法访问指定来源');
+    }
     return JSON.parse((await boundedResponse(response, 4 * 1024 * 1024)).toString('utf8')) as unknown;
+  }
+
+  async metadata(scope: FigmaNodeScope) {
+    return fileMetadata.parse(await this.read({ ...scope, version: undefined },
+      'files/' + encodeURIComponent(scope.file) + '/meta', {})).file;
   }
 
   async node(scope: FigmaNodeScope) {
     const result = nodeResult.parse(await this.read(scope, 'files/' + encodeURIComponent(scope.file) + '/nodes', { ids: scope.node }));
-    const root = layer.parse(result.nodes[scope.node]?.document);
-    if (root.id !== scope.node || root.visible === false || scope.version && result.version !== scope.version)
+    const node = result.nodes[scope.node];
+    if (!node) throw new FigmaAccessUnavailable('Figma 不再返回该节点');
+    const root = layer.parse(node.document);
+    if (root.id !== scope.node || root.visible === false) throw new FigmaAccessUnavailable('Figma 节点已删除或不可见');
+    if (scope.version && result.version !== scope.version)
       throw new Error('Figma 节点或版本已变化');
     const items: string[] = [];
     const pending: { raw: unknown; depth: number }[] = [{ raw: root, depth: 0 }];

@@ -31,3 +31,5 @@ LobeHub 的前端参考包括项目话题列表与搜索、Agent 分页档案、
 `knowledge-graph.ts` 实际复用 `@backstage/catalog-model@1.10.2` 的 `stringifyEntityRef`、`RELATION_OWNED_BY`、`RELATION_PART_OF`、`RELATION_DEPENDS_ON`，输入来自 SuitMe 现有授权知识与执行证据。它是来源及使用关系的后端投影，不是 Backstage 完整目录服务或自动语义图谱。
 
 `figma-source.ts` 使用 Figma 官方生成的 `@figma/rest-api-spec@0.47.0` 响应类型和官方节点、版本及 PNG 渲染接口，接入现有知识候选与版本账本。飞书恢复补读继续调用官方 CLI，复用 Super-agent 原消息标识与既有整理游标。 [Figma OpenAPI 源码](https://github.com/figma/rest-api-spec) · [Figma 文件接口](https://developers.figma.com/docs/rest-api/file-endpoints/) · [飞书历史消息接口](https://open.feishu.cn/document/uAjLw4CM/ukTMukTMukTM/reference/im-v1/message/list)
+
+话题补读使用同一飞书历史接口的 `thread` 容器，复用 Super-agent 的原版 `feishuHistory`、`feishuTrigger` 和消息 ID。漏收命令进入既有跨渠道待办，确认后仍由 Super-agent 工单与 AutoLoop 原生必答流程接续。Figma 修订轮询复用官方 `GetFileMetaResponse` 类型和知识候选账本。SuitMe 增加的来源授权代次是既有知识、快照和执行权限共用的上游检查。 [Figma 文件元数据](https://developers.figma.com/docs/rest-api/file-endpoints/#get-file-metadata)

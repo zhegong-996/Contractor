@@ -4,7 +4,7 @@ import { describeCron, nextRun, parseCron } from '../../upstream/autoloop/kernel
 import type { EventInput } from '../../upstream/autoloop/protocol/validate.ts';
 import type { SuperAgentStore } from '../superagent-ports.ts';
 import type { ChannelRef, PlatformActor } from './channel-links.ts';
-import type { DiscussionInput, SourceFact } from './discussion-intake.ts';
+import type { DiscussionInput, DiscussionThread, SourceFact } from './discussion-intake.ts';
 import { sensitiveFeishuText } from '../feishu-sources.ts';
 
 export const discussionRule = (project: string) => '群消息整理 · ' + project;
@@ -103,6 +103,11 @@ export class Discussions {
         project TEXT NOT NULL, chat TEXT NOT NULL, since INTEGER NOT NULL, cursor INTEGER NOT NULL,
         PRIMARY KEY(project,chat)
       );
+      CREATE TABLE IF NOT EXISTS workbench_discussion_thread (
+        project TEXT NOT NULL, chat TEXT NOT NULL, id TEXT NOT NULL, root TEXT NOT NULL,
+        at INTEGER NOT NULL, cursor INTEGER NOT NULL, checked INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY(project,chat,id)
+      );
       CREATE TABLE IF NOT EXISTS workbench_discussion_message (
         id TEXT PRIMARY KEY, project TEXT NOT NULL, chat TEXT NOT NULL, at INTEGER NOT NULL, body TEXT,
         fingerprint TEXT, settled INTEGER NOT NULL, item TEXT, source TEXT, updated INTEGER, checked INTEGER, withdrawn INTEGER NOT NULL DEFAULT 0
@@ -138,6 +143,25 @@ export class Discussions {
 
   advance(project: string, chat: string, end: number) {
     this.store.db.prepare('UPDATE workbench_discussion_chat SET cursor=MAX(cursor,?) WHERE project=? AND chat=?').run(end, project, chat);
+  }
+
+  trackThread(project: string, chat: string, thread: DiscussionThread) {
+    const scope = this.chat(project, chat);
+    if (!scope) return;
+    this.store.db.prepare(`INSERT INTO workbench_discussion_thread(project,chat,id,root,at,cursor) VALUES (?,?,?,?,?,?)
+      ON CONFLICT(project,chat,id) DO UPDATE SET at=MAX(at,excluded.at) WHERE root=excluded.root`)
+      .run(project, chat, thread.id, thread.root, thread.at, scope.since);
+  }
+
+  threads(project: string, chat: string, end: number) {
+    return this.store.db.prepare(`SELECT id,root,at,cursor FROM workbench_discussion_thread
+      WHERE project=? AND chat=? AND at>=? AND cursor<? ORDER BY checked,at,id LIMIT 12`)
+      .all(project, chat, end - discussionLookback, end) as (DiscussionThread & { cursor: number })[];
+  }
+
+  advanceThread(project: string, chat: string, thread: string, end: number, covered: boolean) {
+    this.store.db.prepare(`UPDATE workbench_discussion_thread SET cursor=MAX(cursor,?),checked=?
+      WHERE project=? AND chat=? AND id=?`).run(covered ? end : 0, Date.now(), project, chat, thread);
   }
 
   remember(row: Observation) {

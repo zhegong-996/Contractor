@@ -15,7 +15,8 @@ import { openSuperAgentEffects, openSuperAgentStore } from '../superagent-ports.
 import { assignmentEvent, openExecution, ruleName, trackWorkerProcesses, workerName, workerStopped, type Card, type Run } from './autoloop.ts';
 import { digest, ProjectKnowledge, type AccessReader, type KnowledgeEntry, type KnowledgeRef } from './knowledge.ts';
 import { knowledgeSource, readKnowledgeSource } from './knowledge-sources.ts';
-import { FigmaSources } from './figma-source.ts';
+import { FigmaAccessUnavailable, FigmaSources } from './figma-source.ts';
+import { FigmaAccess } from './figma-access.ts';
 import { measureSchema, WorkObservations, type Measure, type ObservationInput } from './learning.ts';
 import { bundleHash } from './code-bundle.ts';
 import { executionCapabilities } from './execution-capabilities.ts';
@@ -34,7 +35,7 @@ import { feishuTriggerId } from '../upstream.ts';
 import { tokenize } from '../memory-projections.ts';
 import { Discussions, confirmedDiscussionDestination, digestAgentId, digestProposals, discussionLookback, discussionRule, githubObjectPath, observation, observationVersion, previewLength,
   type Destination, type DigestItem, type DigestScope, type Observation, type Proposal } from './discussion.ts';
-import { readDiscussionDocuments, readDiscussionHistory, refreshDiscussionMessages, type DiscussionInput, type SourceFact } from './discussion-intake.ts';
+import { discussionThread, readDiscussionDocuments, readDiscussionHistory, readDiscussionThread, refreshDiscussionMessages, type DiscussionInput, type SourceFact } from './discussion-intake.ts';
 import { githubReferenceDetails, recentGithubWork } from './github-intake.ts';
 import { HumanDecisions, type HumanDecision, type HumanDecisionKind } from './human-decisions.ts';
 import { AgentBudgets, type BudgetPool, type BudgetPeriod } from './agent-budget.ts';
@@ -135,6 +136,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
   const discussions = new Discussions(store);
   const reader = new FeishuSources();
   const figma = new FigmaSources();
+  const figmaAccess = new FigmaAccess(store.db);
   const { hub, createWorker } = await openExecution(config.agents, config.projects);
   store.db.exec(`
     CREATE TABLE IF NOT EXISTS workbench_binding (
@@ -381,7 +383,10 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     const project = projectById.get(decision.project);
     if (!project || decision.closedAt || decision.member !== actor || !mayStart(project, actor)) return false;
     if (decision.kind === 'budget') return maintain(project, actor) && !!(budgetBlock(project) ?? poolBlock(platformPool));
-    if (decision.kind === 'channel') return maintain(project, actor) && !!links.getPending(decision.subject);
+    if (decision.kind === 'channel') {
+      const event = links.getPending(decision.subject);
+      return !!event && mayReviewChannel(project, actor, event);
+    }
     if (decision.kind === 'discussion') {
       const item = discussions.item(decision.subject);
       return maintain(project, actor) && !!item && item.status !== 'applied' && !!discussions.messageRefs(item.id).length;
@@ -444,7 +449,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
         ...(issue ? { detail: issue.detail } : {}),
         ...(channel && { request: { text: channel.request.request, topic: channel.request.topic, sender: channel.member,
           url: channel.request.trigger.url ?? channel.request.origin.url, reference: visibleReference(channel.request.reference, actor),
-          sourceTicket: visibleTicket(channel.request.origin, actor) } }),
+          sourceTicket: visibleTicket(channel.request.origin, actor), recovered: channel.request.recovered } }),
         ...(item && { proposal: { title: item.title, reason: item.reason, destination: item.destination, sources: discussions.sources(item) } }),
         ...(request && { request: { text: request.request, topic: request.topic, sender: String(intake!.actor), function: request.function } }),
         ...(card && { question: { id: card.id, title: card.title, text: card.text, options: JSON.parse(card.options) as string[] } }) };
@@ -473,10 +478,16 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     if (!project) return;
     const ref = availableRefs(project).find(item => item.knowledge && resourceView(project.id, item).ref === resource);
     const connection = ref && knowledgeSource(project.id, ref, file);
-    return connection && member(project, connection.owner) ? connection : undefined;
+    if (!connection || !member(project, connection.owner)) return;
+    const figmaKey = connection.figma ? connection.authority : undefined;
+    return { ...connection, figmaKey, authority: figmaKey ? figmaAccess.authority(figmaKey) : connection.authority };
   };
-  const connected = (entry: KnowledgeEntry) => !entry.source
-    || configuredSource(projectById.get(entry.project), entry.source.resource, entry.source.path)?.authority === entry.source.authority;
+  const connected = (entry: KnowledgeEntry) => {
+    if (!entry.source) return true;
+    const connection = configuredSource(projectById.get(entry.project), entry.source.resource, entry.source.path);
+    return !!connection && connection.authority === entry.source.authority
+      && (!connection.figma || figmaAccess.allowed(connection.figmaKey!, figma.credentialVersion(connection.figma)));
+  };
   const originOutput = (entry: KnowledgeEntry) => {
     const revision = entry.sources.find(ref => ref.startsWith(entry.ticket + '@'))?.slice(entry.ticket!.length + 1);
     return entry.ticket && revision ? outputByRevision(entry.ticket, revision) : undefined;
@@ -1896,6 +1907,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
         askHuman(project, { kind: 'channel', subject: event.trigger.id, title: '有一条跨渠道请求需要确认归属', detail: reason });
         return { status: 'pending' as const };
       };
+      if (event.recovered) return pending('飞书补读找回原命令，请核对原话题后确认。');
       if (reference === null) return pending('引用无法核对，需由项目维护人确认。');
       const refs = [event.origin, ...(event.parentMessage ? [event.parentMessage] : []), ...(reference && typeof reference !== 'string' ? [reference] : [])];
       const matched = routingMatch(project, actor, refs, typeof reference === 'string' ? reference : undefined);
@@ -1949,20 +1961,48 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     });
   }
 
-  function resolveChannel(actor: string, id: string, decision: IntakeDecision) {
+  function mayReviewChannel(project: Project, actor: string, pending: NonNullable<ReturnType<typeof links.getPending>>) {
+    const recovered = pending.request.recovered;
+    if (recovered) {
+      const history = project.discussion?.history;
+      if (!history || !maintain(project, history.member) || history.appId !== pending.request.sender.namespace
+        || !discussionSources(project).some(ref => ref.externalId === pending.request.trigger.meta.chatId)
+        || links.member(pending.request.sender, pending.request.trigger.at) !== pending.member || !mayStart(project, pending.member)) return false;
+    }
+    if (recovered?.kind !== 'answer') return maintain(project, actor);
+    const work = workOf(recovered.ticket);
+    return pending.member === actor && !!work && work.project === project.id && executionDecider(project, work) === actor
+      && mayStart(project, actor);
+  }
+
+  function resolveChannel(actor: string, id: string, decision: IntakeDecision, verified?: ChannelRequest) {
     return store.atomic(() => {
       const pending = requireValue(links.getPending(id), '这条消息已处理，请刷新。', 409);
       const event = pending.request;
       const project = projectFor(event.project, actor);
-      if (!maintain(project, actor)) throw new WorkbenchError('由项目维护人确认工单归属。', 403);
+      if (!mayReviewChannel(project, actor, pending)) throw new WorkbenchError('当前没有处理该命令的权限。', 403);
+      if (event.recovered && decision.action !== 'dismiss' && digest(event) !== digest(verified))
+        throw new WorkbenchError('请先重新核对飞书原消息。', 409);
       if (decision.action === 'dismiss') {
-        links.settle(id);
+        if (event.recovered) links.redactPending(id);
+        else links.settle(id);
         closeDecision('channel', id);
         audit(project.id, 'channel.dismissed', { actor, event: id });
         return {};
       }
       if (links.member(event.sender, event.trigger.at) !== pending.member || !mayStart(project, pending.member))
         throw new WorkbenchError('原发言人的账号绑定或项目权限已变化，请重新提交。', 409);
+      if (event.recovered?.kind === 'answer') {
+        const { ticket, card } = event.recovered;
+        if (decision.action !== 'link' || decision.ticket !== ticket)
+          throw new WorkbenchError('补读的答复只可用于原工单和原问题。', 409);
+        reply(actor, ticket, { card, nonce: id, ...(/^\d+$/.test(event.request)
+          ? { choice: Number(event.request) - 1 } : { text: event.request }) }, event.trigger);
+        links.redactPending(id, ticket);
+        closeDecision('channel', id);
+        audit(ticket, 'channel.recovered-answer', { actor, event: id, card });
+        return { ticket };
+      }
       if (decision.action === 'project' || decision.action === 'topic') {
         const topic = decision.action === 'topic' ? decision.topic : undefined;
         if (topic && !topicsFor(project).some(item => item.id === topic)) throw new WorkbenchError('请选择当前项目的主题。');
@@ -2008,11 +2048,12 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
   }
 
   function channelView(actor: string) {
-    const pending = config.projects.filter(project => maintain(project, actor)).flatMap(project =>
-      links.pending(project.id).map(row => ({
+    const pending = config.projects.filter(project => mayStart(project, actor)).flatMap(project =>
+      links.pending(project.id).filter(row => mayReviewChannel(project, actor, row)).map(row => ({
         id: row.id, project: project.id, member: row.member, source: row.request.sender.provider, topic: row.request.topic,
         request: row.request.request, url: row.request.trigger.url ?? row.request.origin.url, reason: row.reason,
         sourceTicket: visibleTicket(row.request.origin, actor), reference: visibleReference(row.request.reference, actor),
+        recovered: row.request.recovered,
       })));
     const archived = config.projects.filter(project => member(project, actor)).flatMap(project =>
       links.archived(project.id).map(({ id, member, request, topic }) => ({
@@ -2063,6 +2104,104 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       throw new WorkbenchError('这项决定已处理、已过期或不属于你。', 409);
     reply(actor, decision.ticket, { card: decision.card, nonce: trigger.id,
       ...(/^\d+$/.test(response) ? { choice: Number(response) - 1 } : { text: response }) }, trigger);
+  }
+
+  function trackFeishuThread(trigger: Trigger) {
+    if (trigger.meta.direct) return;
+    const chat = String(trigger.meta.chatId);
+    const project = boundProject('feishu', chat);
+    const thread = discussionThread(trigger.meta, Date.parse(trigger.at));
+    if (thread && project && discussionSources(project).some(ref => ref.externalId === chat))
+      discussions.trackThread(project.id, chat, thread);
+  }
+
+  function recoveredEvent(project: Project, source: ProjectResource, input: DiscussionInput, prior?: ChannelRequest): ChannelRequest | undefined {
+    const { trigger, sender, origin } = input;
+    if (!input.history || !trigger.human || trigger.meta.direct || sensitiveFeishuText.test(trigger.text)) return;
+    const member = links.member(sender, trigger.at);
+    if (!member || !mayStart(project, member)) return;
+    const root = typeof trigger.meta.rootId === 'string' ? trigger.meta.rootId : undefined;
+    const parent = trigger.meta.parentId || root;
+    const parentMessage = typeof parent === 'string' ? messageRef(feishuTriggerId(parent)) : undefined;
+    const refs = [origin, ...(parentMessage ? [parentMessage] : []), ...(root ? [messageRef(feishuTriggerId(root))] : [])];
+    const matched = routingMatch(project, member, refs);
+    const base = { project: project.id, trigger, sender, origin, parentMessage, topic: source.topic,
+      revision: input.updatedAt ? new Date(input.updatedAt).toISOString() : trigger.at };
+    if (input.command?.kind === 'work' && (trigger.addressed || !!root && !!matched.ticket)) {
+      // A bracketed URL is evidence for the reviewer. Replay does not grant its proposed target authority.
+      const ref = input.command.reference;
+      return { ...base, agent: input.command.agent, request: input.command.request, recovered: { kind: 'work' },
+        ...(ref && /^[a-f0-9]{32}$/.test(ref) && { reference: ref }) };
+    }
+    if (!input.answer || !root || !matched.ticket || matched.reason) return;
+    const ticket = store.tickets.get(matched.ticket);
+    const work = workOf(matched.ticket);
+    if (!work || work.project !== project.id || !mayRun(ticket, work) || executionDecider(project, work) !== member) return;
+    const open = hub.all<{ id: number }>("SELECT id FROM cards WHERE lane=? AND kind='ask' AND state='open' AND created_at<=?",
+      [activeLane(matched.ticket), trigger.at]);
+    const previous = prior?.recovered;
+    const card = previous?.kind === 'answer' && previous.ticket === matched.ticket
+      ? open.find(item => item.id === previous.card) : open.length === 1 ? open[0] : undefined;
+    if (card) return { ...base, agent: '', request: input.answer,
+      recovered: { kind: 'answer', ticket: matched.ticket, card: card.id } };
+  }
+
+  function recoverFeishuCommand(project: Project, source: ProjectResource, input: DiscussionInput) {
+    if (store.triggers.get(input.trigger.id)) return;
+    const prior = links.getPending(input.trigger.id);
+    if (!prior && !input.command && !input.answer) return;
+    if (links.seen(input.trigger.id) && !prior?.request.recovered) return;
+    const event = recoveredEvent(project, source, input, prior?.request);
+    if (!event) {
+      if (prior?.request.recovered) {
+        links.redactPending(input.trigger.id);
+        closeDecision('channel', input.trigger.id);
+      }
+      return;
+    }
+    if (prior) {
+      if (Date.parse(event.revision!) < Date.parse(prior.request.revision!)) return;
+      if (prior.member !== links.member(event.sender, event.trigger.at)
+        || digest(prior.request.recovered) !== digest(event.recovered)) {
+        links.redactPending(input.trigger.id);
+        closeDecision('channel', input.trigger.id);
+        return;
+      }
+      links.updatePending(event);
+      links.revise(input.trigger.id, event.revision!, input.trigger.text, false);
+    } else if (event.recovered?.kind === 'work') {
+      receiveChannel(event, event.reference);
+    } else if (event.recovered?.kind === 'answer') {
+      const actor = links.member(event.sender, event.trigger.at)!;
+      links.record(event, actor, { reason: '飞书补读找回原话题答复，确认后接续。' });
+      askHuman(project, { kind: 'channel', subject: event.trigger.id, title: '确认补读的原话题答复',
+        ticket: event.recovered.ticket }, actor);
+    }
+  }
+
+  async function resolveChannelFromHttp(actor: string, id: string, decision: IntakeDecision) {
+    const pending = links.getPending(id);
+    if (!pending?.request.recovered || decision.action === 'dismiss') return resolveChannel(actor, id, decision);
+    const project = projectFor(pending.request.project, actor);
+    if (!mayReviewChannel(project, actor, pending)) throw new WorkbenchError('当前没有处理该命令的权限。', 403);
+    const history = project.discussion?.history;
+    const chat = String(pending.request.trigger.meta.chatId);
+    const source = discussionSources(project).find(ref => ref.externalId === chat);
+    if (!source || !history || !maintain(project, history.member)) throw new WorkbenchError('飞书补读权限已变化。', 409);
+    const batch = await refreshDiscussionMessages(reader, history, config.feishu!, chat, [String(pending.request.trigger.meta.messageId)])
+      .catch(() => { throw new WorkbenchError('暂时无法核对飞书原命令。', 409); });
+    if (batch.withdrawn.includes(id)) {
+      store.atomic(() => { links.redactPending(id); closeDecision('channel', id); });
+      throw new WorkbenchError('原命令已撤回。', 409);
+    }
+    const input = batch.inputs.find(row => row.trigger.id === id);
+    const fresh = input && recoveredEvent(project, source, input, pending.request);
+    if (!fresh || !maintain(project, history.member) || fresh.trigger.text !== pending.request.trigger.text
+      || fresh.request !== pending.request.request || fresh.agent !== pending.request.agent
+      || digest(fresh.recovered) !== digest(pending.request.recovered) || fresh.origin.key !== pending.request.origin.key
+      || fresh.reference !== pending.request.reference)
+      throw new WorkbenchError('原命令、话题或权限已变化，请重新核对后再确认。', 409);
+    return resolveChannel(actor, id, decision, pending.request);
   }
 
   function rememberDiscussion(input: DiscussionInput) {
@@ -2155,17 +2294,45 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       }
       const page = listed.status === 'fulfilled' ? listed.value : undefined;
       const refreshed = checked.status === 'fulfilled' ? checked.value : undefined;
-      store.atomic(() => {
-        for (const input of [...page?.inputs ?? [], ...refreshed?.inputs ?? []]) rememberDiscussion(input);
-        for (const removed of new Set([...page?.withdrawn ?? [], ...refreshed?.withdrawn ?? []])) {
+      const saveBatch = (inputs: DiscussionInput[], withdrawn: string[]) => {
+        for (const input of inputs) {
+          trackFeishuThread(input.trigger);
+          recoverFeishuCommand(project, ref, input);
+          rememberDiscussion(input);
+        }
+        for (const removed of new Set(withdrawn)) {
+          if (links.getPending(removed)?.request.recovered) {
+            links.redactPending(removed);
+            closeDecision('channel', removed);
+          }
           const ticket = discussions.withdraw(project.id, chat, removed, start);
           if (ticket) links.unlinkReference(messageRef(removed), ticket);
         }
+      };
+      store.atomic(() => {
+        for (const thread of [...page?.threads ?? [], ...refreshed?.threads ?? []]) discussions.trackThread(project.id, chat, thread);
+        saveBatch([...page?.inputs ?? [], ...refreshed?.inputs ?? []], [...page?.withdrawn ?? [], ...refreshed?.withdrawn ?? []]);
         if (refreshed) discussions.checked(watched.map(message => message.id));
         if (listed.status === 'fulfilled') discussions.advance(project.id, chat, slot);
       });
-      historyStatus.set(id, { at: Date.now(), state: listed.status === 'rejected' ? 'failed' : checked.status === 'rejected' ? 'partial' : 'ready' });
-      return { listed: listed.status === 'fulfilled', checked: checked.status === 'fulfilled' };
+      let threadFailures = 0;
+      for (const thread of discussions.threads(project.id, chat, slot)) {
+        const from = Math.max(since, thread.cursor - 120_000, slot - discussionLookback);
+        const replies = await readDiscussionThread(reader, history, config.feishu!, chat, thread, from, slot, end.signal).catch(() => undefined);
+        end.signal.throwIfAborted();
+        if (!allowed()) {
+          historyStatus.set(id, { at: Date.now(), state: 'unauthorized' });
+          return { listed: false, checked: false };
+        }
+        store.atomic(() => {
+          if (replies) saveBatch(replies.inputs, replies.withdrawn);
+          else threadFailures++;
+          discussions.advanceThread(project.id, chat, thread.id, slot, !!replies);
+        });
+      }
+      const checkedAll = checked.status === 'fulfilled' && threadFailures === 0;
+      historyStatus.set(id, { at: Date.now(), state: listed.status === 'rejected' ? 'failed' : checkedAll ? 'ready' : 'partial' });
+      return { listed: listed.status === 'fulfilled', checked: checkedAll };
     });
     historyReads.set(id, task);
     return task.finally(() => { if (historyReads.get(id) === task) historyReads.delete(id); });
@@ -3245,32 +3412,124 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     audit(entry.ticket ?? entry.project, 'knowledge.published', { actor, id: entry.id, revision, replaces: target });
   }
 
-  async function readSource(connection: NonNullable<ReturnType<typeof knowledgeSource>>) {
+  type SourceConnection = NonNullable<ReturnType<typeof configuredSource>>;
+  const figmaSyncs = new Map<string, Promise<ReturnType<typeof saveImported>>>();
+
+  function rejectFigma(project: string, connection: SourceConnection) {
+    if (connection.figmaKey && figmaAccess.authority(connection.figmaKey) === connection.authority
+      && figmaAccess.deny(connection.figmaKey))
+      audit(project, 'knowledge.source-access-lost', { resource: connection.resource });
+  }
+
+  async function readSource(connection: SourceConnection, project: string) {
     try { return await readKnowledgeSource(connection, reader, undefined, figma); }
-    catch {
+    catch (error) {
+      if (error instanceof FigmaAccessUnavailable) rejectFigma(project, connection);
       throw new WorkbenchError('无法读取指定资料的正文和版本，请核对来源范围及连接授权。', 409);
     }
+  }
+
+  function saveImported(project: Project, connection: SourceConnection, { body, source }: Awaited<ReturnType<typeof readSource>>) {
+    const prior = knowledge.sourceHead(project.id, source);
+    if (prior && !prior.retirement && prior.source?.fingerprint === source.fingerprint)
+      return { id: prior.id, revision: prior.revision, state: prior.state, sourceRevision: source.revision };
+    const id = key('knowledge-source-version', project.id, source.authority, prior?.id ?? '', source.fingerprint);
+    const existing = knowledge.get(id);
+    const entry = existing ?? knowledge.save({ project: project.id, owner: connection.owner, title: connection.title, kind: 'reference',
+      state: 'candidate', visibility: connection.visibility, body, conditions: connection.conditions, sources: [],
+      source, ...(prior ? { replaces: { id: prior.id, revision: prior.revision } } : {}) }, id);
+    if (!existing) audit(project.id, 'knowledge.imported', { actor: connection.owner, id, revision: entry.revision,
+      resource: source.resource, sourceRevision: source.revision });
+    return { id, revision: entry.revision, state: entry.state, sourceRevision: source.revision };
+  }
+
+  function syncFigmaSource(project: Project, requested: SourceConnection, readMetadata = figma.metadata.bind(figma)) {
+    const key = requested.figmaKey!;
+    const previous = figmaSyncs.get(key);
+    if (previous) return previous;
+    const task = (async () => {
+      const scope = requested.figma!;
+      const credential = figma.credentialVersion(scope);
+      figmaAccess.prepare(key, credential);
+      const connection = requireValue(configuredSource(project, requested.resource), 'Figma 来源已变化。', 409);
+      if (!connection.figma || connection.figmaKey !== key) throw new WorkbenchError('Figma 来源已变化。', 409);
+      const current = () => configuredSource(project, connection.resource);
+      const initial = figmaAccess.get(key);
+      try {
+        const metadata = await readMetadata(scope);
+        end.signal.throwIfAborted();
+        const version = scope.version ?? metadata.version;
+        const cached = initial.candidate ? knowledge.get(initial.candidate) : undefined;
+        const consistent = () => current()?.authority === connection.authority && figma.credentialVersion(scope) === credential
+          && figmaAccess.get(key).generation === initial.generation;
+        if (!credential || !consistent()) throw new WorkbenchError('Figma 授权已变化。', 409);
+        const contents = cached && !cached.retirement && cached.source?.revision === version
+          ? undefined : await readSource({ ...connection, figma: { ...scope, version } }, project.id);
+        end.signal.throwIfAborted();
+        return store.atomic(() => {
+          if (!consistent()) throw new WorkbenchError('Figma 授权已变化。', 409);
+          const result = contents ? saveImported(project, connection, contents)
+            : { id: cached!.id, revision: cached!.revision, state: cached!.state, sourceRevision: version };
+          if (!figmaAccess.confirm(key, credential, metadata.version, result.id, initial.generation))
+            throw new WorkbenchError('Figma 授权已变化。', 409);
+          return result;
+        });
+      } catch (error) {
+        if (error instanceof FigmaAccessUnavailable && figmaAccess.get(key).generation === initial.generation)
+          rejectFigma(project.id, connection);
+        throw new WorkbenchError('暂时无法核对 Figma 修订或读取权限。', 409);
+      }
+    })();
+    figmaSyncs.set(key, task);
+    return task.finally(() => { if (figmaSyncs.get(key) === task) figmaSyncs.delete(key); });
+  }
+
+  async function refreshFigma() {
+    const metadata = new Map<string, ReturnType<typeof figma.metadata>>();
+    const read = (scope: Parameters<typeof figma.metadata>[0]) => {
+      const id = digest([scope.file, figma.credentialVersion(scope)]);
+      const prior = metadata.get(id);
+      if (prior) return prior;
+      const result = figma.metadata(scope);
+      metadata.set(id, result);
+      return result;
+    };
+    for (const project of config.projects) {
+      for (const resource of availableRefs(project)) {
+        if (end.signal.aborted) return;
+        if (resource.knowledge?.format !== 'figma-node') continue;
+        const connection = configuredSource(project, resourceView(project.id, resource).ref);
+        if (connection?.figma) await syncFigmaSource(project, connection, read).catch(() => {});
+      }
+    }
+  }
+
+  function figmaSourceStatus(actor: string, projectId: string) {
+    const project = projectFor(projectId, actor);
+    return availableRefs(project).flatMap(ref => {
+      if (ref.knowledge?.format !== 'figma-node' || ref.knowledge.owner !== actor) return [];
+      const resource = resourceView(project.id, ref).ref;
+      const connection = configuredSource(project, resource);
+      if (!connection?.figma) return [];
+      const state = figmaAccess.get(connection.figmaKey!);
+      return [{ resource, checkedAt: state.observed || undefined,
+        state: state.denied ? 'unavailable' : figmaAccess.allowed(connection.figmaKey!, figma.credentialVersion(connection.figma)) ? 'verified' : 'unverified',
+        ...(state.denied || !figmaAccess.allowed(connection.figmaKey!, figma.credentialVersion(connection.figma)) ? {}
+          : { revision: state.fileVersion, candidate: state.candidate }) }];
+    });
   }
 
   async function importKnowledge(actor: string, projectId: string, input: { resource: string; path?: string }) {
     const project = projectFor(projectId, actor);
     const connection = configuredSource(project, input.resource, input.path);
     if (!connection || connection.owner !== actor) throw new WorkbenchError('由已配置的资料负责人接入指定正文。', 403);
-    const { body, source } = await readSource(connection);
+    if (connection.figma) return syncFigmaSource(project, connection);
+    const contents = await readSource(connection, project.id);
     return store.atomic(() => {
       projectFor(projectId, actor);
-      if (configuredSource(project, input.resource, input.path)?.authority !== source.authority)
+      if (configuredSource(project, input.resource, input.path)?.authority !== contents.source.authority)
         throw new WorkbenchError('资料接入授权已变化。', 409);
-      const prior = knowledge.sourceHead(project.id, source);
-      if (prior && !prior.retirement && prior.source?.fingerprint === source.fingerprint)
-        return { id: prior.id, revision: prior.revision, state: prior.state, sourceRevision: source.revision };
-      const id = key('knowledge-source-version', project.id, source.authority, prior?.id ?? '', source.fingerprint);
-      const existing = knowledge.get(id);
-      const entry = existing ?? knowledge.save({ project: project.id, owner: actor, title: connection.title, kind: 'reference',
-        state: 'candidate', visibility: connection.visibility, body, conditions: connection.conditions, sources: [],
-        source, ...(prior ? { replaces: { id: prior.id, revision: prior.revision } } : {}) }, id);
-      if (!existing) audit(project.id, 'knowledge.imported', { actor, id, revision: entry.revision, resource: source.resource, sourceRevision: source.revision });
-      return { id, revision: entry.revision, state: entry.state, sourceRevision: source.revision };
+      return saveImported(project, connection, contents);
     });
   }
 
@@ -3282,13 +3541,14 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       const connection = source && configuredSource(project, source.resource, source.path);
       if (!source || !connection?.figma?.preview || !canReadEntry(entry, actor))
         throw new WorkbenchError('当前没有查看该原型预览的权限。', 403);
-      return { ...connection.figma, version: source.revision };
+      return { scope: { ...connection.figma, version: source.revision }, connection, project: project.id };
     };
-    const scope = read();
-    const bytes = await figma.preview(scope).catch(() => {
+    const snapshot = read();
+    const bytes = await figma.preview(snapshot.scope).catch(error => {
+      if (error instanceof FigmaAccessUnavailable) rejectFigma(snapshot.project, snapshot.connection);
       throw new WorkbenchError('暂时无法读取该版本的 Figma 预览。', 409);
     });
-    if (digest(read()) !== digest(scope)) throw new WorkbenchError('原型授权已变化。', 409);
+    if (digest(read()) !== digest(snapshot)) throw new WorkbenchError('原型授权已变化。', 409);
     return bytes;
   }
 
@@ -3296,8 +3556,8 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     const source = entry.source;
     const project = projectFor(entry.project, actor);
     const connection = configuredSource(project, source.resource, source.path);
-    if (!connection || connection.authority !== source.authority) throw new WorkbenchError('资料接入授权已变化。', 409);
-    const latest = (await readSource(connection)).source;
+    if (!connection || !connected(entry)) throw new WorkbenchError('资料接入授权已变化。', 409);
+    const latest = (await readSource(connection, project.id)).source;
     if (latest.fingerprint !== source.fingerprint) throw new WorkbenchError('原资料已有新版本，请重新接入并核对。', 409);
     store.atomic(() => {
       projectFor(project.id, actor);
@@ -3371,8 +3631,8 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
 
   return {
     start, reply, resume, revise, approveDevelopment, respondDevelopment, reofferDevelopment, overview, detail, executionSnapshot, boundProject, recordObservation,
-    receiveChannel, receiveNote, resolveChannel, channelView, confirmAccount, refreshDelivery, refreshIssue,
-    rememberDiscussion, refreshFeishuHistory, discussionView, discussionRevisions, resolveDiscussion, needsYou, answerDecision, resolveIntake, handoff,
+    receiveChannel, receiveNote, resolveChannel, resolveChannelFromHttp, channelView, confirmAccount, refreshDelivery, refreshIssue,
+    rememberDiscussion, trackFeishuThread, refreshFeishuHistory, discussionView, discussionRevisions, resolveDiscussion, needsYou, answerDecision, resolveIntake, handoff,
     memoryHome, memoryUses, projectKnowledgeGraph, setMemoryPin, budgetPools, setBudget, issueDevicePair, pairDevice, projectDevices, deviceWork, deviceStarted, deviceResult,
     recallMemory(actor: string, id: string, query: string) {
       const project = projectFor(id, actor);
@@ -3426,6 +3686,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     proveAccount: (code: string, sender: PlatformActor, url?: string) => links.prove(code, sender, url),
     channelMember: (sender: PlatformActor, at?: string) => links.member(sender, at),
     channelEventSeen: (id: string) => links.seen(id),
+    recoveredFeishuEvent: (id: string) => !!links.event(id)?.request.recovered,
     channelTicket: (ref: ChannelRef) => links.ticket(ref),
     githubProject(repository: string, origin: ChannelRef) {
       const id = links.ticket(origin);
@@ -3658,7 +3919,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
           ...(verified ? { pr: verified.url, checks: verified.checks?.map(item => ({ id: item.id, head: item.head_sha })) } : {}) });
       });
     },
-    importKnowledge, knowledgePreview,
+    importKnowledge, knowledgePreview, refreshFigma, figmaSourceStatus,
     publish(actor: string, id: string, revision: string, replaces?: KnowledgeRef) {
       const entry = requireValue(knowledge.get(id), '找不到知识候选。');
       projectFor(entry.project, actor);
@@ -3730,7 +3991,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       };
       if (query) return knowledge.search(read, query, actor).map(present);
       if (history) return read.map(present);
-      return entries.map(e => canReadEntry(e, actor) ? present(e)
+      return entries.filter(e => entryEvidence(e)).map(e => canReadEntry(e, actor) ? present(e)
         : { id: e.id, title: e.title, owner: e.owner, visibility: e.visibility, state: e.state, kind: e.kind });
     },
     request(actor: string, id: string, entryId: string, reason: string) {
@@ -3797,7 +4058,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       clearInterval(timer);
       end.abort();
       await tick;
-      await Promise.allSettled(historyReads.values());
+      await Promise.allSettled([...historyReads.values(), ...figmaSyncs.values()]);
       await effects.drain();
       hub.db.close();
       store.close();

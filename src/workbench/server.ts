@@ -222,7 +222,7 @@ async function serve() {
         const input = accountRef.parse(await body(req));
         work.revokeAccount(actor, input.provider, input.namespace, input.id);
       } else if (config.crossChannel && post && view === 'channels' && action === 'resolve') {
-        output = work.resolveChannel(actor, item, channelDecision.parse(await body(req)));
+        output = await work.resolveChannelFromHttp(actor, item, channelDecision.parse(await body(req)));
       }
       else if (get && view === 'ticket' && item && action === 'runs' && reference)
         output = work.executionSnapshot(actor, item, z.coerce.number().int().positive().parse(reference),
@@ -233,6 +233,7 @@ async function serve() {
       else if (get && view === 'project' && item && action === 'memory')
         output = work.memoryHome(actor, item, url.searchParams.has('agent') ? id.parse(url.searchParams.get('agent')) : undefined);
       else if (get && view === 'project' && item && action === 'knowledge-graph') output = work.projectKnowledgeGraph(actor, item);
+      else if (get && view === 'project' && item && action === 'figma-sources') output = work.figmaSourceStatus(actor, item);
       else if (get && view === 'project' && item && action === 'recall') output = work.recallMemory(actor, item, url.searchParams.get('q') ?? '');
       else if (get && view === 'project' && item && action === 'devices') output = work.projectDevices(actor, item);
       else if (get && view === 'project' && item && action === 'budgets') output = work.budgetPools(actor, item);
@@ -419,6 +420,16 @@ async function serve() {
     };
     const historyTimer = feishu && setInterval(refreshHistory, 60_000);
     if (historyTimer) historyTimer.unref();
+    let figmaRead: Promise<void> | undefined;
+    const refreshFigma = () => {
+      if (closing || figmaRead) return;
+      figmaRead = collaboration.refreshFigma()
+        .catch(error => { if (!closing) console.error('Figma 同步未完成：', (error as Error).name); })
+        .finally(() => { figmaRead = undefined; });
+    };
+    const figmaTimer = setInterval(refreshFigma, 120_000);
+    figmaTimer.unref();
+    refreshFigma();
     if (feishu) {
       feishuWatch = watchFeishu(feishu.profile, line => {
         try {
@@ -430,6 +441,8 @@ async function serve() {
           const normalized = { ...event, root_id: event.root_id || undefined, parent_id: event.parent_id || event.reply_to || undefined, content };
           const trigger = feishuTrigger(normalized, feishu.botId, feishu.appId) as Trigger | undefined;
           if (!trigger?.human) return;
+          if (collaboration.recoveredFeishuEvent(trigger.id)) return;
+          collaboration.trackFeishuThread(trigger);
           const project = collaboration.boundProject('feishu', String(trigger.meta.chatId));
           const mention = mentions.find(m => m.id === feishu.botId || m.id === feishu.appId);
           const text = feishuCommandText(content, mention);
@@ -476,6 +489,7 @@ async function serve() {
       if (closing) return;
       closing = true;
       if (historyTimer) clearInterval(historyTimer);
+      clearInterval(figmaTimer);
       feishuWatch?.close();
       server.close();
       if (remoteServer) remoteServer.close();
