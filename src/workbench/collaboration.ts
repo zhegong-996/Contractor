@@ -40,7 +40,7 @@ import { Discussions, confirmedDiscussionDestination, digestAgentId, digestPropo
 import { discussionThread, readDiscussionDocuments, readDiscussionHistory, readDiscussionThread, refreshDiscussionMessages, type DiscussionInput, type SourceFact } from './discussion-intake.ts';
 import { githubReferenceDetails, recentGithubWork } from './github-intake.ts';
 import { HumanDecisions, type HumanDecision, type HumanDecisionKind } from './human-decisions.ts';
-import { cardContent, FeishuDecisionCards, type CardTransport, type readCardClick } from './feishu-cards.ts';
+import { cardContent, consultationResultCard, FeishuDecisionCards, type CardTransport, type readCardClick } from './feishu-cards.ts';
 import { AgentBudgets, type BudgetPool, type BudgetPeriod } from './agent-budget.ts';
 import { Devices, deviceHome, type Device, type DeviceState, type DeviceJob, type ReleasedLease, type RemoteStop } from './devices.ts';
 
@@ -300,12 +300,19 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       WHERE project=? AND scope=? ORDER BY rowid DESC LIMIT ?`).all(project, scope, pageSize) as { id: string; actor: string; text: string; at: string }[]).reverse();
   }
 
-  function conversation(actor: string, id: string, target: { topic?: string; ticket?: string }) {
+  function conversation(actor: string, id: string, target: { topic?: string; ticket?: string; reply?: string }) {
     const project = projectFor(id, actor);
-    return conversationRows(id, conversationScope(project, actor, target)).map(row => {
+    const scope = conversationScope(project, actor, target);
+    const message = target.reply ? workOf(target.reply)?.consultation?.message : undefined;
+    const rows = target.reply ? store.db.prepare(`SELECT id,actor,text,at FROM workbench_conversation_message
+      WHERE project=? AND scope=? AND id=?`).all(id, scope, message ?? '') as ReturnType<typeof conversationRows>
+      : conversationRows(id, scope);
+    if (target.reply && (!target.topic || target.ticket || !rows.length)) throw new WorkbenchError('找不到这条主题回复。', 404);
+    return rows.map(row => {
       const batch = target.topic && !target.ticket && store.db.prepare('SELECT tickets FROM workbench_topic_consultation WHERE message=?').get(row.id);
       if (!batch) return { ...row, consultations: undefined };
       return { ...row, consultations: (JSON.parse(String(batch.tickets)) as string[]).flatMap(id => {
+        if (target.reply && id !== target.reply) return [];
         const work = workOf(id), ticket = store.tickets.get(id);
         if (!work?.consultation || !ticket || work.project !== project.id || work.topic !== target.topic) return [];
         const result = outputFor(id);
@@ -760,19 +767,39 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       });
     });
   }
+  function feishuConsultationAccount(project: Project, topic: string, actor: string, trigger: Trigger) {
+    const channel = trigger.channel;
+    if (!config.feishu || !send || !trigger.human || channel?.source !== 'feishu' || channel.address.direct || !channel.address.messageId
+      || !project.consultations?.some(item => item.topic === topic && item.feishu)
+      || feishuTopic(project, channel.address.chatId!) !== topic || boundProject('feishu', channel.address.chatId!)?.id !== project.id) return;
+    const account = { provider: 'feishu' as const, namespace: config.feishu.appId, id: trigger.actor.id, label: actor };
+    if (links.member(account, trigger.at) === actor && links.member(account) === actor) return account;
+  }
+
+  function showFeishuConsultation(actor: string, projectId: string, topic: string, request: string, trigger: Trigger) {
+    const project = projectFor(projectId, actor);
+    if (!cardTransport || !mayStart(project, actor) || !feishuConsultationAccount(project, topic, actor, trigger)
+      || sensitiveFeishuText.test(request) || links.seen(trigger.id) || store.triggers.get(trigger.id)) return;
+    const agents = consultationAgents(project, topic);
+    if (!agents.length) return;
+    const id = key('feishu-consultation-card', project.id, trigger.id);
+    const channel = trigger.channel!;
+    store.atomic(() => {
+      feishuCards.register({ decision: id, title: '选择咨询 Agent', text: request.slice(0, 600), group: true,
+        options: agents.map(row => agentById.get(row.agent)!.title),
+        consultation: { project: projectId, topic, actor, request, trigger, agents: agents.map(row => row.agent) } });
+      queueReply({ id, kind: 'reply', channel: { ...channel, address: { ...channel.address, consultationCard: id } }, text: '选择咨询 Agent' });
+    });
+  }
+
   function consultTopic(actor: string, projectId: string, input: { topic: string; text: string; nonce: string; agents?: string[] }, trigger?: Trigger) {
     const project = projectFor(projectId, actor);
     if (!mayStart(project, actor)) throw new WorkbenchError('当前账号没有主题咨询权限。', 403);
     const scope = conversationScope(project, actor, { topic: input.topic });
     if (sensitiveFeishuText.test(input.text)) throw new WorkbenchError('请移除敏感凭据后再咨询。');
     const channel = trigger?.channel;
-    if (trigger && (!send || channel?.source !== 'feishu' || channel.address.direct || !channel.address.messageId
-      || !project.consultations?.find(item => item.topic === input.topic)?.feishu
-      || feishuTopic(project, channel.address.chatId!) !== input.topic || boundProject('feishu', channel.address.chatId!)?.id !== projectId))
-      throw new WorkbenchError('当前飞书群未绑定可咨询的主题。', 403);
-    const account = trigger && config.feishu && { provider: 'feishu' as const, namespace: config.feishu.appId, id: trigger.actor.id, label: actor };
-    if (trigger && (!account || links.member(account, trigger.at) !== actor || links.member(account) !== actor))
-      throw new WorkbenchError('当前飞书身份未绑定项目账号。', 403);
+    const account = trigger && feishuConsultationAccount(project, input.topic, actor, trigger);
+    if (trigger && !account) throw new WorkbenchError('当前飞书账号或群聊无权在此主题发起咨询。', 403);
     const message = key('topic-consultation', projectId, scope, actor, trigger ? 'feishu' : 'web', input.nonce);
     const signature = digest({ text: input.text, agents: input.agents?.slice().sort() });
     const prior = store.db.prepare('SELECT signature,tickets FROM workbench_topic_consultation WHERE message=?').get(message);
@@ -1010,6 +1037,20 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     }
     const message = store.receipts.get(id);
     if (!message || store.replyStatus(id) !== 'pending') return;
+    if (message.channel.address.consultationCard) {
+      const card = feishuCards.get(message.channel.address.consultationCard);
+      const request = card?.consultation;
+      const project = request && projectById.get(request.project);
+      if (!cardTransport || !card || !request || !project || !mayStart(project, request.actor)
+        || !feishuConsultationAccount(project, request.topic, request.actor, request.trigger)) {
+        store.receipts.withdraw(id);
+        return;
+      }
+      if (cardTransport.available?.() === false) throw new Error('等待飞书卡片订阅恢复后发送');
+      if (!card.ref) feishuCards.save({ ...card, ...await cardTransport.send({ message: message.channel.address.messageId! }, id, cardContent(card)) });
+      store.receipts.settle(message, 'sent');
+      return;
+    }
     const author = message.channel.address.conversationAuthor;
     if (author) {
       const work = message.ticketId && workOf(message.ticketId);
@@ -1047,6 +1088,18 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       const ref = evidence.find(item => item.acceptedSource?.delivery) ?? evidence[0]!;
       const accepted = ref.acceptedSource;
       const delivery = accepted?.delivery;
+      if (cardTransport) {
+        const path = [project.id, 'project', work.topic!].map(encodeURIComponent).join('/');
+        const link = config.workbenchPublicUrl && config.workbenchPublicUrl + '/#/' + path + '?tab=chat&reply=' + encodeURIComponent(message.ticketId);
+        const source = evidence.slice(0, 4).map(item => item.title + (item.acceptedSource ? ' · 原工单第 ' + item.acceptedSource.version + ' 版' : ''))
+          .join('\n') + (delivery ? '\n提交 ' + delivery.commit.slice(0, 12) : '');
+        const text = plain(result.text).trim();
+        const summary = [...text].slice(0, 760).join('');
+        await cardTransport.send({ message: address.messageId! }, id, consultationResultCard({ agent: work.consultation!.name,
+          summary: summary + (summary.length < text.length ? '…' : ''), source, link, delivery }));
+        store.receipts.settle(message, 'sent');
+        return;
+      }
       const header = '【' + clip(plain(work.consultation!.name), 10) + '】只读咨询';
       const source = '查询依据 · ' + clip(plain(ref.title), 9) + (accepted ? ' · 原工单第 ' + accepted.version + ' 版' : '')
         + ' · 知识修订 ' + ref.revision.slice(0, 12) + (delivery ? ' · 提交 ' + delivery.commit.slice(0, 12) : '');
@@ -1119,7 +1172,29 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
   }
 
   const workingCards = new Set<number>();
+  function chooseFeishuConsultation(event: ReturnType<typeof readCardClick>) {
+    const card = feishuCards.get(event.card);
+    const request = card?.consultation;
+    const project = request && projectById.get(request.project);
+    if (!card || !request || !project || card.ref !== event.ref || card.chat !== event.chat
+      || request.trigger.actor.id !== event.operator || !mayStart(project, request.actor)
+      || !feishuConsultationAccount(project, request.topic, request.actor, request.trigger))
+      throw new WorkbenchError('你不能处理这张咨询卡片。', 403);
+    if (card.chosen !== undefined) return { changed: false };
+    const agent = request.agents[event.choice];
+    if (!agent) throw new WorkbenchError('所选 Agent 已不可用。', 409);
+    return store.atomic(() => {
+      consultTopic(request.actor, request.project, { topic: request.topic, text: request.request,
+        nonce: request.trigger.id, agents: [agent] }, request.trigger);
+      feishuCards.save({ ...card, chosen: event.choice });
+      effects.enqueue('reply', 'card:' + card.decision, {});
+      audit(request.project, 'feishu.consultation-selected', { actor: request.actor, agent, message: event.ref, event: event.nonce });
+      return { changed: true };
+    });
+  }
+
   async function clickFeishuCard(event: ReturnType<typeof readCardClick>): Promise<{ changed: boolean }> {
+    if (event.kind === 'consultation') return chooseFeishuConsultation(event);
     const card = feishuCards.get(event.card);
     const decision = card && decisions.get(card.decision);
     const binding = decision && dmAccount(decision.member);
@@ -4231,7 +4306,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
 
   const api = {
     start, reply, resume, revise, retryUnpublishedCode, approveDevelopment, respondDevelopment, reofferDevelopment, overview, detail, executionSnapshot, boundProject, recordObservation,
-    createProject, addProjectMember, addProjectAgent, clickFeishuCard, conversation, postConversation, consultTopic, receiveFeishuReply, bindFeishuGroup, feishuTopic,
+    createProject, addProjectMember, addProjectAgent, clickFeishuCard, conversation, postConversation, consultTopic, showFeishuConsultation, receiveFeishuReply, bindFeishuGroup, feishuTopic,
     receiveChannel, receiveNote, resolveChannel, resolveChannelFromHttp, channelView, confirmAccount, refreshDelivery, refreshIssue,
     rememberDiscussion, trackFeishuThread, refreshFeishuHistory, discussionView, discussionRevisions, resolveDiscussion, needsYou, answerDecision, resolveIntake, handoff,
     memoryHome, memoryUses, projectKnowledgeGraph, setMemoryPin, budgetPools, setBudget, issueDevicePair, pairDevice, projectDevices, deviceWork, deviceStarted, deviceResult,

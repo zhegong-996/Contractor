@@ -2,14 +2,15 @@ import { Fragment, useState } from 'react';
 import { api, uid, useData, type Agent, type ConversationMessage } from './api.ts';
 import { Avatar, date, Failure, Field, Markdown, useActions, useStored } from './ui.tsx';
 import { Button } from './paperclip/button.tsx';
-import type { PageProps } from './navigation.ts';
+import { routeFor, type PageProps } from './navigation.ts';
 import { selectedRosterIds, TopicMemberPicker } from './octop/TopicMemberPicker.tsx';
 import { SignedTopicReply } from './octop/SignedTopicReply.tsx';
 
-export function Conversation({ project, workspace, openTask, ticket, topic, canReplyInFeishu }: PageProps & { ticket?: string; topic?: string; canReplyInFeishu?: boolean }) {
+export function Conversation({ project, workspace, openTask, ticket, topic, canReplyInFeishu, route }: PageProps & { ticket?: string; topic?: string; canReplyInFeishu?: boolean }) {
   const base = 'project/' + project.id + '/messages';
   const filter = ticket ? '?ticket=' + encodeURIComponent(ticket) : topic ? '?topic=' + encodeURIComponent(topic) : '';
-  const data = useData<ConversationMessage[]>(base + filter, 2000);
+  const reply = !ticket && route.reply;
+  const data = useData<ConversationMessage[]>(base + filter + (reply ? (filter ? '&' : '?') + 'reply=' + encodeURIComponent(reply) : ''), 2000);
   const [draft, setDraft] = useStored('conversation:' + base + filter, { text: '', nonce: uid(), consultants: [] as string[] });
   const [agent, setAgent] = useState('');
   const [feishu, setFeishu] = useState(false);
@@ -19,6 +20,7 @@ export function Conversation({ project, workspace, openTask, ticket, topic, canR
   const consultants = ticket ? [] : agents.filter(item => registered.includes(item.id));
   const selected = selectedRosterIds(draft.consultants ?? [], consultants);
   return <div className="detail-stack">
+    {reply && <a className="text-button" href={routeFor(project.id, 'project', topic, 'chat')}>返回主题讨论</a>}
     {data.error && <Failure error={data.error} retry={() => void data.refetch()} />}
     {!!data.data?.length && <div className="timeline" aria-label="成员讨论">
       {data.data.map(item => <Fragment key={item.id}><article className="timeline-entry">
@@ -30,7 +32,7 @@ export function Conversation({ project, workspace, openTask, ticket, topic, canR
         canContinue={(id, revision) => project.mayStart && workspace.tickets.some(ticket => ticket.id === id
           && ticket.work.requester === workspace.actor && ticket.work.accepted?.revision === revision && !!ticket.work.development)} />)}</Fragment>)}
     </div>}
-    {project.mayStart && <form className="form" onSubmit={async event => {
+    {!reply && project.mayStart && <form className="form" onSubmit={async event => {
       event.preventDefault();
       const text = draft.text.trim();
       if (!text) return;

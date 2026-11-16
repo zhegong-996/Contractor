@@ -329,6 +329,7 @@ async function serve() {
         output = work.conversation(actor, item, {
           topic: url.searchParams.has('topic') ? id.parse(url.searchParams.get('topic')) : undefined,
           ticket: url.searchParams.has('ticket') ? id.parse(url.searchParams.get('ticket')) : undefined,
+          reply: url.searchParams.has('reply') ? id.parse(url.searchParams.get('reply')) : undefined,
         });
       } else if (post && view === 'project' && action === 'messages') {
         output = work.postConversation(actor, item, z.object({ nonce, text: prose, topic: id.optional(), ticket: id.optional(),
@@ -544,7 +545,8 @@ async function serve() {
             const actor = collaboration.channelMember(sender, trigger.at);
             const topic = collaboration.feishuTopic(project, chat);
             if (actor && topic && actor === collaboration.channelMember(sender)) {
-              collaboration.consultTopic(actor, project.id, { topic, ...question, nonce: trigger.id }, trigger);
+              if (question.agents || !feishu.decisionCards) collaboration.consultTopic(actor, project.id, { topic, ...question, nonce: trigger.id }, trigger);
+              else collaboration.showFeishuConsultation(actor, project.id, topic, question.text, trigger);
             }
             return;
           }

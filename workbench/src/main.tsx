@@ -138,7 +138,11 @@ function Workspace() {
   const workspace = overview.data;
   if (overview.error) return <div className="app-placeholder"><Failure error={overview.error} retry={() => void overview.refetch()} /></div>;
   if (!workspace) return <Loading />;
-  const project = workspace.projects.find(p => p.id === requested.project) ?? workspace.projects[0];
+  const targetProject = workspace.projects.find(p => p.id === requested.project);
+  if (requested.reply && !targetProject) return <div className="app-placeholder">
+    <Failure error={new Error('当前账号无权打开这条主题回复。')} /><a href="#/">返回工作台</a>
+  </div>;
+  const project = targetProject ?? workspace.projects[0];
   const newProject = () => setCreatingProject(true);
   const projectModal = creatingProject && <NewProject workspace={workspace} close={() => setCreatingProject(false)} />;
   if (!project) return <div className="app-placeholder">

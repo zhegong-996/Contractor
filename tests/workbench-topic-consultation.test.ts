@@ -6,7 +6,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { Trigger } from '../upstream/superagent/src/core/index.ts';
-import { IM_WORDS, wordCount } from '../upstream/superagent/src/infra/text.ts';
+import { readCardClick } from '../src/workbench/feishu-cards.ts';
 
 test('主题咨询通过原生执行隔离来源，重放只派一次，且只回原飞书话题', { timeout: 30000 }, async t => {
   const state = await mkdtemp(path.join(os.tmpdir(), 'suitme-topic-consultation-'));
@@ -35,6 +35,7 @@ test('主题咨询通过原生执行隔离来源，重放只派一次，且只�
   await auth.bootstrapOwner('product', 'test-only-password');
   for (const actor of ['engineer', 'outsider']) await auth.createAccount(actor, 'test-only-password', 'operator', 'product');
   const config = settingsSchema.parse({
+    workbenchPublicUrl: 'https://collab.example.com',
     projects: [{ id: 'store', title: '门店', members: ['product', 'engineer'], maintainers: ['product'],
       topics: [{ id: 'recommendation', title: '推荐理由' }, { id: 'other', title: '其他' }],
       resources: [{ source: 'feishu', externalId: 'oc_test', label: '试验群', state: 'bound', topic: 'recommendation' },
@@ -49,10 +50,15 @@ test('主题咨询通过原生执行隔离来源，重放只派一次，且只�
     })),
     feishu: { profile: 'fixture', appId: 'app', botId: 'ou_bot', allowedGroups: ['oc_test'] },
   });
-  const replies: { root?: string; text: string }[] = [];
-  const work = await openCollaboration(config, auth, async message => {
-    replies.push({ root: message.channel.address.messageId, text: message.text });
-    return 'sent';
+  const replies: { root?: string; text: string; ref: string }[] = [];
+  const updates: string[] = [];
+  const work = await openCollaboration(config, auth, async () => 'sent', {
+    async send(target, _key, text) {
+      const ref = 'om_card_' + replies.length;
+      replies.push({ root: 'message' in target ? target.message : undefined, text, ref });
+      return { ref, chat: 'oc_test' };
+    },
+    async update(_ref, text) { updates.push(text); },
   });
   t.after(async () => { await work.close(); await rm(state, { recursive: true, force: true }); });
   const material: string[] = [];
@@ -93,9 +99,45 @@ test('主题咨询通过原生执行隔离来源，重放只派一次，且只�
     && reply.text.endsWith('\n\n- 最后一项验收条件') && !reply.text.includes('[记忆:')));
   assert.equal(replies.length, 2);
   assert.ok(replies.every(reply => reply.root === 'om_consult'));
-  assert.ok(replies.every(reply => wordCount(reply.text) <= IM_WORDS));
+  assert.ok(replies.every(reply => JSON.parse(reply.text).schema === '2.0'));
   assert.ok(replies.some(reply => /copy-agent[\s\S]*COPY_ONLY[\s\S]*现行文案口径/.test(reply.text) && !reply.text.includes('WRAP_ONLY')));
   assert.ok(replies.some(reply => /wrap-agent[\s\S]*WRAP_ONLY[\s\S]*已验收的小屏规则/.test(reply.text) && !reply.text.includes('COPY_ONLY')));
+  for (const reply of answers ?? []) {
+    const focused = work.conversation('engineer', 'store', { topic: input.topic, reply: reply.ticket });
+    assert.deepEqual(focused.map(item => item.consultations), [[reply]]);
+    assert.throws(() => work.conversation('engineer', 'store', { topic: 'other', reply: reply.ticket }), { status: 404 });
+    assert.throws(() => work.conversation('outsider', 'store', { topic: input.topic, reply: reply.ticket }), { status: 404 });
+  }
+  const pickTrigger = feishuTrigger({ message_id: 'om_picker', root_id: 'om_root', chat_id: 'oc_test', chat_type: 'group',
+    sender_id: 'ou_product', sender_type: 'user', content: '/咨询 核对小屏', create_time: String(Date.now()) }, 'ou_bot', 'app') as Trigger;
+  work.showFeishuConsultation('product', 'store', input.topic, '核对小屏', pickTrigger);
+  work.showFeishuConsultation('product', 'store', input.topic, '核对小屏', pickTrigger);
+  for (let step = 0; step < 30 && replies.length < 3; step++) await delay(100);
+  const pick = replies[2]!;
+  assert.equal(pick.root, 'om_picker');
+  assert.equal(work.conversation('product', 'store', { topic: input.topic }).length, 2);
+  const option = JSON.parse(pick.text).body.elements.find((value: { tag: string; elements?: { text?: { content?: string } }[] }) =>
+    value.tag === 'interactive_container' && value.elements?.[0]?.text?.content === 'wrap-agent');
+  assert.ok(option);
+  const click = readCardClick(JSON.stringify({ type: 'card.action.trigger', event_id: 'event-first', operator_id: 'ou_product',
+    message_id: pick.ref, chat_id: 'oc_test', action_value: JSON.stringify(option.behaviors[0].value) }));
+  await assert.rejects(work.clickFeishuCard({ ...click, operator: 'ou_someone_else' }), { status: 403 });
+  await assert.rejects(work.clickFeishuCard({ ...click, ref: 'om_wrong_card' }), { status: 403 });
+  assert.deepEqual(await Promise.all([work.clickFeishuCard(click), work.clickFeishuCard({ ...click, nonce: 'event-second' })]),
+    [{ changed: true }, { changed: false }]);
+  work.showFeishuConsultation('product', 'store', input.topic, '核对小屏', pickTrigger);
+  for (let step = 0; step < 60 && replies.length < 4; step++) await delay(150);
+  assert.equal(replies.length, 4);
+  assert.equal(replies[3]!.root, 'om_picker');
+  assert.ok(updates.some(text => text.includes('已交给 wrap-agent') && !text.includes('callback')));
+  const newMessage = work.conversation('product', 'store', { topic: input.topic }).find(item => item.text === '核对小屏');
+  assert.equal(newMessage?.consultations?.length, 1);
+  const pickedReply = newMessage.consultations[0]!;
+  assert.equal(pickedReply.speaker.id, 'wrap-agent');
+  assert.equal(work.detail('product', pickedReply.ticket).runs.length, 1);
+  const link = 'https://collab.example.com/#/store/project/recommendation?tab=chat&reply=' + pickedReply.ticket;
+  const buttons = JSON.parse(replies[3]!.text).body.elements.filter((element: { tag: string }) => element.tag === 'button');
+  assert.deepEqual(buttons[0].behaviors, [{ type: 'open_url', default_url: link }]);
   for (const ticket of [...batch.tickets, ...webBatch.tickets]) {
     const item = work.detail('product', ticket);
     assert.equal(item.runs.length, 1);
