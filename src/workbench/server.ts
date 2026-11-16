@@ -361,6 +361,8 @@ async function serve() {
         output = work.revise(actor, item, z.object({ revision: z.string().length(64), reason: prose,
           kind: z.enum(['rejected', 'continued']).optional(), material: materials.optional(), device: z.uuid().optional(),
           consultation: z.object({ ticket: id, revision: knowledgeRevision }).strict().optional() }).strict().parse(await body(req)));
+      else if (post && view === 'ticket' && action === 'retry-local-code')
+        output = await work.retryUnpublishedCode(actor, item, z.object({ revision: knowledgeRevision, reason: prose }).strict().parse(await body(req)));
       else if (post && view === 'ticket' && action === 'approve-development')
         work.approveDevelopment(actor, item, z.object({ offer: id.optional() }).strict().parse(await body(req)).offer);
       else if (post && view === 'ticket' && action === 'respond-development')

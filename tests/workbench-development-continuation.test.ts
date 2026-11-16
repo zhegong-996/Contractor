@@ -20,7 +20,7 @@ test('真实本地 Git 保留交接改动，多轮提交沿用本单历史，基
   // Only the fetch transport is local. All worktrees, commits, diffs and rebases use the real Git binary.
   await writeFile(path.join(bin, 'git'), '#!' + process.execPath + '\n'
     + 'const cp=require("node:child_process");const a=process.argv.slice(2);'
-    + 'if(a[0]==="fetch")a[a.indexOf("origin")]=' + JSON.stringify(remote) + ';'
+    + 'if(a[0]==="fetch"||a[0]==="ls-remote")a[a.indexOf("origin")]=' + JSON.stringify(remote) + ';'
     + 'const r=cp.spawnSync("/usr/bin/git",a,{stdio:"inherit"});process.exit(r.status??1);\n');
   await chmod(path.join(bin, 'git'), 0o700); process.env.PATH = bin + path.delimiter + originalPath;
   t.after(async () => { process.env.PATH = originalPath; await rm(dir, { recursive: true, force: true }); });
@@ -43,6 +43,17 @@ test('真实本地 Git 保留交接改动，多轮提交沿用本单历史，基
   const second = await commitDevelopment('test-ticket', two, 2);
   assert.equal(git(folder, 'rev-parse', second + '^'), first);
   assert.equal(await commitDevelopment('test-ticket', two, 2), second, '同次回执不能再提交一次');
+
+  git(folder, 'push', remote, first + ':refs/heads/' + one.branch);
+  const retry = { discarded: second, start: first };
+  const untracked = path.join(folder, 'collab-pilot/local.txt');
+  await writeFile(untracked, 'uncommitted work');
+  await assert.rejects(developmentCheckout(config, target, 'test-ticket', { retry }), /无法安全/);
+  await rm(untracked);
+  assert.equal((await developmentCheckout(config, target, 'test-ticket', { retry })).startSha, first);
+  assert.equal(git(folder, 'rev-parse', 'refs/suitme/discarded/' + second), second);
+  assert.equal((await developmentCheckout(config, target, 'test-ticket', { retry })).startSha, first);
+  git(folder, 'reset', '--hard', second);
 
   await writeFile(path.join(checkout, 'README.md'), 'new upstream base\n');
   git(checkout, 'add', 'README.md'); git(checkout, 'commit', '-m', 'upstream move'); git(checkout, 'push', remote, 'main');

@@ -107,7 +107,7 @@ function TicketDetail(props: PageProps & { ticket: Ticket; tab: WorkTab }) {
       </div>
       <div className="ticket-head-meta">{viewedVersion ? <>
         <Pill tone={versionAccepted ? 'green' : 'neutral'}>{versionAccepted ? '已验收'
-          : viewedVersion.reviews.some(review => review.kind === 'rejected') ? '已打回' : '未验收'}</Pill>
+          : viewedVersion.reviews.some(review => review.kind === 'withdrawn') ? '交付前撤回' : viewedVersion.reviews.some(review => review.kind === 'rejected') ? '已打回' : '未验收'}</Pill>
         <Version version={viewedVersion.version} />
       </> : <><TicketStatus ticket={ticket} /><Version version={ticket.work.version} /></>}
         <Source channel={ticket.work.source} />
@@ -420,7 +420,7 @@ function VersionBody({ version, project }: { version: Ticket['versions'][number]
   return <>
     {version.text !== undefined ? <Markdown text={version.text} /> : <p className="muted-text">此版本正文当前受限。</p>}
     {version.reviews.map(review => <div className="record-row" key={review.kind + review.at}>
-      <strong>{({ accepted: '验收', rejected: '打回', continued: '开启下一版' })[review.kind]}</strong><span>{review.actor}</span>
+      <strong>{({ accepted: '验收', rejected: '打回', continued: '开启下一版', withdrawn: '交付前撤回' })[review.kind]}</strong><span>{review.actor}</span>
       <time>{date(review.at)}</time>{review.reason && <span>{review.reason}</span>}
     </div>)}
     {version.acceptedSource && <AcceptedEvidence source={version.acceptedSource} project={project} linkVersion={false} />}

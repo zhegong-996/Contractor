@@ -15,7 +15,7 @@ export const checkoutFor = (config: Settings['attribution'], repository: string)
 const git = async (cwd: string, ...args: string[]) => (await command('git', args, cwd)).trimEnd();
 
 export async function developmentCheckout(config: Settings['attribution'], target: DevelopmentTarget, ticket: string,
-  continuation?: { commit?: string; baseSha?: string }): Promise<Development> {
+  continuation?: { commit?: string; baseSha?: string; retry?: { discarded: string; start: string } }): Promise<Development> {
   const checkout = checkoutFor(config, target.repository);
   if (!checkout || !config) throw new Error('此仓库尚未配置本地执行工作区。');
   const remote = await git(checkout, 'remote', 'get-url', 'origin');
@@ -28,6 +28,7 @@ export async function developmentCheckout(config: Settings['attribution'], targe
   const marker = runtime('development', ticket + '.json');
   await git(checkout, 'fetch', '--no-tags', '--no-write-fetch-head', 'origin', '+refs/heads/' + target.base + ':' + remoteBase);
   const remoteSha = commitSha.parse(await git(checkout, 'rev-parse', remoteBase));
+  if (continuation?.retry && !existing) throw new Error('找不到本版原工作区，无法接续本地修正。');
   if (!existing) {
     await mkdir(runtime('development'), { recursive: true, mode: 0o700 });
     await git(checkout, 'worktree', 'add', '-b', branch, folder, remoteSha);
@@ -47,6 +48,19 @@ export async function developmentCheckout(config: Settings['attribution'], targe
   if (existing && (await changedFiles(folder)).some(file => !allowedFile(file, target.paths)))
     throw new Error('本地工作区存在范围外改动。');
   let head = commitSha.parse(await git(folder, 'rev-parse', 'HEAD'));
+  if (continuation?.retry) {
+    const { discarded, start } = continuation.retry;
+    const remoteHead = (await git(checkout, 'ls-remote', '--heads', 'origin', 'refs/heads/' + branch)).split('\t')[0];
+    if (remoteSha !== saved.baseSha || remoteHead !== start || (head !== discarded && head !== start)
+      || await git(folder, 'rev-parse', discarded + '^') !== start || (await changedFiles(folder)).length)
+      throw new Error('本地改动或远端基线已变化，无法安全从本版起点修正。');
+    if (head === discarded) {
+      await git(folder, 'update-ref', 'refs/suitme/discarded/' + discarded, discarded);
+      await git(folder, 'reset', '--hard', start);
+      head = start;
+    }
+    return { ...saved, startSha: head };
+  }
   const expected = saved.startSha && saved.rebasedFrom === continuation?.commit && continuation?.baseSha === saved.baseSha
     ? saved.startSha : continuation?.commit ?? saved.startSha ?? saved.baseSha;
   if (head !== expected) throw new Error('工作区提交与上轮受托记录不同，需研发核对。');

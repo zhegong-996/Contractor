@@ -3,7 +3,7 @@ import type { DatabaseSync } from 'node:sqlite';
 // A review snapshot complements the native Ticket/Assignment; it never schedules execution.
 // Like upstream acceptance's rounds, reviews are append-only and tied to an exact deliverable.
 export type Review = {
-  version: number; revision: string; kind: 'accepted' | 'rejected' | 'continued'; actor: string; at: string;
+  version: number; revision: string; kind: 'accepted' | 'rejected' | 'continued' | 'withdrawn'; actor: string; at: string;
   reason?: string; commit?: string; delivery?: unknown;
 };
 export class Iterations {

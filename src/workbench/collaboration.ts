@@ -72,6 +72,7 @@ type Work = {
   developmentResponse?: { offer: string; response: 'decline' | 'return'; actor: string; agent: string; reason: string; at: string };
   approvalRequired?: boolean;
   version?: number;
+  localRetry?: { run: number; discarded: string; start: string; reason: string };
   continuation?: { id: string; reason: string; actor: string; at: string; previous?: string; baseSha?: string; consultation?: { ticket: string; revision: string } };
   topic?: string;
   consultation?: { message: string; name: string; feishu?: NonNullable<Trigger['channel']>; account?: PlatformActor };
@@ -619,8 +620,9 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
   // The ticket is stable across handoffs. Each native lane has its own cards, timers and CLI session.
   const runsFor = (id: string) => hub.all<Run>('SELECT id,lane,state,session,usage,summary,cancel_at FROM runs WHERE lane=? OR lane GLOB ? ORDER BY id', [id, id + ':*']);
   const outputFor = (id: string): Output | undefined => {
-    const row = store.db.prepare("SELECT value FROM workbench_output WHERE ticket=? AND COALESCE(json_extract(value,'$.version'),1)=? ORDER BY run DESC LIMIT 1")
-      .get(id, workOf(id)?.version ?? 1);
+    const work = workOf(id);
+    const row = store.db.prepare("SELECT value FROM workbench_output WHERE ticket=? AND COALESCE(json_extract(value,'$.version'),1)=? AND run>? ORDER BY run DESC LIMIT 1")
+      .get(id, work?.version ?? 1, work?.localRetry?.run ?? 0);
     return row && JSON.parse(String(row.value));
   };
   const outputByRevision = (id: string, revision: string): Output | undefined => {
@@ -1561,7 +1563,8 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
         iterations.record(id, { version: currentVersion, ...work.accepted, kind: 'accepted', delivery: work.delivery });
       iterations.record(id, { version: currentVersion, revision: output.revision, kind, actor, at: new Date().toISOString(),
         reason: input.reason, delivery: work.delivery, commit: work.delivery?.headSha });
-      const { accepted: _accepted, delivery: _delivery, handoff: _handoff, developmentOffer: _offer, developmentResponse: _response, ...rest } = work;
+      const { accepted: _accepted, delivery: _delivery, handoff: _handoff, developmentOffer: _offer, developmentResponse: _response,
+        localRetry: _retry, ...rest } = work;
       const marker = key('work-revision', id, output.revision);
       const recall = work.recall?.flatMap(ref => {
         const entry = knowledge.current(ref);
@@ -1589,6 +1592,44 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       if (next.development) askDevelopment(id, next);
       audit(id, 'version.opened', { actor, version: currentVersion + 1, previous: output.revision, kind, reason: input.reason, consultation: input.consultation });
       return { version: currentVersion + 1 };
+    });
+  }
+
+  async function retryUnpublishedCode(actor: string, id: string, input: { revision: string; reason: string }) {
+    const { ticket, work, project } = ticketFor(id, actor);
+    if (actor !== work.requester || !mayStart(project, actor)) throw new WorkbenchError('由原发起人确认交付前修正。', 403);
+    const prior = iterations.get(id, input.revision, 'withdrawn');
+    if (prior) return { version: prior.version };
+    const version = work.version ?? 1;
+    const output = readableOutput(id);
+    const development = output && manifestFor(output.run)?.development;
+    const ref = followedPull(id, work);
+    const hasActiveRuns = () => runsFor(id).some(run => ['queued', 'claimed', 'unknown'].includes(run.state));
+    if (ticket.ended?.outcome !== 'completed' || !work.development || work.accepted || work.delivery || !developmentAuthorized(work)
+      || !policy().revalidate(ticket.mandate) || output?.revision !== input.revision || !development?.startSha || !development.commit
+      || !ref || hasActiveRuns()) throw new WorkbenchError('仅能接续已停止、尚未推送和验收的本版代码成果。', 409);
+    const target = pullTarget(project, ref.url);
+    const { snapshot } = await inspectPull(target.externalId, ref.url, target.execution?.requiredChecks);
+    if (snapshot.state !== 'open' || snapshot.headSha !== development.startSha || snapshot.headBranch !== development.branch
+      || snapshot.headRepoId !== ref.repoId || snapshot.baseSha !== development.baseSha || snapshot.baseBranch !== development.base)
+      throw new WorkbenchError('原 PR 已变化，从当前远端状态人工核对后再决定。', 409);
+    return store.atomic(() => {
+      if (iterations.get(id, input.revision, 'withdrawn')) return { version };
+      if (digest(workOf(id)) !== digest(work) || readableOutput(id)?.revision !== input.revision || hasActiveRuns())
+        throw new WorkbenchError('成果、执行或交付已变化，请刷新。', 409);
+      const at = new Date().toISOString(), marker = key('unpublished-code-retry', id, input.revision);
+      const localRetry = { run: output.run, discarded: development.commit!, start: development.startSha!, reason: input.reason };
+      iterations.record(id, { version, revision: input.revision, kind: 'withdrawn', actor, at, reason: input.reason, commit: localRetry.discarded });
+      closeAcceptance(id);
+      closeDeliveryIssues(id, output);
+      engine.receive({ id: marker, source: 'web', actor: { source: 'web', id: actor }, human: true, addressed: 'direct',
+        threads: [{ source: 'web', id: marker }], at, text: input.reason, meta: { project: work.project } });
+      engine.attach(id, marker, '本版交付前修正');
+      const reopened = store.tickets.get(id)!;
+      if (reopened.ended) throw new WorkbenchError('原工单未能接续。', 409);
+      saveWork(id, { ...work, localRetry, lane: id + ':' + reopened.assignments.at(-1)!.id });
+      audit(id, 'delivery.local-retry', { actor, version, revision: input.revision, ...localRetry });
+      return { version };
     });
   }
 
@@ -1736,10 +1777,11 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
         sources.some(source => source.id === ref.id && source.revision === ref.revision));
       const priorDevelopment = store.db.prepare('SELECT value FROM workbench_manifest WHERE ticket=? ORDER BY run DESC,attempt DESC')
         .all(ticket.id).map(row => (JSON.parse(String(row.value)) as Assembled).development).find(dev => dev?.commit);
+      const retry = work.localRetry?.discarded === priorDevelopment?.commit ? work.localRetry : undefined;
       let developmentError = '';
       const development = work.development
         ? await developmentCheckout(config.attribution, work.development, ticket.id,
-          { commit: priorDevelopment?.commit, baseSha: work.continuation?.baseSha }).catch(error => { developmentError = String(error.message); return undefined; }) : undefined;
+          { commit: priorDevelopment?.commit, baseSha: work.continuation?.baseSha, retry }).catch(error => { developmentError = String(error.message); return undefined; }) : undefined;
       if (work.development && !development) {
         cancelUnstarted(job, ticket.id, '无法准备已授权的代码工作区');
         if (mayRun(store.tickets.get(ticket.id), workOf(ticket.id))) reportBlocked(ticket.id, work, developmentError || '请核对代码工作区、分支和 Entire 安装配置。');
@@ -1846,7 +1888,8 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
         id: key('measure', ticket.id), type: 'task.measure', source: 'suitme', sourceName: '项目观测',
         subject: ticket.id, summary: work.measure.metric, detail: JSON.stringify(work.measure), receivedAt: ticket.createdAt, link: '',
       });
-      const prompt = agent.skill + (continuation ? '\n原始需求用于理解背景。以本版已确认的修改要求为准，并保留既有范围和验收约束。' : '')
+      const prompt = agent.skill + (continuation ? '\n原始需求仅用于理解背景。本版已确认范围优先，请按以下范围在现有代码上修改：\n' + continuation.reason : '')
+        + (retry ? '\n本轮是对未发布结果的纠正，业务版本和授权均相同。工作区已从原版代码接续。具体纠正要求：\n' + retry.reason : '')
         + '\n在最后一条答复首行用一段完整中文给出结论。'
         + (entries.length ? '\n如结论实际使用了某条项目记忆，请在首行相应结论后附该条资料内的「记忆引用标识」。未使用的不要附。' : '')
         + (development ? '\n仅编辑此工作区内的受托路径 ' + development.paths.join('、')
@@ -3519,7 +3562,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     }).map(prior => prior.revision));
     const reviews = iterations.list(id);
     const protectedReasons = new Set(reviews.filter(review => review.kind !== 'accepted' && !readableRevisions.has(review.revision))
-      .map(review => key('work-revision', id, review.revision)));
+      .map(review => key(review.kind === 'withdrawn' ? 'unpublished-code-retry' : 'work-revision', id, review.revision)));
     const stored = outputFor(ticket.id);
     const permitted = !!stored && (work.requester === actor || agentById.get(work.agent)?.owner === actor
       || stored.sources.every(ref => knowledge.get(ref.id)?.visibility === 'project'));
@@ -3582,7 +3625,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       const attached = workOf(id);
       return item && member(projectById.get(attached?.project ?? ''), actor) ? [{ id, title: item.title, project: attached!.project }] : [];
     });
-    const { lane: _lane, related: _related, continuation, consultation, ...visibleWork } = work;
+    const { lane: _lane, related: _related, localRetry: _retry, continuation, consultation, ...visibleWork } = work;
     const visibleContinuation = continuation?.previous && !readableRevisions.has(continuation.previous)
       ? { ...continuation, reason: undefined } : continuation;
     const delivery = codeDeliveryState(ticket, work);
@@ -4157,7 +4200,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
   }, 700);
 
   const api = {
-    start, reply, resume, revise, approveDevelopment, respondDevelopment, reofferDevelopment, overview, detail, executionSnapshot, boundProject, recordObservation,
+    start, reply, resume, revise, retryUnpublishedCode, approveDevelopment, respondDevelopment, reofferDevelopment, overview, detail, executionSnapshot, boundProject, recordObservation,
     createProject, addProjectMember, addProjectAgent, clickFeishuCard, conversation, postConversation, consultTopic, receiveFeishuReply, bindFeishuGroup, feishuTopic,
     receiveChannel, receiveNote, resolveChannel, resolveChannelFromHttp, channelView, confirmAccount, refreshDelivery, refreshIssue,
     rememberDiscussion, trackFeishuThread, refreshFeishuHistory, discussionView, discussionRevisions, resolveDiscussion, needsYou, answerDecision, resolveIntake, handoff,
