@@ -48,6 +48,7 @@ test('通用路由推送接单和执行决策，权限分离且旧进程退出�
     active: true, capability: '验证门店推荐理由', skill: '按当前委托核对验收口径' });
   const config = settingsSchema.parse({
     feishu: { appId: 'app', botId: 'bot', profile: 'test' },
+    workbenchPublicUrl: 'https://workbench.example.test/',
     crossChannel: {},
     projects: [
       { id: 'store', title: '门店推荐理由', members: ['owner', 'maker', 'decider'], maintainers: ['owner'], decisionOwner: 'owner',
@@ -109,6 +110,10 @@ test('通用路由推送接单和执行决策，权限分离且旧进程退出�
   assert.equal(work.detail('maker', original).topicTitle, '验收屏宽');
   assert.equal(work.receiveChannel(first).status, 'duplicate');
   const answer = await wait(() => work.needsYou('decider').find(decision => decision.ticket === original && decision.notification === 'sent'));
+  const notice = pushed.find(message => message.channel.address.decision === answer.id);
+  assert.ok(notice);
+  assert.match(notice.text, /https:\/\/workbench\.example\.test\/#\/store\/inbox/);
+  assert.doesNotMatch(notice.text, /127\.0\.0\.1|\/api\/needs-you/);
   assert.equal(answer.question?.title, '是否按 360px 验收？');
   assert.equal(work.detail('maker', original).questions.length, 0);
   assert.throws(() => work.reply('maker', original, { card: answer.card!, choice: 0, nonce: 'draft' }), { status: 403 });

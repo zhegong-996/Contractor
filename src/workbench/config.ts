@@ -61,6 +61,7 @@ export const settingsSchema = z.object({
   port: z.number().int().min(1024).max(65535).default(4280),
   remoteRunnerPort: z.number().int().min(1024).max(65535).optional(),
   runnerConnectUrl: runnerEndpoint.optional(),
+  workbenchPublicUrl: runnerEndpoint.refine(value => value.startsWith('https://'), '团队工作台地址须为 HTTPS').optional(),
   projects: z.array(project).min(1),
   functions: z.array(z.object({ id, title, lead: id.optional() }).strict()).min(1),
   agents: z.array(agent),

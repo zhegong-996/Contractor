@@ -366,8 +366,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       text: ['SuitMe 协作台 · 有一项需要你决定', input.title, ...(question ? [question] : []),
         input.ticket ? '工单 ' + input.ticket : '项目 ' + project.title, '待办编号 ' + decision.id,
         input.kind === 'answer' ? '请在工作台查看依据和选项。你可以在这里回复 /答 ' + decision.id + ' 加上序号或答复。'
-          : '请在工作台的待办中查看依据并处理。',
-        '本机待办 http://127.0.0.1:' + config.port + '/api/needs-you'].join('\n'),
+          : '请在工作台的待办中查看依据并处理。'].join('\n'),
     });
     return { decision, targeted: !!target && !!send };
   }
@@ -736,14 +735,18 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     const message = store.receipts.get(id);
     if (!message || store.replyStatus(id) !== 'pending') return;
     const decisionId = message.channel.address.decision;
+    let outgoing = message;
     if (decisionId) {
       const record = decisions.get(decisionId);
       if (!record || !decisionAllowed(record, record.member) || dmAccount(record.member)?.id !== message.channel.address.userId) {
         store.receipts.withdraw(id);
         return;
       }
+      const notice = message.text.replace(/\n本机待办 http:\/\/127\.0\.0\.1:\d+\/api\/needs-you$/, '');
+      const inbox = config.workbenchPublicUrl && config.workbenchPublicUrl + '/#/' + encodeURIComponent(record.project) + '/inbox';
+      outgoing = { ...message, text: inbox ? notice + '\n打开项目待办 ' + inbox : notice };
     }
-    const outcome = send && message.channel.source === 'feishu' ? await send(message) : 'gone';
+    const outcome = send && message.channel.source === 'feishu' ? await send(outgoing) : 'gone';
     store.receipts.settle(message, outcome === 'sent' ? 'sent' : 'channelGone');
   });
 

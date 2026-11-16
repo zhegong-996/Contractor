@@ -90,6 +90,7 @@ async function serve() {
   let feishuWatch: ReturnType<typeof watchFeishu> | undefined;
   let available = false;
   const connectionUrl = config.runnerConnectUrl && new URL(config.runnerConnectUrl);
+  const publicWorkbench = config.workbenchPublicUrl && new URL(config.workbenchPublicUrl);
   const staticRoot = path.join(root, 'dist', 'workbench');
   const assets = new Map([
     ['/', [path.join(staticRoot, 'index.html'), 'text/html'] ],
@@ -217,10 +218,12 @@ async function serve() {
         return;
       }
       if (!url.pathname.startsWith('/api/')) throw new WorkbenchError('未找到。', 404);
-      if (req.headers.host !== '127.0.0.1:' + config.port && req.headers.host !== 'localhost:' + config.port) throw new WorkbenchError('请使用本机工作台地址。', 403);
+      const local = req.headers.host === '127.0.0.1:' + config.port || req.headers.host === 'localhost:' + config.port;
+      const browserOrigin = local ? 'http://' + req.headers.host : publicWorkbench && req.headers.host === publicWorkbench.host ? publicWorkbench.origin : undefined;
+      if (!browserOrigin) throw new WorkbenchError('请使用已配置的工作台地址。', 403);
       if (req.method === 'POST') {
         const origin = req.headers.origin;
-        if (origin && origin !== 'http://' + req.headers.host) throw new WorkbenchError('请在工作台内操作。', 403);
+        if (origin && origin !== browserOrigin) throw new WorkbenchError('请在工作台内操作。', 403);
         if (!req.headers['content-type']?.startsWith('application/json')) throw new WorkbenchError('请求格式无效。', 415);
       }
       if (!work) throw new WorkbenchError('工作台正在启动。', 503);
@@ -232,12 +235,13 @@ async function serve() {
         const input = z.object({ username: id, password: z.string().max(300) }).parse(await body(req));
         try {
           const { cookie, session } = auth.login(input.username, input.password);
-          res.setHeader('set-cookie', cookie + '; HttpOnly; SameSite=Strict; Path=/');
+          res.setHeader('set-cookie', cookie + '; HttpOnly; SameSite=Strict; Path=/' + (local ? '' : '; Secure'));
           json(res, 200, { username: session.username });
         } catch (error) { throw new WorkbenchError((error as Error).message, 401); }
         return;
       }
       if (post && view === 'runner') {
+        if (!local) throw new WorkbenchError('请使用执行端监听地址。', 403);
         await runnerRequest(req, res, item);
         return;
       }

@@ -106,6 +106,9 @@ test('原生执行交接先停旧进程，再等新读取方授权；撤权重�
     nonce: randomUUID(), material: [entry], priority: 'normal' });
   const ticket = await wait(() => work.resolveStart('requester', started.trigger) ?? undefined);
   const first = await wait(() => work.needsYou('owner').find(d => d.kind === 'access' && d.notification === 'sent'));
+  const notification = messages.find(message => message.channel.address.decision === first.id);
+  assert.ok(notification);
+  assert.doesNotMatch(notification.text, /https?:\/\/|\/api\/needs-you/);
   assert.equal((await record()), '');
   const original = work.detail('owner', ticket).requests.find(r => r.id === first.subject)!;
   assert.equal(original.readerAgent, 'old-reader');
