@@ -11,6 +11,7 @@
     "start": "npm run workbench",
     "workbench": "npm run build:ui && node --import tsx src/workbench/server.ts",
     "runner": "node --import tsx src/workbench/device-client.ts",
+    "package:runner": "node scripts/package-runner.mjs",
     "audit:upstream": "node --import tsx scripts/audit-upstream.ts",
     "test": "node --import tsx --test tests/*.test.ts",
     "typecheck": "tsc --noEmit",

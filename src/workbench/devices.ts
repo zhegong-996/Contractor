@@ -6,8 +6,10 @@ import { runtime } from '../config.ts';
 import type { Job } from '../../upstream/autoloop/protocol/job.ts';
 import type { CodeBundle, CodeDelta } from './code-bundle.ts';
 import type { RunnerAgent } from './config.ts';
+import { enrollmentToken, type RunnerConnectInput } from './runner-connection.ts';
 
 type Binding = { owner: string; agent: string; projects: string[]; remote?: RunnerAgent };
+type Enrollment = RunnerConnectInput & { expires: number; approved?: { actor: string; project: string; agent: string } };
 export type DeviceState = 'active' | 'suspended' | 'lost' | 'retired';
 export type Device = Binding & { id: string; name: string; active: boolean; state: DeviceState; lastSeen: number | null };
 export type DeviceJob = Job & { remote?: { authority: string; code?: CodeBundle } };
@@ -36,6 +38,9 @@ export class Devices {
       );
       CREATE TABLE IF NOT EXISTS workbench_device (
         id TEXT PRIMARY KEY, token TEXT NOT NULL UNIQUE, value TEXT NOT NULL, seen INTEGER
+      );
+      CREATE TABLE IF NOT EXISTS workbench_device_enrollment (
+        id TEXT PRIMARY KEY, proof TEXT NOT NULL, value TEXT NOT NULL, expires INTEGER NOT NULL
       );
       CREATE TABLE IF NOT EXISTS workbench_device_run (
         run INTEGER NOT NULL, attempt INTEGER NOT NULL, device TEXT NOT NULL,
@@ -68,11 +73,59 @@ export class Devices {
     if (!row) return;
     const binding = JSON.parse(String(row.binding)) as Binding;
     if (!permitted(binding)) return;
-    const token = randomBytes(32).toString('base64url');
-    const id = randomUUID();
+    return this.register(binding, name, randomUUID(), randomBytes(32).toString('base64url'));
+  }
+
+  private register(binding: Binding, name: string, id: string, token: string) {
     const device = { ...binding, id, name, active: true };
     this.db.prepare('INSERT INTO workbench_device VALUES(?,?,?,NULL)').run(id, hash(token), JSON.stringify(device));
     return { id, token, ...(binding.remote && { profile: binding.remote }) };
+  }
+
+  beginEnrollment(input: RunnerConnectInput, secret: string) {
+    this.db.prepare('DELETE FROM workbench_device_enrollment WHERE expires<=?').run(this.now());
+    const row = this.db.prepare('SELECT proof,value FROM workbench_device_enrollment WHERE id=?').get(input.id);
+    if (row) return row.proof === hash(secret) ? JSON.parse(String(row.value)) as Enrollment : undefined;
+    const total = this.db.prepare('SELECT COUNT(*) AS n FROM workbench_device_enrollment').get();
+    if (Number(total?.n) >= 500 || this.get(input.id)) return;
+    const entry = { ...input, expires: this.now() + 10 * 60_000 };
+    this.db.prepare('INSERT INTO workbench_device_enrollment VALUES(?,?,?,?)')
+      .run(input.id, hash(secret), JSON.stringify(entry), entry.expires);
+    return entry;
+  }
+
+  enrollment(id: string) {
+    const row = this.db.prepare('SELECT value FROM workbench_device_enrollment WHERE id=? AND expires>?').get(id, this.now());
+    return row ? JSON.parse(String(row.value)) as Enrollment : undefined;
+  }
+
+  approveEnrollment(id: string, actor: string, project: string, agent: string) {
+    const current = this.enrollment(id);
+    if (!current || current.approved) return false;
+    this.db.prepare('UPDATE workbench_device_enrollment SET value=? WHERE id=?')
+      .run(JSON.stringify({ ...current, approved: { actor, project, agent } }), id);
+    return true;
+  }
+
+  finishEnrollment(id: string, secret: string, authorize: (entry: Enrollment) => Binding | undefined) {
+    const token = enrollmentToken(id, secret);
+    const current = this.byToken(token);
+    if (current?.id === id && current.active && current.projects.length === 1
+      && (current.remote?.engine === 'codex' || current.remote?.engine === 'claude')) {
+      const binding = authorize({ id, name: current.name, engines: [current.remote.engine], expires: 0,
+        approved: { actor: current.owner, project: current.projects[0]!, agent: current.agent } });
+      if (binding?.remote && JSON.stringify(current.remote) === JSON.stringify(binding.remote))
+        return { id, token, profile: binding.remote };
+      return;
+    }
+    const row = this.db.prepare('SELECT proof,value FROM workbench_device_enrollment WHERE id=? AND expires>?').get(id, this.now());
+    if (!row || row.proof !== hash(secret)) return;
+    const entry: Enrollment = JSON.parse(String(row.value));
+    if (!entry.approved) return { pending: true as const };
+    const binding = authorize(entry);
+    if (!binding?.remote) return;
+    if (this.get(id)) return;
+    return this.register(binding, entry.name, id, token);
   }
 
   private decode(row: Record<string, unknown>): Device {

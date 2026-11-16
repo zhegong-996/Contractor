@@ -1,4 +1,5 @@
 import { executionCapabilities } from './execution-capabilities.ts';
+import { runnerEndpoint } from './runner-connection.ts';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { z } from 'zod';
@@ -59,6 +60,7 @@ export type RunnerAgent = z.infer<typeof runnerAgentSchema>;
 export const settingsSchema = z.object({
   port: z.number().int().min(1024).max(65535).default(4280),
   remoteRunnerPort: z.number().int().min(1024).max(65535).optional(),
+  runnerConnectUrl: runnerEndpoint.optional(),
   projects: z.array(project).min(1),
   functions: z.array(z.object({ id, title, lead: id.optional() }).strict()).min(1),
   agents: z.array(agent),
@@ -73,6 +75,7 @@ export const settingsSchema = z.object({
 }).strict().superRefine((value, context) => {
   const flag = (message: string) => context.addIssue({ code: 'custom', message });
   if (value.remoteRunnerPort === value.port) flag('远程执行端须使用独立端口');
+  if (value.runnerConnectUrl && !value.remoteRunnerPort) flag('浏览器连接执行端须配置远程执行端口');
   for (const entries of [value.projects, value.functions, value.agents]) {
     if (new Set(entries.map(x => x.id)).size !== entries.length) flag('项目、职能或 Agent 标识重复');
   }

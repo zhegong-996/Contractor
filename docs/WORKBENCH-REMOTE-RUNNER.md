@@ -2,7 +2,7 @@
 
 ## 服务端配置
 
-在工作台运行目录的 `workbench.json` 配置 `remoteRunnerPort`。该端口使用独立的回环监听，只接受执行端的配对、领取、心跳、开始、回执和离线请求。团队在执行机通过 SSH 隧道连接，或将这个端口交给自己的 HTTPS 入口。工作台登录和项目资料页面仍通过工作台端口访问。
+在工作台运行目录的 `workbench.json` 配置 `remoteRunnerPort`，并将 `runnerConnectUrl` 设置为团队的 HTTPS 根地址，例如 `https://collab.example.com`。在该入口保留原始 Host，将 `/runner/connect/*` 转给工作台监听端口，将 `/api/runner/*` 转给独立的执行端监听端口，两者均在回环地址上。生产入口可对签发连接请求和浏览器登录做限流，回环 HTTP 可用于本机或隔离联调。日常使用只需知道团队地址。
 
 在 `agents` 登记负责人、项目、职责和模型。支持如下远程运行配置。
 
@@ -17,7 +17,20 @@
 
 执行机为 Linux 时，复用 Sandbox Runtime 的文件和网络隔离。针对只读挂载覆盖可写子路径的行为，适配层将读文件与写入范围分别装配；不放开整个仓库写权限。单文件新建采用占位文件，未实际写入的空占位不会当成交付。
 
-## 配对与接单
+## 安装与连接
+
+部署时在带固定子模块的源码目录运行 `npm run package:runner`，将 `dist/runner/suitme-runner-0.1.0.tgz` 提供给成员。执行机需要 Node.js 24，以及管理员为项目启用的执行引擎。安装包可单独安装到执行机，无需克隆工作台仓库。
+
+```sh
+npm install -g ./suitme-runner-0.1.0.tgz
+suitme connect https://collab.example.com
+```
+
+浏览器里登录工作台并选定项目、自己的 Agent，确认后执行端启动接单。命令会打印链接，支持把无图形执行机的确认链接在自己的浏览器打开。默认后台运行。连接身份保存在执行用户的 `~/.suitme-runner`，保留该目录并在重启后重复相同的 `connect` 命令即可上线。若同一台机器要挂载多个 Agent，在命令末尾加 `--profile <名称>`，每个名称独立配对。`suitme stop <团队地址> [--profile <名称>]` 停止接单并保留本地身份及待回传记录。部署方可使用 `--foreground` 交由操作系统的服务管理器守护进程。
+
+首次使用 Codex 时，若所选 Agent 的本机凭据槽位为空，交互终端会启动该槽位独立的 Codex 登录。Debian 执行机一次性安装隔离依赖 `sudo apt-get install bubblewrap socat ripgrep`。Claude Code 目前使用执行机本地 Ollama 和已配置的模型。浏览器的项目授权和模型服务登录分别生效。
+
+## 旧版 API 配对与派单
 
 1. Agent 所有者登录工作台，通过本机 API `POST /api/device/pair` 传入 `{"project":"store","agent":"engineering-claude","remote":true}`。配对码十分钟失效，只能用一次，并绑定该项目、Agent 和所有者。
 2. 执行机检出同一版本，安装 Node 24 和项目依赖，为此次配对创建专属的 `COLLAB_STATE_DIR`。例如用 `ssh -N -L 4330:127.0.0.1:4290 user@workbench-host` 转发已配置的 4290，再在执行机运行：
@@ -42,9 +55,13 @@ AutoLoop 原版 worker 持久化本地执行状态和待发回执。连接重建
 
 ## 源码复用
 
-继续使用固定提交的 AutoLoop worker 及其 CLI 适配，SuitMe 负责设备绑定、授权上下文与交接门禁。Claude Code 的输出和 Token 解析沿用原版插件。本地 Ollama 保留 Token 回执，平台不把 CLI 估价当作账单金额。 [AutoLoop 领取与回执协议](https://github.com/KKKKhazix/agent-autoloop/blob/ba8cf6d8cf24f9ce005958c15d88f2d9cff7f05d/docs/protocol.md) · [Claude Code CLI 参考](https://code.claude.com/docs/en/cli-reference) · [Ollama 连接 Claude Code](https://docs.ollama.com/integrations/claude-code)
+安装入口沿用 AutoLoop `join` 的本机身份持久化方式，使用固定提交的 `createWorker`、CLI 适配、领取、租约和回执恢复。SuitMe 提供浏览器授权、项目和 Agent 绑定、授权上下文与交接门禁。Claude Code 的输出和 Token 解析沿用原版插件。本地 Ollama 保留 Token 回执，平台不把 CLI 估价当作账单金额。 [AutoLoop 领取与回执协议](https://github.com/KKKKhazix/agent-autoloop/blob/ba8cf6d8cf24f9ce005958c15d88f2d9cff7f05d/docs/protocol.md) · [Claude Code CLI 参考](https://code.claude.com/docs/en/cli-reference) · [Ollama 连接 Claude Code](https://docs.ollama.com/integrations/claude-code)
 
 ## 门店推荐理由联调
+
+浏览器配对这轮在全新 Debian 13.4 arm64 虚拟机（无宿主共享目录）和 macOS 安装同一个执行端包。三个测试成员分别为本机 Claude Code、本机 Codex 和 Debian Codex 在 Chrome 登录并确认。三个接单进程重启后沿用原设备 ID，Debian 重启操作系统后运行同一条命令也沿用原 ID，项目设备记录始终为三条。
+
+门店推荐理由联调使用只读工作单和真实 CLI。Claude Code 经 Ollama 返回模型及用量，本机和 Debian Codex 分别返回 `gpt-6.1-sol` 及用量。旧 Claude 运行仍未退出时，原工单只有一轮执行。收到旧端停止回执后，才为 Debian Codex 新开一轮，沿用同一工单，由产品测试成员完成验收。此轮通过工作台发起，使用单独配置的 Codex 测试凭据。
 
 以下是早期跨主机只读链路的证据，不能替代后续代码交付验证。
 

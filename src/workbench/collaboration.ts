@@ -17,6 +17,7 @@ import { digest, ProjectKnowledge, type AccessReader, type KnowledgeEntry, type 
 import { knowledgeSource, readKnowledgeSource } from './knowledge-sources.ts';
 import { FigmaAccessUnavailable, FigmaSources } from './figma-source.ts';
 import { FigmaAccess } from './figma-access.ts';
+import type { RunnerConnectInput } from './runner-connection.ts';
 import { measureSchema, WorkObservations, type Measure, type ObservationInput } from './learning.ts';
 import { bundleHash } from './code-bundle.ts';
 import { executionCapabilities } from './execution-capabilities.ts';
@@ -3286,7 +3287,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     });
   }
 
-  function issueDevicePair(actor: string, projectId: string, agentId: string, remote = false) {
+  function deviceBinding(actor: string, projectId: string, agentId: string, remote = false) {
     const project = projectFor(projectId, actor);
     const agent = agentById.get(agentId);
     if (remote && (!config.remoteRunnerPort || !agent || !remoteEngine(agent)))
@@ -3294,7 +3295,46 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     const binding = { owner: actor, projects: [projectId], agent: agentId, ...(remote && agent && { remote: runnerAgent(agent) }) };
     if (!mayStart(project, actor) || !deviceAllowed(binding, project, agentId))
       throw new WorkbenchError('由 Agent 所有者登记已配置的执行端。', 403);
-    return devices.begin(binding);
+    return binding;
+  }
+
+  function issueDevicePair(actor: string, projectId: string, agentId: string, remote = false) {
+    return devices.begin(deviceBinding(actor, projectId, agentId, remote));
+  }
+
+  function beginDeviceEnrollment(input: RunnerConnectInput, secret: string) {
+    const request = requireValue(devices.beginEnrollment(input, secret), '连接请求不可用，请稍后重试。', 409);
+    return { expires: request.expires, verification: config.runnerConnectUrl + '/runner/connect/' + request.id };
+  }
+
+  function deviceEnrollment(actor: string | undefined, id: string) {
+    const request = requireValue(devices.enrollment(id), '连接请求已过期，请在执行机重新运行连接命令。', 404);
+    const choices = !actor ? [] : config.projects.filter(project => mayStart(project, actor)).flatMap(project =>
+      config.agents.flatMap(agent => {
+        if (!remoteEngine(agent) || agent.owner !== actor || !isActive(agent, project)
+          || !request.engines.some(engine => engine === agent.engine)) return [];
+        return [{ project: project.id, projectTitle: project.title, agent: agent.id, agentTitle: agent.title, engine: agent.engine }];
+      }));
+    return { name: request.name, approved: !!request.approved, choices };
+  }
+
+  function approveDeviceEnrollment(actor: string, id: string, project: string, agent: string) {
+    const request = deviceEnrollment(actor, id);
+    if (!request.choices.some(item => item.project === project && item.agent === agent))
+      throw new WorkbenchError('只能连接本人在该项目有权使用、且此设备已安装的 Agent。', 403);
+    return store.atomic(() => {
+      deviceBinding(actor, project, agent, true);
+      if (!devices.approveEnrollment(id, actor, project, agent))
+        throw new WorkbenchError('连接请求已处理或已过期。', 409);
+      audit(project, 'device.enrollment-approved', { actor, agent, device: id });
+    });
+  }
+
+  function finishDeviceEnrollment(id: string, secret: string) {
+    return store.atomic(() => requireValue(devices.finishEnrollment(id, secret, request => {
+      const approval = request.approved!;
+      return deviceBinding(approval.actor, approval.project, approval.agent, true);
+    }), '连接请求已过期或权限已变化。', 403));
   }
 
   function pairDevice(code: string, name: string, remote = false) {
@@ -3350,7 +3390,10 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     const device = connectedDevice(token, remote);
     if (connectors.has(device.id)) throw new WorkbenchError('接单请求正在处理。', 409);
     connectors.add(device.id);
-    try { return await workerHub.work(input, device); }
+    try {
+      const assignment = await workerHub.work(input, device);
+      return remote ? { ...assignment, deviceActive: devices.get(device.id)?.active === true } : assignment;
+    }
     finally { connectors.delete(device.id); }
   }
   function deviceStarted(token: string, run: number, lease: string, value: Parameters<WorkerHub['started']>[2], remote = false) {
@@ -3634,6 +3677,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     receiveChannel, receiveNote, resolveChannel, resolveChannelFromHttp, channelView, confirmAccount, refreshDelivery, refreshIssue,
     rememberDiscussion, trackFeishuThread, refreshFeishuHistory, discussionView, discussionRevisions, resolveDiscussion, needsYou, answerDecision, resolveIntake, handoff,
     memoryHome, memoryUses, projectKnowledgeGraph, setMemoryPin, budgetPools, setBudget, issueDevicePair, pairDevice, projectDevices, deviceWork, deviceStarted, deviceResult,
+    beginDeviceEnrollment, deviceEnrollment, approveDeviceEnrollment, finishDeviceEnrollment,
     recallMemory(actor: string, id: string, query: string) {
       const project = projectFor(id, actor);
       const pins = new Set(pinnedMemory(project).map(entry => entry.id));

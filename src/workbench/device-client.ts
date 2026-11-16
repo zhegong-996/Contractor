@@ -10,16 +10,13 @@ import { trackWorkerProcesses } from './autoloop.ts';
 import { remoteEngine, runnerAgentSchema, runnerOllamaUrl } from './config.ts';
 import { deviceHome, type DeviceJob, type ReleasedLease } from './devices.ts';
 import { cleanAcknowledged, cleanRemoteCodex, neverLaunched, prepareRemote, remoteStop } from './remote-runner.ts';
+import { runnerEndpoint } from './runner-connection.ts';
 
 if (!process.env.COLLAB_STATE_DIR || !path.isAbsolute(process.env.COLLAB_STATE_DIR))
   throw new Error('请使用工作台的 COLLAB_STATE_DIR 绝对路径。');
 const portSchema = z.coerce.number().int().min(1024).max(65535);
 const fields = { id: z.uuid(), token: z.string().regex(/^[A-Za-z0-9_-]{43}$/) };
-const endpointSchema = z.url().refine(value => {
-  const url = new URL(value);
-  return (url.protocol === 'https:' || url.protocol === 'http:' && url.hostname === '127.0.0.1')
-    && !url.username && !url.password && url.pathname === '/' && !url.search && !url.hash;
-}, '请用 HTTPS 入口，或指向加密隧道的 127.0.0.1');
+const endpointSchema = runnerEndpoint;
 const credentials = z.union([
   z.object({ ...fields, port: portSchema }).strict(),
   z.object({ ...fields, endpoint: endpointSchema, profile: runnerAgentSchema.refine(remoteEngine) }).strict(),
@@ -64,6 +61,7 @@ if (argv[0] === 'pair' || argv[0] === 'pair-remote') {
   const endpoint = 'endpoint' in connection ? connection.endpoint : 'http://127.0.0.1:' + connection.port;
   const home = deviceHome(id);
   const lock = runtime('devices', id, 'running.pid');
+  const ready = runtime('devices', id, 'ready.pid');
   await writeFile(lock, String(process.pid), { flag: 'wx', mode: 0o600 }).catch(async error => {
     if (error.code !== 'EEXIST') throw error;
     const pid = Number(await readFile(lock, 'utf8'));
@@ -99,9 +97,14 @@ if (argv[0] === 'pair' || argv[0] === 'pair-remote') {
     await chmod(path.join(plugin, 'agent.ts'), 0o600);
     const { createWorker } = await import('../../upstream/autoloop/worker/worker.ts');
     const send = <T>(action: string, data: unknown) => request<T>(endpoint, action, data, connection.token, !!profile);
+    let announced = false;
     const hub: WorkerHub = {
       async work(data) {
-        const answer = await send<{ job?: DeviceJob | null; cancel?: number[]; release?: ReleasedLease }>('work', data);
+        const answer = await send<{ job?: DeviceJob | null; cancel?: number[]; release?: ReleasedLease; deviceActive?: boolean }>('work', data);
+        if (!announced) {
+          await writeFile(ready, String(process.pid) + (answer.deviceActive === false ? ':paused' : ''), { mode: 0o600 });
+          announced = true;
+        }
         if (profile) {
           for (const run of answer.cancel ?? []) trackWorkerProcesses(run, true, home);
           if (answer.release) {
@@ -154,6 +157,7 @@ if (argv[0] === 'pair' || argv[0] === 'pair-remote') {
     }
     await send('offline', {}).catch(() => {});
   } finally {
+    if (await readFile(ready, 'utf8').catch(() => '') === String(process.pid)) await unlink(ready);
     if (await readFile(lock, 'utf8').catch(() => '') === String(process.pid)) await unlink(lock);
   }
 } else {

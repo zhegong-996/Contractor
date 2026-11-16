@@ -7,7 +7,7 @@ import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
 import type { Job } from '../../upstream/autoloop/protocol/job.ts';
 import type { Turn } from '../../upstream/autoloop/worker/agents.ts';
-import { root, runtime } from '../config.ts';
+import { runtime } from '../config.ts';
 import { allowedFile } from '../github.ts';
 import { bundleHash, codeBundleSchema, codeDeltaSchema, materializeCode, type CodeBundle, type CodeDelta } from './code-bundle.ts';
 import type { RunnerAgent } from './config.ts';
@@ -15,6 +15,7 @@ import type { RunnerAgent } from './config.ts';
 const hash = (value: string | Buffer) => createHash('sha256').update(value).digest('hex');
 const scopeRoot = (scope: string) => runtime('isolated', scope);
 const launchFile = (run: number, attempt: number) => runtime('isolation-launches', `${run}-${attempt}.json`);
+const sandboxRuntime = path.dirname(createRequire(import.meta.url).resolve('@anthropic-ai/sandbox-runtime/package.json'));
 const privateFile = async (file: string, value: unknown) => {
   await mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
   await writeFile(file, JSON.stringify(value), { mode: 0o600 });
@@ -84,7 +85,7 @@ export function sandboxPolicy(workspace: string, home: string, input: string, ex
   const system = process.platform === 'darwin'
     ? ['/System/Library', '/usr/lib', '/usr/bin', '/usr/share', '/bin', '/sbin', '/Library/Apple', '/private/etc/ssl', '/private/etc/hosts', '/private/etc/resolv.conf', '/private/etc/codex', '/private/var/select/sh']
     : ['/usr', '/bin', '/sbin', '/lib', '/lib64', '/etc/ssl', '/etc/ld.so.cache', '/etc/resolv.conf', '/etc/hosts', '/etc/codex', '/proc/self', '/proc/thread-self',
-      path.join(root, 'node_modules/@anthropic-ai/sandbox-runtime/vendor/seccomp', process.arch, 'apply-seccomp')];
+      path.join(sandboxRuntime, 'vendor/seccomp', process.arch, 'apply-seccomp')];
   const literal = (item: string) => ({ path: item, literal: true as const });
   return {
     network: { allowedDomains: domains, deniedDomains: [], allowLocalBinding: false, strictAllowlist: true },
@@ -117,7 +118,10 @@ export async function isolateJob(agent: RunnerAgent, job: Job, authority: unknow
   const auth = await credential(agent);
   // Load after openExecution has set AutoLoop's runtime paths (its plugin loader reads them on import).
   const { default: codex } = await import('../../upstream/autoloop/plugins/codex/agent.ts');
-  let executable = realpathSync(codex.command({ model: agent.model } as Turn)[0]!);
+  // A noninteractive runner can be installed in a private prefix that a login shell removes from PATH.
+  const installed = (process.env.PATH ?? '').split(path.delimiter).filter(path.isAbsolute)
+    .map(directory => path.join(directory, 'codex')).find(candidate => existsSync(candidate));
+  let executable = realpathSync(installed ?? codex.command({ model: agent.model } as Turn)[0]!);
   if (executable.endsWith('.js')) {
     const target = (process.arch === 'arm64' ? 'aarch64' : 'x86_64')
       + (process.platform === 'darwin' ? '-apple-darwin' : '-unknown-linux-musl');
@@ -205,14 +209,14 @@ export async function isolateJob(agent: RunnerAgent, job: Job, authority: unknow
 }
 
 /** Called by the native worker in its host process, before it starts the confined CLI. */
-export function isolatedCommand(turn: Turn, nativeCommand: (turn: Turn) => string[]): string[] {
+export function isolatedCommand(turn: Turn, nativeCommand: (turn: Turn, executable: string) => string[]): string[] {
   const launch: Launch = JSON.parse(readFileSync(turn.command![0]!, 'utf8'));
   const context = path.join(launch.input, path.basename(turn.folder) + '-context.json');
   writeFileSync(context, readFileSync(turn.contextFile), { mode: 0o600 });
   // Seatbelt cannot be installed twice in the same process tree. The mandatory outer SRT policy is
   // stricter than Codex's built-in workspace policy (including reads) and is the enforcement boundary.
   // This argv is only ever returned behind sandboxInvocation; there is no unconfined fallback.
-  const argv = nativeCommand({ ...turn, access: 'full', prompt: turn.prompt.replaceAll(turn.contextFile, context), contextFile: context });
+  const argv = nativeCommand({ ...turn, access: 'full', prompt: turn.prompt.replaceAll(turn.contextFile, context), contextFile: context }, launch.executable);
   argv[0] = launch.executable;
   // Home is deliberately scoped for this child; no token, cookie, connector config or NODE_OPTIONS is inherited.
   return sandboxInvocation(launch, argv, context);
@@ -224,7 +228,7 @@ export function sandboxInvocation(launch: Pick<Launch, 'home' | 'temp' | 'policy
     'SSL_CERT_FILE=' + (process.platform === 'darwin' ? '/etc/ssl/cert.pem' : '/etc/ssl/certs/ca-certificates.crt'),
     'HOME=' + launch.home, 'CODEX_HOME=' + launch.home, 'TMPDIR=' + launch.temp,
     'CLAUDE_CODE_TMPDIR=' + launch.temp, 'AGENT_AUTOLOOP_CONTEXT=' + context,
-    process.execPath, path.join(root, 'node_modules/@anthropic-ai/sandbox-runtime/dist/cli.js'), '--settings', launch.policy, '--', ...argv];
+    process.execPath, path.join(sandboxRuntime, 'dist/cli.js'), '--settings', launch.policy, '--', ...argv];
 }
 
 /** Only call after the native worker and all observed children have exited. */

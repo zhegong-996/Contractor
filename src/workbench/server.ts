@@ -18,6 +18,8 @@ import { referenceSchema, resourceSource, topicInputSchema } from './project-res
 import { discussionInput } from './discussion-intake.ts';
 import { watchFeishu } from './feishu-events.ts';
 import { localDeviceKey } from './devices.ts';
+import { runnerConnectInput, runnerRequestId, runnerSecret } from './runner-connection.ts';
+import { runnerConnectPage } from './runner-connect-page.ts';
 
 const stateDir = process.env.COLLAB_STATE_DIR;
 if (!stateDir || !path.isAbsolute(stateDir)) throw new Error('请提供独立工作台的 COLLAB_STATE_DIR 绝对路径。');
@@ -87,6 +89,7 @@ async function serve() {
   let work: Awaited<ReturnType<typeof openCollaboration>> | undefined;
   let feishuWatch: ReturnType<typeof watchFeishu> | undefined;
   let available = false;
+  const connectionUrl = config.runnerConnectUrl && new URL(config.runnerConnectUrl);
   const staticRoot = path.join(root, 'dist', 'workbench');
   const assets = new Map([
     ['/', [path.join(staticRoot, 'index.html'), 'text/html'] ],
@@ -132,10 +135,20 @@ async function serve() {
   const remoteServer = config.remoteRunnerPort && createServer(async (req, res) => {
     res.setHeader('cache-control', 'no-store');
     try {
-      const route = /^\/api\/runner\/(pair|work|started|result|offline)$/.exec(req.url ?? '');
+      const route = /^\/api\/runner\/(pair|work|started|result|offline|enroll|enroll-status)$/.exec(req.url ?? '');
       if (req.method !== 'POST' || !route) throw new WorkbenchError('未找到。', 404);
       if (req.headers.origin || req.headers.cookie) throw new WorkbenchError('请使用配对的执行端连接。', 403);
       if (!req.headers['content-type']?.startsWith('application/json')) throw new WorkbenchError('请求格式无效。', 415);
+      if (route[1] === 'enroll' || route[1] === 'enroll-status') {
+        if (!connectionUrl || !work) throw new WorkbenchError('团队尚未启用浏览器连接。', 404);
+        const secret = runnerSecret.safeParse(req.headers.authorization?.match(/^Bearer (.+)$/)?.[1]);
+        if (!secret.success) throw new WorkbenchError('缺少此执行端的连接凭据。', 401);
+        const input = await body(req, 4096);
+        json(res, 200, route[1] === 'enroll'
+          ? work.beginDeviceEnrollment(runnerConnectInput.parse(input), secret.data)
+          : work.finishDeviceEnrollment(z.object({ id: runnerRequestId }).strict().parse(input).id, secret.data));
+        return;
+      }
       await runnerRequest(req, res, route[1]!, true);
     } catch (error) { replyError(res, error); }
   });
@@ -147,6 +160,44 @@ async function serve() {
     res.setHeader('content-security-policy', "default-src 'self'; script-src 'self'; style-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'");
     try {
       const url = new URL(req.url ?? '/', 'http://127.0.0.1');
+      const confirmation = /^\/runner\/connect\/([a-f0-9-]+)$/.exec(url.pathname);
+      if (confirmation && connectionUrl && req.headers.host === connectionUrl.host) {
+        if (!work) throw new WorkbenchError('工作台正在启动。', 503);
+        res.setHeader('referrer-policy', 'same-origin');
+        const requestId = runnerRequestId.parse(confirmation[1]);
+        const page = (status: number, view?: ReturnType<NonNullable<typeof work>['deviceEnrollment']>, error?: string) => {
+          const nonce = randomBytes(18).toString('base64');
+          res.setHeader('content-security-policy', "default-src 'none'; style-src 'nonce-" + nonce + "'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'");
+          res.writeHead(status, { 'content-type': 'text/html; charset=utf-8' }).end(runnerConnectPage(nonce, view, error));
+        };
+        const signedIn = auth.sessionFromRequest(req.headers.cookie)?.username;
+        const actor = signedIn && auth.listAccounts().some(item => item.username === signedIn && !item.disabled) ? signedIn : undefined;
+        const enrollment = work.deviceEnrollment(actor, requestId);
+        if (req.method === 'GET') {
+          page(200, actor ? enrollment : undefined);
+          return;
+        }
+        if (req.method !== 'POST' || req.headers.origin !== connectionUrl.origin
+          || !req.headers['content-type']?.startsWith('application/x-www-form-urlencoded'))
+          throw new WorkbenchError('请在设备确认页面操作。', 403);
+        const form = new URLSearchParams(await requestText(req, 4096));
+        if (form.get('action') === 'login') {
+          const username = id.parse(form.get('username'));
+          const password = z.string().max(300).parse(form.get('password'));
+          try {
+            const { cookie } = auth.login(username, password);
+            res.setHeader('set-cookie', cookie + '; HttpOnly; SameSite=Strict; Path=/runner/connect/'
+              + (connectionUrl.protocol === 'https:' ? '; Secure' : ''));
+            res.writeHead(303, { location: url.pathname }).end();
+          } catch { page(401, undefined, '登录失败，请核对账号和密码。'); }
+          return;
+        }
+        if (!actor || form.get('action') !== 'approve') throw new WorkbenchError('请先登录。', 401);
+        const selected = z.tuple([id, id]).parse(form.get('selection')?.split('/'));
+        work.approveDeviceEnrollment(actor, requestId, ...selected);
+        res.writeHead(303, { location: url.pathname }).end();
+        return;
+      }
       if (req.method === 'GET' && url.pathname === '/health') {
         const subscription = feishu && (feishuWatch?.status() ?? { state: 'connecting' });
         const ready = available && (!subscription || subscription.state === 'ready' && (!('busHealth' in subscription) || subscription.busHealth !== 'unavailable'));
@@ -500,7 +551,7 @@ async function serve() {
   } catch (error) { server.close(); if (remoteServer) remoteServer.close(); throw error; }
 }
 
-async function body(req: IncomingMessage, limit = 65000) {
+async function requestText(req: IncomingMessage, limit: number) {
   const chunks: Buffer[] = [];
   let length = 0;
   for await (const chunk of req) {
@@ -509,7 +560,11 @@ async function body(req: IncomingMessage, limit = 65000) {
     if (length > limit) throw new WorkbenchError('请求内容过长。', 413);
     chunks.push(bytes);
   }
-  return JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
+  return Buffer.concat(chunks).toString('utf8');
+}
+
+async function body(req: IncomingMessage, limit = 65000) {
+  return JSON.parse(await requestText(req, limit) || '{}');
 }
 
 const argv = process.argv.slice(2);
