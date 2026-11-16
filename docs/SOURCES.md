@@ -11,6 +11,7 @@
 | [Anthropic Sandbox Runtime](https://github.com/anthropics/sandbox-runtime) | `src/workbench/isolation.ts` 直接调用固定 npm 版本 `0.0.83` 的原版 CLI，在 AutoLoop 适配器外约束文件和网络。复用 OS 沙箱及代理，不另造执行调度。具体边界见 [成员执行隔离](MEMBER-EXECUTION-ISOLATION.md)。 |
 | [Casbin](https://github.com/casbin/node-casbin) | 为工作台提供登录角色的策略判定。 |
 | [Paperclip 前端](https://github.com/paperclipai/paperclip/tree/8cd2d6a73d2097253dd329f55b637e12b20361c6/ui/src) | React 工作台复用可伸缩侧栏、面包屑、按钮、状态徽标、输入框和标签页。文件位于 `workbench/src/paperclip/`，通过同源 SuitMe API 接入协作流程。 |
+| [Octop 前端](https://github.com/TencentCloud/Octop/tree/bf134dbd379036ce7545c7df1a1da7e381ece9ff/dashboard/src/pages) | `workbench/src/octop/` 适配 `Experts/components/TeamMemberPicker.tsx` 的去重选择和焦点顺序，以及 `Chat/components/MessageBubble.tsx` 的说话者归属。使用 SuitMe 的项目资格、权限、工单及知识出处。 |
 
 [第三方声明](../THIRD_PARTY_NOTICES.md)保留各组件的版本、许可和原文位置。三个源码子模块的提交记录在 [sources.lock.json](../sources.lock.json)。
 

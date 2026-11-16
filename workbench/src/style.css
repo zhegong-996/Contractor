@@ -214,6 +214,14 @@ a.external:hover, a.text-button:hover { text-decoration: underline; text-underli
 .ticket-tab { padding-top: 17px; }
 .timeline { display: flex; flex-direction: column; gap: 16px; }
 .timeline-entry { display: flex; align-items: flex-start; gap: 10px; min-width: 0; }
+.topic-reply { margin-inline-start: clamp(8px, 2vw, 26px); }
+.topic-members { min-width: 0; padding: 0; margin: 0; border: 0; }
+.topic-members > legend { padding: 0; margin-bottom: 6px; font-size: 13px; font-weight: 600; }
+.topic-member-options { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 185px), 1fr)); gap: 8px; }
+.topic-member-option { display: flex; align-items: center; gap: 8px; min-width: 0; text-align: start; border: 1px solid var(--line); border-radius: 8px; padding: 8px; background: var(--muted-surface); }
+.topic-member-option[aria-pressed="true"] { border-color: currentColor; color: var(--ink); background: var(--surface); }
+.topic-member-option > span:nth-child(2) { min-width: 0; flex: 1; overflow-wrap: anywhere; }
+.topic-member-option small { display: block; color: var(--dim); }
 .avatar { width: 30px; height: 30px; flex: none; display: inline-grid; place-items: center; border-radius: 9px; background: #e7e3f4; color: #42366a; font-size: 12px; font-weight: 710; text-transform: uppercase; }
 .avatar-agent { background: #eee7fe; color: #5136b0; }
 .avatar-project { background: #e9ebf8; color: #41499c; }

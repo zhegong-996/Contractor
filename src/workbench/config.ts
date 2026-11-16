@@ -34,6 +34,9 @@ const project = z.object({
   dispatch: z.array(z.object({ topic: id.optional(), function: id, agent: id, decider: member.optional() }).strict()).default([]),
   responsibilities: z.array(z.object({ member, function: id }).strict()).default([]),
   topics: z.array(topicInputSchema).default([]),
+  consultations: z.array(z.object({ topic: id, feishu: z.boolean().optional(), agents: z.array(z.object({
+    agent: id, material: z.array(z.string().regex(/^[a-z0-9-]{1,80}$/)).min(1).max(4),
+  }).strict()).min(1).max(4) }).strict()).optional(),
   resources: z.array(resourceSchema).default([]),
   budget: z.number().positive().optional(),
   discussion: discussion.optional(),
@@ -117,6 +120,15 @@ export const settingsSchema = z.object({
       flag('补读账号须由项目维护人授权并指定对应成员');
     if (p.discussion?.documents.length && !p.discussion.history) flag('飞书文档整理须先配置授权读取身份');
     if (new Set(p.topics.map(topic => topic.id)).size !== p.topics.length) flag('项目主题标识重复');
+    if (new Set(p.consultations?.map(item => item.topic)).size !== (p.consultations?.length ?? 0)) flag('主题咨询配置重复');
+    for (const item of p.consultations ?? []) {
+      if (!p.topics.some(topic => topic.id === item.topic)) flag('咨询主题须属于当前项目');
+      if (item.feishu && (!value.feishu || !p.resources.some(ref => ref.source === 'feishu' && ref.state === 'bound' && ref.topic === item.topic && routesEvents(ref))))
+        flag('飞书咨询须配置同一主题的讨论群');
+      if (new Set(item.agents.map(row => row.agent)).size !== item.agents.length || item.agents.some(row => !value.agents.some(agent =>
+        agent.id === row.agent && agent.projects.includes(p.id) && p.members.includes(agent.owner)))) flag('咨询须引用当前项目成员的 Agent，且每位只能登记一次');
+      if (item.agents.some(row => new Set(row.material).size !== row.material.length)) flag('同一 Agent 的咨询资料不能重复');
+    }
     for (const topic of p.topics) {
       if (topic.parent && !p.topics.some(parent => parent.id === topic.parent && !parent.parent))
         flag('子主题须直属当前项目的一级主题');

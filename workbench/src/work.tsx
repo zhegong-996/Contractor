@@ -36,7 +36,7 @@ export function WorkPage(props: PageProps) {
     const query = filters.query.trim().toLocaleLowerCase();
     const target = workspace.agents.find(a => a.id === item.work.agent)?.title;
     const status = filters.status === 'all' || (filters.status === 'active' && !item.work.accepted && item.stage.stage !== 'ended')
-      || (filters.status === 'acceptance' && item.result && !item.work.accepted) || (filters.status === 'accepted' && !!item.work.accepted);
+      || (filters.status === 'acceptance' && item.result && !item.work.accepted && !item.work.consultation) || (filters.status === 'accepted' && !!item.work.accepted);
     return matching && status && (!query || [item.title, topicName(project, item.work.topic), item.work.requester, target]
       .filter(Boolean).join(' ').toLocaleLowerCase().includes(query));
   });
@@ -194,7 +194,7 @@ function Timeline({ ticket, project }: PageProps & { ticket: Ticket }) {
     </article>)}
     {ticket.result && <article className="timeline-entry">
       <Avatar value="AI" kind="agent" /><div className="message result-message">
-        <div className="message-meta"><strong>Agent 交付</strong><Version version={ticket.result.version} /><time>{date(ticket.result.at)}</time></div>
+        <div className="message-meta"><strong>{ticket.work.consultation ? '咨询回复' : 'Agent 交付'}</strong><Version version={ticket.result.version} /><time>{date(ticket.result.at)}</time></div>
         <Markdown text={ticket.result.text} />
         <a className="text-button" href={routeFor(project.id, 'work', ticket.id, 'delivery')}>查看交付与验收<ArrowRight size={15} /></a>
       </div>

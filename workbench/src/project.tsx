@@ -33,11 +33,19 @@ export function ProjectPage(props: PageProps) {
 }
 
 function ProjectChat(props: PageProps) {
-  const { project } = props;
-  const [topic, setTopic] = useState('');
-  return <Section title="项目讨论" action={project.topics.length ? <select aria-label="讨论范围" value={topic} onChange={event => setTopic(event.target.value)}>
+  const { project, route, openTask, workspace } = props;
+  const topic = project.topics.find(item => item.id === route.item)?.id ?? '';
+  const tickets = topic ? workspace.tickets.filter(item => item.work.project === project.id && item.work.topic === topic && !item.work.consultation) : [];
+  return <Section title={topicName(project, topic) ?? '项目讨论'} action={<div className="actions">
+    {!!project.topics.length && <select aria-label="讨论范围" value={topic} onChange={event => go(project.id, 'project', event.target.value || undefined, 'chat')}>
     <TopicOptions project={project} empty="项目讨论" />
-  </select> : undefined}><Conversation {...props} key={topic} topic={topic || undefined} /></Section>;
+    </select>}
+    {topic && project.mayStart && <Button size="sm" variant="outline" onClick={() => openTask({ topic })}>发起工单</Button>}
+  </div>}>
+    {!!tickets.length && <div className="record-row" aria-label="主题工单">{tickets.map(item =>
+      <a key={item.id} href={routeFor(project.id, 'work', item.id)}>{item.title}</a>)}</div>}
+    <Conversation {...props} key={topic} topic={topic || undefined} />
+  </Section>;
 }
 
 function Structure({ workspace, project, openTask }: PageProps) {
@@ -54,7 +62,7 @@ function Structure({ workspace, project, openTask }: PageProps) {
     </a>)}</Section>}
     <Section title="主题" action={project.maintain ? <Button variant="outline" size="sm" onClick={() => show(true)}><Plus />新建主题</Button> : undefined}>
       {project.topics.length ? project.topics.map(topic => <div className="topic-row" key={topic.id} data-child={!!topic.parent}>
-        <MessageSquare size={16} /><strong>{topic.title}</strong>{topic.parent && <small>{topicName(project, topic.parent)}</small>}
+        <MessageSquare size={16} /><a href={routeFor(project.id, 'project', topic.id, 'chat')}><strong>{topic.title}</strong></a>{topic.parent && <small>{topicName(project, topic.parent)}</small>}
         <a className="text-button" href={routeFor(project.id, 'work')}
           onClick={() => store('work:' + project.id, { query: '', topic: topic.id, status: 'all' })}>查看工单<ArrowRight size={14} /></a>
         {project.mayStart && <Button size="sm" variant="ghost" onClick={() => openTask({ topic: topic.id })}>发起</Button>}

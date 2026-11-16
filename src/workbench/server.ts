@@ -333,6 +333,9 @@ async function serve() {
       } else if (post && view === 'project' && action === 'messages') {
         output = work.postConversation(actor, item, z.object({ nonce, text: prose, topic: id.optional(), ticket: id.optional(),
           feishu: z.boolean().optional() }).strict().parse(await body(req)));
+      } else if (post && view === 'project' && action === 'consult') {
+        output = work.consultTopic(actor, item, z.object({ nonce, text: prose, topic: id, agents: z.array(id).min(1).max(4) })
+          .strict().parse(await body(req)));
       } else if (post && view === 'project' && action === 'feishu-group') {
         work.bindFeishuGroup(actor, item, z.object({ chat: z.string().regex(/^oc_[a-zA-Z0-9_-]+$/), label: title, topic: id.optional() }).strict().parse(await body(req)));
       } else if (post && view === 'project' && item && action === 'bind') {
@@ -533,6 +536,15 @@ async function serve() {
           const input = discussionInput(trigger, feishu.appId);
           const { sender, origin } = input;
           const chat = String(trigger.meta.chatId);
+          const question = /^\/咨询\s+([\s\S]+)$/.exec(text);
+          if (question && project && !trigger.meta.direct) {
+            const actor = collaboration.channelMember(sender, trigger.at);
+            const topic = collaboration.feishuTopic(project, chat);
+            if (actor && topic && actor === collaboration.channelMember(sender)) {
+              collaboration.consultTopic(actor, project.id, { topic, text: prose.parse(question[1]), nonce: trigger.id }, trigger);
+            }
+            return;
+          }
           const action = config.crossChannel && channelCommand(text);
           if (action && ((['proof', 'answer'].includes(action.kind) && trigger.meta.direct) || (action.kind === 'work' && trigger.addressed && project))) {
             void processChannel(text, trigger, sender, origin, project?.id,

@@ -7,6 +7,7 @@ export type Agent = Overview['agents'][number];
 export type TicketRow = Overview['tickets'][number];
 export type Decision = Overview['needsYou'][number];
 export type Ticket = ReturnType<Collaboration['detail']>;
+export type ConversationMessage = ReturnType<Collaboration['conversation']>[number];
 export type Knowledge = ReturnType<Collaboration['browse']>[number];
 export type ReadableKnowledge = Extract<Knowledge, { body: string }>;
 export type Snapshot = ReturnType<Collaboration['executionSnapshot']>;
