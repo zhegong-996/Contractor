@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import type { ChannelRequest, PlatformActor } from '../src/workbench/channel-links.ts';
-import { channelCommand, feishuCommandText } from '../src/workbench/channel-links.ts';
+import { channelCommand, feishuCommandText, feishuConsultation } from '../src/workbench/channel-links.ts';
 
 test('群命令只移除平台确认的机器人提及，明确引用单独解析', () => {
   const mention = { key: '@_user_1', name: '协作机器人' };
@@ -14,6 +14,11 @@ test('群命令只移除平台确认的机器人提及，明确引用单独解�
   assert.deepEqual(channelCommand(feishuCommandText('@协作机器人 ' + request, mention)), expected);
   assert.equal(channelCommand(feishuCommandText('@协作机器人 ' + request)), undefined);
   assert.equal(channelCommand('两家试点门店反馈看不懂推荐理由。'), undefined);
+  assert.deepEqual(feishuConsultation(feishuCommandText('@_user_1 /咨询 @wrap-codex 核对验收', mention)),
+    { text: '核对验收', agents: ['wrap-codex'] });
+  assert.deepEqual(feishuConsultation('/咨询 核对验收'), { text: '核对验收' });
+  for (const text of ['/咨询 @', '/咨询 @wrap-codex', '/咨询 @wrap_codex 核对验收', '/咨询 @wrap-codex @copy-claude 核对验收'])
+    assert.equal(feishuConsultation(text), undefined);
 });
 
 test('渠道身份绑定、同一引用去重和负责人确认共用原版工单事务', async t => {

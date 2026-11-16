@@ -12,7 +12,7 @@ import type { Trigger } from '../../upstream/superagent/src/core/index.ts';
 import { loadSettings, title } from './config.ts';
 import { openCollaboration, WorkbenchError } from './collaboration.ts';
 import { measureSchema, observationSchema } from './learning.ts';
-import { channelCommand, feishuCommandText, messageRef, type ChannelRef, type PlatformActor } from './channel-links.ts';
+import { channelCommand, feishuCommandText, feishuConsultation, messageRef, type ChannelRef, type PlatformActor } from './channel-links.ts';
 import { githubReference, watchGithub } from './github-intake.ts';
 import { referenceSchema, resourceSource, topicInputSchema } from './project-resources.ts';
 import { discussionInput } from './discussion-intake.ts';
@@ -539,12 +539,12 @@ async function serve() {
           const input = discussionInput(trigger, feishu.appId);
           const { sender, origin } = input;
           const chat = String(trigger.meta.chatId);
-          const question = /^\/咨询\s+([\s\S]+)$/.exec(text);
+          const question = feishuConsultation(text);
           if (question && project && !trigger.meta.direct) {
             const actor = collaboration.channelMember(sender, trigger.at);
             const topic = collaboration.feishuTopic(project, chat);
             if (actor && topic && actor === collaboration.channelMember(sender)) {
-              collaboration.consultTopic(actor, project.id, { topic, text: prose.parse(question[1]), nonce: trigger.id }, trigger);
+              collaboration.consultTopic(actor, project.id, { topic, ...question, nonce: trigger.id }, trigger);
             }
             return;
           }

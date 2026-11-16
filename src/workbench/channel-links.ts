@@ -40,6 +40,11 @@ export function feishuCommandText(content: string, mention?: { key?: string; nam
   return prefix ? text.slice(prefix.length).trimStart() : text;
 }
 
+export function feishuConsultation(text: string) {
+  const match = /^\/咨询\s+(?:@([a-z][a-z0-9-]{0,47})\s+)?([^@\s][\s\S]*)$/.exec(text.trim());
+  if (match && match[2]!.length <= 3500) return { text: match[2]!, ...(match[1] && { agents: [match[1]] }) };
+}
+
 export function channelCommand(text: string) {
   const proof = /^\/绑定协作\s+([a-f0-9]{32})$/.exec(text.trim());
   if (proof) return { kind: 'proof' as const, code: proof[1]! };
