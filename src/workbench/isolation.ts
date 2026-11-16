@@ -9,6 +9,7 @@ import type { Job } from '../../upstream/autoloop/protocol/job.ts';
 import type { Turn } from '../../upstream/autoloop/worker/agents.ts';
 import { root, runtime } from '../config.ts';
 import { allowedFile } from '../github.ts';
+import { bundleHash, codeBundleSchema, codeDeltaSchema, materializeCode, type CodeBundle, type CodeDelta } from './code-bundle.ts';
 import type { RunnerAgent } from './config.ts';
 
 const hash = (value: string | Buffer) => createHash('sha256').update(value).digest('hex');
@@ -24,7 +25,7 @@ export type Isolation = {
 };
 type Launch = {
   isolation: Isolation; executable: string; workspace: string; home: string; input: string; temp: string;
-  policy: string; baseline: Record<string, string>; canonical?: string; paths: string[];
+  remoteBase?: string; placeholders?: string[]; policy: string; baseline: Record<string, string>; canonical?: string; paths: string[];
 };
 
 async function plainPath(file: string) {
@@ -79,7 +80,7 @@ async function files(folder: string): Promise<Record<string, string>> {
   return result;
 }
 
-export function sandboxPolicy(workspace: string, home: string, input: string, executable: string, paths: string[], domains: string[], temp = path.join(home, 'tmp')) {
+export function sandboxPolicy(workspace: string, home: string, input: string, executable: string, paths: string[], domains: string[], temp = path.join(home, 'tmp'), readPaths?: string[]) {
   const system = process.platform === 'darwin'
     ? ['/System/Library', '/usr/lib', '/usr/bin', '/usr/share', '/bin', '/sbin', '/Library/Apple', '/private/etc/ssl', '/private/etc/hosts', '/private/etc/resolv.conf', '/private/etc/codex', '/private/var/select/sh']
     : ['/usr', '/bin', '/sbin', '/lib', '/lib64', '/etc/ssl', '/etc/ld.so.cache', '/etc/resolv.conf', '/etc/hosts', '/etc/codex', '/proc/self', '/proc/thread-self',
@@ -89,7 +90,8 @@ export function sandboxPolicy(workspace: string, home: string, input: string, ex
     network: { allowedDomains: domains, deniedDomains: [], allowLocalBinding: false, strictAllowlist: true },
     filesystem: {
       denyRead: ['/'],
-      allowRead: [...system, '/etc', '/private/etc', '/dev/null', '/dev/urandom', '/dev/random', '/dev/fd', workspace, home, input,
+      allowRead: [...system, '/etc', '/private/etc', '/dev/null', '/dev/urandom', '/dev/random', '/dev/fd',
+        ...(readPaths ? readPaths.map(item => path.join(workspace, item)) : [workspace]), home, input,
         // Codex ships its code-mode host beside the native binary; this directory contains programs, not user state.
         path.dirname(executable), path.resolve(path.dirname(executable), '../codex-path'), temp].map(literal),
       allowWrite: [home, temp, ...paths.map(item => path.join(workspace, item))].map(literal),
@@ -102,7 +104,7 @@ export function sandboxPolicy(workspace: string, home: string, input: string, ex
 
 /** Prepare an AutoLoop job; no queue, lease, retry or parallel execution is introduced here. */
 export async function isolateJob(agent: RunnerAgent, job: Job, authority: unknown, previous?: Isolation,
-  code?: { canonical: string; paths: string[] }): Promise<{ job: Job; isolation: Isolation }> {
+  code?: { canonical: string; paths: string[] } | { bundle: CodeBundle; paths: string[] }): Promise<{ job: Job; isolation: Isolation }> {
   if (!agent.execution) throw new Error('请配置本轮模型、成员凭据和隔离执行方式');
   if (agent.execution.kind === 'test') {
     if (!process.env.NODE_TEST_CONTEXT) throw new Error('测试执行器只能在 Node 测试进程中使用');
@@ -150,7 +152,7 @@ export async function isolateJob(agent: RunnerAgent, job: Job, authority: unknow
     '[features]', 'apps = false', 'multi_agent = false', '[shell_environment_policy]', 'inherit = "core"',
   ].join('\n'), { mode: 0o600 });
   const baseline: Record<string, string> = {};
-  if (code) {
+  if (code && 'canonical' in code) {
     // git supplies a bounded source list. Its metadata, hooks, credentials and private CLI files stay on the host.
     const names = execFileSync('git', ['ls-files', '--cached', '--others', '--exclude-standard', '-z'], {
       cwd: code.canonical, encoding: 'utf8', maxBuffer: 4 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'] }).split('\0').filter(Boolean);
@@ -171,9 +173,31 @@ export async function isolateJob(agent: RunnerAgent, job: Job, authority: unknow
     }
     for (const item of code.paths) await mkdir(path.dirname(path.join(workspace, item)), { recursive: true, mode: 0o700 });
   }
+  if (code && 'bundle' in code) {
+    Object.assign(baseline, await materializeCode(workspace, code.bundle));
+    for (const item of code.paths) await mkdir(path.dirname(path.join(workspace, item)), { recursive: true, mode: 0o700 });
+  }
+  // Linux bind mounts need an existing destination for an exact writable file.
+  // Empty placeholders are excluded from changes unless the Agent actually writes content.
+  const placeholders: string[] = [];
+  if (code && process.platform === 'linux') for (const item of code.paths) {
+    const file = path.join(workspace, item);
+    if (item.endsWith('/')) await mkdir(file, { recursive: true, mode: 0o700 });
+    else if (!existsSync(file)) {
+      await mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
+      await writeFile(file, '', { flag: 'wx', mode: 0o600 });
+      placeholders.push(item);
+    }
+  }
   const policy = runtime('isolation-launches', `${job.run}-${job.attempt}-policy.json`);
-  await privateFile(policy, sandboxPolicy(workspace, home, input, executable, code?.paths ?? [], agent.execution.domains, temp));
-  const launch: Launch = { isolation, executable, workspace, home, input, temp, policy, baseline, canonical: code?.canonical, paths: code?.paths ?? [] };
+  // SRT restores allowRead mounts after writes under a denyRead root on Linux.
+  // A read-only workspace ancestor would hide the narrower writable mounts again.
+  // Mount disjoint read files and write scopes instead; the repository remains private.
+  const readPaths = code && process.platform === 'linux'
+    ? [...Object.keys(baseline).filter(file => !allowedFile(file, code.paths)), ...code.paths] : undefined;
+  await privateFile(policy, sandboxPolicy(workspace, home, input, executable, code?.paths ?? [], agent.execution.domains, temp, readPaths));
+  const launch: Launch = { isolation, executable, workspace, home, input, temp, policy, baseline, canonical: code && 'canonical' in code ? code.canonical : undefined, paths: code?.paths ?? [],
+    remoteBase: code && 'bundle' in code ? bundleHash(code.bundle) : undefined, placeholders };
   await privateFile(launchFile(job.run, job.attempt), launch);
   return { isolation, job: { ...job, session: previous?.scope === isolation.scope ? job.session : null,
     agent: { ...job.agent, use: 'suitme-isolated', model: agent.model, effort,
@@ -206,8 +230,13 @@ export function sandboxInvocation(launch: Pick<Launch, 'home' | 'temp' | 'policy
 /** Only call after the native worker and all observed children have exited. */
 export async function importIsolatedChanges(run: number, attempt: number, authorized = () => true) {
   const launch: Launch = JSON.parse(await readFile(launchFile(run, attempt), 'utf8'));
+  await importWorkspace(launch, authorized);
+}
+
+async function importWorkspace(launch: Pick<Launch, 'canonical' | 'workspace' | 'baseline' | 'paths' | 'placeholders'>, authorized: () => boolean) {
   if (!launch.canonical) return;
   const current = await files(launch.workspace);
+  for (const file of launch.placeholders ?? []) if (current[file] === hash('')) delete current[file];
   const changed = [...new Set([...Object.keys(current), ...Object.keys(launch.baseline)])]
     .filter(name => current[name] !== launch.baseline[name]);
   // Validate the whole delta before writing any file. Concurrent host edits are not overwritten.
@@ -230,6 +259,57 @@ export async function importIsolatedChanges(run: number, attempt: number, author
       copyFileSync(path.join(launch.workspace, name), target);
     } else rmSync(target, { force: true });
   }
+}
+
+/** Freeze the same bounded, trusted checkout used by local isolation; no Git credentials leave the host. */
+export async function exportCodeBundle(canonical: string, paths: string[]): Promise<CodeBundle> {
+  const names = execFileSync('git', ['ls-files', '--cached', '--others', '--exclude-standard', '-z'], {
+    cwd: canonical, encoding: 'utf8', maxBuffer: 4 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'] }).split('\0').filter(Boolean);
+  const result: CodeBundle = { paths, files: {} };
+  const root = await realpath(canonical);
+  let size = 0;
+  for (const name of new Set(names)) {
+    if (excluded(name)) continue;
+    if (!allowedFile(name, [name])) throw new Error('代码路径不合法');
+    const source = path.join(root, name);
+    await plainPath(source);
+    const stat = await lstat(source).catch(error => { if (error.code === 'ENOENT') return undefined; throw error; });
+    if (!stat) continue;
+    if (!stat.isFile() || stat.nlink !== 1 || (size += stat.size) > 8 * 1024 * 1024 || Object.keys(result.files).length >= 4000)
+      throw new Error('远端代码范围过大或包含非普通文件');
+    result.files[name] = (await readFile(source)).toString('base64');
+  }
+  return codeBundleSchema.parse(result);
+}
+
+export async function exportCodeDelta(run: number, attempt: number): Promise<CodeDelta | undefined> {
+  const launch: Launch = JSON.parse(await readFile(launchFile(run, attempt), 'utf8'));
+  if (!launch.remoteBase) return;
+  const current = await files(launch.workspace);
+  for (const file of launch.placeholders ?? []) if (current[file] === hash('')) delete current[file];
+  const result: CodeDelta = { base: launch.remoteBase, files: {} };
+  for (const name of new Set([...Object.keys(current), ...Object.keys(launch.baseline)])) {
+    if (current[name] === launch.baseline[name]) continue;
+    if (!allowedFile(name, launch.paths)) throw new Error('远端代码改动超出授权范围');
+    result.files[name] = current[name] ? (await readFile(path.join(launch.workspace, name))).toString('base64') : null;
+  }
+  return codeDeltaSchema.parse(result);
+}
+
+export async function importRemoteCode(canonical: string, bundle: CodeBundle, input: CodeDelta, authorized: () => boolean) {
+  const delta = codeDeltaSchema.parse(input);
+  if (delta.base !== bundleHash(bundle)) throw new Error('远端代码回执基线不匹配');
+  const files = { ...bundle.files };
+  for (const [name, data] of Object.entries(delta.files)) {
+    if (!allowedFile(name, bundle.paths)) throw new Error('远端改动超出授权路径');
+    if (data === null) delete files[name]; else files[name] = data;
+  }
+  const workspace = await mkdtemp(path.join(os.tmpdir(), 'suitme-import-'));
+  try {
+    await materializeCode(workspace, { paths: bundle.paths, files });
+    await importWorkspace({ workspace, canonical, paths: bundle.paths,
+      baseline: Object.fromEntries(Object.entries(bundle.files).map(([name, data]) => [name, hash(Buffer.from(data, 'base64'))])) }, authorized);
+  } finally { await rm(workspace, { recursive: true, force: true }); }
 }
 
 export async function discardIsolation(isolation: Isolation) {

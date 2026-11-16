@@ -23,3 +23,9 @@ LobeHub 的前端参考包括项目话题列表与搜索、Agent 分页档案、
 设备登记和按任务选择参考 LobeHub 的设备与执行配置，接单客户端直接复用本仓固定的 AutoLoop WorkerHub 接口和 worker 源码。 [LobeHub 执行目标选择](https://github.com/lobehub/lobehub/blob/a8424d204a7ed1eb36985ebdfa6eac8041615392/apps/server/src/services/taskRunner/resolveRunExecution.ts) · [原版 AutoLoop 协议](https://github.com/KKKKhazix/agent-autoloop/blob/ba8cf6d8cf24f9ce005958c15d88f2d9cff7f05d/docs/protocol.md) · [SuitMe 使用说明](WORKBENCH-MEMORY-AND-DEVICES.md)
 
 跨主机模式沿用同一个 AutoLoop 账本、worker、CLI 回执协议和 Claude Code 适配。SuitMe 增加了配对入口、授权资料装配和按远端停止回执交接。 [原版 Claude 插件](https://github.com/KKKKhazix/agent-autoloop/blob/ba8cf6d8cf24f9ce005958c15d88f2d9cff7f05d/plugins/claude/agent.ts) · [远程执行端说明](WORKBENCH-REMOTE-RUNNER.md)
+
+2026-11-16 后端补齐继续直接调用上述固定版本，不修改上游子模块。代码包传输及差异导入为 SuitMe 适配层，进程和网络隔离仍由原版 Sandbox Runtime 执行。Linux 的挂载装配修正在 `isolation.ts`，未旁路原版沙箱。
+
+受控父子任务使用 AutoLoop 原版 `parseResult` 和原生事件协议，子单通过 Super-agent 原版 Engine 创建。`delegations.ts` 仅增加授权提案与父子关系投影，不形成新 scheduler。父子结果回流借鉴 LobeHub 的协作机制；没有复制其 supervisor 或声称已经整合其全部能力。
+
+`knowledge-graph.ts` 实际复用 `@backstage/catalog-model@1.10.2` 的 `stringifyEntityRef`、`RELATION_OWNED_BY`、`RELATION_PART_OF`、`RELATION_DEPENDS_ON`，输入来自 SuitMe 现有授权知识与执行证据。它是来源及使用关系的后端投影，不是 Backstage 完整目录服务或自动语义图谱。

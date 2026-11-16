@@ -76,6 +76,10 @@ test('远端重领沿用本轮租约，换端只在匹配的停机回执后派�
   assert.equal((await work.deviceWork(other.token, poll(), true)).job, undefined);
 
   work.handoff('product', id, { agent: 'replacement', reason: '远端失联，由原工单恢复' });
+  work.transitionDevice('engineering', remote.id, 'lost');
+  assert.equal(work.projectDevices('engineering', 'store').find(d => d.id === remote.id)?.state, 'lost');
+  assert.ok(work.needsYou('engineering').some(d => d.kind === 'blocked' && d.ticket === id), '失联端所有者收到恢复决定');
+  assert.throws(() => work.transitionDevice('product', remote.id, 'active'), { status: 403 });
   const stopping = await wait(async () => {
     const response = await work.deviceWork(remote.token, poll([old.run]), true);
     return response.cancel?.includes(old.run) ? response : undefined;
@@ -113,4 +117,7 @@ test('远端重领沿用本轮租约，换端只在匹配的停机回执后派�
   assert.equal(balance?.used, 2);
   assert.equal(balance?.pending, 0);
   assert.equal(balance?.tokens, 20);
+  work.transitionDevice('engineering', remote.id, 'retired');
+  assert.throws(() => work.setDevice('engineering', remote.id, true), { status: 409 });
+  assert.equal((await work.deviceWork(remote.token, poll(), true)).job, undefined, '退役令牌只能结清旧执行，不能领取新工作');
 });

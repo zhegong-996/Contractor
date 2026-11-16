@@ -1,3 +1,4 @@
+import { codeDeltaSchema } from './code-bundle.ts';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
@@ -94,7 +95,12 @@ async function serve() {
 
   async function runnerRequest(req: IncomingMessage, res: ServerResponse, action: string, remote = false) {
     if (!work) throw new WorkbenchError('工作台正在启动。', 503);
-    const native = await body(req);
+    const token = req.headers.authorization?.match(/^Bearer ([A-Za-z0-9_-]{43})$/)?.[1];
+    if (action !== 'pair') {
+      if (!token) throw new WorkbenchError('请使用已配对的执行端。', 401);
+      work.authenticateDevice(token, remote);
+    }
+    const native = await body(req, action === 'result' ? 12 * 1024 * 1024 : 65000);
     if (action === 'pair') {
       const input = z.object({ code: z.string().regex(/^[a-f0-9]{24}$/), name: title,
         host: z.string().regex(/^[a-f0-9]{64}$/).optional() }).strict().parse(native);
@@ -103,7 +109,6 @@ async function serve() {
       json(res, 200, work.pairDevice(input.code, input.name, remote));
       return;
     }
-    const token = req.headers.authorization?.match(/^Bearer ([A-Za-z0-9_-]{43})$/)?.[1];
     if (!token) throw new WorkbenchError('请使用已配对的执行端。', 401);
     if (action === 'work') {
       const input = z.object({ claim: nonce, wait: z.number().min(0).max(50), capacity: z.boolean(),
@@ -112,7 +117,7 @@ async function serve() {
     } else if (action === 'started' || action === 'result') {
       const input = z.object({ run: z.number().int().positive(), lease: z.string().min(1).max(500), value: z.unknown(),
         stop: z.object({ attempt: z.number().int().positive(), state: z.enum(['exited', 'not-launched']),
-          model: title.optional() }).strict().optional() }).strict().parse(native);
+          model: title.optional(), code: codeDeltaSchema.optional() }).strict().optional() }).strict().parse(native);
       const value = action === 'started'
         ? work.deviceStarted(token, input.run, input.lease, z.object({ session: z.string().min(1).max(240), link: z.string().max(1000).optional() }).strict().parse(input.value), remote)
         : await work.deviceResult(token, input.run, input.lease, input.value as Parameters<typeof work.deviceResult>[3], remote, input.stop);
@@ -144,7 +149,7 @@ async function serve() {
       const url = new URL(req.url ?? '/', 'http://127.0.0.1');
       if (req.method === 'GET' && url.pathname === '/health') {
         const subscription = feishu && (feishuWatch?.status() ?? { state: 'connecting' });
-        const ready = available && (!subscription || subscription.state === 'ready');
+        const ready = available && (!subscription || subscription.state === 'ready' && (!('busHealth' in subscription) || subscription.busHealth !== 'unavailable'));
         json(res, ready ? 200 : 503, { ready, engine: 'superagent', executor: 'autoloop', feishu: subscription });
         return;
       }
@@ -227,6 +232,7 @@ async function serve() {
       else if (get && view === 'project' && item && action === 'usage') output = work.projectUsage(actor, item);
       else if (get && view === 'project' && item && action === 'memory')
         output = work.memoryHome(actor, item, url.searchParams.has('agent') ? id.parse(url.searchParams.get('agent')) : undefined);
+      else if (get && view === 'project' && item && action === 'knowledge-graph') output = work.projectKnowledgeGraph(actor, item);
       else if (get && view === 'project' && item && action === 'recall') output = work.recallMemory(actor, item, url.searchParams.get('q') ?? '');
       else if (get && view === 'project' && item && action === 'devices') output = work.projectDevices(actor, item);
       else if (get && view === 'project' && item && action === 'budgets') output = work.budgetPools(actor, item);
@@ -460,13 +466,16 @@ async function serve() {
   } catch (error) { server.close(); if (remoteServer) remoteServer.close(); throw error; }
 }
 
-async function body(req: IncomingMessage) {
-  let text = '';
+async function body(req: IncomingMessage, limit = 65000) {
+  const chunks: Buffer[] = [];
+  let length = 0;
   for await (const chunk of req) {
-    text += chunk;
-    if (Buffer.byteLength(text) > 65000) throw new WorkbenchError('请求内容过长。', 413);
+    const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    length += bytes.length;
+    if (length > limit) throw new WorkbenchError('请求内容过长。', 413);
+    chunks.push(bytes);
   }
-  return JSON.parse(text || '{}');
+  return JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
 }
 
 const argv = process.argv.slice(2);

@@ -45,23 +45,32 @@ const check = z.object({
   html_url: z.string().nullable().optional(), completed_at: z.string().nullable().optional(),
 });
 export type PullCheck = z.infer<typeof check>;
+export const requiredCheckSchema = z.object({
+  name: z.string().trim().min(1).max(200), app: z.string().regex(/^[a-z0-9-]+$/).max(100),
+  appId: z.number().int().positive().optional(),
+}).strict();
+export type RequiredCheck = z.infer<typeof requiredCheckSchema>;
+export const defaultChecks: RequiredCheck[] = [{ name: 'collab-pilot', app: 'github-actions' }];
 
 // A passing check from another SHA, another app, or a superseded attempt is not evidence for this version.
-export function pullChecks(sha: string, checks: PullCheck[]) {
-  const attempts = checks.filter(item => item.head_sha === sha && item.name === 'collab-pilot'
-    && item.app?.slug === 'github-actions').sort((a, b) => b.id - a.id);
-  const selected = attempts.slice(0, 1);
+export function pullChecks(sha: string, checks: PullCheck[], required: RequiredCheck[] = defaultChecks) {
+  const matches = (item: PullCheck, rule: RequiredCheck) => item.name === rule.name && item.app?.slug === rule.app
+    && (!rule.appId || item.app.id === rule.appId);
+  const attempts = checks.filter(item => item.head_sha === sha && required.some(rule => matches(item, rule)))
+    .sort((a, b) => b.id - a.id);
+  const selected = required.flatMap(rule => attempts.find(item => matches(item, rule)) ?? []);
   const ci = selected.some(item => item.status === 'completed' && item.conclusion !== 'success') ? 'failed' as const
-    : selected.length && selected.every(item => item.status === 'completed' && item.conclusion === 'success') ? 'passed' as const
+    : required.length > 0 && selected.length === required.length
+      && selected.every(item => item.status === 'completed' && item.conclusion === 'success') ? 'passed' as const
     : 'pending' as const;
   return { ci, checks: selected, attempts };
 }
 
-export async function inspectCommitChecks(repository: string, sha: string) {
+export async function inspectCommitChecks(repository: string, sha: string, required: RequiredCheck[] = defaultChecks) {
   const raw = await command('gh', ['api', 'repos/' + repository + '/commits/' + commitSha.parse(sha)
-    + '/check-runs?check_name=collab-pilot&filter=all&per_page=100', '--paginate', '--slurp']);
+    + '/check-runs?filter=all&per_page=100', '--paginate', '--slurp']);
   const attempts = z.array(z.object({ check_runs: z.array(check) })).parse(JSON.parse(raw)).flatMap(page => page.check_runs);
-  return pullChecks(sha, attempts);
+  return pullChecks(sha, attempts, required);
 }
 
 export async function inspectIssue(repository: string, number: number) {
@@ -85,13 +94,13 @@ export async function inspectBranch(repository: string, url: string): Promise<Gi
     push: pushes.find(row => row.ref === 'refs/heads/' + name && row.after === branch.commit.sha) };
 }
 
-export async function inspectPull(repository: string, url: string) {
+export async function inspectPull(repository: string, url: string, required: RequiredCheck[] = defaultChecks) {
   const number = parsePr(url, repository);
   const live = pull.parse(await githubApi(repository, 'pulls/' + number));
   if (live.base.repo?.full_name.toLowerCase() !== repository.toLowerCase() || live.number !== number) throw new Error('PR 仓库已变化');
   const reviewPages = command('gh', ['api', 'repos/' + repository + '/pulls/' + number + '/reviews?per_page=100', '--paginate', '--slurp']);
   const [{ attempts, ...shaChecks }, listed, reviews, pushes] = await Promise.all([
-    inspectCommitChecks(repository, live.head.sha),
+    inspectCommitChecks(repository, live.head.sha, required),
     command('gh', ['api', 'repos/' + repository + '/pulls/' + number + '/commits?per_page=100', '--paginate', '--slurp']),
     reviewPages,
     live.head.repo?.id === live.base.repo.id
@@ -104,6 +113,7 @@ export async function inspectPull(repository: string, url: string) {
   if (!observed.some(commit => commit.sha === live.head.sha)) throw new Error('未核对到 PR 的当前提交。');
   const snapshot = {
     repository, repoId: live.base.repo.id, url: live.html_url, pr: number, baseSha: live.base.sha, headSha: live.head.sha, ...shaChecks,
+    requiredChecks: required,
     baseBranch: live.base.ref, headBranch: live.head.ref, headRepoId: live.head.repo?.id,
     state: live.merged ? 'merged' as const : live.draft && live.state === 'open' ? 'draft' as const : live.state,
     creator: live.user, createdAt: live.created_at, updatedAt: live.updated_at,

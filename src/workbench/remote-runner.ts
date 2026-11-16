@@ -5,7 +5,7 @@ import type { Job } from '../../upstream/autoloop/protocol/job.ts';
 import { workerStopped } from './autoloop.ts';
 import { remoteEngine, type RunnerAgent } from './config.ts';
 import type { DeviceJob, ReleasedLease, RemoteStop } from './devices.ts';
-import { cleanIsolationTemp, discardIsolation, isolateJob, modelReceipt, readIsolation } from './isolation.ts';
+import { cleanIsolationTemp, discardIsolation, exportCodeDelta, isolateJob, modelReceipt, readIsolation } from './isolation.ts';
 
 const leaseSchema = z.object({
   run: z.number().int().positive(), attempt: z.number().int().positive(), lease: z.string().min(1).max(500),
@@ -24,14 +24,14 @@ export async function neverLaunched(home: string, lease: ReleasedLease) {
 
 export async function prepareRemote(home: string, profile: RunnerAgent, job: DeviceJob): Promise<Job> {
   if (!remoteEngine(profile) || !/^[a-f0-9]{64}$/.test(job.remote?.authority ?? '') || job.agent.id !== profile.id
-    || job.agent.use !== profile.engine || job.agent.model !== profile.model || job.agent.access !== 'read'
+    || job.agent.use !== profile.engine || job.agent.model !== profile.model || (job.remote?.code ? profile.engine !== 'codex' || job.agent.access !== 'edit' : job.agent.access !== 'read')
     || job.agent.command || job.rule.cwd !== '.' || job.rule.skill || job.session)
     throw new Error('领到的任务与远程配对范围不一致');
   const lease = leaseSchema.parse({ run: job.run, attempt: job.attempt, lease: job.token });
   if (!await neverLaunched(home, lease)) throw new Error('远端磁盘已有该轮执行记录，须保留旧执行和回执');
   if (profile.engine === 'codex') {
     const scoped = await isolateJob({ ...profile, execution: { ...profile.execution!, kind: 'sandbox' } }, job,
-      { authority: job.remote!.authority, home });
+      { authority: job.remote!.authority, home }, undefined, job.remote?.code ? { bundle: job.remote.code, paths: job.remote.code.paths } : undefined);
     return scoped.job;
   }
   const cwd = runDirectory(home, lease);
@@ -55,7 +55,8 @@ export async function remoteStop(home: string, entry: { run: number; attempt: nu
       } catch { /* Plain CLI diagnostics are not model receipts. */ }
     }
   }
-  return { attempt: entry.attempt, state: entry.turn > 0 ? 'exited' : 'not-launched', ...(model && { model }) };
+  const code = entry.job.agent.use === 'suitme-isolated' ? await exportCodeDelta(entry.run, entry.attempt) : undefined;
+  return { ...(code && { code }), attempt: entry.attempt, state: entry.turn > 0 ? 'exited' : 'not-launched', ...(model && { model }) };
 }
 
 export async function cleanRemoteCodex(run: number, attempt: number) {

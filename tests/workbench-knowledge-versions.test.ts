@@ -142,6 +142,8 @@ test('替换与失效保留历史版本，撤回原资料的精确授权会隐�
   assert.equal(work.executionSnapshot('product', downstream, derived.result.run).contents, undefined);
   assert.throws(() => work.memoryUses('product', v1.candidate.id), { status: 403 });
   assert.ok(!work.browse('product', 'store', '', true).some(e => [v1.candidate.id, derived.candidate.id].includes(e.id)));
+  const graphAfterRevocation = work.projectKnowledgeGraph('product', 'store');
+  assert.ok(!graphAfterRevocation.nodes.some(node => node.kind === 'knowledge' && [v1.candidate.revision, derived.candidate.revision].includes(node.revision!)), '撤权后的派生知识不出现在图中');
   assert.equal(detail(original).versions[0]?.text, undefined);
   assert.equal(detail(original).versions[0]?.reviews[0]?.kind, 'accepted');
   const grant2 = await grant('owner', original, candidate.id);

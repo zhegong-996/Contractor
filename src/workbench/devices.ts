@@ -4,13 +4,15 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { runtime } from '../config.ts';
 import type { Job } from '../../upstream/autoloop/protocol/job.ts';
+import type { CodeBundle, CodeDelta } from './code-bundle.ts';
 import type { RunnerAgent } from './config.ts';
 
 type Binding = { owner: string; agent: string; projects: string[]; remote?: RunnerAgent };
-export type Device = Binding & { id: string; name: string; active: boolean; lastSeen: number | null };
-export type DeviceJob = Job & { remote?: { authority: string } };
+export type DeviceState = 'active' | 'suspended' | 'lost' | 'retired';
+export type Device = Binding & { id: string; name: string; active: boolean; state: DeviceState; lastSeen: number | null };
+export type DeviceJob = Job & { remote?: { authority: string; code?: CodeBundle } };
 export type ReleasedLease = { run: number; attempt: number; lease: string };
-export type RemoteStop = { attempt: number; state: 'exited' | 'not-launched'; model?: string };
+export type RemoteStop = { attempt: number; state: 'exited' | 'not-launched'; model?: string; code?: CodeDelta };
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 const onlineWindow = 10_000;
 
@@ -74,7 +76,8 @@ export class Devices {
   }
 
   private decode(row: Record<string, unknown>): Device {
-    return { ...JSON.parse(String(row.value)), lastSeen: row.seen === null ? null : Number(row.seen) };
+    const value = JSON.parse(String(row.value));
+    return { ...value, state: value.state ?? (value.active ? 'active' : 'suspended'), lastSeen: row.seen === null ? null : Number(row.seen) };
   }
 
   get(id: string) {
@@ -100,7 +103,15 @@ export class Devices {
   }
 
   active(id: string, active: boolean) {
-    this.db.prepare("UPDATE workbench_device SET value=json_set(value,'$.active',json(?)) WHERE id=?").run(JSON.stringify(active), id);
+    return this.transition(id, active ? 'active' : 'suspended');
+  }
+
+  transition(id: string, state: DeviceState) {
+    const old = this.get(id);
+    if (!old) throw new Error('找不到执行端');
+    if (old.state === 'retired' && state !== 'retired') throw new Error('已退役执行端不能恢复接单，请重新配对');
+    this.db.prepare("UPDATE workbench_device SET value=json_set(value,'$.active',json(?),'$.state',?) WHERE id=?")
+      .run(JSON.stringify(state === 'active'), state, id);
   }
 
   leasedTo(run: number, attempt?: number): string | undefined {

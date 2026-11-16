@@ -1,3 +1,4 @@
+import { executionCapabilities } from './execution-capabilities.ts';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { z } from 'zod';
@@ -26,6 +27,9 @@ const project = z.object({
   maintainers: z.array(member).min(1),
   relatedProjects: z.array(id).default([]),
   decisionOwner: member.optional(),
+  delegations: z.array(z.object({ from: id, to: id, repository: z.string().regex(githubRepository).optional(),
+    maxChildren: z.number().int().min(1).max(8).default(3), maxDepth: z.number().int().min(1).max(3).default(2),
+  }).strict()).default([]),
   dispatch: z.array(z.object({ topic: id.optional(), function: id, agent: id, decider: member.optional() }).strict()).default([]),
   responsibilities: z.array(z.object({ member, function: id }).strict()).default([]),
   topics: z.array(topicInputSchema).default([]),
@@ -79,6 +83,16 @@ export const settingsSchema = z.object({
     if (p.decisionOwner && !p.maintainers.includes(p.decisionOwner)) flag('项目接单决策人须是项目维护人');
     if (new Set(p.relatedProjects).size !== p.relatedProjects.length
       || p.relatedProjects.some(related => related === p.id || !projectById.has(related))) flag('关联项目必须存在且不能重复或关联自身');
+    const delegated = new Set<string>();
+    for (const rule of p.delegations) {
+      const key = rule.from + '/' + rule.to;
+      if (delegated.has(key)) flag('Agent 转委托规则不能重复');
+      delegated.add(key);
+      if (!value.agents.some(a => a.id === rule.from && a.projects.includes(p.id)) || !value.functions.some(f => f.id === rule.to))
+        flag('转委托须引用项目 Agent 和已配置职责');
+      if (rule.repository && !p.resources.some(r => r.source === 'github' && r.state === 'bound' && r.execution
+        && r.externalId.toLowerCase() === rule.repository!.toLowerCase())) flag('转委托代码仓库须是本项目已配置的交付目标');
+    }
     const duties = new Set<string>();
     for (const duty of p.dispatch) {
       const key = [duty.topic ?? '', duty.function].join('/');
@@ -92,7 +106,7 @@ export const settingsSchema = z.object({
     if (p.responsibilities.some(r => !p.members.includes(r.member) || !value.functions.some(fn => fn.id === r.function)))
       flag('项目职责须由项目成员承担，并引用已定义的职责');
     if (p.discussion && (!value.feishu || !value.crossChannel || !p.resources.some(ref => ref.digest)
-      || !value.agents.some(agent => agent.id === p.discussion!.agent && agent.projects.includes(p.id) && agent.active && agent.execution?.kind !== 'remote')))
+      || !value.agents.some(agent => agent.id === p.discussion!.agent && agent.projects.includes(p.id) && agent.active && executionCapabilities(agent).platformDigest)))
       flag('群整理须配置飞书身份、渠道绑定和当前项目的在岗 Agent');
     if (p.discussion?.history && !p.maintainers.includes(p.discussion.history.member))
       flag('补读账号须由项目维护人授权并指定对应成员');
@@ -159,9 +173,7 @@ export const loadSettings = async () => settingsSchema.parse(JSON.parse(await re
 export const runnerOllamaUrl = 'http://127.0.0.1:11434';
 
 export function remoteEngine(agent: RunnerAgent) {
-  return agent.execution?.kind === 'remote' && !!agent.model?.trim()
-    && (agent.engine === 'claude' && agent.execution.provider === 'ollama' && !agent.execution.credential
-      || agent.engine === 'codex' && agent.execution.provider === 'openai' && !!agent.execution.credential);
+  return executionCapabilities(agent).remote;
 }
 
 export function runnerAgent(agent: Agent): RunnerAgent {

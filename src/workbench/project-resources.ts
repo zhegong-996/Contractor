@@ -1,5 +1,6 @@
 import { parseEntityRef, stringifyEntityRef } from '@backstage/catalog-model';
 import { z } from 'zod';
+import { requiredCheckSchema } from './github-delivery.ts';
 import { digest } from './knowledge.ts';
 
 export const resourceSource = z.enum(['feishu', 'github', 'figma', 'feishu-doc', 'document']);
@@ -36,7 +37,9 @@ export const resourceSchema = z.object({
   source: resourceSource, externalId: z.string().trim().min(1).max(200),
   state: z.enum(['observe', 'bound']).default('observe'), purpose: purpose.optional(),
   contributors: z.array(z.string().regex(/^[a-zA-Z0-9_-]{2,32}$/)).optional(),
-  execution: z.object({ base: branchName.default('main'), paths: z.array(gitPath).min(1).max(10) }).strict().optional(),
+  execution: z.object({ base: branchName.default('main'), paths: z.array(gitPath).min(1).max(10),
+    requiredChecks: z.array(requiredCheckSchema).min(1).max(30).refine(checks =>
+      new Set(checks.map(check => check.name + '/' + check.app)).size === checks.length, 'CI 检查不能重复').optional() }).strict().optional(),
   topic: z.string().regex(/^[a-z][a-z0-9-]{0,47}$/).optional(),
   route: z.boolean().optional(),
   shareNotes: z.boolean().optional(),

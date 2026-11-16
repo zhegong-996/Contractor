@@ -196,3 +196,17 @@ test('代码单验收绑定本单运行提交、PR 分支基线与当前 CI，�
   assert.equal(work.detail('owner', id).work.delivery?.checks?.[0]?.id, 5);
   assert.equal(work.detail('owner', id).work.accepted?.commit, sha);
 });
+
+test('仓库的多个必需检查全部通过才可验收，第三方同名检查与旧重跑不顶替', () => {
+  const required = [{ name: 'lint', app: 'github-actions', appId: 15368 }, { name: 'unit', app: 'github-actions' }];
+  const lint = check(10, { name: 'lint' });
+  const unit = check(20, { name: 'unit' });
+  assert.equal(pullChecks(sha, [lint], required).ci, 'pending');
+  assert.equal(pullChecks(sha, [lint, unit], required).ci, 'passed');
+  assert.equal(pullChecks(sha, [lint, unit, check(21, { name: 'unit', status: 'in_progress', conclusion: null })], required).ci, 'pending');
+  assert.equal(pullChecks(sha, [lint, unit, check(22, { name: 'unit', conclusion: 'failure' })], required).ci, 'failed');
+  assert.equal(pullChecks(sha, [unit, check(99, { name: 'lint', app: { id: 123, slug: 'github-actions' } })], required).ci, 'pending');
+  assert.equal(pullChecks(sha, [lint, unit], []).ci, 'pending');
+  assert.equal(pullChecks(sha, [lint, unit, check(100, { name: 'unit', head_sha: foreign, conclusion: 'failure' })], required).ci, 'passed');
+  assert.deepEqual(pullChecks(sha, [lint, unit, check(22, { name: 'unit' })], required).attempts.map(c => c.id), [22, 20, 10]);
+});

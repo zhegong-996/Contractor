@@ -87,6 +87,11 @@ test('同单离线执行端等待，换端只运行一次并引用替代后的�
   await work.publish('product', replacement, next.revision);
   work.addKnowledge('steward', 'store', { ...note, visibility: 'restricted', body: '未授权的门店材料' });
   assert.deepEqual(work.recallMemory('design', 'store', '门店推荐理由').map(ref => [ref.id, ref.pinned]), [[replacement, true]]);
+  const graph = work.projectKnowledgeGraph('design', 'store');
+  assert.ok(graph.nodes.some(node => node.kind === 'knowledge'));
+  assert.ok(!JSON.stringify(graph).includes('未授权的门店材料'));
+  assert.ok(graph.edges.every(edge => graph.nodes.some(n => n.id === edge.source) && graph.nodes.some(n => n.id === edge.target)));
+  assert.throws(() => work.projectKnowledgeGraph('observer', 'store'), { status: 404 });
   assert.throws(() => work.recallMemory('observer', 'store', '门店推荐理由'), { status: 404 });
 
   assert.throws(() => work.issueDevicePair('product', 'store', 'review'), { status: 403 });
