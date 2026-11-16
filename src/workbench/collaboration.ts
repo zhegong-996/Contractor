@@ -118,7 +118,7 @@ type Start = {
   recall?: boolean; personal?: boolean; device?: string;
 };
 type IntakeDecision = { action: 'link'; ticket: string }
-  | { action: 'create'; project?: string; topic?: string; agent?: string; parent?: string; brief?: string; separate?: boolean; material?: string[] }
+  | { action: 'create'; project?: string; topic?: string; agent?: string; parent?: string; brief?: string; separate?: boolean; material?: string[]; target?: string }
   | { action: 'project' }
   | { action: 'topic'; topic: string }
   | { action: 'dismiss' };
@@ -2126,7 +2126,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
   }
 
   function openChannelTicket(event: ChannelRequest, actor: string, refs: ChannelRef[], confirmedBy?: string, topic?: string,
-    parent?: string, material: string[] = []) {
+    parent?: string, material: string[] = [], target?: string) {
     const channelActor = event.sender;
     // Channel messages stay at their original addresses. An Engine thread is owned only by this case.
     const trigger = { ...event.trigger, human: true, addressed: 'direct' as const,
@@ -2135,7 +2135,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
         : { ...event.trigger.meta, channelActor, confirmedBy } };
     const { ticket } = start(actor, {
       project: event.project, agent: event.agent, request: event.request, title: event.request.slice(0, 100),
-      nonce: trigger.id, material, priority: 'normal', topic: topic ?? event.topic, parent,
+      nonce: trigger.id, material, priority: 'normal', topic: topic ?? event.topic, parent, target,
     }, trigger, true);
     if (!ticket) throw new WorkbenchError('委托未获准。', 409);
     for (const ref of refs) linkOrigin(ref, ticket);
@@ -2287,6 +2287,8 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       const matched = routingMatch(project, pending.member, originalRefs, typeof event.reference === 'string' ? event.reference : undefined);
       const ticket = decision.action === 'link' ? decision.ticket
         : !decision.separate && (!decision.project || decision.project === project.id) ? matched.ticket : undefined;
+      if (ticket && decision.action === 'create' && decision.target)
+        throw new WorkbenchError('已匹配原工单，请续原单或明确另开代码工单。', 409);
       if (ticket && (!mayLinkWork(project, actor, ticket) || !mayLinkWork(project, pending.member, ticket)))
         throw new WorkbenchError('请选择双方有权限且已关联的项目工单。', 409);
       const decisionTopic = decision.action === 'create' ? decision.topic : undefined;
@@ -2303,7 +2305,8 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
         request: crossed ? decision.brief! : event.request,
         ...(crossed ? { topic: undefined, trigger: { ...event.trigger, channel: undefined, url: undefined } } : {}) } : event;
       const target = ticket ?? openChannelTicket(chosen, pending.member, [crossed ? messageRef(id) : ref], actor,
-        decisionTopic, decision.action === 'create' ? decision.parent : undefined, decision.action === 'create' ? decision.material : undefined);
+        decisionTopic, decision.action === 'create' ? decision.parent : undefined, decision.action === 'create' ? decision.material : undefined,
+        decision.action === 'create' ? decision.target : undefined);
       const sameProject = workOf(target)?.project === project.id;
       linkOrigin(sameProject ? ref : messageRef(id), target);
       const parentTicket = event.parentMessage && links.ticket(event.parentMessage);

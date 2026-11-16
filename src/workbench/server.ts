@@ -45,7 +45,7 @@ const materials = z.array(id).max(8);
 const channelDecision = z.discriminatedUnion('action', [
   z.object({ action: z.literal('link'), ticket: id }),
   z.object({ action: z.literal('create'), project: id.optional(), topic: id.optional(), agent: id.optional(), parent: id.optional(),
-    brief: prose.optional(), separate: z.boolean().optional(), material: materials.optional() }),
+    brief: prose.optional(), separate: z.boolean().optional(), material: materials.optional(), target: z.string().max(180).optional() }),
   z.object({ action: z.literal('project') }),
   z.object({ action: z.literal('topic'), topic: id }),
   z.object({ action: z.literal('dismiss') }),

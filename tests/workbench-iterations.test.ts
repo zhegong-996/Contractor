@@ -150,9 +150,21 @@ test('原生工单带口径交接、阻塞接续、多版验收、成果重授�
   assert.ok(!detail(expired).history.some(item => item.text === privateReason));
 
   const target = work.overview('product').projects[0]!.deliveryTargets[0]!.ref;
-  const proposed = work.start('product', { project: 'store', agent: 'coder', title: '委托研发修改门店页', request: '受托路径内修改',
-    target, material: [], priority: 'normal', nonce: randomUUID() });
-  const code = await wait(() => work.resolveStart('product', proposed.trigger) ?? undefined);
+  const sender = { provider: 'feishu' as const, namespace: 'app', id: 'ou_product', label: '产品' };
+  assert.ok(work.proveAccount(work.accountProof('product', 'feishu').command.split(' ')[1]!, sender));
+  work.confirmAccount('product', 'feishu', sender);
+  const sourceId = randomUUID();
+  const request = '委托研发修改门店页';
+  const channel = { project: 'store', agent: 'coder', request, sender, origin: { key: 'feishu:' + sourceId, label: '产品原话题' },
+    trigger: { id: sourceId, source: 'feishu' as const, actor: { source: 'feishu' as const, id: sender.id }, human: true,
+      addressed: 'direct' as const, at: new Date().toISOString(), threads: [{ source: 'feishu' as const, id: sourceId }], text: request, meta: {} } };
+  assert.equal(work.receiveChannel(channel).status, 'pending');
+  assert.throws(() => work.resolveChannel('product', sourceId, { action: 'create', agent: 'coder', target: 'unknown' }), { status: 403 });
+  const { ticket: code } = work.resolveChannel('product', sourceId, { action: 'create', agent: 'coder', target });
+  assert.ok(code);
+  assert.equal(work.receiveChannel(channel).status, 'duplicate');
+  assert.equal(detail(code).work.development?.repository, 'team/test');
+  assert.equal(detail(code).channelHistory[0]?.id, sourceId);
   const offer = work.needsYou('engineering').find(d => d.kind === 'development' && d.ticket === code)!;
   assert.ok(offer);
   assert.throws(() => work.approveDevelopment('product', code), { status: 403 });
