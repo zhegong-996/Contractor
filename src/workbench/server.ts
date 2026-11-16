@@ -393,7 +393,7 @@ async function serve() {
         work.invalidateKnowledge(actor, item, input.revision, input.reason);
       }
       else if (post && view === 'knowledge' && action === 'review') output = work.reviewKnowledge(actor, item,
-        z.object({ revision: z.string().length(64), body: z.string().trim().min(1).max(16000),
+        z.object({ revision: z.string().length(64), title: title.optional(), body: z.string().trim().min(1).max(16000),
           conditions: z.string().trim().min(1).max(600) }).strict().parse(await body(req)));
       else if (post && view === 'knowledge' && item && !action) output = { id: work.addKnowledge(actor, item, settingsRoutes.add.parse(await body(req))) };
       else throw new WorkbenchError('未找到。', 404);

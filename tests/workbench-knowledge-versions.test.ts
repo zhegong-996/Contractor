@@ -54,7 +54,12 @@ test('替换与失效保留历史版本，撤回原资料的精确授权会隐�
   await writeFile(fixture, [
     "import {readFileSync} from 'node:fs';",
     "const ctx = JSON.parse(readFileSync(process.env.AGENT_AUTOLOOP_CONTEXT, 'utf8'));",
-    "console.log(ctx.events.filter(item => item.type === 'knowledge.source').map(item => item.detail.split('\\n')[0]).join('、'));",
+    "const cited = ctx.events.filter(item => item.type === 'knowledge.source').map(item => {",
+    "  const lines = item.detail.split('\\n');",
+    "  const marker = lines.find(line => line.startsWith('记忆引用标识：'));",
+    "  return [lines[0], marker?.slice('记忆引用标识：'.length)].filter(Boolean).join(' ');",
+    "});",
+    "console.log(cited.join('、'));",
   ].join('\n'));
   const [{ openCollaboration }, { settingsSchema }, { ConsoleAuth }] = await Promise.all([
     import('../src/workbench/collaboration.ts'), import('../src/workbench/config.ts'), import('../src/console-auth.ts'),
@@ -115,7 +120,13 @@ test('替换与失效保留历史版本，撤回原资料的精确授权会隐�
   const downstream = await start([v1.candidate.id]);
   await grant('product', downstream, v1.candidate.id);
   const derived = await adopt(downstream);
-  assert.equal(work.executionSnapshot('product', downstream, derived.result.run).readable, true);
+  const snapshot = work.executionSnapshot('product', downstream, derived.result.run);
+  assert.equal(snapshot.readable, true);
+  const source = snapshot.materials?.[0]?.acceptedSource;
+  assert.equal(source?.ticket, original);
+  assert.equal(source?.revision, v1.result.revision);
+  assert.equal(source?.version, 1);
+  assert.deepEqual(derived.result.citations[0]?.acceptedSource, source);
   assert.ok(work.memoryUses('product', v1.candidate.id).some(item => item.ticket === downstream));
 
   const candidate = entry('owner', work.addKnowledge('owner', 'store', {

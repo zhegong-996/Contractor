@@ -32,7 +32,7 @@ import { Iterations } from './iterations.ts';
 import { ExecutionEvidence, unpricedAttempts } from './execution-evidence.ts';
 import { isolateJob, exportCodeBundle, importRemoteCode, importIsolatedChanges, discardIsolation, cleanIsolationTemp, modelReceipt, type Isolation } from './isolation.ts';
 import { FeishuSources, sensitiveFeishuText, withFeishuReads } from '../feishu-sources.ts';
-import { feishuTriggerId } from '../upstream.ts';
+import { feishuChatLink, feishuTriggerId } from '../upstream.ts';
 import { tokenize } from '../memory-projections.ts';
 import { Discussions, confirmedDiscussionDestination, digestAgentId, digestProposals, discussionLookback, discussionRule, githubObjectPath, observation, observationVersion, previewLength,
   type Destination, type DigestItem, type DigestScope, type Observation, type Proposal } from './discussion.ts';
@@ -623,6 +623,24 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     const revision = entry.sources.find(ref => ref.startsWith(entry.ticket + '@'))?.slice(entry.ticket!.length + 1);
     return entry.ticket && revision ? outputByRevision(entry.ticket, revision) : undefined;
   };
+  function acceptedKnowledgeSource(entry: KnowledgeEntry) {
+    const output = originOutput(entry);
+    const ticket = entry.ticket && store.tickets.get(entry.ticket);
+    if (!output || !ticket || workOf(ticket.id)?.project !== entry.project) return;
+    const review = iterations.get(ticket.id, output.revision, 'accepted');
+    if (!review) return;
+    const opening = store.triggers.get(ticket.origin.triggerId);
+    const address = opening?.channel?.source === 'feishu' ? opening.channel.address : undefined;
+    const feishu = address?.chatId && address.messageId && !address.direct
+      && boundProject('feishu', address.chatId)?.id === entry.project
+      ? { message: address.messageId, chatUrl: feishuChatLink('feishu', address.chatId) } : undefined;
+    const delivery = review.delivery as DeliveryEvidence | undefined;
+    return { ticket: ticket.id, version: review.version, revision: review.revision, acceptedBy: review.actor, acceptedAt: review.at,
+      ...(opening && { origin: { channel: opening.source, ...(feishu && { feishu }), ...(opening.url && { url: opening.url }) } }),
+      ...(review.commit && delivery?.headSha === review.commit && { delivery: { url: delivery.url, commit: review.commit,
+        checks: delivery.checks?.filter(check => check.head_sha === review.commit).map(check => ({ id: check.id, name: check.name,
+          conclusion: check.conclusion, url: check.html_url?.startsWith('https://github.com/') ? check.html_url : undefined })) ?? [] } }) };
+  }
   const manifestFor = (run: number, attempt?: number): Assembled | undefined => {
     const row = attempt === undefined
       ? store.db.prepare('SELECT value FROM workbench_manifest WHERE run=? ORDER BY attempt DESC LIMIT 1').get(run)
@@ -1628,6 +1646,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
         }),
         ...entries.map(entry => ({ id: entry.id, type: 'knowledge.source', source: 'suitme', sourceName: '项目资料', subject: ticket.id,
           summary: entry.title, detail: [entry.body.slice(0, 12000), entry.source && '原始资料版本：' + entry.source.revision,
+            entry.ticket && '原始工单验收依据：' + JSON.stringify(acceptedKnowledgeSource(entry) ?? { ticket: entry.ticket, references: entry.sources }),
             '记忆引用标识：[记忆:' + entry.id + '@' + entry.revision + ']',
             entry.conditions && '适用条件与例外：' + entry.conditions,
             lessonEvidence(entry)].filter(Boolean).join('\n'),
@@ -3332,6 +3351,10 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     const permitted = !!stored && (work.requester === actor || agentById.get(work.agent)?.owner === actor
       || stored.sources.every(ref => knowledge.get(ref.id)?.visibility === 'project'));
     const output = permitted && outputUsable(ticket.id, stored) ? stored : undefined;
+    const result = output && { ...output, citations: (output.cited ?? []).flatMap(ref => {
+      const entry = knowledge.get(ref.id, ref.revision);
+      return entry ? [{ ...ref, title: entry.title, acceptedSource: acceptedKnowledgeSource(entry) }] : [];
+    }) };
     const materialHidden = permitted && !output;
     const history = ticket.inputs.flatMap(item => {
       if (item.kind !== 'trigger') return [];
@@ -3418,7 +3441,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
         .map(row => ({ ...JSON.parse(String(row.value)) as PullCheck, repoId: Number(row.repoId), pr: Number(row.pr) })),
       channelHistory, channelReferences: links.references(id), discussionNotes: project.discussion
         ? discussions.linked(id).filter(item => member(projectById.get(item.project), actor)).map(item => ({ ...item, sources: discussions.sources(item) })) : [],
-      stage: ticketStage(ticket), result: output, materialHidden, decision: decision && { at: decision.at, scope: ticket.mandate.scope }, questions: question, requests, runs, timers,
+      stage: ticketStage(ticket), result, materialHidden, decision: decision && { at: decision.at, scope: ticket.mandate.scope }, questions: question, requests, runs, timers,
       deliveryStatus: delivery && { state: delivery.state, detail: delivery.detail, version: delivery.output.version ?? 1 },
       candidate: candidate?.owner === actor ? candidate.id : undefined,
       candidateTab: candidate?.owner === actor
@@ -3457,7 +3480,8 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       ...(allowed && manifest.assembly ? { contents: executionEvidence.unpack(manifest.assembly),
         materials: manifest.sources.map(({ id, revision, recalled }) => {
           const entry = knowledge.get(id, revision);
-          return { id, revision, title: entry?.title, recalled, sourceRevision: entry?.source?.revision, url: entry?.source?.url };
+          return { id, revision, title: entry?.title, recalled, sourceRevision: entry?.source?.revision, url: entry?.source?.url,
+            acceptedSource: entry && acceptedKnowledgeSource(entry) };
         }) } : {}) };
   }
 
@@ -3483,7 +3507,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       return [{ ticket: ticket.id, title: ticket.title, run: Number(row.run), attempt: Number(row.attempt), version: manifest.version ?? 1,
         agent: manifest.actor?.agent, owner: manifest.actor?.owner, revision: ref.revision, recalled: !!ref.recalled,
         cited: Number(row.attempt) === (output?.attempt ?? Number(row.latest_attempt))
-          && !!output?.cited?.some(ref => ref.id === id && ref.revision === entry.revision),
+          && !!output?.cited?.some(citation => citation.id === id && citation.revision === ref.revision),
         at: output?.at ?? ticket.updatedAt }];
     }).slice(0, 20);
   }
@@ -3969,7 +3993,8 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       const project = projectFor(id, actor);
       const pins = new Set(pinnedMemory(project).map(entry => entry.id));
       return relatedMemory(project, query).slice(0, 3).map(entry =>
-        ({ id: entry.id, revision: entry.revision, title: entry.title, conditions: entry.conditions, pinned: pins.has(entry.id) }));
+        ({ id: entry.id, revision: entry.revision, title: entry.title, conditions: entry.conditions, pinned: pins.has(entry.id),
+          acceptedSource: acceptedKnowledgeSource(entry) }));
     },
     authenticateDevice(token: string, remote = false) { connectedDevice(token, remote); },
     deviceOffline(token: string, remote = false) { devices.heartbeat(connectedDevice(token, remote).id, false); },
@@ -4270,13 +4295,13 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
         audit(entry.ticket ?? entry.project, 'knowledge.invalidated', { actor, id, revision, reason });
       });
     },
-    reviewKnowledge(actor: string, id: string, input: { revision: string; body: string; conditions: string }) {
+    reviewKnowledge(actor: string, id: string, input: { revision: string; title?: string; body: string; conditions: string }) {
       const entry = requireValue(knowledge.get(id), '找不到知识候选。');
       projectFor(entry.project, actor);
       if (entry.owner !== actor || !canReadEntry(entry, actor)) throw new WorkbenchError('由仍有来源权限的知识负责人核对。', 403);
       if (entry.source) throw new WorkbenchError('接入的正文按原始版本保留。请在原处修改后重新接入。', 409);
       if (entry.state !== 'candidate' || entry.revision !== input.revision) throw new WorkbenchError('知识候选已更新，请重新核对。', 409);
-      const updated = knowledge.review(entry, input.revision, input.body, input.conditions, actor);
+      const updated = knowledge.review(entry, input.revision, input.body, input.conditions, actor, input.title);
       audit(entry.ticket ?? entry.id, 'knowledge.reviewed', { id, actor, from: entry.revision, revision: updated.revision });
       return { id, revision: updated.revision };
     },
@@ -4307,7 +4332,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
         const learning = lesson ? { metric: lesson.measure.metric, unit: lesson.measure.unit, baseline: lesson.observation.actual,
           evidence: lesson.observation.evidence, observedAt: lesson.observation.at } : undefined;
         return {
-          ...e, learning, canPublish: e.owner === actor && e.state === 'candidate' && !e.draft?.needsReview && !!e.conditions.trim()
+          ...e, learning, acceptedSource: acceptedKnowledgeSource(e), canPublish: e.owner === actor && e.state === 'candidate' && !e.draft?.needsReview && !!e.conditions.trim()
             && (!e.replaces || !!predecessor && !predecessor.retirement?.replacement) && entryEvidence(e, new Set(), true),
           canReview: e.owner === actor && e.state === 'candidate' && !e.source,
           provenance: e.sources.flatMap<{ title: string; revision: string; ticket?: string; url?: string }>(ref => {

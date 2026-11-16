@@ -133,11 +133,11 @@ export class ProjectKnowledge {
       .run(entry.id, entry.revision, JSON.stringify(entry));
   }
 
-  review(entry: Entry, revision: string, body: string, conditions: string, actor: string): Entry {
+  review(entry: Entry, revision: string, body: string, conditions: string, actor: string, title = entry.title): Entry {
     if (entry.state !== 'candidate' || entry.revision !== revision) throw new Error('知识候选已更新，请重新核对。');
     if (!body.trim() || !conditions.trim()) throw new Error('请确认结论并填写适用条件。');
     const { revision: _old, ...previous } = entry;
-    const input = { ...previous, body, conditions, reviewed: { by: actor, at: new Date().toISOString() },
+    const input = { ...previous, title, body, conditions, reviewed: { by: actor, at: new Date().toISOString() },
       ...(entry.draft ? { draft: { ...entry.draft, needsReview: false } } : {}) };
     const value = { ...input, revision: digest(input) };
     this.store.atomic(() => {
