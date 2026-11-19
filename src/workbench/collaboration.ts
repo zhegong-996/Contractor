@@ -2475,18 +2475,18 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       const currentDevice = device && devices.get(device.id);
       if (!mayRun(store.tickets.get(ticket.id), workOf(ticket.id)) || run.lane !== activeLane(ticket.id) || !usable(ticket.id, sources)
         || workOf(ticket.id)?.topic !== work.topic || !topicContext.valid(project.id, topicRefs)
-        || !modelRouteCurrent(project, agent.id, workModelPurpose(work), modelRoute)
         || device && (!currentDevice?.active || !deviceAllowed(currentDevice, project, agent.id))) {
         await discardIsolation(isolation);
         if (isolation.boundary === 'os-sandbox') await cleanIsolationTemp(job.run, job.attempt);
         cancelUnstarted(job, ticket.id, '建立执行环境时授权已变化');
         return {};
       }
-      if (!operationPolicies.modelAllowed(isolation.provider, isolation.model)) {
+      if (!modelRouteCurrent(project, agent.id, workModelPurpose(work), modelRoute)
+        || !operationPolicies.modelAllowed(isolation.provider, isolation.model)) {
         await discardIsolation(isolation);
         if (isolation.boundary === 'os-sandbox') await cleanIsolationTemp(job.run, job.attempt);
-        cancelUnstarted(job, ticket.id, '当前模型不在平台允许范围');
-        reportBlocked(ticket.id, work, '平台模型设置已变化，请核对后接续原工单。', 'model-authorization');
+        cancelUnstarted(job, ticket.id, '当前模型已不在授权范围');
+        reportBlocked(ticket.id, work, '模型路由或平台设置已变化，请核对后接续原工单。', 'model-authorization');
         return {};
       }
       const manifest = {
@@ -3558,9 +3558,10 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       let modelRoute: ModelSelection | undefined;
       try { modelRoute = await selectExecutionModel(project, selected, 'summary'); }
       catch (error) {
-        if (!(error instanceof WorkbenchError)) throw error;
-        discussions.saveRun(job.run, project.id, slot, 'cancelled', error.message);
-        hub.finish(job.run, job.token, { outcome: 'cancelled', summary: error.message });
+        if (!(error instanceof ModelRouteError)) throw error;
+        const retry = error.kind === 'model-unavailable';
+        discussions.saveRun(job.run, project.id, slot, retry ? 'failed' : 'cancelled', error.message);
+        hub.finish(job.run, job.token, retry ? { outcome: 'failed', error: error.message } : { outcome: 'cancelled', summary: error.message });
         audit(project.id, 'model.route-blocked', { agent: selected.id, purpose: 'summary', reason: error.message });
         return;
       }

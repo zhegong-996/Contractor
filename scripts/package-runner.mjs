@@ -22,7 +22,7 @@ function copy(source, prefix, names) {
 try {
   copy(root, '', ['LICENSE', 'bin/contractor.mjs', 'THIRD_PARTY_NOTICES.md', 'licenses/sandbox-runtime-APACHE-2.0.txt',
     'src/commands.ts', 'src/config.ts', 'src/github.ts',
-    ...['claude-runner-adapter.ts', 'claude-runner-launch.mjs', 'code-bundle.ts', 'compatibility.ts', 'device-client.ts',
+    ...['claude-runner-adapter.ts', 'claude-runner-launch.mjs', 'code-bundle.ts', 'codex-catalog.ts', 'compatibility.ts', 'device-client.ts',
       'devices.ts', 'execution-capabilities.ts', 'isolation.ts', 'remote-runner.ts', 'cursor.ts',
       'execution/cli.ts', 'execution/codex.ts', 'execution/protocol.ts', 'execution/worker.ts',
       'runner-cli.ts', 'runner-connection.ts', 'runner-profile.ts', 'worker-process.ts'].map(file => 'src/workbench/' + file),

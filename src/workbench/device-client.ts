@@ -6,7 +6,7 @@ import type { WorkerFactory, WorkerHub } from './execution/protocol.ts';
 import { parseResult } from './execution/protocol.ts';
 import { runtime } from '../config.ts';
 import { trackWorkerProcesses } from './worker-process.ts';
-import { remoteEngine, runnerAgentSchema, runnerOllamaUrl } from './runner-profile.ts';
+import { checkClaudeRunnerModel, remoteEngine, runnerAgentSchema } from './runner-profile.ts';
 import { deviceHome, type DeviceJob, type ReleasedLease } from './devices.ts';
 import { cleanAcknowledged, cleanRemoteCodex, neverLaunched, prepareRemote, remoteStop } from './remote-runner.ts';
 import { runnerEndpoint } from './runner-connection.ts';
@@ -78,13 +78,7 @@ if (argv[0] === 'pair' || argv[0] === 'pair-remote') {
   try {
     const connectionFile = runtime('devices', id, 'connection.json');
     if ((await stat(connectionFile)).mode & 0o077) throw new Error('执行端凭据应只允许当前用户读取。');
-    // The original plugin loader and worker capture this path on their first import.
-    if (profile?.engine === 'claude' && profile.execution?.provider === 'ollama') {
-      const listing = await fetch(runnerOllamaUrl + '/api/tags', { signal: AbortSignal.timeout(3000), redirect: 'error' });
-      const available = z.object({ models: z.array(z.object({ name: z.string() })) }).parse(await listing.json());
-      if (!listing.ok || !available.models.some(item => item.name === profile.model))
-        throw new Error('请在此设备的 Ollama 启动已登记的本地模型');
-    }
+    if (profile?.engine === 'claude') await checkClaudeRunnerModel(profile);
     let createWorker: WorkerFactory;
     if (connection.driver === 'contractor') {
       const { workerFactory } = await import('./execution/worker.ts');

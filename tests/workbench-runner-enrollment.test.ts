@@ -5,6 +5,7 @@ import test from 'node:test';
 import { Devices } from '../src/workbench/devices.ts';
 import { runnerAgentSchema } from '../src/workbench/config.ts';
 import { runnerConnectInput, runnerEndpoint } from '../src/workbench/runner-connection.ts';
+import { checkClaudeRunnerModel } from '../src/workbench/runner-profile.ts';
 
 test('浏览器批准后只有原执行端可领取，领回执中断或重启不重复登记', () => {
   const db = new DatabaseSync(':memory:');
@@ -54,4 +55,30 @@ test('连接地址必须是团队 HTTPS 根地址或明确的回环 HTTP 地址'
   assert.equal(runnerEndpoint.parse('http://127.0.0.1:4380'), 'http://127.0.0.1:4380');
   for (const address of ['http://contractor.example', 'https://contractor.example/path', 'https://user@contractor.example', 'https://contractor.example/?token=1'])
     assert.equal(runnerEndpoint.safeParse(address).success, false);
+});
+
+test('Claude Code 按已批准的服务商检查凭据或本机模型', async t => {
+  const keys = ['ANTHROPIC_BASE_URL', 'ANTHROPIC_AUTH_TOKEN'] as const;
+  const former = keys.map(key => process.env[key]);
+  t.after(() => keys.forEach((key, i) => {
+    if (former[i] === undefined) delete process.env[key];
+    else process.env[key] = former[i];
+  }));
+  const fetch = t.mock.method(globalThis, 'fetch', async (url: string) => {
+    assert.equal(url, 'http://127.0.0.1:11434/api/tags');
+    return Response.json({ models: [{ name: 'local-test-model' }] });
+  });
+  const profile = runnerAgentSchema.parse({ id: 'review', owner: 'design', engine: 'claude', model: 'local-test-model',
+    execution: { kind: 'remote', provider: 'deepseek' } });
+  delete process.env.ANTHROPIC_AUTH_TOKEN;
+  await assert.rejects(checkClaudeRunnerModel(profile), /配置 DeepSeek/);
+  process.env.ANTHROPIC_BASE_URL = 'https://api.deepseek.com/anthropic';
+  process.env.ANTHROPIC_AUTH_TOKEN = 'test-only';
+  await checkClaudeRunnerModel(profile);
+  assert.equal(fetch.mock.callCount(), 0);
+
+  const ollama = { ...profile, execution: { ...profile.execution!, provider: 'ollama' } };
+  await checkClaudeRunnerModel(ollama);
+  await assert.rejects(checkClaudeRunnerModel({ ...ollama, model: 'absent-model' }), /Ollama.*absent-model/);
+  assert.equal(fetch.mock.callCount(), 2);
 });

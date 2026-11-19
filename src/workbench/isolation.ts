@@ -1,7 +1,6 @@
 import { chmod, copyFile, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
-import { execFileSync, spawn } from 'node:child_process';
-import { createInterface } from 'node:readline';
+import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import os from 'node:os';
 import { createHash } from 'node:crypto';
@@ -14,6 +13,7 @@ import { runtime } from '../config.ts';
 import { allowedFile } from '../github.ts';
 import { bundleHash, codeBundleSchema, codeDeltaSchema, materializeCode, type CodeBundle, type CodeDelta } from './code-bundle.ts';
 import type { RunnerAgent } from './runner-profile.ts';
+import { readCodexCatalog } from './codex-catalog.ts';
 
 const hash = (value: string | Buffer) => createHash('sha256').update(value).digest('hex');
 const scopeRoot = (scope: string) => runtime('isolated', scope);
@@ -148,43 +148,7 @@ async function loadCodexCatalog(executable: string, auth: Buffer, domains: strin
     await writeFile(path.join(home, 'config.toml'), 'model_provider = "openai"\ncli_auth_credentials_store = "file"\n[features]\napps = false\nmulti_agent = false\n', { mode: 0o600 });
     await privateFile(policy, sandboxPolicy(workspace, home, workspace, executable, [], domains, temp));
     const [command, ...args] = sandboxInvocation({ home, temp, policy }, [executable, 'app-server', '--listen', 'stdio://'], workspace);
-    const models = await new Promise<string[]>((resolve, reject) => {
-      const child = spawn(command!, args, { cwd: workspace, stdio: ['pipe', 'pipe', 'ignore'], detached: true });
-      const stream = createInterface({ input: child.stdout });
-      const send = (value: object) => child.stdin.write(JSON.stringify(value) + '\n');
-      let reported: string[] | undefined;
-      const stop = () => { if (child.pid) try { process.kill(-child.pid, 'SIGKILL'); } catch {} };
-      const timeout = setTimeout(stop, 12_000);
-      child.stdin.on('error', stop);
-      child.once('error', stop);
-      child.once('close', () => {
-        clearTimeout(timeout);
-        stream.close();
-        if (reported?.length) resolve(reported);
-        else reject(new Error('无法核对当前成员的模型目录'));
-      });
-      stream.on('line', line => {
-        try {
-          const response = JSON.parse(line);
-          if (response.id === 1 && response.result) {
-            send({ method: 'initialized' });
-            send({ id: 2, method: 'model/list', params: { limit: 100, includeHidden: false } });
-          } else if (response.id === 2 && !response.result?.nextCursor && Array.isArray(response.result?.data)) {
-            reported = response.result.data.flatMap((item: { model?: string }) => typeof item.model === 'string' ? [item.model] : []);
-            stop();
-          } else if (response.error || response.id === 2) stop();
-        } catch { /* The CLI may print non-protocol startup messages. */ }
-      });
-      send({ id: 1, method: 'initialize', params: { clientInfo: { name: 'contractor', version: '0.1.0' } } });
-    });
-    // Codex falls back to its bundled catalog when the service cannot be reached. Require the fresh provider catalog file.
-    const cache = JSON.parse(await readFile(path.join(home, 'models_cache.json'), 'utf8'));
-    if (!Array.isArray(cache.models) || !cache.models.length || typeof cache.fetched_at !== 'string' || !Number.isFinite(Date.parse(cache.fetched_at)))
-      throw new Error('当前模型服务目录不可用');
-    const remote = new Set(cache.models.map((row: { slug?: string }) => row.slug));
-    const verified = models.filter(model => remote.has(model));
-    if (!verified.length) throw new Error('当前模型服务没有返回可用目录');
-    return { models: new Set(verified), checkedAt: cache.fetched_at as string };
+    return await readCodexCatalog(command!, args, workspace, path.join(home, 'models_cache.json'));
   } finally { await rm(temp, { recursive: true, force: true }); }
 }
 

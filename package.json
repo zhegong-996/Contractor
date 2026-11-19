@@ -55,6 +55,10 @@
   "overrides": {
     "@anthropic-ai/sandbox-runtime": {
       "zod": "$zod"
+    },
+    "casbin": {
+      "csv-parse": "7.0.2",
+      "minimatch": "11.0.1"
     }
   },
   "license": "MIT"

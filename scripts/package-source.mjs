@@ -13,12 +13,12 @@ const destination = path.resolve(args.find(value => value !== '--committed') ?? 
 const stage = mkdtempSync(path.join(os.tmpdir(), 'contractor-source-'));
 
 const publicPaths = [
-  '.gitignore', '.gitmodules', '.github/workflows/ci.yml', 'AGENTS.md', 'LICENSE', 'README.md',
+  '.gitignore', '.gitmodules', '.github/workflows/ci.yml', 'AGENTS.md', 'CONTRIBUTING.md', 'LICENSE', 'README.md',
   'THIRD_PARTY_NOTICES.md', 'package.json', 'package-lock.json', 'sources.lock.json', 'tsconfig.json',
   'bin', 'fixtures', 'integrations', 'licenses', 'scripts', 'src', 'tests', 'workbench',
-  'docs/PLUGIN-ARCHITECTURE.md', 'docs/SOURCES.md', 'docs/WORKBENCH-OCTOP.md',
+  'docs/ARCHITECTURE.md', 'docs/PLUGIN-ARCHITECTURE.md', 'docs/SOURCES.md', 'docs/WORKBENCH-OCTOP.md',
   'docs/WORKBENCH-IM-LOGIN.md', 'docs/WORKBENCH-PROJECT-ARCHITECTURE.md',
-  'docs/WORKBENCH-DELIVERY-TEMPLATE.md',
+  'docs/WORKBENCH-DELIVERY-TEMPLATE.md', 'docs/WORKBENCH-REMOTE-RUNNER.md',
 ];
 const files = (directory, selection = []) => [...new Set(execFileSync('git', [
   'ls-files', '-z', '--cached', ...(committed ? [] : ['--others', '--exclude-standard']), '--', ...selection,

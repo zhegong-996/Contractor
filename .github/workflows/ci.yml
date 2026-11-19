@@ -32,7 +32,7 @@ jobs:
         env:
           CONTRACTOR_TEST_EXECUTION: contractor
         run: |
-          node --import tsx --test tests/workbench-owned-scheduler.test.ts tests/workbench-required-answers.test.ts tests/workbench-remote-runner.test.ts tests/workbench-platform-agent.test.ts
+          node --import tsx --test tests/workbench-owned-scheduler.test.ts tests/workbench-required-answers.test.ts tests/workbench-remote-runner.test.ts tests/workbench-platform-agent.test.ts tests/workbench-ticket-recovery.test.ts
       - run: npm run typecheck
       - run: npm run build:ui
       - name: Verify native adapters

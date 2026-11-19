@@ -6,7 +6,7 @@ import path from 'node:path';
 import { setTimeout as wait } from 'node:timers/promises';
 import { parseArgs } from 'node:util';
 import { z } from 'zod';
-import { remoteEngine, runnerAgentSchema, runnerOllamaUrl } from './runner-profile.ts';
+import { checkClaudeRunnerModel, remoteEngine, runnerAgentSchema } from './runner-profile.ts';
 import { runnerEndpoint, runnerRequestId, runnerSecret } from './runner-connection.ts';
 import { configuredEnv, formerName } from './compatibility.ts';
 
@@ -114,14 +114,7 @@ async function enroll(folder: string, endpoint: string, browser: boolean, name: 
 async function prepareModel(folder: string, profile: z.infer<typeof runnerAgentSchema>) {
   const cli = executable(profile.engine);
   if (!cli) throw new Error('请在此设备安装已授权的 ' + profile.engine + ' CLI');
-  if (profile.engine === 'claude') {
-    const list = await fetch(runnerOllamaUrl + '/api/tags', { signal: AbortSignal.timeout(3500), redirect: 'error' })
-      .then(response => response.json()).catch(() => ({}));
-    const parsed = z.object({ models: z.array(z.object({ name: z.string() })) }).safeParse(list);
-    if (!parsed.success || !parsed.data.models.some(model => model.name === profile.model))
-      throw new Error('请启动此设备的 Ollama 并准备模型 ' + profile.model + '，再运行同一条连接命令');
-    return;
-  }
+  if (profile.engine === 'claude') return checkClaudeRunnerModel(profile);
   if (process.platform === 'linux' && ['bwrap', 'socat', 'rg'].some(program => !executable(program)))
     throw new Error('请安装 Linux 隔离依赖 bubblewrap、socat、ripgrep，再运行同一条连接命令');
   const base = path.join(folder, 'member-credentials', profile.owner);

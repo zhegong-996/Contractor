@@ -18,7 +18,9 @@ test('模型目录暂不可用时保留原生重试，同工单的重复接续�
   await auth.ready();
   await auth.bootstrapOwner('product', 'test-only-password');
   await auth.createAccount('engineer', 'test-only-password', 'operator', 'product');
+  const executionRuntime = process.env.CONTRACTOR_TEST_EXECUTION === 'contractor' ? 'contractor' : 'autoloop';
   const config = settingsSchema.parse({
+    executionRuntime,
     projects: [{ id: 'store', title: '门店推荐理由', members: ['product', 'engineer'], maintainers: ['product'],
       modelRoutes: [{ purpose: 'execution', agent: 'check', models: ['fixture-model'] }] }],
     functions: [{ id: 'check', title: '小屏核对' }],
@@ -27,7 +29,8 @@ test('模型目录暂不可用时保留原生重试，同工单的重复接续�
       execution: { kind: 'sandbox', credential: 'unavailable-credential', provider: 'openai' } }],
   });
   const work = await openCollaboration(config, auth);
-  const db = new DatabaseSync(path.join(state, 'autoloop', 'hub.db'), { readOnly: true });
+  const ledger = executionRuntime === 'contractor' ? ['dispatch', 'hub.sqlite'] : ['autoloop', 'hub.db'];
+  const db = new DatabaseSync(path.join(state, ...ledger), { readOnly: true });
   t.after(async () => { db.close(); await work.close(); await rm(state, { recursive: true, force: true }); });
   const { ticket } = work.start('product', { project: 'store', agent: 'check', title: '门店小屏验收', request: '核对长词换行',
     material: [], priority: 'normal', nonce: randomUUID() }, undefined, true);

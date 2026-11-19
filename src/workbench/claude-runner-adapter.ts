@@ -9,7 +9,7 @@ export function claudeRunnerAdapter(provider: string): Adapter {
     command(turn) {
       if (turn.access !== 'read') throw new Error('Claude 远程执行端只接只读委托');
       const program = executable('claude', [path.join(homedir(), '.local/bin/claude')]);
-      return [process.execPath, path.join(root, 'src/workbench/claude-runner-launch.mjs'),
+      return [process.execPath, '--import', import.meta.resolve('tsx'), path.join(root, 'src/workbench/claude-runner-launch.mjs'),
         turn.contextFile, turn.prompt.replaceAll(turn.contextFile, '随本轮输入提供的上下文'), provider, program, '-p',
         '--output-format', 'stream-json', '--verbose',
         ...(turn.resume ? ['--resume', turn.resume] : ['--session-id', turn.session]),

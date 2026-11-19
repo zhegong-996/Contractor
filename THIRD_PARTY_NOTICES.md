@@ -75,7 +75,9 @@ The Super-agent Store uses the published `@deepseek-ai/schemastery@3.19.0` and `
 
 ## Casbin (Apache-2.0)
 
-The workbench uses the published `casbin@5.51.1` package for role-based authorization. The version and integrity are recorded in `package-lock.json`. The license is retained in `licenses/casbin-APACHE-2.0.txt`.
+The workbench uses the published `casbin@5.51.1` package for role-based authorization. Its CSV and glob dependencies are pinned to patched releases in the lockfile. [csv-parse advisory](https://github.com/advisories/GHSA-8cw4-87c7-c6xx) · [minimatch advisory](https://github.com/advisories/GHSA-g3hv-75wg-m249)
+
+The Casbin license is retained in `licenses/casbin-APACHE-2.0.txt`.
 
 ## Ant Design (MIT)
 
