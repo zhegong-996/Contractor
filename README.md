@@ -34,10 +34,10 @@ flowchart LR
 
 ## 快速开始
 
-需要 Git 和 Node.js 24.11+。本机启动可先使用独立目录和示例项目。
+需要 Git 和 Node.js 24.11+。从当前 GitHub 仓库的「Code」菜单复制 HTTPS 地址，填到 `REPOSITORY_URL`。
 
 ```sh
-git clone --recurse-submodules https://github.com/zhegong-996/suitme-collab.git contractor
+git clone --recurse-submodules REPOSITORY_URL contractor
 cd contractor
 npm ci
 export COLLAB_STATE_DIR="$PWD/.runtime/workbench"
