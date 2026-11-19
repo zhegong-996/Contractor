@@ -51,13 +51,16 @@ export function Composer({ project, workspace, preset, close }: PageProps & { pr
   const targets = useExecutionTargets(chosenAgent ? project.id : undefined);
   const selectedDevice = eligibleExecutionDevices(targets.devices.data, chosenAgent).find(device => device.id === draft.device);
   const codeTargets = project.deliveryTargets.filter(ref => ref.eligibleAgents.some(id => options.some(agent => agent.id === id)));
-  const product = codeTargets.find(ref => ref.ref === draft.target)?.product;
+  const deliveryTarget = codeTargets.find(ref => ref.ref === draft.target);
+  const product = deliveryTarget?.product;
   const resources = project.resources.filter(ref => ref.state === 'bound');
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
     const outcome = await run(async () => {
-      if (draft.target && !codeTargets.find(ref => ref.ref === draft.target)?.eligibleAgents.includes(draft.agent))
+      if (draft.target && !deliveryTarget?.eligibleAgents.includes(draft.agent))
         throw new Error('请选择具有该仓库交付资格的 Agent。');
+      if (deliveryTarget?.stages?.requireTopicBasis && !draft.topic && !preset.parent)
+        throw new Error('请选择主题，立项后确认一条主题依据。');
       const hasMeasure = Boolean(draft.metric || draft.unit || draft.baseline || draft.targetValue);
       if (hasMeasure && (!draft.metric.trim() || !draft.unit.trim())) throw new Error('请填写观测指标和单位。');
       const measure = hasMeasure ? { metric: draft.metric.trim(), unit: draft.unit.trim(),
@@ -98,7 +101,9 @@ export function Composer({ project, workspace, preset, close }: PageProps & { pr
           {options.map(agent => <option key={agent.id} value={agent.id}>{agent.title} · {agent.owner}</option>)}
           {!preset.personal && workspace.functions.filter(fn => options.some(agent => agent.function === fn.id)).map(fn => <option key={fn.id} value={'function:' + fn.id}>职责 · {fn.title}</option>)}
         </select></Field>
-        <Field label="主题"><select value={draft.topic} onChange={e => change('topic', e.target.value)}><TopicOptions project={project} empty="未归入主题" /></select></Field>
+        <Field label="主题" hint={deliveryTarget?.stages?.requireTopicBasis ? '执行前需确认一条主题依据。' : undefined}>
+          <select value={draft.topic} onChange={e => change('topic', e.target.value)}><TopicOptions project={project} empty="未归入主题" /></select>
+        </Field>
       </div>
       {chosenAgent && <details className="form-disclosure">
         <summary>执行端 · {selectedDevice?.name ?? (draft.device ? '所选设备不可用' : '按项目规则')}</summary>

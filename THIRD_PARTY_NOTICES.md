@@ -1,143 +1,24 @@
 # Third-party notices
 
-The pinned submodules contain their original source and license files. Adapter locations are listed in [Implementation sources](docs/SOURCES.md).
+[Contractor's MIT license](LICENSE) covers its original code. The following distributed source and assets retain their own copyright and license notices.
 
-## Octop backend
+| Included material | Notice |
+| --- | --- |
+| DeepSeek Harness Team's Super-agent at `8c32a9dc5d72c033816c6a8110b37f40cf94fba4` | [MIT license](upstream/superagent/LICENSE) |
+| 数字生命卡兹克's Agent AutoLoop at `ba8cf6d8cf24f9ce005958c15d88f2d9cff7f05d` | [MIT license](upstream/autoloop/LICENSE). Included in source and the compatibility runner. |
+| Octop Gateway and Octop Memory | [Gateway MIT license](upstream/octop-gateway/LICENSE) and [Memory MIT license](upstream/octop-memory/LICENSE). Revisions are fixed in [sources.lock.json](sources.lock.json). |
+| Two adapted Octop web components at `bf134dbd379036ce7545c7df1a1da7e381ece9ff` | [Original MIT notice](licenses/octop-MIT.txt). The adapted files identify their origins. |
+| DeepSeek Schemastery and Cosmokit packages used by Super-agent | [MIT notices](licenses/harness-vendor-MIT.txt). The packages are installed through npm. |
+| Ant Design's 4.6.0 icon assets and is-mobile's 5.0.0 bundled module | [Icon notice](licenses/ant-design-icons-MIT.txt) and [is-mobile notice](licenses/is-mobile-MIT.txt). These supplements accompany the compiled web UI. |
 
-- [Octop Gateway MIT License](upstream/octop-gateway/LICENSE) at `224ed078ce20042fb5fa59240d6e3c7c34bcd67f`, copyright 2026 Octop.
-- [Octop Memory MIT License](upstream/octop-memory/LICENSE) at `37ef325d46f13181eba69591604465d04c95cb5f`, copyright 2026 orcakit.
+## npm and build output
 
-Contractor uses Octop Gateway for optional IM adapters and Octop Memory for optional full-text retrieval. The source release includes their unmodified pinned MIT sources. Python virtual environments and the optional Gateway example dependencies are installed by operators and are outside the release archives. See [Octop integration](docs/WORKBENCH-OCTOP.md).
+Installed dependencies carry their package licenses. [The workbench lockfile](package-lock.json) records versions, integrity values and declared licenses. Most are MIT. The workbench includes ISC-licensed icon, YAML and Markdown dependencies. The browser build serves `browser-dependency-licenses.txt` and `component-licenses.txt` under `/licenses/`. Keep both files when redistributing the browser build.
 
-## Agent Autoloop
+TypeScript and Lightning CSS and their platform builds are build tools. The example acceptance workflow installs Playwright separately for running tests. Package source, this notice and the example lock are included in the source archive. The runner has its own notice in each variant.
 
-Commit: `ba8cf6d8cf24f9ce005958c15d88f2d9cff7f05d`. Source and modifications: see `docs/SOURCES.md`.
+## Operator-installed integrations
 
+Anthropic Sandbox Runtime, Codex, Claude Code, Entire, platform CLIs and the Python environments for Octop are installed by the operator. The external sandbox installation fixture has its own lockfile. Its Node Forge dependency is used under the BSD-3-Clause alternative. The optional Octop Gateway installation may add provider-specific dependencies, including LGPL-3.0-only `python-telegram-bot` for Telegram. If packaging a deployment with these tools installed, include the applicable upstream notices and fulfill the terms for that environment.
 
-```text
-MIT License
-
-Copyright (c) 2026 数字生命卡兹克
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-
-```
-
-## DSH Super-agent
-
-Commit: `8c32a9dc5d72c033816c6a8110b37f40cf94fba4`. Source and modifications: see `docs/SOURCES.md`.
-
-
-```text
-MIT License
-
-Copyright (c) 2026 DeepSeek Harness Team
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-
-```
-
-## Schemastery and Cosmokit (MIT)
-
-The Super-agent Store uses the published `@deepseek-ai/schemastery@3.19.0` and `@deepseek-ai/cosmokit@1.9.0` packages. See [the MIT notice](licenses/harness-vendor-MIT.txt). The [DeepSeek Harness architecture](https://github.com/deepseek-ai/deepseek-harness/blob/fcc0ad462172522aaf5c93a7b2e01f6b9f0b0159/docs/architecture.md) is a design reference.
-
-## Casbin (Apache-2.0)
-
-The workbench uses the published `casbin@5.51.1` package for role-based authorization. Its CSV and glob dependencies are pinned to patched releases in the lockfile. [csv-parse advisory](https://github.com/advisories/GHSA-8cw4-87c7-c6xx) · [minimatch advisory](https://github.com/advisories/GHSA-g3hv-75wg-m249)
-
-The Casbin license is retained in `licenses/casbin-APACHE-2.0.txt`.
-
-## Ant Design (MIT)
-
-The workbench uses [Ant Design 6.7.1](https://github.com/ant-design/ant-design/tree/6.7.1) to render the Contractor interface. The browser build includes `browser-dependency-licenses.txt` and `component-licenses.txt`. The latter supplies the [icons-svg notice](licenses/ant-design-icons-MIT.txt) from the upstream commit of package 4.6.0 and the [is-mobile notice](licenses/is-mobile-MIT.txt) from the README of package 5.0.0.
-
-## Backstage catalog model (Apache-2.0)
-
-The workbench imports `parseEntityRef` and `stringifyEntityRef` from the published `@backstage/catalog-model@1.10.2` package. The package version and integrity are recorded in `package-lock.json`. The source reference is [Backstage `catalog-model/src/entity/ref.ts`](https://github.com/backstage/backstage/blob/40525466a0f70119579cbfc4a60b9d2aa6c8a52d/packages/catalog-model/src/entity/ref.ts). Copyright 2020 The Backstage Authors. The upstream materials are retained in `licenses/backstage-APACHE-2.0.txt` and `licenses/backstage-NOTICE.txt`.
-
-## Figma REST API specification (MIT)
-
-The backend uses generated response types from [`@figma/rest-api-spec@0.47.0`](https://www.npmjs.com/package/@figma/rest-api-spec/v/0.47.0) as a development dependency. The package includes the upstream MIT license, and the locked artifact is recorded in `package-lock.json`. [Upstream license](https://github.com/figma/rest-api-spec/blob/main/LICENSE)
-
-## Entire CLI (MIT)
-
-The workbench invokes an operator-configured Entire CLI for local hooks and its commit-specific JSON metadata exporter. The exercised release was [Entire CLI v0.13.4](https://github.com/entireio/cli/releases/tag/v0.13.4), upstream commit `95eabf579d7aa6e5dbe994a6956c8e3fb44d4465`. Copyright (c) 2026 Entire Inc. The license is retained in `licenses/entire-MIT.txt`. The executable and session data are local runtime files. No Entire binary is committed here.
-
-## LobeHub inbox digest (design reference)
-
-Reviewed the [LobeHub inbox digest service](https://github.com/lobehub/lobehub/blob/a8424d204a7ed1eb36985ebdfa6eac8041615392/apps/server/src/services/agentIdentity/wake/digest.ts) and its delayed flush at commit `a8424d204a7ed1eb36985ebdfa6eac8041615392`, under the LobeHub Community License. Contractor applied the batching, replay and owner-triage ideas using the existing Super-agent source policy, native AutoLoop scheduler and local project data. No LobeHub source or service is shipped for this feature.
-
-## Acceptance (design reference)
-
-[Acceptance v0.10.0](https://github.com/lobehub/acceptance/tree/f720feb862bdbe3acc653bdedc297e20e08be1ae) is a product reference. Contractor implements its own verification schema, evidence intake, review records, and interface. The test workflow uses Playwright and GitHub Actions.
-
-## Distribution scope
-
-[Contractor's MIT license](LICENSE) applies to its original source. Bundled third-party source retains its original notices. Installed npm dependencies carry their own license files. Contractor uses the BSD-3-Clause option for `node-forge` and the MIT option for `type-fest`. Lightning CSS is an MPL-2.0 build dependency. Browser and runner artifacts ship their applicable notices. Optional model endpoints, platform APIs and locally installed CLIs have their own terms.
-
-## Anthropic Sandbox Runtime (Apache-2.0)
-
-The AutoLoop adapter invokes the unmodified CLI from `@anthropic-ai/sandbox-runtime@0.0.83`, maintained at [anthropics/sandbox-runtime](https://github.com/anthropics/sandbox-runtime). Version and integrity are pinned in `package-lock.json`; the upstream license is retained in `licenses/sandbox-runtime-APACHE-2.0.txt`. Contractor supplies the per-execution filesystem and network policy. Its `zod/v3` import is resolved through Zod 4.6.7's compatibility export using a package override; the published runtime source is not patched. See `docs/MEMBER-EXECUTION-ISOLATION.md` for the integration and tested limits.
-
-Execution device archives include the same locked Sandbox Runtime and its required dependencies with their license files. The bundled Sandbox Runtime manifest pins Zod 4.6.7. Its executable and source files are copied from the upstream package. [Zod advisory](https://github.com/advisories/GHSA-mrhx-c7xc-m3w5)
-
-## Octop
-
-Adapted React member selection and speaker attribution from TencentCloud/Octop at commit `bf134dbd379036ce7545c7df1a1da7e381ece9ff`. See `workbench/src/octop/`. [The original MIT notice](licenses/octop-MIT.txt) also ships in `component-licenses.txt`.
-
-```text
-MIT License
-
-Copyright (c) 2026 Octop
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-
-```
+See [the distribution inventory](docs/SOURCES.md) for artifact boundaries and [the official MIT terms](https://opensource.org/license/mit) and [Apache 2.0 terms](https://www.apache.org/licenses/LICENSE-2.0) for the original grants and conditions.

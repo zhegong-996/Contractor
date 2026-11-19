@@ -4,7 +4,7 @@ import { api, uid, useData, useTickets, type Knowledge, type Ticket, type Ticket
 import { AgentOptions, MaterialPicker } from './creation.tsx';
 import { Conversation } from './conversation.tsx';
 import { AcceptedEvidence } from './accepted-evidence.tsx';
-import { ChannelReceipt, DeliveryVerification } from './work-evidence.tsx';
+import { ChannelReceipt, DeliveryVerification, StageChecks } from './work-evidence.tsx';
 import { WorkBoard, workStates, type BoardGrouping } from './work-board.tsx';
 import { RunHistory } from './work-execution.tsx';
 import { eligibleExecutionDevices, ExecutionTargetPicker, useExecutionTargets } from './execution-target.tsx';
@@ -35,6 +35,8 @@ const recoveryActions: Record<string, string> = {
   'reconnect-original-runner': '连接原执行端，接续原工单', 'wait-native-retry': '等待 AutoLoop 自动重试',
   'check-runner': '检查执行端、模型或成员凭据', 'review-mandate': '核对当前委托与权限',
   'fix-and-resume': '处理阻塞后接续原工单', 'wait-handoff': '等待交接完成',
+  'confirm-topic-basis': '由发起人或项目维护人确认一条当前主题依据',
+  'complete-product-checks': '由发起人完成本版验收条件的逐项核对',
 };
 function TicketRecovery({ ticket, project, workspace }: PageProps & { ticket: Ticket }) {
   const recovery = ticket.recovery;
@@ -49,7 +51,8 @@ function TicketRecovery({ ticket, project, workspace }: PageProps & { ticket: Ti
       {recovery.run && <a href={runRoute(project.id, ticket.id, recovery.run)}>执行 #{recovery.run}</a>}
       {!!recovery.decisionIds.length && <a href={routeFor(project.id, 'inbox')}>待我处理</a>}
       {['authorize-material', 'request-or-check-material'].includes(next) && <a href={base + '?tab=context'}>资料与授权</a>}
-      {['wait-ci', 'wait-deployment', 'check-delivery', 'review-current-version'].includes(next) && <a href={base + '?tab=delivery'}>查看本版交付</a>}
+      {next === 'confirm-topic-basis' && <a href={base + '?tab=context'}>核对主题依据</a>}
+      {['wait-ci', 'wait-deployment', 'check-delivery', 'review-current-version', 'complete-product-checks'].includes(next) && <a href={base + '?tab=delivery'}>查看本版交付</a>}
       {['restore-old-runner', 'reconnect-original-runner', 'check-runner'].includes(next) && <a href={routeFor(project.id, 'agents', undefined, 'devices')}>查看执行端</a>}
     </div>
   </Section>;
@@ -409,6 +412,7 @@ function Delivery(props: PageProps & { ticket: Ticket }) {
   const gate = ticket.deploymentGate;
   if (props.route.revision !== undefined) return <DeliveryVersion {...props} revision={props.route.revision} />;
   return <div className="detail-stack">
+    {ticket.stages && <StageChecks project={project.id} ticket={ticket.id} report={ticket.stages} />}
     <Section title="当前成果" action={<Version version={ticket.work.version} />}>
       {ticket.materialHidden ? <div className="info-callout"><LockKeyhole size={16} />
         <span>{ticket.requests.some(r => r.state === 'revoked') ? '资料授权已收回。' : '此成果当前受限。'}{accepted ? '验收记录仍可查阅。' : ''}</span></div>
@@ -563,6 +567,7 @@ function Delivery(props: PageProps & { ticket: Ticket }) {
 
 function DeliveryVersion({ ticket, project, revision }: PageProps & { ticket: Ticket; revision: string }) {
   const version = ticket.versions.find(item => item.revision === revision);
+  const stages = version?.reviews.findLast(review => review.stages)?.stages;
   const panel = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     panel.current?.scrollIntoView({ block: 'start' });
@@ -573,6 +578,7 @@ function DeliveryVersion({ ticket, project, revision }: PageProps & { ticket: Ti
     {version ? <Section title={'第 ' + version.version + ' 版成果'} action={back}>
       <div className="inline-meta">成果修订 <code title={version.revision}>{short(version.revision, 12)}</code><time>{date(version.at)}</time></div>
       <VersionBody version={version} project={project.id} />
+      {stages && <StageChecks project={project.id} report={stages} />}
     </Section> : <Empty title="找不到指定的交付版本" action={back} />}
   </div>;
 }

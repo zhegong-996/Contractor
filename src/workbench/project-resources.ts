@@ -1,8 +1,9 @@
-import { parseEntityRef, stringifyEntityRef } from '@backstage/catalog-model';
 import { z } from 'zod';
 import { requiredCheckSchema, requiredDeploymentSchema } from './github-delivery.ts';
 import { deliveryTemplateSchema } from './delivery-template.ts';
 import { digest } from './knowledge.ts';
+import { catalogReference } from './catalog-reference.ts';
+export { projectResourceRef } from './catalog-reference.ts';
 
 export const resourceSource = z.enum(['feishu', 'github', 'figma', 'feishu-doc', 'document']);
 const purpose = z.enum(['discussion', 'reference', 'delivery']);
@@ -105,7 +106,7 @@ export function referenceResource(input: ReferenceInput): ProjectResource | unde
 export function resourceView(project: string, ref: ProjectResource) {
   const id = canonicalResourceId(ref.source, ref.externalId);
   return {
-    ref: stringifyEntityRef({ kind: 'Resource', namespace: project, name: ref.source + '-' + digest(id).slice(0, 20) }),
+    ref: catalogReference('resource', project, ref.source + '-' + digest(id).slice(0, 20)),
     source: ref.source, externalId: ref.externalId, label: ref.label ?? ref.externalId,
     purpose: resourcePurpose(ref), state: ref.state, url: ref.url, revision: ref.revision,
   };
@@ -130,11 +131,4 @@ export function figmaNodeLocation(ref: ProjectResource) {
   if (!file || !node) return;
   const url = new URL(ref.url);
   return { file, node, version: url.searchParams.get('version-id') || undefined, url: url.origin + url.pathname };
-}
-
-export function projectResourceRef(project: string, value: string) {
-  try {
-    const parsed = parseEntityRef(value);
-    return parsed.kind === 'resource' && parsed.namespace === project && stringifyEntityRef(parsed) === value;
-  } catch { return false; }
 }

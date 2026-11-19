@@ -86,11 +86,11 @@ export function assembleExecutionContext(input: ContextInput): Job['context'] {
   if (continuation) context.events.push({ id: continuation.id, type: 'task.continuation', source: 'contractor', sourceName: '本版执行要求',
     subject: ticket.id, summary: '第 ' + (work.version ?? 1) + ' 版接续', detail: JSON.stringify(continuation), receivedAt: continuation.at, link: '' });
   if (work.deliveryTemplate) {
-    const { id, version, checks, reviewerIds, deployment } = work.deliveryTemplate;
+    const { id, version, checks, reviewerIds, deployment, stages } = work.deliveryTemplate;
     context.events.push({ id: key('delivery-template', id, String(version)), type: 'task.delivery-template',
       source: 'contractor', sourceName: '交付模板', subject: ticket.id, summary: id + ' · v' + version,
       detail: JSON.stringify({ checks: checks.map(check => ({ name: check.name, app: check.app })),
-        independentReview: !!reviewerIds, deployment: deployment?.environment }), receivedAt: ticket.createdAt, link: '' });
+        independentReview: !!reviewerIds, deployment: deployment?.environment, stages }), receivedAt: ticket.createdAt, link: '' });
   }
   const productCases = [...(work.deliveryTemplate?.product?.browser?.cases ?? []),
     ...(work.deliveryTemplate?.product?.manual ?? []), ...(work.productCases ?? [])];

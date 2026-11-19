@@ -77,7 +77,9 @@ export type RunActor = {
   agent: string; owner: string; function: string; engine: string; modelRoute?: ModelSelection;
 };
 export type Assembled = { assignment: string; agentVersion: string; contextHash: string; sources: { id: string; revision: string; access?: string; recalled?: boolean }[]; version?: number;
+  topic?: string | null;
   topicContext?: import('./topic-context.ts').TopicContextRef[];
+  stageBasis?: string;
   engine: string; model?: string; actor?: RunActor; resources?: ResourceView[]; development?: Development;
   octop?: ExpertAuthority;
   isolation?: Isolation; codeBundle?: string; consultationReply?: true; fullResult?: true;

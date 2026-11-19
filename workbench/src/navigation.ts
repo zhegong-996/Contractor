@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from 'react';
 import type { Overview, Project } from './api.ts';
 
-export const titles = { chat: '对话', inbox: '待我处理', work: '任务', knowledge: '知识与记忆', agents: 'Agent', project: '项目', accounts: '连接与账号' } as const;
+export const titles = { chat: '会话', inbox: '待我处理', work: '任务中心', knowledge: '知识与记忆', agents: 'Agent', project: '项目', accounts: '连接与账号' } as const;
 export type View = keyof typeof titles;
 export type GlobalView = 'platform' | 'account';
 export type Route = { project: string; view: View; item?: string; tab?: string; run?: number; attempt?: number; revision?: string;

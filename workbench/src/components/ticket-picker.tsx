@@ -3,18 +3,19 @@ import { useTickets, type TicketRow } from '../api.ts';
 import { Button } from './button.tsx';
 import { Input } from './input.tsx';
 
-export function TicketPicker({ projects, value, onChange, label = '选择工单', allow = () => true }: {
+export function TicketPicker({ projects, value, onChange, label = '选择工单', allow = () => true, purpose = 'work' }: {
   projects: readonly { id: string; title: string }[];
   value: string;
   onChange: (id: string, project?: string) => void;
   label?: string;
   allow?: (row: TicketRow) => boolean;
+  purpose?: 'work' | 'all';
 }) {
   const [project, setProject] = useState(projects[0]?.id ?? '');
   const [query, setQuery] = useState('');
   const [selected, select] = useState<TicketRow>();
   const filter = projects.some(item => item.id === project) ? project : projects[0]?.id;
-  const tickets = useTickets({ project: filter, purpose: 'work', limit: 20, q: query.trim() }, !!filter);
+  const tickets = useTickets({ project: filter, purpose, limit: 20, q: query.trim() }, !!filter);
   const rows = tickets.rows.filter(allow);
   return <div className="detail-stack">
     {projects.length > 1 && <select aria-label="工单所属项目" value={filter ?? ''} onChange={event => {

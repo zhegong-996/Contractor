@@ -21,7 +21,7 @@ export type ModelSelection = { purpose: ModelPurpose; primary: string; selected:
 type Snapshot = {
   run: number; attempt: number; project: string; ticket?: string; assembly: Assembly; actor: ExecutionActor;
 };
-type UsageReceipt = ExecutionActor & {
+export type UsageReceipt = ExecutionActor & {
   run: number; attempt: number; project: string;
   outcome: string; usage?: Usage;
   usageCoverage?: 'partial';
@@ -93,6 +93,11 @@ export class ExecutionEvidence {
         status: receipt.usage?.cost === undefined ? 'unreported' : 'reported', amount: receipt.usage?.cost ?? null,
         currency: 'USD', source: 'native-cli',
       } }));
+  }
+
+  receipt(run: number, attempt: number): UsageReceipt | undefined {
+    const row = this.db.prepare('SELECT value FROM workbench_usage_receipt WHERE run=? AND attempt=?').get(run, attempt);
+    return row && JSON.parse(String(row.value));
   }
 
   receipts(project: string): UsageReceipt[] {

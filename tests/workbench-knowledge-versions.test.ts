@@ -7,12 +7,17 @@ import { setTimeout as delay } from 'node:timers/promises';
 import test from 'node:test';
 import { FeishuSources } from '../src/feishu-sources.ts';
 import { knowledgeSource, readKnowledgeSource } from '../src/workbench/knowledge-sources.ts';
-import { resourceSchema } from '../src/workbench/project-resources.ts';
+import { projectResourceRef, resourceSchema, resourceView } from '../src/workbench/project-resources.ts';
 
 test('GitHub Markdown follows the allowed branch tree and freezes the commit and file contents', async () => {
   const resource = resourceSchema.parse({ source: 'github', externalId: 'test/store', state: 'bound',
     knowledge: { format: 'github-markdown', owner: 'owner', conditions: 'only this store', branch: 'pilot/knowledge',
       files: ['docs/store.md'] } });
+  const persisted = resourceView('store', resource).ref;
+  assert.match(persisted, /^resource:store\/github-[a-f0-9]{20}$/);
+  assert.equal(resourceView('store', { ...resource, externalId: 'TEST/STORE' }).ref, persisted);
+  assert.equal(projectResourceRef('store', persisted), true);
+  assert.equal(projectResourceRef('child', persisted), false);
   assert.equal(knowledgeSource('store', resource, 'README.md'), undefined);
   assert.equal(knowledgeSource('store', { ...resource, state: 'observe' }, 'docs/store.md'), undefined);
   const connection = knowledgeSource('store', resource, 'docs/store.md')!;

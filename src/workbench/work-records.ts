@@ -7,7 +7,7 @@ import type { ResourceView } from './project-resources.ts';
 import type { ExpertAuthority } from './octop-resources.ts';
 import type { DevelopmentTarget } from './development.ts';
 import type { Work } from './work-types.ts';
-import type { DeliveryTemplate } from './delivery-template.ts';
+import { verifyDeliveryTopic, type DeliveryTemplate } from './delivery-template.ts';
 
 export const privateConsultationVisible = (work: Work | undefined, actor: string | undefined) =>
   !work?.consultation?.private || actor === work.requester;
@@ -77,6 +77,7 @@ export function openWorkRecords(store: SuperAgentStore, projectFor: (id: string,
       ...(event.meta.reusedLesson ? { reusedLesson: String(event.meta.reusedLesson) } : {}) };
     if (work.development) work.deliveryTemplate = event.meta.deliveryTemplate === undefined
       ? freezeTemplate?.(work.project, work.development) : (event.meta.deliveryTemplate as DeliveryTemplate | null) ?? undefined;
+    verifyDeliveryTopic(work.deliveryTemplate, work.topic);
     store.db.prepare('INSERT INTO workbench_ticket VALUES (?,?)').run(id, JSON.stringify(work));
     return work;
   }

@@ -51,6 +51,8 @@ import { checkpointAgent, entireCheckpoint } from './entire.ts';
 import { checkoutFor, commitDevelopment, developmentCheckout, developmentFolder, developmentChanges, type DevelopmentTarget } from './development.ts';
 import { Iterations } from './iterations.ts';
 import { ExecutionEvidence, type ModelSelection } from './execution-evidence.ts';
+import { processReview } from './process-review.ts';
+import { openRegressionReview, type ResultVersion, type regressionCaseInput, type regressionCompareInput } from './regression-review.ts';
 import { ReceiptJournal, type ReceiptDraft } from './receipt-journal.ts';
 import { assembleExecutionContext, executionPrompt, workResultType } from './execution-context.ts';
 import { workerClaims } from './worker-claims.ts';
@@ -60,18 +62,21 @@ import { TokenPoints, type PointLimit, type PointPolicy, type PointScope } from 
 import { octopIMCanReply, octopIMRoute, type OctopIMAddress, type OctopIMEvent, type OctopIMTransport } from './octop-im-contract.ts';
 import { channelDeliveryJournal } from './channel-delivery-journal.ts';
 import { openChannelJournal } from './channel-journal.ts';
-import { deliveryRequirements, deliveryTemplates, templateChecks, templateReview } from './delivery-template.ts';
+import { deliveryRequirements, deliveryTemplates, templateChecks, templateReview, verifyDeliveryTopic } from './delivery-template.ts';
+import { deliveryStages, stageBasisRevision } from './delivery-stages.ts';
 import { browserCheck, browserPlan, openProductVerification, type BrowserProof, type humanCheckInput } from './product-verification.ts';
 import { openDeviceRouting, routedDevice, type deviceRouteInput } from './device-routing.ts';
 import type { z } from 'zod';
 import { OctopResources, type Expert, type ExpertSpec, type ExpertAuthority, type SkillRef } from './octop-resources.ts';
 import { isolateJob, exportCodeBundle, importRemoteCode, importIsolatedChanges, discardIsolation, cleanIsolationTemp, modelReceipt, type Isolation } from './isolation.ts';
+import { SandboxProviderError } from './sandbox-provider.ts';
 import { sensitiveFeishuText, withFeishuReads } from '../feishu-sources.ts';
 import { feishuChatLink, feishuTriggerId } from '../upstream.ts';
 import { tokenize } from '../memory-projections.ts';
 import { Discussions, digestAgentId, digestProposals, discussionLookback, discussionRule, githubObjectPath, observation, observationVersion, previewLength,
   type Destination, type DigestScope, type Observation, type Proposal } from './discussion.ts';
 import { openDispatchWorkflow } from './dispatch-workflow.ts';
+import { openConversationIndex } from './conversation-index.ts';
 import { openChannelWorkflow } from './channel-workflow.ts';
 import { openDiscussionWorkflow } from './discussion-workflow.ts';
 import { discussionThread, readDiscussionDocuments, readDiscussionHistory, readDiscussionThread, refreshDiscussionMessages, type DiscussionInput, type SourceFact } from './discussion-intake.ts';
@@ -830,7 +835,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       if (delegations.pending(ticket.id, work.version ?? 1) || missingRequiredDelegation(ticket.id, work)
         || !delegationResultsCurrent(ticket.id, work)) return false;
       if (work.development) return decision.subject === codeAcceptanceSubject(ticket.id, output)
-        && codeDeliveryState(ticket, work)?.state === 'ready';
+        && codeDeliveryState(ticket, work)?.state === 'ready' && stagedProductReady(ticket.id, work, output);
       return decision.subject === ticket.id || decision.subject === acceptanceSubject(ticket.id) || decision.subject.startsWith(acceptanceSubject(ticket.id) + ':');
     }
     if (decision.kind === 'delivery') {
@@ -1000,8 +1005,14 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     return agent && { agent: agent.id, owner: agent.owner };
   };
   const topicContextUsable = (work: Work, manifest?: Assembled) => topicContext.valid(work.project, manifest?.topicContext);
-  const topicRunCurrent = (work: Work, manifest: Assembled) =>
-    (manifest.topicContext?.every(ref => ref.topic === work.topic) ?? true) && topicContextUsable(work, manifest);
+  const requiresStageBasis = (work: Work) => !!work.deliveryTemplate?.stages?.requireTopicBasis;
+  const currentStageBasis = (id: string, work: Work) => work.topic && requiresStageBasis(work)
+    ? stageBasisRevision(topicContext.confirmed(id, work.project, work.topic).map(row => row.message)) : undefined;
+  const stageBasisCurrent = (id: string, work: Work, manifest: Assembled) =>
+    !requiresStageBasis(work) || !!manifest.stageBasis && manifest.stageBasis === currentStageBasis(id, work);
+  const topicRunCurrent = (id: string, work: Work, manifest: Assembled) =>
+    (manifest.topicContext?.every(ref => ref.topic === work.topic) ?? true) && topicContextUsable(work, manifest)
+    && stageBasisCurrent(id, work, manifest);
   const { entryEvidence, sourceAllowed, usable, outputUsable, canDiscoverEntry, canReadEntry, selectMaterials, currentProjectMemory } =
     knowledgeAuthority(knowledge, {
       workOf, connected, originOutput, accessReader, outputReader, manifestFor, childResultsUsable, topicContextUsable,
@@ -1322,7 +1333,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     return text;
   }
   function outputReader(output: Output, work: Work) {
-    const actor = manifestFor(output.run)?.actor;
+    const actor = manifestFor(output.run, output.attempt)?.actor;
     return actor ? { agent: actor.agent, owner: actor.owner } : accessReader(work);
   }
   const acceptanceSubject = (id: string) => id + ':v' + (workOf(id)?.version ?? 1);
@@ -2077,7 +2088,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
   const revise = openTicketRevisions(store, engine, iterations, knowledge, {
     ticketFor, mayStart, readAgent: id => agentById.get(id), readableOutput: id => readableOutput(id), outputFor, outputUsable,
     currentConsultationKnowledge, consultationAgents, consultationEvidence, mandateCurrent: ticket => policy().revalidate(ticket.mandate),
-    isActive, runsFor, version, selectDevice, manifestFor, freezeTemplate, selectMaterials, product: product.state,
+    isActive, runsFor, version, selectDevice, manifestFor, freezeTemplate, selectMaterials, product: product.state, stages: readDeliveryStages,
     replacesRevokedSource(project, before, after) {
       const old = before.source, current = after.source;
       return !!old && !!current && before.visibility === 'restricted' && after.visibility === before.visibility
@@ -2202,7 +2213,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     const project = work && projectById.get(work.project);
     const manifest = manifestFor(run, attempt);
     return !!work && !!project && mayRun(store.tickets.get(ticket), work) && lane === activeLane(ticket)
-      && !!manifest && usable(ticket, manifest.sources)
+      && !!manifest && topicRunCurrent(ticket, work, manifest) && usable(ticket, manifest.sources)
       && modelRouteCurrent(project, work.agent, workModelPurpose(work), manifest.actor?.modelRoute);
   }
   const receipts = executionReceipts(receiptJournal, hub, applyReceipt, receiptAuthorityCurrent);
@@ -2221,14 +2232,15 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       const manifest = manifestFor(run.id);
       return !!device && (!device.active || !manifest || !project || !deviceAllowed(device, project, work!.agent))
         || !mayRun(store.tickets.get(id), work) || run.lane !== activeLane(id)
-        || !!manifest && (!usable(id, manifest.sources) || !project || !work
+        || !!manifest && (!usable(id, manifest.sources) || !project || !work || !stageBasisCurrent(id, work, manifest)
           || !modelRouteCurrent(project, work.agent, workModelPurpose(work), manifest.actor?.modelRoute));
     },
     cancelUnknown(run, id, device) {
       const ticket = ticketOfLane(run.lane);
       const work = workOf(ticket);
+      const manifest = manifestFor(id);
       return handingOff(work) || !!device?.remote && (!device.active || !mayRun(store.tickets.get(ticket), work)
-        || !usable(ticket, manifestFor(id)?.sources ?? []));
+        || !!work && !!manifest && !stageBasisCurrent(ticket, work, manifest) || !usable(ticket, manifest?.sources ?? []));
     },
     mayRedeliver(run, device) {
       const id = ticketOfLane(run.lane);
@@ -2236,6 +2248,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       const work = workOf(id);
       const project = work && projectById.get(work.project);
       return !!work && !!project && !!manifest && mayRun(store.tickets.get(id), work) && usable(id, manifest.sources)
+        && stageBasisCurrent(id, work, manifest)
         && deviceAllowed(device, project, work.agent)
         && modelRouteCurrent(project, work.agent, workModelPurpose(work), manifest.actor?.modelRoute);
     },
@@ -2243,7 +2256,8 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       if (digestProjects.has(run.rule)) return !device;
       const id = ticketOfLane(run.lane);
       const work = workOf(id);
-      if (!work || work.device !== device?.id || delegations.pending(id, work.version ?? 1)) return false;
+      if (!work || work.device !== device?.id || delegations.pending(id, work.version ?? 1)
+        || requiresStageBasis(work) && !currentStageBasis(id, work)) return false;
       return device ? deviceAllowed(device, projectById.get(work.project)!, work.agent)
         : agentById.get(work.agent)?.execution?.kind !== 'remote';
     },
@@ -2424,6 +2438,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
         });
       const topic = shareTopic && topicContext.view(ticket.id, project.id, work.topic!);
       const basis = topic ? topic.basis.flatMap(row => row.message ? [{ message: row.message, confirmed: row.confirmed }] : []) : [];
+      const stageBasis = requiresStageBasis(work) ? stageBasisRevision(basis.map(row => row.message)) : undefined;
       const history = topic ? topic.recent.filter(row => !basis.some(item => item.message.id === row.id && item.message.source === row.source)).slice(-6) : [];
       const topicRefs = [...basis.map(row => row.message), ...history].map(({ id, source, topic, revision }) => ({ id, source, topic, revision }));
       const context = assembleExecutionContext({
@@ -2469,12 +2484,14 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
         }
       } catch (error) {
         cancelUnstarted(job, ticket.id, '无法建立成员隔离执行环境');
-        reportBlocked(ticket.id, work, '成员执行环境需要配置或修复，请核对凭据和运行环境。', 'execution-endpoint');
+        reportBlocked(ticket.id, work, error instanceof SandboxProviderError ? error.message
+          : '成员执行环境需要配置或修复，请核对凭据和运行环境。', 'execution-endpoint');
         return {};
       }
       const currentDevice = device && devices.get(device.id);
       if (!mayRun(store.tickets.get(ticket.id), workOf(ticket.id)) || run.lane !== activeLane(ticket.id) || !usable(ticket.id, sources)
         || workOf(ticket.id)?.topic !== work.topic || !topicContext.valid(project.id, topicRefs)
+        || requiresStageBasis(work) && (!stageBasis || stageBasis !== currentStageBasis(ticket.id, work))
         || device && (!currentDevice?.active || !deviceAllowed(currentDevice, project, agent.id))) {
         await discardIsolation(isolation);
         if (isolation.boundary === 'os-sandbox') await cleanIsolationTemp(job.run, job.attempt);
@@ -2495,8 +2512,9 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
         ...(work.consultation && { consultationReply: true }),
         ...(fullResult && { fullResult: true as const }),
         ...(childResults.some(row => row.sources.some(ref => ref.access)) && { childResults: childResults.map(row => row.id) }),
-        confirmations: confirmed.map(card => card.id), codeState: changes,
+        confirmations: confirmed.map(card => card.id), codeState: changes, topic: work.topic ?? null,
         ...(topicRefs.length && { topicContext: topicRefs }),
+        ...(stageBasis && { stageBasis }),
         sources, engine: agent.engine, model: selectedAgent.model, actor: { ...runActor(ticket, work, agent), ...(modelRoute && { modelRoute }) },
         resources: work.resources, development, isolation,
         policyVersion: ticket.mandate.policyVersion, codeBundle: prepared.remote?.code ? bundleHash(prepared.remote.code) : undefined,
@@ -2565,7 +2583,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
         const work = workOf(ticketId);
         const remote = remoteStop && devices.get(devices.leasedTo(id, attempt)!);
         return manifest && !hub.run(id)?.cancel_at && mayRun(store.tickets.get(ticketId), work) && run.lane === activeLane(ticketId)
-          && !!work && topicRunCurrent(work, manifest) && modelAllowed(work) && usable(ticketId, manifest.sources) && (!remoteStop || remote?.active && work?.device === remote.id
+          && !!work && topicRunCurrent(ticketId, work, manifest) && modelAllowed(work) && usable(ticketId, manifest.sources) && (!remoteStop || remote?.active && work?.device === remote.id
             && deviceAllowed(remote, projectById.get(work.project)!, work.agent));
       };
       let outcome: ReturnType<typeof parseResult> = ok() ? result : { outcome: 'cancelled', summary: handingOff(workOf(ticketId))
@@ -2582,7 +2600,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       }
       const canTransfer = () => {
         const work = workOf(ticketId);
-        return !!manifest && !!work && topicRunCurrent(work, manifest) && modelMatches && (!manifest.actor?.modelRoute || hasModelReceipt) && modelAllowed(work)
+        return !!manifest && !!work && topicRunCurrent(ticketId, work, manifest) && modelMatches && (!manifest.actor?.modelRoute || hasModelReceipt) && modelAllowed(work)
           && usable(ticketId, manifest.sources) && (ok() || (handingOff(work) && work?.handoff?.cause !== 'access'));
       };
       if (manifest?.isolation?.boundary === 'remote' && manifest.development && remoteStop?.state === 'exited') {
@@ -3818,7 +3836,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
   function matchesCodeDelivery(ticket: Ticket, work: Work, output: Output | undefined, evidence: DeliveryEvidence) {
     if (!work.development) return false;
     const run = output && hub.run(output.run);
-    const manifest = output && manifestFor(output.run);
+    const manifest = output && manifestFor(output.run, output.attempt);
     const development = manifest?.development;
     const proof = evidence.commits?.find(item => item.sha === evidence.headSha)?.run;
     return !!output && run?.state === 'done' && ticketOfLane(run.lane) === ticket.id
@@ -3858,6 +3876,25 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     },
   });
 
+  function stagedProductReady(id: string, work: Work, output: Output) {
+    return !work.deliveryTemplate?.stages || product.state(id, output.revision, work, work.delivery)?.ready === true;
+  }
+
+  function readDeliveryStages(ticket: Ticket, work: Work, output: Output | undefined,
+    verification?: ReturnType<typeof product.state>, delivery = codeDeliveryState(ticket, work), hidden = false) {
+    if (!work.deliveryTemplate?.stages) return;
+    const accepted = !!work.accepted && work.accepted.revision === output?.revision;
+    const past = accepted && output ? iterations.get(ticket.id, output.revision, 'accepted')?.stages : undefined;
+    if (past && !hidden) return past;
+    return deliveryStages(work, {
+      scopeApproved: accepted || developmentAuthorized(work), basisReady: accepted || !requiresStageBasis(work) || !!currentStageBasis(ticket.id, work),
+      owner: agentById.get(work.agent)?.owner, output: !!output,
+      blocked: ['blocked', 'failed'].includes(ticket.assignments.at(-1)?.report?.state ?? ''),
+      linked: !!work.delivery && !!output && (accepted || matchesCodeDelivery(ticket, work, output, work.delivery)),
+      hidden, delivery, product: verification, accepted,
+    });
+  }
+
   function independentReview(work: Work, output: Output, evidence: DeliveryEvidence) {
     if (!work.deliveryTemplate?.reviewerIds) return;
     const project = projectById.get(work.project)!;
@@ -3883,7 +3920,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     const { output, issue } = status;
     const project = projectById.get(work.project)!;
     const title = '第 ' + (work.version ?? 1) + ' 版';
-    if (status.state === 'ready' && readableOutput(ticket.id)) {
+    if (status.state === 'ready' && readableOutput(ticket.id) && stagedProductReady(ticket.id, work, output)) {
       askHuman(project, { kind: 'acceptance', subject: codeAcceptanceSubject(ticket.id, output), ticket: ticket.id,
         title: title + '交付已核对，请验收' }, work.requester);
     } else if (issue) {
@@ -4077,6 +4114,8 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     const requested = human('access', 'authorize-material') ?? human('development', 'confirm-assignment')
       ?? human('answer', 'answer-required-question') ?? human('development-returned', 'review-returned-assignment');
     if (requested) return requested;
+    if (!ticket.ended && requiresStageBasis(work) && !currentStageBasis(id, work))
+      return recovery('stage-scope', 'confirm-topic-basis', actors(work.requester), run?.id);
     if (!ticket.ended) {
       const confirm = human('intake', 'confirm-delegation');
       if (confirm) return confirm;
@@ -4093,6 +4132,8 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     if (delivery && delivery.state !== 'ready') return recovery(delivery.state, delivery.state === 'ci-pending' ? 'wait-ci'
       : delivery.state === 'deployment-pending' ? 'wait-deployment' : 'check-delivery',
       actors(deliveryOwner(work, delivery.output)), delivery.output.run, undefined, pending.filter(item => item.kind === 'delivery'));
+    if (delivery?.state === 'ready' && !stagedProductReady(id, work, delivery.output))
+      return recovery('stage-verification', 'complete-product-checks', actors(work.requester), delivery.output.run);
     const acceptance = human('acceptance', 'review-current-version');
     if (acceptance) return acceptance;
     if (ticket.ended) return;
@@ -4128,7 +4169,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     const outputs = store.db.prepare('SELECT value FROM workbench_output WHERE ticket=? ORDER BY run').all(id)
       .map(row => JSON.parse(String(row.value)) as Output);
     const readableRevisions = new Set(outputs.filter(prior => {
-      const priorActor = manifestFor(prior.run)?.actor;
+      const priorActor = manifestFor(prior.run, prior.attempt)?.actor;
       const visible = actor === work.requester || actor === priorActor?.owner
         || !work.octop && prior.sources.every(ref => knowledge.get(ref.id)?.visibility === 'project');
       return visible && outputUsable(id, prior);
@@ -4270,6 +4311,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
         ? discussions.linked(id).filter(item => member(projectById.get(item.project), actor)).map(item => ({ ...item, sources: discussions.sources(item) })) : [],
       stage: ticketStage(ticket), result, materialHidden, channelReturn, decision: decision && { at: decision.at, scope: ticket.mandate.scope }, questions: question, requests, runs, timers,
       currentRun: currentRun && { id: currentRun.id, state: currentRun.state },
+      stages: readDeliveryStages(ticket, work, output, productVerification, delivery, materialHidden),
       productVerification: productVerification && { ...productVerification, mayRecord: requester && mayStart(project, actor)
         && !work.accepted && ticket.ended?.outcome === 'completed' && (!work.development || !!work.delivery) },
       productCases: !stored || output ? work.productCases ?? [] : [],
@@ -4293,7 +4335,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
         return { version: prior.version ?? 1, run: prior.run, revision: prior.revision, at: prior.at,
           ...(readable ? { text: prior.text, acceptedSource: ticketAcceptanceSource(ticket, prior, project.id) } : {}),
           reviews: reviews.filter(review => review.revision === prior.revision)
-            .map(({ reason, product, ...review }) => ({ ...review, ...(readable ? { reason, product } : {}) })) };
+            .map(({ reason, product, stages, ...review }) => ({ ...review, ...(readable ? { reason, product, stages } : {}) })) };
       }),
       observations: output ? observations.list(id).filter(record => readableRevisions.has(record.revision)).map(({ candidate, ...record }) => ({
         ...record, candidate: work.requester === actor ? candidate : undefined,
@@ -4332,21 +4374,75 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       ? store.db.prepare('SELECT attempt,value FROM workbench_manifest WHERE ticket=? AND run=? ORDER BY attempt DESC LIMIT 1').get(id, run)
       : store.db.prepare('SELECT attempt,value FROM workbench_manifest WHERE ticket=? AND run=? AND attempt=?').get(id, run, attempt);
     requireValue(row, '找不到本工单的这次执行。');
+    const currentAttempt = Number(row!.attempt);
     const manifest = JSON.parse(String(row!.value)) as Assembled;
     const allowed = canReadAssembly(actor, id, work, manifest);
-    const deviceId = allowed ? devices.leasedTo(run, Number(row!.attempt)) : undefined;
+    const deviceId = allowed ? devices.leasedTo(run, currentAttempt) : undefined;
     const device = deviceId && devices.get(deviceId);
-    return { run, attempt: Number(row!.attempt), attempts, agentVersion: manifest.agentVersion, policyVersion: manifest.policyVersion,
+    return { run, attempt: currentAttempt, attempts, agentVersion: manifest.agentVersion, policyVersion: manifest.policyVersion,
       device: device ? { name: device.name, remote: !!device.remote } : undefined,
       isolation: allowed && (actor === work.requester || actor === manifest.actor?.owner) ? manifest.isolation : undefined,
       assembly: manifest.assembly, recorded: !!manifest.assembly, readable: allowed,
       ...(allowed && manifest.assembly ? { contents: executionEvidence.unpack(manifest.assembly),
+        review: executionReview(id, run, currentAttempt, manifest),
         ...(manifest.octop && { octopSkills: manifest.octop.skills.map(({ id, revision }) => ({ id, revision })) }),
         materials: manifest.sources.map(({ id, revision, recalled }) => {
           const entry = knowledge.get(id, revision);
           return { id, revision, title: entry?.title, recalled, sourceRevision: entry?.source?.revision, url: entry?.source?.url,
             acceptedSource: entry && acceptedKnowledgeSource(entry) };
         }) } : {}) };
+  }
+
+  function executionReview(id: string, run: number, attempt: number, manifest: Assembled) {
+    const row = store.db.prepare('SELECT value FROM workbench_output WHERE ticket=? AND run=?').get(id, run);
+    const stored: Output | undefined = row && JSON.parse(String(row.value));
+    const output = stored?.attempt === attempt && outputUsable(id, stored) ? stored : undefined;
+    return processReview({
+      receipt: executionEvidence.receipt(run, attempt), model: manifest.model ?? manifest.isolation?.model,
+      confirmations: manifest.confirmations?.length ?? 0, topicBasis: !!manifest.stageBasis,
+      delivery: output && { revision: output.revision, accepted: !!iterations.get(id, output.revision, 'accepted') },
+    });
+  }
+
+  function regressionSource(actor: string, ref: ResultVersion) {
+    let scoped: ReturnType<typeof ticketFor>;
+    try { scoped = ticketFor(ref.ticket, actor); }
+    catch (error) {
+      if (error instanceof WorkbenchError && [403, 404].includes(error.status)) return;
+      throw error;
+    }
+    const { ticket, work } = scoped;
+    const output = outputByRevision(ref.ticket, ref.revision);
+    if (!output?.attempt || !outputUsable(ticket.id, output)) return;
+    const manifest = manifestFor(output.run, output.attempt);
+    if (!manifest?.assembly || !manifest.actor || !canReadAssembly(actor, ticket.id, work, manifest)) return;
+    const opening = store.triggers.get(ticket.origin.triggerId);
+    if (!opening) return;
+    const review = iterations.get(ticket.id, ref.revision, 'accepted')
+      ?? iterations.list(ticket.id).findLast(row => row.revision === ref.revision);
+    const current = output.revision === outputFor(ticket.id)?.revision;
+    const template = review ? review.template : current ? work.deliveryTemplate : undefined;
+    const latestProduct = current
+      && (!work.development || !!work.delivery && matchesCodeDelivery(ticket, work, output, work.delivery))
+      ? product.state(ref.ticket, ref.revision, work, work.delivery) : undefined;
+    const receipt = executionEvidence.receipt(output.run, output.attempt);
+    const topic = manifest.topic === null ? undefined : manifest.topic ?? review?.topic ?? manifest.topicContext?.[0]?.topic ?? work.topic;
+    return { project: work.project, topic, requestHash: digest(opening.text.trim()),
+      body: output.text, citations: output.cited?.length ?? 0, version: output.version ?? 1, title: ticket.title,
+      run: output.run, attempt: output.attempt, product: review ? review.product : latestProduct,
+      provenance: { agent: manifest.actor.agent, agentVersion: manifest.agentVersion, policyVersion: manifest.policyVersion, prompt: manifest.assembly.skill,
+        skills: (manifest.octop?.skills ?? []).map(({ id, revision }) => ({ id, revision })),
+        sources: output.sources.map(({ id, revision }) => ({ id, revision })),
+        requestedModel: manifest.model ?? manifest.isolation?.model, reportedModel: receipt?.modelReceipt?.reported,
+        template: template && { id: template.id, version: template.version } },
+    };
+  }
+
+  const regression = openRegressionReview(store.db, regressionSource);
+  function regressionProject(actor: string, id: string, change = false) {
+    const project = projectFor(id, actor);
+    if (change && !maintain(project, actor)) throw new WorkbenchError('由项目维护人创建用例和登记对照结果。', 403);
+    return project.id;
   }
 
   function memoryUses(actor: string, id: string) {
@@ -4914,7 +5010,9 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     const productVerification = output && (iterations.get(id, output.revision, 'accepted')?.product
       ?? product.state(id, output.revision, work, work.development ? work.delivery : undefined));
     const { project: projectId, agent, requester, topic, parent, priority, source, version, personal, accepted, handoff } = work;
-    return { id, title, updatedAt, stage: ticketStage(ticket), attention: pending.has(id) || needsObservation,
+    return { id, title, updatedAt, stage: ticketStage(ticket), attention: pending.has(id) || needsObservation
+      || recovery?.kind === 'stage-scope' && (actor === work.requester || maintain(project, actor))
+      || recovery?.kind === 'stage-verification' && actor === work.requester,
       work: { project: projectId, agent, requester, topic, parent, priority, source, version, personal,
         accepted: accepted && { revision: accepted.revision }, handoff: handoff && { completedAt: handoff.completedAt, cancelledAt: handoff.cancelledAt },
         consultation: !!work.consultation, development: !!work.development, developmentResponse: !!work.developmentResponse,
@@ -4925,8 +5023,14 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       blocked: ticket.assignments.at(-1)?.report?.state === 'blocked' };
   }
 
+  const readableProjects = (actor: string, id?: string) => id ? [projectFor(id, actor)] : config.projects.filter(project => member(project, actor));
+  const conversations = openConversationIndex(store.db, { projects: readableProjects, topics: topicsFor, scope: (project, actor, target) => {
+    const scope = conversationScope(project, actor, target);
+    if (target.ticket && workOf(target.ticket)?.consultation) throw new WorkbenchError('请在所属主题中查看咨询。', 404);
+    return scope;
+  } });
   const ticketPage = ticketQueries({
-    projects: (actor, id) => id ? [projectFor(id, actor)] : config.projects.filter(project => member(project, actor)),
+    projects: readableProjects,
     pending: actor => new Set(decisions.pending(actor).filter(item => item.ticket && decisionAllowed(item, actor)).map(item => item.ticket!)),
     read: workRecords.recent, topics: topicsFor, agent: id => agentById.get(id), summary: ticketSummary,
   });
@@ -4965,7 +5069,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
           .map(ref => ({ ...resourceView(p.id, ref), product: ref.execution?.deliveryTemplate?.product && {
             cases: [...(ref.execution.deliveryTemplate.product.browser?.cases ?? []), ...(ref.execution.deliveryTemplate.product.manual ?? [])],
             version: ref.execution.deliveryTemplate.version,
-          }, eligibleAgents: config.agents.filter(agent => isActive(agent, p)
+          }, stages: ref.execution?.deliveryTemplate?.stages, eligibleAgents: config.agents.filter(agent => isActive(agent, p)
             && executionCapabilities(agent).code && canAttach(p, ref, agent.owner, agent.owner)).map(agent => agent.id) })),
         mayStart: mayStart(p, actor), maintain: maintain(p, actor),
         discussion: p.discussion ? { pending: maintain(p, actor) ? discussions.pendingCount(p.id) : 0 } : undefined })),
@@ -5006,6 +5110,8 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     pendingDelegation: (id, version) => delegations.pending(id, version), readableOutput, pullTarget, provenance,
     verifyCodeDelivery, inspectPull, review: independentReview, product: product.state,
     storeDeliveryVersion, recordCheckAttempts, saveWork, closeAcceptance, closeDeliveryIssues, manifestFor, knowledgeId, audit,
+    stages: (ticket, work, output, verification) => readDeliveryStages(ticket, { ...work,
+      accepted: { actor: work.requester, revision: output.revision, at: new Date().toISOString() } }, output, verification),
   });
   const settings = operationsSettings(store, config, operationPolicies, { canManageServices, projectFor, maintain, mayStart, topicsFor, audit });
   const api = {
@@ -5042,6 +5148,11 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
         ...historyStatus.get(key('discussion-history', id, ref.externalId)) }));
     },
     start, reply, resume, revise, retryUnpublishedCode, approveDevelopment, respondDevelopment, reofferDevelopment, overview, ticketPage, detail, executionSnapshot, boundProject, recordObservation,
+    regressionList: (actor: string, id: string) => regression.list(actor, regressionProject(actor, id)),
+    createRegressionCase: (actor: string, id: string, input: z.infer<typeof regressionCaseInput>) =>
+      regression.create(actor, regressionProject(actor, id, true), input),
+    compareRegression: (actor: string, id: string, input: z.infer<typeof regressionCompareInput>) =>
+      regression.compare(actor, regressionProject(actor, id, true), input),
     createProject, addProjectMember, removeProjectMember, setProjectMemberRole, transferProjectMaintainer, addProjectAgent,
     canManageAccounts, guardAccountWithdrawal, withdrawAccountAuthority, projectAccess, projectKnowledgeAccess, setProjectKnowledgeAccess, platformPointBudgets,
     activation, imLogin, profiles, memberAvatar,
@@ -5060,7 +5171,8 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     rollbackActivation(username: string, sender: PlatformActor) {
       links.unlink(username, sender.provider, sender.namespace, sender.id);
     },
-    clickFeishuCard, conversation, conversationPage, postConversation, consultTopic, showFeishuConsultation, receiveFeishuConsultation, receiveFeishuReply, receiveOctopIM, bindFeishuGroup, feishuTopic, isFeishuTopicRoot,
+    clickFeishuCard, conversation, conversationPage, conversationIndex: conversations.list, archiveConversation: conversations.archive,
+    postConversation, consultTopic, showFeishuConsultation, receiveFeishuConsultation, receiveFeishuReply, receiveOctopIM, bindFeishuGroup, feishuTopic, isFeishuTopicRoot,
     feishuProject: (chat: string, root: unknown) => feishuScope(chat, root).project,
     receiveChannel, receiveNote, resolveChannel, resolveChannelFromHttp, channelView, confirmAccount, refreshDelivery, refreshIssue,
     rememberDiscussion, trackFeishuThread, refreshFeishuHistory, discussionView, discussionRevisions, resolveDiscussion, needsYou, answerDecision, resolveIntake, handoff,
@@ -5101,6 +5213,8 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       if (!mayStart(project, actor) || (work.requester !== actor && !maintain(project, actor))) throw new WorkbenchError('由发起人或项目维护人调整主题。', 403);
       if (topic && !topicsFor(project).some(item => item.id === topic)) throw new WorkbenchError('该主题不属于当前项目。', 400);
       if (work.topic === topic) return;
+      verifyDeliveryTopic(work.deliveryTemplate, topic);
+      if (requiresStageBasis(work) && outputFor(id)) throw new WorkbenchError('本版已有成果。请在开启下一版后调整主题。', 409);
       store.atomic(() => {
         saveWork(id, { ...work, topic });
         audit(id, 'topic.updated', { actor, topic });
@@ -5350,6 +5464,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
         if (input.head !== (work.development ? work.delivery?.headSha : undefined))
           throw new WorkbenchError('该人工核对的提交已变化，请刷新。', 409);
         const record = product.recordHuman(id, work.development ? work.delivery?.headSha : undefined, input, actor);
+        if (work.deliveryTemplate?.stages) notifyCodeDelivery(ticket, work);
         queueFeishuInbox(actor);
         return record;
       });

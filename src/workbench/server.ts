@@ -33,6 +33,7 @@ import { imLoginCookie, imReturnPath, withIMStatus } from './im-login.ts';
 import { imAvatarOrigins, imProvider, imProviderNames } from './im-login-providers.ts';
 import { profileUpdate } from './member-profile.ts';
 import { humanCheckInput, manualCasesInput } from './product-verification.ts';
+import { regressionCaseInput, regressionCompareInput } from './regression-review.ts';
 import { deviceRouteInput } from './device-routing.ts';
 import { configuredEnv, formerName } from './compatibility.ts';
 import { PluginHost } from './capabilities.ts';
@@ -524,6 +525,17 @@ async function serve(release: () => void) {
           .strict().parse(Object.fromEntries(url.searchParams));
         output = work.ticketPage(actor, { ...params, mine: params.mine === '1' });
       }
+      else if (get && view === 'conversations' && !item) {
+        const params = z.object({ project: id.optional(), q: z.string().max(240).optional(), archived: z.literal('1').optional(),
+          limit: z.coerce.number().int().min(1).max(100).optional(), after: z.string().max(400).regex(/^[\w-]+$/).optional() })
+          .strict().parse(Object.fromEntries(url.searchParams));
+        output = work.conversationIndex(actor, { ...params, archived: params.archived === '1' });
+      }
+      else if (post && view === 'conversations' && item && action === 'archive' && !reference) {
+        const target = z.object({ topic: id.optional(), ticket: id.optional(), archived: z.boolean() }).strict()
+          .refine(value => !value.topic || !value.ticket).parse(await body(req));
+        output = work.archiveConversation(actor, id.parse(item), target);
+      }
       else if (get && view === 'needs-you') output = work.needsYou(actor);
       else if (post && view === 'intake' && item && action === 'resolve') {
         const input = z.discriminatedUnion('action', [
@@ -554,6 +566,12 @@ async function serve(release: () => void) {
       else if (get && view === 'ticket' && item && action === 'runs' && reference)
         output = work.executionSnapshot(actor, item, z.coerce.number().int().positive().parse(reference),
           url.searchParams.has('attempt') ? z.coerce.number().int().positive().parse(url.searchParams.get('attempt')) : undefined);
+      else if (view === 'regression' && item && get && !action)
+        output = work.regressionList(actor, id.parse(item));
+      else if (view === 'regression' && item && post && action === 'case' && !reference)
+        output = work.createRegressionCase(actor, id.parse(item), regressionCaseInput.parse(await body(req)));
+      else if (view === 'regression' && item && post && action === 'compare' && !reference)
+        output = work.compareRegression(actor, id.parse(item), regressionCompareInput.parse(await body(req)));
       else if (get && view === 'ticket' && item) output = work.detail(actor, item);
       else if (get && view === 'request' && item) output = { ticket: work.resolveStart(actor, item) };
       else if (view === 'octop' && item && get && !action) output = work.octopCatalog(actor, item);

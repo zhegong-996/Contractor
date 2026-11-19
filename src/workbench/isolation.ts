@@ -14,11 +14,11 @@ import { allowedFile } from '../github.ts';
 import { bundleHash, codeBundleSchema, codeDeltaSchema, materializeCode, type CodeBundle, type CodeDelta } from './code-bundle.ts';
 import type { RunnerAgent } from './runner-profile.ts';
 import { readCodexCatalog } from './codex-catalog.ts';
+import { sandboxProvider } from './sandbox-provider.ts';
 
 const hash = (value: string | Buffer) => createHash('sha256').update(value).digest('hex');
 const scopeRoot = (scope: string) => runtime('isolated', scope);
 const launchFile = (run: number, attempt: number) => runtime('isolation-launches', `${run}-${attempt}.json`);
-const sandboxRuntime = path.dirname(createRequire(import.meta.url).resolve('@anthropic-ai/sandbox-runtime/package.json'));
 const privateFile = async (file: string, value: unknown) => {
   await mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
   await writeFile(file, JSON.stringify(value), { mode: 0o600 });
@@ -29,7 +29,8 @@ export type Isolation = {
 };
 type Launch = {
   isolation: Isolation; executable: string; workspace: string; home: string; input: string; temp: string;
-  remoteBase?: string; placeholders?: string[]; policy: string; baseline: Record<string, string>; canonical?: string; paths: string[];
+  remoteBase?: string; placeholders?: string[]; policy: string; sandboxRoot?: string;
+  baseline: Record<string, string>; canonical?: string; paths: string[];
 };
 
 async function plainPath(file: string) {
@@ -84,11 +85,12 @@ async function files(folder: string): Promise<Record<string, string>> {
   return result;
 }
 
-export function sandboxPolicy(workspace: string, home: string, input: string, executable: string, paths: string[], domains: string[], temp = path.join(home, 'tmp'), readPaths?: string[]) {
+export function sandboxPolicy(workspace: string, home: string, input: string, executable: string, paths: string[], domains: string[],
+  temp = path.join(home, 'tmp'), readPaths?: string[], sandboxRoot?: string) {
   const system = process.platform === 'darwin'
     ? ['/System/Library', '/usr/lib', '/usr/bin', '/usr/share', '/bin', '/sbin', '/Library/Apple', '/private/etc/ssl', '/private/etc/hosts', '/private/etc/resolv.conf', '/private/etc/codex', '/private/var/select/sh']
     : ['/usr', '/bin', '/sbin', '/lib', '/lib64', '/etc/ssl', '/etc/ld.so.cache', '/etc/resolv.conf', '/etc/hosts', '/etc/codex', '/proc/self', '/proc/thread-self',
-      path.join(sandboxRuntime, 'vendor/seccomp', process.arch, 'apply-seccomp')];
+      path.join(sandboxRoot ?? sandboxProvider().root, 'vendor/seccomp', process.arch, 'apply-seccomp')];
   const literal = (item: string) => ({ path: item, literal: true as const });
   return {
     network: { allowedDomains: domains, deniedDomains: [], allowLocalBinding: false, strictAllowlist: true },
@@ -122,13 +124,14 @@ export async function codexModelCatalog(agent: RunnerAgent) {
   if (agent.engine !== 'codex' || agent.execution?.kind !== 'sandbox' || agent.execution.provider !== 'openai' || !agent.model)
     throw new Error('当前执行端没有经授权的模型目录适配');
   const auth = await credential(agent);
+  const sandboxRoot = sandboxProvider().root;
   const executable = await codexExecutable();
-  const key = hash(JSON.stringify([agent.owner, agent.execution.credential, auth.version, agent.execution.domains, executable]));
+  const key = hash(JSON.stringify([agent.owner, agent.execution.credential, auth.version, agent.execution.domains, executable, sandboxRoot]));
   const now = Date.now();
   const cached = catalogCache.get(key);
   if (cached && cached.expires > now) return cached.result;
   for (const [id, entry] of catalogCache) if (entry.expires <= now) catalogCache.delete(id);
-  const result = loadCodexCatalog(executable, auth.bytes, agent.execution.domains).catch(error => {
+  const result = loadCodexCatalog(executable, auth.bytes, agent.execution.domains, sandboxRoot).catch(error => {
     if (catalogCache.get(key)?.result === result) catalogCache.delete(key);
     throw error;
   });
@@ -137,7 +140,7 @@ export async function codexModelCatalog(agent: RunnerAgent) {
 }
 
 // Discover capabilities in a fresh sandbox. No ticket, file contents or execution prompt enter this process.
-async function loadCodexCatalog(executable: string, auth: Buffer, domains: string[]) {
+async function loadCodexCatalog(executable: string, auth: Buffer, domains: string[], sandboxRoot: string) {
   const temp = await realpath(await mkdtemp(path.join(process.platform === 'darwin' ? '/private/tmp' : os.tmpdir(), 'contractor-catalog-')));
   const home = path.join(temp, 'home');
   const workspace = path.join(temp, 'work');
@@ -146,8 +149,8 @@ async function loadCodexCatalog(executable: string, auth: Buffer, domains: strin
     await Promise.all([mkdir(home, { mode: 0o700 }), mkdir(workspace, { mode: 0o700 })]);
     await writeFile(path.join(home, 'auth.json'), auth, { mode: 0o600 });
     await writeFile(path.join(home, 'config.toml'), 'model_provider = "openai"\ncli_auth_credentials_store = "file"\n[features]\napps = false\nmulti_agent = false\n', { mode: 0o600 });
-    await privateFile(policy, sandboxPolicy(workspace, home, workspace, executable, [], domains, temp));
-    const [command, ...args] = sandboxInvocation({ home, temp, policy }, [executable, 'app-server', '--listen', 'stdio://'], workspace);
+    await privateFile(policy, sandboxPolicy(workspace, home, workspace, executable, [], domains, temp, undefined, sandboxRoot));
+    const [command, ...args] = sandboxInvocation({ home, temp, policy, sandboxRoot }, [executable, 'app-server', '--listen', 'stdio://'], workspace);
     return await readCodexCatalog(command!, args, workspace, path.join(home, 'models_cache.json'));
   } finally { await rm(temp, { recursive: true, force: true }); }
 }
@@ -165,6 +168,7 @@ export async function isolateJob(agent: RunnerAgent, job: Job, authority: unknow
   if (agent.engine !== 'codex' || agent.execution.provider !== 'openai')
     throw new Error('此 CLI 或模型服务尚未完成隔离适配，不能继承宿主环境执行');
   const auth = await credential(agent);
+  const sandboxRoot = sandboxProvider().root;
   const executable = await codexExecutable();
   const executableVersion = execFileSync(executable, ['--version'], { encoding: 'utf8', timeout: 10000,
     env: { PATH: '/usr/bin:/bin' }, stdio: ['ignore', 'pipe', 'ignore'] }).trim();
@@ -240,8 +244,8 @@ export async function isolateJob(agent: RunnerAgent, job: Job, authority: unknow
   // Mount disjoint read files and write scopes instead; the repository remains private.
   const readPaths = code && process.platform === 'linux'
     ? [...Object.keys(baseline).filter(file => !allowedFile(file, code.paths)), ...code.paths] : undefined;
-  await privateFile(policy, sandboxPolicy(workspace, home, input, executable, code?.paths ?? [], agent.execution.domains, temp, readPaths));
-  const launch: Launch = { isolation, executable, workspace, home, input, temp, policy, baseline, canonical: code && 'canonical' in code ? code.canonical : undefined, paths: code?.paths ?? [],
+  await privateFile(policy, sandboxPolicy(workspace, home, input, executable, code?.paths ?? [], agent.execution.domains, temp, readPaths, sandboxRoot));
+  const launch: Launch = { isolation, executable, workspace, home, input, temp, policy, sandboxRoot, baseline, canonical: code && 'canonical' in code ? code.canonical : undefined, paths: code?.paths ?? [],
     remoteBase: code && 'bundle' in code ? bundleHash(code.bundle) : undefined, placeholders };
   await privateFile(launchFile(job.run, job.attempt), launch);
   return { isolation, job: { ...job, session: previous?.scope === isolation.scope ? job.session : null,
@@ -263,13 +267,14 @@ export function isolatedCommand(turn: Turn, nativeCommand: (turn: Turn, executab
   return sandboxInvocation(launch, argv, context);
 }
 
-export function sandboxInvocation(launch: Pick<Launch, 'home' | 'temp' | 'policy'>, argv: string[], context: string): string[] {
+export function sandboxInvocation(launch: Pick<Launch, 'home' | 'temp' | 'policy' | 'sandboxRoot'>, argv: string[], context: string): string[] {
+  const provider = sandboxProvider(launch.sandboxRoot);
   return ['/usr/bin/env', '-i', 'PATH=/usr/bin:/bin:/usr/sbin:/sbin', 'LANG=en_US.UTF-8', 'SHELL=/bin/sh',
     // rustls otherwise probes the host keychain from inside Seatbelt and can stall before routing discovery.
     'SSL_CERT_FILE=' + (process.platform === 'darwin' ? '/etc/ssl/cert.pem' : '/etc/ssl/certs/ca-certificates.crt'),
     'HOME=' + launch.home, 'CODEX_HOME=' + launch.home, 'TMPDIR=' + launch.temp,
     'CLAUDE_CODE_TMPDIR=' + launch.temp, 'AGENT_AUTOLOOP_CONTEXT=' + context,
-    process.execPath, path.join(sandboxRuntime, 'dist/cli.js'), '--settings', launch.policy, '--', ...argv];
+    process.execPath, provider.cli, '--settings', launch.policy, '--', ...argv];
 }
 
 /** Only call after the native worker and all observed children have exited. */

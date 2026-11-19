@@ -39,7 +39,7 @@ export async function developmentCheckout(config: Settings['attribution'], targe
   const branch = saved.branch;
   if (saved.repository !== target.repository || saved.base !== target.base || !protocolMatches(branch, newBranch)
     || JSON.stringify(saved.paths) !== JSON.stringify(target.paths)) throw new Error('本地工作区授权已变化。');
-  if (!existing || !await lstat(path.join(folder, '.entire/settings.local.json')).then(() => true, () => false)) {
+  if (config.entireCommand && (!existing || !await lstat(path.join(folder, '.entire/settings.local.json')).then(() => true, () => false))) {
     // Entire installs its upstream hooks locally. Git shares checkpoint refs with the dedicated checkout.
     for (const engine of ['codex', 'cursor'])
       await command(config.entireCommand, ['enable', '--agent', engine,

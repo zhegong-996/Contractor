@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query';
 import { Breadcrumb, ConfigProvider, Drawer, Layout, Menu as NavigationMenu, type ConfigProviderProps } from 'antd';
 import zhCN from 'antd/es/locale/zh_CN.js';
-import { ArrowRight, BookOpen, Bot, ChevronDown, ChevronRight, CircleCheck, FolderKanban, Inbox, ListChecks, LogOut, Menu, MessagesSquare, PanelLeftClose, PanelLeftOpen, Plus, ShieldCheck, UserRound } from 'lucide-react';
+import { ArrowRight, BookOpen, Bot, ChevronDown, ChevronRight, CircleCheck, FolderKanban, Inbox, ListChecks, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Plus, ShieldCheck, UserRound } from 'lucide-react';
 import { api, uid, useData, type Overview, type Session } from './api.ts';
 import { ActionContext, Avatar, Failure, Field, IconButton, Loading, Logo, Modal, useActions, useStored } from './ui.tsx';
 import { Button } from './components/button.tsx';
@@ -27,7 +27,7 @@ const AccountsPage = lazy(() => import('./project.tsx').then(page => ({ default:
 const GlobalSettings = lazy(() => import('./access-settings.tsx').then(page => ({ default: page.GlobalSettings })));
 
 const nav = [
-  { key: 'chat', icon: MessagesSquare }, { key: 'inbox', icon: Inbox }, { key: 'work', icon: ListChecks },
+  { key: 'inbox', icon: Inbox }, { key: 'work', icon: ListChecks },
   { key: 'agents', icon: Bot }, { key: 'knowledge', icon: BookOpen },
 ] as const;
 
@@ -171,12 +171,13 @@ function Navigation({ workspace, project, route, close, newProject }: PageProps 
   const signOut = useSignOut();
   const [expanded, setExpanded] = useState(true);
   const [profile, setProfile] = useState(false);
+  const current = route.view === 'chat' ? 'work' : route.view;
   return <div className="sidebar-content">
     <a className="brand" href={routeFor(project.id, 'inbox')} onClick={close} aria-label="Contractor"><Logo /><span>Contractor</span></a>
     <nav className="sidebar-nav" aria-label="工作入口">
-      <NavigationMenu mode="inline" selectedKeys={[route.view]} className="primary-navigation"
+      <NavigationMenu mode="inline" selectedKeys={[current]} className="primary-navigation"
         items={nav.map(({ key, icon: Icon }) => ({ key, icon: <Icon size={17} />, title: titles[key],
-          label: <a href={routeFor(project.id, key)} aria-current={route.view === key ? 'page' : undefined}>
+          label: <a href={routeFor(project.id, key)} aria-current={current === key ? 'page' : undefined}>
             {titles[key]}{key === 'inbox' && workspace.needsYou.length > 0 && <span className="nav-count">{workspace.needsYou.length}</span>}
           </a> }))}
         onClick={({ key, domEvent }) => {
@@ -296,6 +297,8 @@ function Workspace() {
   const route = { ...requested, project: project.id, item: requested.project && requested.project !== project.id ? undefined : requested.item };
   const props = { workspace, project, route, openTask: (preset: TaskPreset = {}) => { clearError(); setComposer(preset); } };
   const Page = { chat: ChatPage, inbox: InboxPage, work: WorkPage, knowledge: KnowledgePage, agents: AgentsPage, project: ProjectPage, accounts: AccountsPage }[route.view];
+  const taskCenter = route.view === 'work' || route.view === 'chat';
+  const page = <Suspense fallback={<Loading />}><Page key={project.id + ':' + route.view} {...props} /></Suspense>;
   return <Layout className="shell" hasSider={!narrow} data-collapsed={collapsed || undefined}>
     {!narrow && <WorkspaceSidebar collapsed={collapsed}><Navigation {...props} newProject={newProject} /></WorkspaceSidebar>}
     {narrow && <Drawer className="mobile-workspace-nav" placement="left" title="导航" size={280} open={drawer}
@@ -311,14 +314,21 @@ function Workspace() {
           }}>{narrow ? <Menu /> : collapsed ? <PanelLeftOpen /> : <PanelLeftClose />}</IconButton>
         <Breadcrumb aria-label="当前位置" className="toolbar-path" items={[
           { title: <a href={routeFor(project.id, 'project')}><FolderKanban size={14} /><span>{project.title}</span></a> },
-          ...(route.view === 'project' ? [] : [{ title: titles[route.view] }]),
+          ...(route.view === 'project' ? [] : [{ title: taskCenter ? titles.work : titles[route.view] }]),
         ]} />
         {project.mayStart && !(route.view === 'chat' && (route.item || route.tab === 'project')) && !(route.view === 'work' && !route.item) &&
           <Button size="sm" type="button" className="create-button" onClick={() => props.openTask()}><Plus />发起协作</Button>}
       </Layout.Header>
       {error && !composer && <div className="toolbar-error"><Failure error={new Error(error)} retry={clearError} /></div>}
-      <Layout.Content className="main-view" id="main-content">
-        <Suspense fallback={<Loading />}><Page key={project.id + ':' + route.view} {...props} /></Suspense>
+      <Layout.Content className={'main-view' + (taskCenter ? ' task-center' : '')} id="main-content">
+        {taskCenter && <nav className="task-center-tabs" aria-label="任务中心">
+          <a href={routeFor(project.id, 'work')} aria-current={route.view === 'work' ? 'page' : undefined}>工作</a>
+          <a href={routeFor(project.id, 'chat')} aria-current={route.view === 'chat' ? 'page' : undefined}>会话</a>
+          {workspace.needsYou.length > 0 && <a className="task-center-attention" href={routeFor(project.id, 'inbox')}>
+            待我处理 <span className="nav-count">{workspace.needsYou.length}</span>
+          </a>}
+        </nav>}
+        {taskCenter ? <div className="task-center-content">{page}</div> : page}
       </Layout.Content>
     </Layout>
     {composer && <Composer {...props} preset={composer} close={() => setComposer(null)} />}

@@ -154,6 +154,11 @@ console.log('核对门店推荐理由的 280px、320px、360px 验收条件。' 
   const id = await start('small-screen', cases);
   const detail = () => work.detail('product', id);
   const first = await wait(() => detail().result);
+  const firstSnapshot = work.executionSnapshot('product', id, first.run, first.attempt);
+  assert.equal(firstSnapshot.review?.receipt, 'done');
+  assert.equal(firstSnapshot.review?.model.state, 'unverified');
+  assert.equal(firstSnapshot.review?.delivery?.revision, first.revision);
+  assert.equal(firstSnapshot.review?.delivery?.accepted, false);
   assert.equal(detail().actions.accept, false);
   assert.equal(detail().productVerification?.cases[0]?.state, 'pending');
   const review = { revision: first.revision, case: 'task-1', passed: false, previous: 0, note: '280px 可用正文太窄' };
@@ -166,13 +171,32 @@ console.log('核对门店推荐理由的 280px、320px、360px 验收条件。' 
   assert.deepEqual(work.revise('product', id, reopen), { version: 2 });
   assert.deepEqual(work.revise('product', id, reopen), { version: 2 });
   const second = await wait(() => detail().result?.version === 2 ? detail().result : undefined);
+  const baseline = { ticket: id, revision: first.revision }, challenger = { ticket: id, revision: second.revision };
+  const definition = { title: '复查 280px 正文宽度', baseline, check: { kind: 'manual' as const, id: 'task-1' } };
+  assert.throws(() => work.createRegressionCase('engineering', 'store', definition), { status: 403 });
+  assert.throws(() => work.regressionList('outsider', 'store'), { status: 404 });
+  const testcase = work.createRegressionCase('product', 'store', definition);
+  assert.equal(testcase.baselineReview.status, 'failed');
+  assert.deepEqual(work.createRegressionCase('product', 'store', definition), testcase);
+  assert.throws(() => work.compareRegression('product', 'store', { case: testcase.id, candidate: baseline }), { status: 409 });
+  const compare = () => work.compareRegression('product', 'store', { case: testcase.id, candidate: challenger });
+  assert.equal(compare().candidate.status, 'unavailable');
   assert.equal(detail().versions.find(row => row.version === 1)?.reviews[0]?.product?.cases[0]?.state, 'failed');
   assert.throws(() => work.recordProductCheck('product', id, review), { status: 409 });
   assert.equal(detail().productVerification?.cases[0]?.state, 'pending');
   work.recordProductCheck('product', id, { ...review, revision: second.revision, passed: true, note: '三档均可读并换行' });
+  const evaluation = compare();
+  assert.equal(evaluation.candidate.status, 'passed');
+  assert.deepEqual(compare(), evaluation);
+  assert.equal(evaluation.candidate.provenance.agent, 'review');
+  assert.equal(evaluation.candidate.provenance.prompt.length, 64);
+  assert.equal(evaluation.candidate.provenance.reportedModel, undefined);
+  assert.deepEqual(work.regressionList('engineering', 'store').comparisons.map(row => row.candidate.status), ['passed', 'unavailable']);
   await assert.rejects(work.accept('product', id, first.revision, '', ''), { status: 409 });
   await work.accept('product', id, second.revision, '仅用于门店推荐卡片', '门店推荐理由核验 280px、320px、360px 和长词换行。');
   await work.accept('product', id, second.revision, '', '');
+  assert.equal(work.executionSnapshot('product', id, second.run, second.attempt).review?.delivery?.accepted, true);
+  assert.deepEqual(compare(), evaluation, '接受后同一证据不重复登记对照');
   const candidate = work.browse('product', 'store', '').find(row => row.id === detail().candidate);
   assert.ok(candidate && 'revision' in candidate && candidate.revision);
   assert.equal(work.topicRules('engineering', 'store', 'small-screen').length, 0);
@@ -182,13 +206,40 @@ console.log('核对门店推荐理由的 280px、320px、360px 验收条件。' 
   assert.throws(() => work.topicRules('outsider', 'store', 'small-screen'), { status: 404 });
   const next = await start();
   const nextDetail = () => work.detail('product', next);
-  await wait(() => nextDetail().result);
+  const nextResult = await wait(() => nextDetail().result);
   assert.equal(nextDetail().reusedAcceptance?.id, candidate.id);
   assert.equal(nextDetail().result?.citations[0]?.acceptedSource?.version, 2);
   const other = await start('copy');
   assert.equal(work.detail('product', other).reusedAcceptance, undefined);
   assert.ok(!work.detail('product', other).work.material.includes(candidate.id));
+  const otherResult = await wait(() => work.detail('product', other).result);
+  const answerCase = work.createRegressionCase('product', 'store', { title: '三档都要列出并附来源', baseline,
+    check: { kind: 'answer', terms: ['280px', '320px', '360px'], citation: true } });
+  assert.equal(answerCase.baselineReview.status, 'failed');
+  assert.throws(() => work.compareRegression('product', 'store', { case: answerCase.id,
+    candidate: { ticket: other, revision: otherResult.revision } }), { status: 409 });
+  assert.equal(work.compareRegression('product', 'store', { case: answerCase.id,
+    candidate: { ticket: next, revision: nextResult.revision } }).candidate.status, 'passed');
+
+  const source = work.addKnowledge('product', 'store', { title: '门店受限样例', body: '仅供验收回归试点使用。',
+    conditions: '本项目定向授权', kind: 'document', visibility: 'restricted' });
+  const restricted = work.start('product', { project: 'store', topic: 'small-screen', title: '限制样例核对',
+    request: '核对门店推荐理由的 280px 320px 360px 长词', agent: 'review', nonce: randomUUID(),
+    priority: 'normal', material: [source] });
+  const restrictedId = await wait(() => work.resolveStart('product', restricted.trigger));
+  const restrictedAccess = await wait(() => work.detail('product', restrictedId).requests.find(row => row.entry === source));
+  work.changeAccess('product', restrictedId, restrictedAccess.id, 'granted');
+  const restrictedOutput = await wait(() => work.detail('product', restrictedId).result);
+  const restrictedCandidate = { ticket: restrictedId, revision: restrictedOutput.revision };
+  work.compareRegression('product', 'store', { case: answerCase.id, candidate: restrictedCandidate });
+  assert.equal(work.regressionList('product', 'store').comparisons.some(row => row.candidate.ticket === restrictedId), true);
+  work.changeAccess('product', restrictedId, restrictedAccess.id, 'revoked');
+  assert.equal(work.regressionList('product', 'store').comparisons.some(row => row.candidate.ticket === restrictedId), false);
+  assert.throws(() => work.compareRegression('product', 'store', { case: answerCase.id, candidate: restrictedCandidate }), { status: 404 });
+  assert.equal(work.executionSnapshot('product', restrictedId, restrictedOutput.run, restrictedOutput.attempt).review, undefined);
+
   work.invalidateKnowledge('product', candidate.id, candidate.revision, '更换验收口径');
+  assert.equal(work.regressionList('product', 'store').comparisons.some(row => row.candidate.ticket === next), true);
   assert.equal(nextDetail().reusedAcceptance, undefined);
   assert.equal(work.topicRules('product', 'store', 'small-screen').length, 0);
   assert.equal(detail().versions.find(row => row.version === 2)?.acceptedSource?.product?.cases.length, 1);

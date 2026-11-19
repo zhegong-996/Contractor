@@ -1,7 +1,23 @@
 import { RefreshCw } from 'lucide-react';
 import { api, part, type Ticket } from './api.ts';
 import { Button } from './components/button.tsx';
-import { date, Ext, Pill, short, useActions } from './ui.tsx';
+import { routeFor } from './navigation.ts';
+import { date, Ext, Pill, Section, short, useActions } from './ui.tsx';
+
+const stageState = {
+  passed: ['已通过', 'green'], waiting: ['待完成', 'amber'],
+  failed: ['需处理', 'red'], unavailable: ['不可核对', 'neutral'],
+} as const;
+
+export function StageChecks({ project, ticket, report }: { project: string; ticket?: string; report: NonNullable<Ticket['stages']> }) {
+  return <Section title="阶段检查" action={<span className="muted-text">第 {report.version} 版 · 模板 v{report.templateVersion}</span>}>
+    {report.stages.map(stage => <div className="record-row" key={stage.id}>
+      <Pill tone={stageState[stage.state][1]}>{stageState[stage.state][0]}</Pill>
+      {ticket && stage.link && stage.link !== 'delivery' ? <a href={routeFor(project, 'work', ticket, stage.link)}>{stage.title}</a> : <strong>{stage.title}</strong>}
+      <span>{stage.detail}</span>{stage.owner && stage.state === 'waiting' && <span>{stage.owner}</span>}
+    </div>)}
+  </Section>;
+}
 
 const state = {
   passed: { label: '通过', tone: 'green' },

@@ -1,36 +1,28 @@
 import { ArrowLeft, BookOpen, Bot, ChevronRight, ListChecks, MessageSquare, PanelRight, Plus, Radio } from 'lucide-react';
 import { part, useData, useTickets, type TopicRule } from './api.ts';
 import { Conversation } from './conversation.tsx';
-import { forest, type Branch } from './hierarchy.ts';
+import { ConversationDirectory } from './conversation-directory.tsx';
 import { routeFor, type PageProps } from './navigation.ts';
 import { Button } from './components/button.tsx';
-import { Avatar, Empty, Failure, Pill, Source, TicketStatus, useSessionScroll, useStored } from './ui.tsx';
+import { Avatar, Empty, Failure, Pill, Source, TicketStatus, useStored } from './ui.tsx';
 
-type Topic = PageProps['project']['topics'][number];
 type Channels = { feishuReady: boolean; im: { connector: string; kind: string; topics: string[]; ready: boolean }[] };
 
 export function ChatPage(props: PageProps) {
   const { project, workspace, route, openTask } = props;
+  const hasDetail = !!route.item || route.tab === 'project';
   const selected = project.topics.find(topic => topic.id === route.item);
   const people = workspace.agents.filter(agent => selected?.consultants.includes(agent.id) && agent.active);
   const [showDetails, setDetails] = useStored('chat-context:' + project.id, window.matchMedia('(min-width: 1280px)').matches);
-  const tasks = useTickets({ project: project.id, topic: selected?.id, purpose: 'work', limit: 8 }, showDetails, 5000).rows;
-  const listScroll = useSessionScroll('chat-topics:' + project.id, { visibleAt: route.item ?? route.tab });
-  const connected = useData<Channels>('project/' + project.id + '/channels', 5000);
+  const tasks = useTickets({ project: project.id, topic: selected?.id, purpose: 'work', limit: 8 }, hasDetail && showDetails, 5000).rows;
+  const connected = useData<Channels>(hasDetail && showDetails ? 'project/' + project.id + '/channels' : '', 5000);
   const rules = useData<TopicRule[]>(selected ? 'project/' + part(project.id) + '/topic-rules/' + part(selected.id) : '', 8000);
   const feishu = project.resources.some(resource => resource.source === 'feishu' && resource.state === 'bound');
   const github = project.resources.some(resource => resource.source === 'github' && resource.state === 'bound' && resource.purpose !== 'reference');
   const im = connected.data?.im.filter(item => !selected || item.topics.includes(selected.id));
-  return <div className="split chat-split" data-has-detail={!!route.item || route.tab === 'project'}>
-    <aside className="split-list" aria-label="项目会话">
-      <div className="list-header"><h1>对话</h1></div>
-      <div className="list-scroll" {...listScroll}>
-        <a className="chat-thread" href={routeFor(project.id, 'chat', undefined, 'project')} aria-current={!route.item ? 'page' : undefined}>
-          <MessageSquare size={17} /><span>项目讨论</span></a>
-        {forest(project.topics, topic => topic.parent).map(branch => <TopicBranch key={branch.item.id} branch={branch} project={project.id} current={route.item} />)}
-      </div>
-    </aside>
-    <div className="split-detail chat-detail">
+  return <div className="split chat-split" data-has-detail={hasDetail}>
+    <ConversationDirectory {...props} />
+    <div className="split-detail chat-detail">{!hasDetail ? <Empty title="选择一个会话" icon={<MessageSquare />} /> : <>
       <header className="chat-heading">
         <div className="chat-heading-title">
           <a className="chat-back" href={routeFor(project.id, 'chat')} aria-label="返回会话列表" title="返回会话列表"><ArrowLeft size={17} /></a>
@@ -75,23 +67,6 @@ export function ChatPage(props: PageProps) {
           <a className="text-button" href={routeFor(project.id, 'knowledge', undefined, 'activity')}><BookOpen size={16} />项目知识</a>
         </aside>}
       </div>}
-    </div>
-  </div>;
-}
-
-function TopicBranch({ branch, project, current }: { branch: Branch<Topic>; project: string; current?: string }) {
-  const { item, children } = branch;
-  const [open, setOpen] = useStored('topic-branch:' + project + ':' + item.id, true);
-  return <div>
-    <div className="chat-thread-row">
-      {children.length > 0 && <button className="tree-toggle" type="button" aria-expanded={open}
-        aria-label={(open ? '收起' : '展开') + item.title + '的子主题'} onClick={() => setOpen(!open)}>
-        <ChevronRight size={15} className={open ? 'tree-open' : undefined} /></button>}
-      <a className="chat-thread" href={routeFor(project, 'chat', item.id)} aria-current={item.id === current ? 'page' : undefined}>
-        <MessageSquare size={16} /><span>{item.title}</span>
-      </a>
-    </div>
-    {open && children.length > 0 && <div className="project-tree-children">{children.map(child =>
-      <TopicBranch key={child.item.id} branch={child} project={project} current={current} />)}</div>}
+    </>}</div>
   </div>;
 }

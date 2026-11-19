@@ -78,6 +78,24 @@ a.external:hover, a.text-button:hover { text-decoration: underline; text-underli
 .sidebar-toggle { color: var(--dim); }
 .toolbar-error { padding: 8px 20px; }
 .main-view { min-height: 0; flex: 1 1 0; min-width: 0; overflow: hidden; }
+.task-center { display: flex; flex-direction: column; }
+.task-center-content { min-height: 0; min-width: 0; flex: 1; overflow: hidden; }
+.task-center-tabs { display: flex; flex: none; align-items: center; gap: 16px; padding: 0 clamp(12px, 2vw, 24px); background: var(--surface); border-bottom: 1px solid var(--line); }
+.task-center-tabs a { display: inline-flex; align-items: center; gap: 6px; min-height: 41px; padding: 0 5px; color: var(--dim); border-bottom: 2px solid transparent; }
+.task-center-tabs a[aria-current=page] { color: var(--accent-strong); border-bottom-color: var(--accent); font-weight: 650; }
+.task-center-tabs .task-center-attention { margin-left: auto; }
+.conversation-directory .list-header { display: grid; gap: 8px; }
+.conversation-directory .list-title h2 { font-size: 18px; }
+.conversation-directory-row { display: flex; align-items: center; gap: 2px; }
+.conversation-directory-row .list-item { flex: 1; min-width: 0; }
+.conversation-directory-row .list-item-top { justify-content: flex-start; gap: 6px; }
+.conversation-directory-row .list-item-top svg { flex: none; }
+.conversation-directory-row .list-item-meta { flex-wrap: wrap; }
+.regression-case { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: start; gap: 12px; padding: 12px 0; border-top: 1px solid var(--line); }
+.regression-record + .regression-record { margin-top: 16px; }
+.regression-versions { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr)); gap: 10px; }
+.regression-version { overflow-wrap: anywhere; min-width: 0; padding: 0 12px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--muted-surface); }
+.regression-case p, .regression-version p { margin: 6px 0; color: var(--dim); }
 .page-scroll { height: 100%; overflow: auto; background: var(--muted-surface); }
 .global-settings { height: 100dvh; }
 .global-settings .toolbar { position: sticky; top: 0; z-index: 3; }

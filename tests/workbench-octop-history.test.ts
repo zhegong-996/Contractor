@@ -104,6 +104,7 @@ test('Octop 临时故障保留飞书补读游标，恢复只派一次，无结�
   const material = work.browse('product', 'store', '', true).find(row => row.id === id)!;
   assert.ok('revision' in material);
   const input = { topic: 'screen', nonce: randomUUID(), text: '这是私有问题', agents: [expert.id], knowledge: { id, revision: material.revision } };
+  const peerCatalog = work.conversationIndex('peer', { project: 'store' });
   await assert.rejects(work.consultTopic('peer', 'store', input), { status: 403 });
   const created = await work.consultTopic('product', 'store', input);
   assert.deepEqual(await work.consultTopic('product', 'store', input), created);
@@ -113,16 +114,23 @@ test('Octop 临时故障保留飞书补读游标，恢复只派一次，无结�
   assert.throws(() => work.conversation('peer', 'store', { topic: 'screen', reply: ticket }), { status: 404 });
   assert.ok(!work.conversation('peer', 'store', { topic: 'screen' }).some(row => row.id === created.id));
   assert.ok(!work.overview('peer').tickets.some(row => row.id === ticket));
+  assert.deepEqual(work.conversationIndex('peer', { project: 'store' }), peerCatalog);
+  assert.ok(!work.conversationIndex('product', { project: 'store' }).rows.some(row => row.ticket === ticket));
+  assert.throws(() => work.archiveConversation('product', 'store', { ticket, archived: true }), { status: 404 });
   const access = work.detail('product', ticket).requests[0]!;
   assert.equal(work.detail('product', ticket).runs.length, 0);
   work.changeAccess('product', ticket, access.id, 'granted');
   for (let i = 0; i < 60 && !work.detail('product', ticket).result; i++) await delay(100);
   const result = work.detail('product', ticket).result!;
   assert.equal(result.citations[0]?.id, id);
+  const evaluation = work.createRegressionCase('product', 'store', { title: '私有口径回归', baseline: { ticket, revision: result.revision },
+    check: { kind: 'answer', terms: ['长词'], citation: true } });
+  assert.ok(!work.regressionList('peer', 'store').cases.some(row => row.id === evaluation.id));
   assert.ok(!work.projectUsage('peer', 'store').attempts.some(row => row.run === result.run));
   assert.equal(rows().find(row => row.id === created.id)?.consultations?.[0]?.status, 'answered');
   work.changeAccess('product', ticket, access.id, 'revoked');
   assert.equal(work.detail('product', ticket).result, undefined);
+  assert.ok(!work.regressionList('product', 'store').cases.some(row => row.id === evaluation.id));
   assert.equal(rows().find(row => row.id === created.id)?.consultations?.[0]?.status, 'unavailable');
   assert.deepEqual(outbound, ['om_missed']);
 });

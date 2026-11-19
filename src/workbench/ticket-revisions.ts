@@ -6,8 +6,9 @@ import type { Iterations } from './iterations.ts';
 import type { AccessReader, KnowledgeEntry, KnowledgeRef, ProjectKnowledge } from './knowledge.ts';
 import type { Assembled, Output, Work } from './work-types.ts';
 import type { DevelopmentTarget } from './development.ts';
-import type { DeliveryTemplate } from './delivery-template.ts';
+import { verifyDeliveryTopic, type DeliveryTemplate } from './delivery-template.ts';
 import { freezeManualCases, type ProductVerification } from './product-verification.ts';
+import type { DeliveryStages } from './delivery-stages.ts';
 
 type RevisionPorts = {
   ticketFor: (id: string, actor: string) => { ticket: Ticket; work: Work; project: Project };
@@ -28,6 +29,7 @@ type RevisionPorts = {
   manifestFor: (run: number) => Assembled | undefined;
   freezeTemplate?: (project: string, target: DevelopmentTarget) => DeliveryTemplate | undefined;
   product: ProductVerification['state'];
+  stages: (ticket: Ticket, work: Work, output: Output, product: ReturnType<ProductVerification['state']>) => DeliveryStages | undefined;
   selectMaterials: (project: string, actor: string, ids: string[], preceding: Work) => string[];
   replacesRevokedSource: (project: Project, before: KnowledgeEntry, after: KnowledgeEntry) => boolean;
   saveWork: (id: string, work: Work) => unknown;
@@ -125,9 +127,10 @@ export function openTicketRevisions(store: Pick<SuperAgentStore, 'atomic' | 'tic
       const currentVersion = work.version ?? 1;
       if (work.accepted && !iterations.get(id, work.accepted.revision, 'accepted'))
         iterations.record(id, { version: currentVersion, ...work.accepted, kind: 'accepted', delivery: work.delivery, template: work.deliveryTemplate });
+      const checks = product(id, output.revision, work, work.development ? work.delivery : undefined);
       iterations.record(id, { version: currentVersion, revision: output.revision, kind, actor, at: new Date().toISOString(),
         reason: input.reason, delivery: work.delivery, commit: work.delivery?.headSha, template: work.deliveryTemplate,
-        product: product(id, output.revision, work, work.development ? work.delivery : undefined), topic: work.topic });
+        product: checks, stages: readable && ports.stages(ticket, work, output, checks), topic: work.topic });
       const { accepted: _accepted, delivery: _delivery, handoff: _handoff, developmentOffer: _offer, developmentResponse: _response,
         localRetry: _retry, ...rest } = work;
       const marker = key('work-revision', id, output.revision);
@@ -144,6 +147,7 @@ export function openTicketRevisions(store: Pick<SuperAgentStore, 'atomic' | 'tic
         ...(input.productCases && { productCases: freezeManualCases(input.productCases) }),
         reusedAcceptance: work.reusedAcceptance && material.includes(work.reusedAcceptance.id)
           && knowledge.current(work.reusedAcceptance.id)?.revision === work.reusedAcceptance.revision ? work.reusedAcceptance : undefined };
+      verifyDeliveryTopic(next.deliveryTemplate, next.topic);
       saveWork(id, next);
       closeAcceptance(id);
       closeDeliveryIssues(id, output);

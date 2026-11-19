@@ -58,7 +58,7 @@ export function openTopicContext(db: DatabaseSync, feishu: {
       .run(ticket, ref.topic, ref.source, ref.id, ref.revision, actor, new Date().toISOString());
     return true;
   }
-  return { view, set, valid(project: string, refs?: readonly TopicContextRef[]) {
+  return { view, set, confirmed, valid(project: string, refs?: readonly TopicContextRef[]) {
     return !refs || refs.every(ref => read(project, ref)?.revision === ref.revision);
   } };
 }

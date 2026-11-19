@@ -94,7 +94,7 @@ export const settingsSchema = z.object({
     githubPollSeconds: z.number().int().min(15).max(300).default(30),
   }).strict().optional(),
   attribution: z.object({
-    entireCommand: z.string().refine(path.isAbsolute),
+    entireCommand: z.string().refine(path.isAbsolute).optional(),
     checkouts: z.record(z.string().regex(githubRepository), z.string().refine(path.isAbsolute)),
   }).strict().optional(),
 }).strict().superRefine((value, context) => {

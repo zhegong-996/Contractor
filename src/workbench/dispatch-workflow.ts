@@ -3,7 +3,7 @@ import type { SuperAgentStore } from '../superagent-ports.ts';
 import type { Agent, Project } from './config.ts';
 import type { Delegation, Delegations } from './delegations.ts';
 import type { DevelopmentTarget } from './development.ts';
-import type { DeliveryTemplate } from './delivery-template.ts';
+import { verifyDeliveryTopic, type DeliveryTemplate } from './delivery-template.ts';
 import { requireValue, WorkbenchError } from './errors.ts';
 import { executionCapabilities } from './execution-capabilities.ts';
 import { digest, type KnowledgeRef } from './knowledge.ts';
@@ -89,6 +89,8 @@ export function openDispatchWorkflow(store: Pick<SuperAgentStore, 'db' | 'atomic
     const prior = !external && store.db.prepare('SELECT ticket,resolved FROM workbench_intake WHERE id=? AND actor=?').get(id, actor);
     if (prior) return { trigger: id, ticket: typeof prior.ticket === 'string' ? prior.ticket : undefined, pending: !prior.resolved };
     if (!external && store.triggers.get(id)) return { trigger: id };
+    const template = development ? freezeTemplate?.(project.id, development) : undefined;
+    verifyDeliveryTopic(template, topic);
     if (!agent) {
       if (external || input.agent && input.agent !== 'auto') throw new WorkbenchError('这个项目没有对应的在岗 Agent。', 409);
       store.atomic(() => {
@@ -98,7 +100,6 @@ export function openDispatchWorkflow(store: Pick<SuperAgentStore, 'db' | 'atomic
       });
       return { trigger: id, pending: true };
     }
-    const template = development ? freezeTemplate?.(project.id, development) : undefined;
     const query = input.title + '\n' + input.request;
     const priorRule = topic && !input.personal && !consultation && input.reuseAcceptance !== false && (template?.product || input.recall)
       ? acceptanceMemory(project, actor, topic, query, template) : undefined;

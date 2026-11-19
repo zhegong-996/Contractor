@@ -139,9 +139,9 @@ Agent 上限以执行尝试计数。同一个 Agent 在同一项目的整理、�
 ## 项目、资料与提交
 
 - `projects[].parent` 指向上级项目，`relatedProjects` 登记有协作关系的项目。每个项目分别校验成员和资源权限。主题和子主题用于归纳多轮工作。父子工单用于拆分交付，关联工单用于连接各自独立负责和验收的工作。
-- 在项目页关联飞书文档、Figma 文件或节点及其他 HTTPS 文档。Backstage 的 `parseEntityRef` / `stringifyEntityRef` 给项目来源提供稳定引用；经工作台选入工单的引用和版本进入执行记录。链接正文仍由源站授权。
+- 在项目页关联飞书文档、Figma 文件或节点及其他 HTTPS 文档。Contractor 给项目来源提供稳定引用，选入工单的引用和版本进入执行记录。原链接的正文继续由源站授权。
 - 仓库来源 `purpose` 为 `delivery`。`contributors` 指定可以挂交付证据的项目成员，`execution.base` 与 `execution.paths` 指定代码委托的基线和可交付路径。可用 `route: false` 在另一项目将同一仓库用作交付目标，已授权成员可用明确工单标识核对归属。
-- `attribution.checkouts` 为交付仓库指定专用本地副本，`attribution.entireCommand` 指向 Entire CLI。代码任务先获取远端基线，宿主保管工单 worktree，Codex 在成员隔离的文件副本中执行。停止后才核对并移交受托差异、记录本地提交；研发通过自己有权的账号推送并关联 PR。Agent 不继承 GitHub 凭据。配置与边界见 [成员执行隔离](MEMBER-EXECUTION-ISOLATION.md)。
+- `attribution.checkouts` 为交付仓库指定专用本地副本。可通过 `attribution.entireCommand` 增加 Entire 检查点核对。代码任务先获取远端基线，宿主保管工单 worktree，Codex 在成员隔离的文件副本中执行。停止后才核对受托差异并记录本地提交。研发通过自己有权的账号推送并关联 PR。配置与边界见 [成员执行隔离](MEMBER-EXECUTION-ISOLATION.md)。
 - GitHub 的 Issue 和 PR 用仓库 ID 与各自编号定位，分支用仓库和引用名定位，再记录实际提交哈希。已关联的普通评论和 PR 状态更新只增加来源记录或更新交付。按 `base SHA + head SHA` 保留交付版本，项目成员可以回看；关 Issue 或改 PR 状态不会签署业务验收。
 - 代码工单关联与验收时核对当前成果对应的运行和受托提交。PR 的仓库、head 分支、head SHA、base 分支与基线必须匹配本单执行记录。验收重新读取该 SHA 的最新必需检查，并保存检查编号和版本。默认检查为 GitHub Actions 的 `collab-pilot`，仓库可通过 `execution.requiredChecks` 配置。缺少 PR 或提交、其他工单的 PR、旧版本 CI、草稿或已关闭且未合并的 PR 均无法验收。资料整理类成果按自身成果修订验收。
 - 仓库可额外配置 `execution.requiredDeployment: {"environment":"store-preview"}`。目标环境最新部署必须指向本版 PR 的 head SHA，且最新部署状态为成功。验收请求提交当前部署的 `deployment: {"id":部署编号,"statusId":状态编号}`，后端实时复查，并把部署证据写入验收历史。工作台在当前工单的「交付与验收」显示部署环境、编号和 SHA，并随验收提交后端提供的部署与状态编号。

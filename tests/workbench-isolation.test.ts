@@ -6,6 +6,7 @@ import os from 'node:os';
 import { promisify } from 'node:util';
 import { createHash } from 'node:crypto';
 import test from 'node:test';
+import { SandboxProviderError, sandboxProvider } from '../src/workbench/sandbox-provider.ts';
 
 const execute = promisify(execFile);
 const state = await realpath(await mkdtemp(path.join(os.tmpdir(), 'contractor-isolation-test-')));
@@ -13,7 +14,9 @@ process.env.COLLAB_STATE_DIR = state;
 const { sandboxPolicy, sandboxInvocation, isolateJob, importIsolatedChanges, codexSessionEvidence, modelReceipt, discardIsolation } = await import('../src/workbench/isolation.ts');
 test.after(() => rm(state, { recursive: true, force: true }));
 
-test('实际 Seatbelt 限制跨成员资料、旧会话、宿主环境、符号链接及写入范围', { skip: process.platform !== 'darwin', timeout: 20000 }, async () => {
+test('实际 Seatbelt 限制跨成员资料、旧会话、宿主环境、符号链接及写入范围', {
+  skip: process.platform !== 'darwin' || !process.env.CONTRACTOR_SANDBOX_ROOT, timeout: 20000,
+}, async () => {
   const base = path.join(state, 'boundary');
   const workspace = path.join(base, 'workspace'), home = path.join(base, 'home'), input = path.join(base, 'input');
   const temp = await realpath(await mkdtemp('/private/tmp/contractor-boundary-'));
@@ -60,6 +63,9 @@ test('缺模型、缺本成员凭据及生产误用测试执行器都不会继�
   await writeFile(credential, '{"OPENAI_API_KEY":"test-only"}');
   await chmod(credential, 0o644);
   await assert.rejects(isolateJob(agent as never, job, {}), /0600/);
+  assert.throws(() => sandboxProvider('relative/provider'), SandboxProviderError);
+  assert.throws(() => sandboxInvocation({ home: state, temp: state, policy: 'unused', sandboxRoot: path.join(state, 'missing') },
+    ['/bin/sh'], 'unused'), SandboxProviderError);
   const script = `import {isolateJob} from ${JSON.stringify(new URL('../src/workbench/isolation.ts', import.meta.url).href)};
     try {await isolateJob(${JSON.stringify({ ...base, execution: { kind: 'test', provider: 'fixture' } })},{},{});process.exit(99)}
     catch(error){if(!error.message.includes('测试进程'))throw error}`;

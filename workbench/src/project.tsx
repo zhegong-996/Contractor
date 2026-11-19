@@ -9,6 +9,7 @@ import { AgentOptions } from './creation.tsx';
 import { Receipts } from './agents.tsx';
 import { Conversation } from './conversation.tsx';
 import { ProjectRoutingPanel } from './operations-settings.tsx';
+import { ProjectRegression } from './project-regression.tsx';
 import { Button } from './components/button.tsx';
 import { Input } from './components/input.tsx';
 import { TabsContent } from './components/page-tabs.tsx';
@@ -16,7 +17,7 @@ import { Markdown } from './markdown.tsx';
 import { Avatar, date, Empty, Ext, Failure, Field, Loading, MaterialIcon, Modal, PageTabs, Pill, Section, short, Source,
   TopicOptions, topicName, useActions, useStored } from './ui.tsx';
 
-const tabs = [['chat', '讨论'], ['structure', '项目结构'], ['sources', '资料与连接'], ['discussion', '群反馈'], ['usage', '用量'],
+const tabs = [['chat', '讨论'], ['structure', '项目结构'], ['sources', '资料与连接'], ['discussion', '群反馈'], ['regression', '回归评估'], ['usage', '用量'],
   ['settings', '项目设置'], ['routing', '职责与路由']] as const;
 export function ProjectPage(props: PageProps) {
   const { project, route } = props;
@@ -34,6 +35,7 @@ export function ProjectPage(props: PageProps) {
       <TabsContent value="structure" className="detail-stack"><Structure {...props} /></TabsContent>
       <TabsContent value="sources" className="detail-stack"><Sources {...props} /></TabsContent>
       {project.discussion && <TabsContent value="discussion" className="detail-stack"><GroupFeedback {...props} /></TabsContent>}
+      <TabsContent value="regression" className="detail-stack"><ProjectRegression project={project} /></TabsContent>
       <TabsContent value="usage" className="detail-stack"><Receipts project={project.id} /></TabsContent>
       {project.maintain && <TabsContent value="settings" className="detail-stack"><ProjectPermissions project={project.id} actor={props.workspace.actor}
         afterTransfer={() => go(project.id, 'project', undefined, 'structure')} /></TabsContent>}

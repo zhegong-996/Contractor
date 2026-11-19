@@ -16,9 +16,11 @@ const publicPaths = [
   '.gitignore', '.gitmodules', '.github/workflows/ci.yml', 'AGENTS.md', 'CONTRIBUTING.md', 'LICENSE', 'README.md',
   'THIRD_PARTY_NOTICES.md', 'package.json', 'package-lock.json', 'sources.lock.json', 'tsconfig.json',
   'bin', 'fixtures', 'integrations', 'licenses', 'scripts', 'src', 'tests', 'workbench',
-  'docs/ARCHITECTURE.md', 'docs/PLUGIN-ARCHITECTURE.md', 'docs/QUICKSTART-RUNNER.md', 'docs/SOURCES.md', 'docs/WORKBENCH-OCTOP.md',
+  'docs/ARCHITECTURE.md', 'docs/CONFIGURATION.md', 'docs/KNOWLEDGE-VERSIONS.md', 'docs/MEMBER-EXECUTION-ISOLATION.md',
+  'docs/PLUGIN-ARCHITECTURE.md', 'docs/QUICKSTART-RUNNER.md', 'docs/SOURCES.md', 'docs/WORKBENCH-OCTOP.md',
   'docs/WORKBENCH-IM-LOGIN.md', 'docs/WORKBENCH-PROJECT-ARCHITECTURE.md',
-  'docs/WORKBENCH-DELIVERY-TEMPLATE.md', 'docs/WORKBENCH-REMOTE-RUNNER.md',
+  'docs/WORKBENCH-DELIVERY-TEMPLATE.md', 'docs/WORKBENCH-FRONTEND-WORKSPACE.md', 'docs/WORKBENCH-REMOTE-RUNNER.md',
+  'docs/images/task-center.png', 'docs/images/regression-review.png',
 ];
 const upstreamPaths = {
   superagent: ['LICENSE', 'README.md', 'package.json', 'locale', 'prompts', 'skills', 'src'],

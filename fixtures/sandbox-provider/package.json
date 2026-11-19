@@ -1,0 +1,13 @@
+{
+  "name": "contractor-external-sandbox",
+  "private": true,
+  "dependencies": {
+    "@anthropic-ai/sandbox-runtime": "0.0.83",
+    "zod": "4.6.7"
+  },
+  "overrides": {
+    "@anthropic-ai/sandbox-runtime": {
+      "zod": "$zod"
+    }
+  }
+}

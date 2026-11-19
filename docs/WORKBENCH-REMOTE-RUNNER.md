@@ -37,6 +37,20 @@ Claude Code 的连接检查依据 Agent 登记的服务商。DeepSeek 读取执�
 
 首次使用 Codex 时，若所选 Agent 的本机凭据槽位为空，交互终端会启动该槽位独立的 Codex 登录。Debian 执行机一次性安装隔离依赖 `sudo apt-get install bubblewrap socat ripgrep`。Claude Code 使用已登记的 Ollama 或 DeepSeek 配置。浏览器的项目授权和模型服务凭据分别生效。
 
+### 安装 Codex 隔离提供者
+
+运行隔离 Codex 的工作台或设备需要一个独立安装的 SRT。下载与本版本一致的 [外置沙箱配置](../fixtures/sandbox-provider)，在可信安装目录放置其中的 `package.json` 和 `package-lock.json`。可以从源码目录复制。
+
+```sh
+sandbox_install="$PWD/.runtime/external-sandbox"
+mkdir -p "$sandbox_install"
+cp fixtures/sandbox-provider/package.json fixtures/sandbox-provider/package-lock.json "$sandbox_install/"
+npm ci --ignore-scripts --prefix "$sandbox_install"
+export CONTRACTOR_SANDBOX_ROOT="$sandbox_install/node_modules/@anthropic-ai/sandbox-runtime"
+```
+
+把相同的绝对路径设置传给工作台或 `contractor connect` 进程。已有实例升级前先为对应服务配置该路径。Contractor 核对 SRT 和 Zod 版本，按本轮文件和网络政策启动执行。工具缺失或版本不符时受限执行进入配置阻塞。使用 Claude Code 只读首单样例时只需配置对应模型服务。 [执行隔离](MEMBER-EXECUTION-ISOLATION.md) · [SRT 上游](https://github.com/anthropics/sandbox-runtime)
+
 ## 旧版 API 配对与派单
 
 1. Agent 所有者登录工作台，通过本机 API `POST /api/device/pair` 传入 `{"project":"store","agent":"engineering-claude","remote":true}`。配对码十分钟失效，只能用一次，并绑定该项目、Agent 和所有者。

@@ -1,13 +1,14 @@
 import type { DatabaseSync } from 'node:sqlite';
 import type { DeliveryTemplate } from './delivery-template.ts';
 import type { ProductVerificationState } from './product-verification.ts';
+import type { DeliveryStages } from './delivery-stages.ts';
 
 // A review snapshot complements the native Ticket/Assignment; it never schedules execution.
 // Reviews are append-only and tied to an exact deliverable.
 export type Review = {
   version: number; revision: string; kind: 'accepted' | 'rejected' | 'continued' | 'withdrawn' | 'rechecked'; actor: string; at: string;
   reason?: string; commit?: string; delivery?: unknown; template?: DeliveryTemplate;
-  product?: ProductVerificationState; topic?: string;
+  product?: ProductVerificationState; stages?: DeliveryStages; topic?: string;
 };
 export class Iterations {
   constructor(private readonly db: DatabaseSync) {

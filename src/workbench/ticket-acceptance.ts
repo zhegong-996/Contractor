@@ -10,6 +10,7 @@ import type { ProjectResource } from './project-resources.ts';
 import type { Assembled, CommitProvenance, DeliveryEvidence, Output, Work } from './work-types.ts';
 import { deliveryRequirements, type templateReview } from './delivery-template.ts';
 import type { ProductVerification } from './product-verification.ts';
+import type { DeliveryStages } from './delivery-stages.ts';
 
 type AcceptancePorts = {
   ticketFor: (id: string, actor: string) => { ticket: Ticket; work: Work; project: Project };
@@ -25,6 +26,7 @@ type AcceptancePorts = {
   verifyCodeDelivery: (ticket: Ticket, work: Work, evidence: DeliveryEvidence) => unknown;
   review: (work: Work, output: Output, evidence: DeliveryEvidence) => ReturnType<typeof templateReview>;
   product: ProductVerification['state'];
+  stages: (ticket: Ticket, work: Work, output: Output, product: ReturnType<ProductVerification['state']>) => DeliveryStages | undefined;
   storeDeliveryVersion: (id: string, evidence: DeliveryEvidence) => void;
   recordCheckAttempts: (id: string, pull: {repoId: number; pr: number}, attempts: PullCheck[]) => void;
   saveWork: (id: string, work: Work) => unknown;
@@ -39,7 +41,7 @@ export function openTicketAcceptance(store: Pick<SuperAgentStore, 'atomic'>, hub
   iterations: Iterations, knowledge: Pick<ProjectKnowledge, 'get' | 'save'>, ports: AcceptancePorts) {
   const { ticketFor, mayStart, delegationAuthority, pendingDelegation, missingRequiredDelegation, delegationResultsCurrent,
     readableOutput, pullTarget, inspectPull, provenance, verifyCodeDelivery, review, product, storeDeliveryVersion, recordCheckAttempts, saveWork,
-    closeAcceptance, closeDeliveryIssues, manifestFor, knowledgeId, audit } = ports;
+    closeAcceptance, closeDeliveryIssues, manifestFor, knowledgeId, audit, stages } = ports;
 
   return async function accept(actor: string, id: string, revision: string, conditions: string, body: string, commit?: string, deployment?: DeploymentSelection) {
     const { ticket, work, project } = ticketFor(id, actor);
@@ -114,7 +116,8 @@ export function openTicketAcceptance(store: Pick<SuperAgentStore, 'atomic'>, hub
       saveWork(id, { ...current, ...(verified ? { delivery: verified } : {}), accepted: { actor, revision, at: new Date().toISOString(), ...(commit ? { commit } : {}) } });
       iterations.record(id, { version: current.version ?? 1, revision, kind: 'accepted', actor, at: new Date().toISOString(),
         ...(commit ? { commit } : {}), delivery: verified ?? current.delivery, template: current.deliveryTemplate,
-        ...(productResult && { product: productResult, topic: current.topic }) });
+        ...(productResult && { product: productResult, topic: current.topic }),
+        stages: stages(check.ticket, current, output, productResult) });
       closeAcceptance(id);
       closeDeliveryIssues(id, output);
       const confirmedIds = new Set(manifestFor(output.run)?.confirmations ?? []);

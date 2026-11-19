@@ -13,6 +13,8 @@ export type TicketRow = Overview['tickets'][number];
 export type Decision = Overview['needsYou'][number];
 export type Ticket = ReturnType<Collaboration['detail']>;
 export type ConversationMessage = ReturnType<Collaboration['conversation']>[number];
+export type ConversationList = ReturnType<Collaboration['conversationIndex']>;
+export type Regression = ReturnType<Collaboration['regressionList']>;
 export type TicketTopicContext = ReturnType<Collaboration['ticketTopicContext']>;
 export type Knowledge = ReturnType<Collaboration['browse']>[number];
 export type ReadableKnowledge = Extract<Knowledge, { body: string }>;
@@ -95,6 +97,20 @@ export function useMessages(route: string) {
     queryFn: ({ signal, pageParam }) => api<ReturnType<Collaboration['conversationPage']>>(paged + (pageParam ? '&before=' + pageParam : ''), undefined, signal),
     getNextPageParam: page => page.next, retry: false, refetchInterval: 4000 });
   const rows = query.data && [...new Map(query.data.pages.slice().reverse().flatMap(page => page.rows.map(row => [row.id, row] as const))).values()];
+  return { ...query, rows };
+}
+
+export function useConversations(filters: { project?: string; q?: string; archived: boolean }) {
+  const params = new URLSearchParams();
+  if (filters.project) params.set('project', filters.project);
+  if (filters.q) params.set('q', filters.q);
+  if (filters.archived) params.set('archived', '1');
+  const route = 'conversations?' + params.toString();
+  const query = useInfiniteQuery({ queryKey: [route], initialPageParam: undefined as string | undefined,
+    queryFn: ({ signal, pageParam }) => api<ConversationList>(route + (pageParam ? (params.size ? '&' : '') + 'after=' + part(pageParam) : ''), undefined, signal),
+    getNextPageParam: page => page.next, retry: false, refetchInterval: 8000 });
+  const rows = query.error ? [] : [...new Map(query.data?.pages.flatMap(page =>
+    page.rows.map(row => [row.project + ':' + row.scope, row] as const))).values()];
   return { ...query, rows };
 }
 

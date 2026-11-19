@@ -1,21 +1,8 @@
-/**
- * 第三十轮 P-12 · RBAC 判定接入开源 casbin；新增用户级配置。
- *
- * 用户 2026-11-08 19:28 指令：「涉及到权限管控 rbac 相关，直接找开源项目代码
- * 复用」——权限判定（authz）改走 Apache casbin（npm `casbin` 5.51.1，
- * Apache-2.0）：RBAC model + 策略文件（.runtime/console/rbac_policy.csv），
- * keyMatch 通配；角色绑定以 accounts.json 为唯一权威，启动与账号变更时同步。
- *
- * 用户同轮指令：「每个用户都可以配置自己的部分，管理员可以看到所有的」——
- * 新增 per-user settings（.runtime/console/users/<name>/settings.json，0600）：
- * 本人读写自己的配置；管理员可总览全部用户的配置；管理员本身也是用户，
- * 正常使用业务功能与自己的配置。
- */
 import { createHmac, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { runtime } from './config.ts';
-import { initRbac, rebindHuman, bindHuman, syncHumans, rbacEnforce, rbacPolicyText, RBAC_HUMAN_ROLES, ROLE_PERMISSIONS as RBAC_ROLE_PERMISSIONS } from './rbac.ts';
+import { initRbac, bindHuman, syncHumans, rbacEnforce, rbacPolicyText, RBAC_HUMAN_ROLES, ROLE_PERMISSIONS as RBAC_ROLE_PERMISSIONS } from './rbac.ts';
 import type { ExternalIdentity, VerifiedIdentity } from './workbench/im-login-providers.ts';
 
 export const CONSOLE_ROLES = RBAC_HUMAN_ROLES;
@@ -25,7 +12,7 @@ export const ROLE_LABELS: Record<ConsoleRole, string> = {
   owner: '所有者', admin: '管理员', operator: '协作者', viewer: '只读',
 };
 
-/** 权威定义在 src/rbac.ts（人与 agent 共用 casbin 策略文件）；此处 re-export 供前端与既有调用方。 */
+/** Platform role descriptions for the workbench. */
 export const ROLE_PERMISSIONS = RBAC_ROLE_PERMISSIONS as Record<ConsoleRole, readonly string[]>;
 
 export const PERMISSION_LABELS: Record<string, string> = {
@@ -119,10 +106,9 @@ export class ConsoleAuth {
   private sessions = new Map<string, ConsoleSession & { credentialVersion: string; external?: ExternalIdentity }>();
   private failures = new Map<string, { count: number; lockedUntil: number }>();
 
-  /** 初始化 casbin enforcer（幂等，见 src/rbac.ts）并同步账号绑定。 */
   async ready(): Promise<void> {
     await initRbac();
-    await syncHumans(this.listAccounts().map(a => ({ username: a.username, role: a.role })));
+    syncHumans(this.listAccounts());
   }
 
   /** 策略文件当前内容（管理员可在后台查看角色 -> 权限矩阵来源）。 */
@@ -190,7 +176,7 @@ export class ConsoleAuth {
     if (identity) updateIMProfile(account, identity);
     accounts.push(account);
     this.saveAccounts(accounts);
-    await bindHuman(name, role);
+    bindHuman(name, role);
     this.audit('account.created', createdBy, { username: name, role });
     return account;
   }
@@ -227,7 +213,7 @@ export class ConsoleAuth {
     }
     account.role = role;
     this.saveAccounts(accounts);
-    await rebindHuman(username, role);
+    syncHumans(accounts);
     for (const [token, session] of this.sessions) if (session.username === username) this.sessions.delete(token);
     this.audit('account.role-changed', operator, { username, role });
   }
@@ -242,7 +228,7 @@ export class ConsoleAuth {
     }
     account.disabled = disabled;
     this.saveAccounts(accounts);
-    await syncHumans(this.listAccounts().map(a => ({ username: a.username, role: a.role })));
+    syncHumans(accounts);
     if (disabled) for (const [token, session] of this.sessions) if (session.username === username) this.sessions.delete(token);
     this.audit(disabled ? 'account.disabled' : 'account.enabled', operator, { username });
   }
@@ -434,7 +420,6 @@ export class ConsoleAuth {
 }
 
 export function can(session: ConsoleSession | null, permission: string): boolean {
-  // casbin 判定（fail-closed）：sub 统一 user:<username>，见 src/rbac.ts。
   if (!session) return false;
   return rbacEnforce('user:' + session.username, permission);
 }

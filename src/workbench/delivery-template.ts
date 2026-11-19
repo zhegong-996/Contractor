@@ -11,15 +11,21 @@ export const deliveryTemplateSchema = z.object({
   id: z.string().regex(/^[a-z][a-z0-9-]{0,47}$/),
   version: z.number().int().positive().safe(),
   product: productTemplateSchema.optional(),
+  stages: z.object({ requireTopicBasis: z.boolean().optional() }).strict().optional(),
   reviewerIds: z.array(z.number().int().positive().safe()).min(1).max(12)
     .refine(ids => new Set(ids).size === ids.length, '独立审查账号不能重复').optional(),
-}).strict();
+}).strict().refine(template => !template.stages || !!template.product, '分阶段交付模板需要配置明确的产品验收条件。');
 
 export type DeliveryTemplate = z.infer<typeof deliveryTemplateSchema> & {
   repository: string;
   checks: RequiredCheck[];
   deployment?: RequiredDeployment;
 };
+
+export function verifyDeliveryTopic(template: DeliveryTemplate | undefined, topic: string | undefined) {
+  if (template?.stages?.requireTopicBasis && !topic)
+    throw new WorkbenchError('此交付模板需要在项目主题下立项并确认主题依据。', 409);
+}
 
 export function freezeDeliveryTemplate(target: ProjectResource | undefined): DeliveryTemplate | undefined {
   const execution = target?.execution;

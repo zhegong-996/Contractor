@@ -70,14 +70,15 @@ function SnapshotBody({ id, attempt, ticket, project }: { id: number; attempt?: 
       <a className="text-button" href={runRoute(project, ticket, id, snap.attempt)}>本次记录链接</a>
     </div>
     {!snap.readable ? <div className="info-callout"><LockKeyhole size={16} />此执行快照的资料正文当前不可读。</div>
-      : snap.contents ? <SnapshotContents snapshot={snap} project={project} />
+      : snap.contents ? <SnapshotContents snapshot={snap} project={project} ticket={ticket} />
         : <p className="muted-text">此轮没有已保存的装配内容。</p>}
   </>;
 }
 
-function SnapshotContents({ snapshot: snap, project }: { snapshot: Snapshot; project: string }) {
+function SnapshotContents({ snapshot: snap, project, ticket }: { snapshot: Snapshot; project: string; ticket: string }) {
   const context = snap.contents!.context;
   const evidence = context.events.filter(event => ['knowledge.source', 'task.confirmation', 'project.reference'].includes(event.type));
+  const review = snap.review;
   return <>
     <dl className="facts run-facts">
       <dt>执行端</dt><dd>{snap.device?.name ?? '未记录设备名'}{snap.device?.remote && ' · 远程'}</dd>
@@ -85,6 +86,17 @@ function SnapshotContents({ snapshot: snap, project }: { snapshot: Snapshot; pro
       {snap.isolation && <><dt>成员隔离</dt><dd>{snap.isolation.owner}</dd></>}
       {snap.contents!.runtime.resumed && <><dt>会话</dt><dd>接续上轮</dd></>}
     </dl>
+    {review && <details className="minor-disclosure">
+      <summary>过程核对</summary>
+      <dl className="facts run-facts">
+        <dt>已确认事项</dt><dd>{review.confirmations} 项{review.topicBasis && ' · 已固定主题依据'}</dd>
+        <dt>执行回执</dt><dd>{review.receipt ? runStates[review.receipt]?.[0] ?? review.receipt : '尚无回执'}</dd>
+        <dt>实际模型</dt><dd>{review.model.reported ?? '执行端未报告'}{review.model.state === 'different' && <Pill tone="red">与选用模型不同</Pill>}</dd>
+        <dt>本次成果</dt><dd>{review.delivery ? <a href={deliveryVersionRoute(project, ticket, review.delivery.revision)}>
+          {review.delivery.accepted ? '已验收 · 查看该版' : '查看交付版本'}
+        </a> : '本次暂无已记录成果'}</dd>
+      </dl>
+    </details>}
     {snap.materials?.map(ref => <div className="record-row" key={ref.id}>
       <a href={routeFor(project, 'knowledge', ref.id, 'history')}>{ref.title ?? evidence.find(event => event.id === ref.id)?.summary ?? '资料'}</a>
       <code>{short(ref.revision, 12)}</code>{ref.sourceRevision && <Ext href={ref.url}>源版本 {short(ref.sourceRevision, 12)}</Ext>}

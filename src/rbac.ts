@@ -1,16 +1,3 @@
-/**
- * 第三十轮 P-12/P-13 · 统一的 casbin RBAC 封装（开源复用：npm casbin）。
- *
- * 人（console 用户）与 agent 共用同一份策略文件
- * （.runtime/console/rbac_policy.csv）：角色 -> 权限（act 统一 use，keyMatch
- * 通配）。绑定方式分两轨：
- *   - 人：启动与账号变更时把 user:<username> 绑到角色（g 段只在内存）；
- *   - agent：档位来自 agent registry 的职责（supervisor / worker / personal），
- *     运行时动态以档位角色判定，registry 变化即时生效，无需预绑定。
- *
- * fail-closed：未初始化（未 await initRbac）时一切判定返回 false。
- */
-import { newEnforcer, newModel, FileAdapter, type Enforcer } from 'casbin';
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { protocolMatches } from './workbench/compatibility.ts';
@@ -38,41 +25,46 @@ export const ROLE_PERMISSIONS: Record<string, readonly string[]> = {
   'agent-personal': ['read'],
 };
 
-const RBAC_MODEL = `
-[request_definition]
-r = sub, obj, act
-
-[policy_definition]
-p = sub, obj, act
-
-[role_definition]
-g = _, _
-
-[policy_effect]
-e = some(where (p.eft == allow))
-
-[matchers]
-m = (g(r.sub, p.sub) || r.sub == p.sub) && keyMatch(r.obj, p.obj) && r.act == p.act
-`;
-
 const policyPath = () => path.join(runtime('console'), 'rbac_policy.csv');
 
 function seedPolicy(): string {
   const lines = [
     workbenchPolicyRevision,
     workbenchMembersRevision,
-    '# casbin RBAC 策略（角色 -> 权限，act 统一 use；keyMatch 支持 * 通配）',
-    '# 首次由 ROLE_PERMISSIONS 种子生成；可手工扩展（加角色/加权限），重启生效；',
-    '# 删除本文件即重置为种子。人与用户的绑定（g 段）不落文件：人以 accounts.json',
-    '# 为准，agent 档位来自 agent registry 职责，运行时动态判定。',
+    '# Contractor 权限策略。p, 角色, 权限, use。权限可用 * 匹配前缀。',
+    '# 文件从默认矩阵初始化，修改后重启生效。成员角色以 accounts.json 为准。',
   ];
   for (const role of [...RBAC_HUMAN_ROLES, ...RBAC_AGENT_TIERS])
     for (const perm of ROLE_PERMISSIONS[role] ?? []) lines.push(`p, ${role}, ${perm}, use`);
   return lines.join('\n') + '\n';
 }
 
-let sharedEnforcer: Enforcer | null = null;
+let permissions: Map<string, Set<string>> | undefined;
+const humanRoles = new Map<string, string>();
 let readyPromise: Promise<void> | null = null;
+
+function csvFields(line: string) {
+  const fields = line.split(',').map(field => field.trim());
+  return fields.map(field => field.startsWith('"') && field.endsWith('"') ? field.slice(1, -1) : field);
+}
+
+function readPolicy(content: string) {
+  const policies = new Map<string, Set<string>>();
+  for (const [index, raw] of content.split(/\r?\n/).entries()) {
+    const line = raw.trim();
+    if (!line || line.startsWith('#')) continue;
+    const [kind, subject, permission, action, ...extra] = csvFields(line);
+    // Earlier deployments also rebuilt grouping rules from accounts at startup.
+    if (kind === 'g') continue;
+    if (kind !== 'p' || !subject || !permission || !action || extra.length)
+      throw new Error('权限策略第 ' + (index + 1) + ' 行无效，请使用 p, 角色, 权限, use。');
+    if (action !== 'use') continue;
+    const allowed = policies.get(subject) ?? new Set<string>();
+    allowed.add(permission);
+    policies.set(subject, allowed);
+  }
+  return policies;
+}
 
 function migrateWorkbenchPolicy(file: string) {
   const current = readFileSync(file, 'utf8');
@@ -80,7 +72,7 @@ function migrateWorkbenchPolicy(file: string) {
   const hasFirst = lines.some(line => protocolMatches(line, workbenchPolicyRevision));
   const hasSecond = lines.some(line => protocolMatches(line, workbenchMembersRevision));
   if (hasFirst && hasSecond) return;
-  const rules = current.split(/\r?\n/).map(line => line.split(',').map(value => value.trim()));
+  const rules = current.split(/\r?\n/).map(csvFields);
   const has = (role: string, permission: string) => rules.some(([kind, subject, object, act]) =>
     kind === 'p' && subject === role && object === permission && act === 'use');
   const additions = hasFirst ? [] : ['owner', 'admin'].flatMap(role => {
@@ -98,14 +90,14 @@ function migrateWorkbenchPolicy(file: string) {
   renameSync(temporary, file);
 }
 
-/** 初始化 enforcer（幂等）。两个进程（bridge / console）各调各的，读同一文件。 */
+/** Load the platform policy once. Project membership and data grants are checked separately. */
 export async function initRbac(): Promise<void> {
   if (!readyPromise) {
     readyPromise = (async () => {
       const file = policyPath();
       if (!existsSync(file)) writeFileSync(file, seedPolicy(), { mode: 0o600 });
       else migrateWorkbenchPolicy(file);
-      sharedEnforcer = await newEnforcer(newModel(RBAC_MODEL), new FileAdapter(file));
+      permissions = readPolicy(readFileSync(file, 'utf8'));
     })().catch(error => { readyPromise = null; throw error; });
   }
   return readyPromise;
@@ -113,41 +105,28 @@ export async function initRbac(): Promise<void> {
 
 /** 同步判定；未初始化一律拒绝（fail-closed）。 */
 export function rbacEnforce(sub: string, permission: string): boolean {
-  if (!sharedEnforcer) return false;
-  try { return sharedEnforcer.enforceSync(sub, permission, 'use'); } catch { return false; }
+  const loaded = permissions;
+  if (!loaded) return false;
+  const granted = (subject: string) => {
+    const rules = loaded.get(subject);
+    if (rules?.has(permission)) return true;
+    return !!rules && [...rules].some(rule => {
+      const wildcard = rule.indexOf('*');
+      return wildcard >= 0 && permission.startsWith(rule.slice(0, wildcard));
+    });
+  };
+  const role = humanRoles.get(sub);
+  if (sub.startsWith('user:') && !role) return false;
+  return granted(sub) || !!role && granted(role);
 }
 
-/** 人的绑定：g, user:<name>, <role>（内存，不落文件）。 */
-export async function bindHuman(username: string, role: string): Promise<void> {
-  if (!sharedEnforcer) return;
-  await sharedEnforcer.addRoleForUser('user:' + username, role);
+export function bindHuman(username: string, role: string) {
+  if (permissions) humanRoles.set('user:' + username, role);
 }
 
-/** 清掉某人的全部绑定后重绑（账号角色变更时）。 */
-export async function rebindHuman(username: string, role: string): Promise<void> {
-  if (!sharedEnforcer) return;
-  const sub = 'user:' + username;
-  for (const r of await sharedEnforcer.getRolesForUser(sub)) await sharedEnforcer.deleteRoleForUser(sub, r);
-  await sharedEnforcer.addRoleForUser(sub, role);
-}
-
-/**
- * 判定前自愈：bridge / console 是两个进程，bridge 的绑定是启动快照；
- * 新建或改角色的账号在 bridge 判定前按 accounts.json 现绑（带缓存）。
- */
-const knownHumans = new Set<string>();
-export async function ensureHumanBound(username: string): Promise<void> {
-  if (!sharedEnforcer || knownHumans.has(username)) return;
-  const { ConsoleAuth } = await import('./console-auth.ts');
-  const account = new ConsoleAuth().listAccounts().find(a => a.username === username);
-  if (account) { await rebindHuman(username, account.role); knownHumans.add(username); }
-}
-
-/** 把账号文件的现状同步进内存绑定（启动时）。 */
-export async function syncHumans(accounts: Array<{ username: string; role: string }>): Promise<void> {
-  if (!sharedEnforcer) return;
-  for (const rule of await sharedEnforcer.getGroupingPolicy()) await sharedEnforcer.removeGroupingPolicy(...rule);
-  for (const a of accounts) await sharedEnforcer.addRoleForUser('user:' + a.username, a.role);
+export function syncHumans(accounts: Array<{ username: string; role: string; disabled?: boolean }>) {
+  humanRoles.clear();
+  for (const account of accounts) if (!account.disabled) bindHuman(account.username, account.role);
 }
 
 /** 策略文件当前内容（管理后台展示用）。 */
