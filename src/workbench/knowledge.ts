@@ -5,6 +5,7 @@ import type { SuperAgentStore } from '../superagent-ports.ts';
 
 export const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 export type KnowledgeRef = { id: string; revision: string };
+export type KnowledgeDirectory = 'requestable' | 'hidden';
 export type SourceVersion = {
   resource: string; path?: string; authority: string; revision: string; fingerprint: string; url: string;
 };
@@ -30,7 +31,8 @@ type Entry = {
   retirement?: { kind: 'superseded' | 'invalidated'; by: string; at: string; reason?: string; replacement?: KnowledgeRef };
 };
 export type AccessReader = { agent: string; owner: string };
-type Request = { id: string; ticket: string; entry: string; revision: string; requestedBy: string; reason: string; state: string;
+export type KnowledgeGrantState = 'requested' | 'granted' | 'revoked' | 'expired';
+type Request = { id: string; ticket: string; entry: string; revision: string; requestedBy: string; reason: string; state: KnowledgeGrantState;
   readerAgent: string; readerOwner: string; generation: number; purpose: 'execute' | 'review'; output: string };
 
 export class ProjectKnowledge {
@@ -39,6 +41,12 @@ export class ProjectKnowledge {
       CREATE TABLE IF NOT EXISTS workbench_knowledge (id TEXT PRIMARY KEY, project TEXT NOT NULL, value TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS workbench_knowledge_revision (
         entry TEXT NOT NULL, revision TEXT NOT NULL, value TEXT NOT NULL, PRIMARY KEY(entry,revision)
+      );
+      CREATE TABLE IF NOT EXISTS workbench_knowledge_directory (
+        entry TEXT PRIMARY KEY, visibility TEXT NOT NULL CHECK(visibility IN ('requestable','hidden'))
+      );
+      CREATE TABLE IF NOT EXISTS workbench_knowledge_access_policy (
+        project TEXT PRIMARY KEY, hours INTEGER NOT NULL CHECK(hours BETWEEN 1 AND 168)
       );
       CREATE TABLE IF NOT EXISTS workbench_access (
         id TEXT PRIMARY KEY, ticket TEXT NOT NULL, entry TEXT NOT NULL, revision TEXT NOT NULL,
@@ -98,6 +106,38 @@ export class ProjectKnowledge {
   list(project: string): Entry[] {
     return this.store.db.prepare('SELECT value FROM workbench_knowledge WHERE project=? ORDER BY rowid DESC')
       .all(project).map(row => JSON.parse(String(row.value)));
+  }
+
+  private directoryRoot(entry: Entry): Entry {
+    const seen = new Set([entry.id]);
+    while (entry.replaces) {
+      const prior = this.get(entry.replaces.id, entry.replaces.revision);
+      if (!prior || seen.has(prior.id) || prior.owner !== entry.owner || prior.project !== entry.project) break;
+      seen.add(prior.id);
+      entry = prior;
+    }
+    return entry;
+  }
+
+  directory(entry: Entry): KnowledgeDirectory {
+    const root = this.directoryRoot(entry);
+    const row = this.store.db.prepare('SELECT visibility FROM workbench_knowledge_directory WHERE entry=?').get(root.id);
+    if (row) return row.visibility as KnowledgeDirectory;
+    return root.ticket ? 'hidden' : 'requestable';
+  }
+
+  setDirectory(entry: Entry, visibility: KnowledgeDirectory) {
+    this.store.db.prepare(`INSERT INTO workbench_knowledge_directory VALUES (?,?)
+      ON CONFLICT(entry) DO UPDATE SET visibility=excluded.visibility`).run(this.directoryRoot(entry).id, visibility);
+  }
+
+  accessHours(project: string): number {
+    return Number(this.store.db.prepare('SELECT hours FROM workbench_knowledge_access_policy WHERE project=?').get(project)?.hours ?? 8);
+  }
+
+  setAccessHours(project: string, hours: number) {
+    this.store.db.prepare(`INSERT INTO workbench_knowledge_access_policy VALUES (?,?)
+      ON CONFLICT(project) DO UPDATE SET hours=excluded.hours`).run(project, hours);
   }
 
   publish(entry: Entry, revision: string, actor = entry.owner, previous?: Entry) {
@@ -172,12 +212,33 @@ export class ProjectKnowledge {
       FROM workbench_access WHERE ticket=? ORDER BY rowid`).all(Date.now(), ticket) as unknown as Request[];
   }
 
-  change(request: Request, state: 'granted' | 'revoked') {
+  change(request: Request, state: 'granted' | 'revoked', hours = 8) {
     const from = state === 'granted' ? 'requested' : 'granted';
     if (request.state !== from) throw new Error('资料申请状态已变化。');
     const changed = this.store.db.prepare('UPDATE workbench_access SET state=?, expires=? WHERE id=? AND state=?')
-      .run(state, state === 'granted' ? Date.now() + 8 * 3600_000 : null, request.id, from);
+      .run(state, state === 'granted' ? Date.now() + hours * 3600_000 : null, request.id, from);
     if (!changed.changes) throw new Error('资料申请状态已变化。');
+  }
+
+  revokeProjectParticipant(project: string, member: string) {
+    return this.store.db.prepare(`UPDATE workbench_access SET state='revoked', expires=NULL
+      WHERE state IN ('requested','granted') AND entry IN (
+        SELECT id FROM workbench_knowledge WHERE project=?
+      ) AND (reader_owner=? OR requester=? OR entry IN (
+        SELECT id FROM workbench_knowledge WHERE project=? AND json_extract(value,'$.owner')=?
+      )) RETURNING id,ticket`).all(project, member, member, project, member)
+      .map(row => ({ id: String(row.id), ticket: String(row.ticket) }));
+  }
+
+  ownedRequests(project: string, owner: string) {
+    return this.store.db.prepare(`SELECT a.id,a.ticket,a.entry,a.revision,a.reader_agent AS readerAgent,
+      a.reader_owner AS readerOwner,a.requester AS requestedBy,a.purpose,a.expires,
+      CASE WHEN a.state='granted' AND a.expires<=? THEN 'expired' ELSE a.state END AS state,
+      json_extract(k.value,'$.title') AS title
+      FROM workbench_access a JOIN workbench_knowledge k ON k.id=a.entry
+      WHERE k.project=? AND json_extract(k.value,'$.owner')=? ORDER BY a.rowid DESC`)
+      .all(Date.now(), project, owner) as { id: string; ticket: string; entry: string; revision: string; readerAgent: string;
+        readerOwner: string; requestedBy: string; purpose: 'review' | 'execute'; expires: number | null; state: Request['state']; title: string }[];
   }
 
   granted(ticket: string, entry: Entry, reader?: AccessReader, review = ''): Request | undefined {

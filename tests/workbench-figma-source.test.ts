@@ -74,10 +74,10 @@ test('Figma PNG 只取指定版本及节点，图片下载不携带读取凭据'
 });
 
 test('Figma 新版只生成候选，源站拒绝后隐藏正文、派生知识及运行快照，重授权另起代次', { timeout: 25000 }, async t => {
-  const dir = await mkdtemp(path.join(os.tmpdir(), 'suitme-figma-access-'));
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'contractor-figma-access-'));
   await mkdir(path.join(dir, 'console'));
   process.env.COLLAB_STATE_DIR = dir;
-  process.env.SUITME_FIGMA_STORE = 'isolated-test-only';
+  process.env.CONTRACTOR_FIGMA_STORE = 'isolated-test-only';
   const fixture = path.join(dir, 'agent.mjs');
   await writeFile(fixture, 'console.log("核对完成，推荐理由先说场景。");');
   let version = '100';
@@ -111,7 +111,7 @@ test('Figma 新版只生成候选，源站拒绝后隐藏正文、派生知识�
   t.after(async () => {
     await work.close();
     await rm(dir, { recursive: true, force: true });
-    delete process.env.SUITME_FIGMA_STORE;
+    delete process.env.CONTRACTOR_FIGMA_STORE;
   });
   const status = () => work.figmaSourceStatus('design', 'store')[0]!;
   const ref = resourceView('store', resource).ref;
@@ -150,10 +150,36 @@ test('Figma 新版只生成候选，源站拒绝后隐藏正文、派生知识�
   assert.ok(candidate && 'revision' in candidate && candidate.revision);
   await work.publish('design', next, candidate.revision);
   assert.equal(work.executionSnapshot('product', ticket, result.run).readable, true);
+  const awaiting = work.start('design', { project: 'store', title: '门店原型只读验收', request: '核对原型', agent: 'reviewer',
+    material: [next], priority: 'normal', nonce: 'figma-recheck-test' });
+  const reopened = await wait(() => work.resolveStart('design', awaiting.trigger));
+  const lastGrant = await wait(() => work.detail('design', reopened).requests.find(item => item.entry === next));
+  const ticketGrant = (id: string) => work.detail('design', reopened).requests.find(item => item.id === id)!;
+  const inventory = (id: string) => work.projectKnowledgeAccess('design', 'store').find(item => item.id === id)!;
+  assert.equal(ticketGrant(lastGrant.id).canGrant, true);
+  work.changeAccess('design', reopened, lastGrant.id, 'granted');
+  const oldResult = await wait(() => work.detail('design', reopened).result);
+  assert.equal(ticketGrant(lastGrant.id).state, 'granted');
+  assert.equal(inventory(lastGrant.id).state, 'granted');
+  const waiting = work.start('product', { project: 'store', title: '等原型授权', request: '核对原型', agent: 'reviewer',
+    material: [next], priority: 'normal', nonce: 'figma-pending-test' });
+  const waitingTicket = await wait(() => work.resolveStart('product', waiting.trigger));
+  const pending = await wait(() => work.detail('design', waitingTicket).requests.find(item => item.entry === next));
+  assert.equal(inventory(pending.id).canGrant, true);
 
   forbidden = true;
   await work.refreshFigma();
   assert.equal(status().state, 'unavailable');
+  for (const row of [ticketGrant(lastGrant.id), inventory(lastGrant.id)]) {
+    assert.equal(row.state, 'source-unavailable');
+    assert.equal(row.approvalState, 'granted');
+    assert.equal(row.canGrant, false);
+    assert.equal(row.canRevoke, true);
+  }
+  assert.equal(inventory(pending.id).state, 'source-unavailable');
+  assert.equal(inventory(pending.id).approvalState, 'requested');
+  assert.equal(inventory(pending.id).canGrant, false);
+  assert.throws(() => work.changeAccess('design', waitingTicket, pending.id, 'granted'), { status: 409 });
   assert.equal(work.executionSnapshot('product', ticket, result.run).readable, false);
   assert.ok(!work.projectKnowledgeGraph('product', 'store').nodes.some(node => node.revision === derived.revision));
   assert.ok(!JSON.stringify(work.browse('design', 'store', '', true)).includes('试点口径-'));
@@ -171,4 +197,31 @@ test('Figma 新版只生成候选，源站拒绝后隐藏正文、派生知识�
   assert.equal(status().state, 'verified');
   assert.notEqual(status().candidate, next, '恢复读取后重新生成候选');
   assert.equal(work.executionSnapshot('product', ticket, result.run).readable, false, '原代次的派生资料不恢复');
+
+  const current = work.browse('design', 'store', '', true).find(item => item.id === status().candidate);
+  assert.ok(current && 'revision' in current);
+  await work.publish('design', current.id, current.revision);
+  assert.equal(work.detail('design', reopened).result, undefined, '恢复连接也不重新打开旧成果');
+  const payload = { kind: 'rechecked' as const, revision: oldResult.revision, reason: '相同 Figma 修订已重新授权', material: [current.id] };
+  assert.throws(() => work.revise('engineering', reopened, payload), { status: 403 });
+  const unrelated = work.addKnowledge('design', 'store', { title: '无关资料', body: '试点口径-101', conditions: '无关',
+    kind: 'reference', visibility: 'restricted' });
+  assert.throws(() => work.revise('design', reopened, { ...payload, material: [unrelated] }), { status: 409 });
+  assert.deepEqual(work.revise('design', reopened, payload), { version: 2 });
+  assert.deepEqual(work.revise('design', reopened, payload), { version: 2 });
+  const freshGrant = await wait(() => work.detail('design', reopened).requests.find(item => item.entry === current.id));
+  assert.notEqual(freshGrant.id, lastGrant.id);
+  assert.equal(freshGrant.state, 'requested');
+  assert.equal(freshGrant.approvalState, 'requested');
+  assert.equal(ticketGrant(lastGrant.id).state, 'source-unavailable', '换凭据不会复活历史授权');
+  work.changeAccess('design', reopened, freshGrant.id, 'granted');
+  const recovered = await wait(() => work.detail('design', reopened).result);
+  assert.equal(recovered.version, 2);
+  assert.equal(work.detail('design', reopened).versions[0]?.text, undefined);
+  assert.equal(work.executionSnapshot('design', reopened, oldResult.run).readable, false);
+  const snapshot = work.executionSnapshot('design', reopened, recovered.run);
+  assert.equal(snapshot.materials?.[0]?.id, current.id);
+  assert.equal(snapshot.materials?.[0]?.sourceRevision, '101');
+  assert.doesNotMatch(JSON.stringify(snapshot.contents), /task\.previous-output/);
+  assert.equal(ticketGrant(freshGrant.id).state, 'granted');
 });

@@ -1,4 +1,4 @@
-// Adapted from TencentCloud/Octop TeamMemberPicker.tsx at bf134db. License in THIRD_PARTY_NOTICES.md.
+// Adapted from TencentCloud/Octop (MIT), bf134dbd379036ce7545c7df1a1da7e381ece9ff, dashboard/src/pages/Experts/components/TeamMemberPicker.tsx.
 import { useState } from 'react';
 import { Check } from 'lucide-react';
 import type { Agent } from '../api.ts';

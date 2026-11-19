@@ -127,12 +127,18 @@ export function watchFeishu(profile: string, receive: (line: string) => void, lo
   launch();
   return {
     status: () => ({ state, attempt, readyAt, disconnectedAt, busHealth: health, checkedAt, lostEvents, ...(issue && { issue }) }),
-    close() {
+    async close() {
       closed = true;
       state = 'stopped';
       clearTimeout(retry);
       clearInterval(monitor);
-      child?.stdin.end();
+      const consumer = child;
+      if (!consumer) return;
+      await new Promise<void>(resolve => {
+        const deadline = setTimeout(() => consumer.kill('SIGTERM'), 2000);
+        consumer.once('close', () => { clearTimeout(deadline); resolve(); });
+        consumer.stdin.end();
+      });
     },
   };
 }

@@ -1,4 +1,3 @@
-import { registerHooks } from 'node:module';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { DatabaseSync } from 'node:sqlite';
@@ -32,19 +31,9 @@ export interface SuperAgentEffects {
 }
 
 export async function openSuperAgentStore(file: string): Promise<SuperAgentStore> {
-  const vendor = path.join(root, 'upstream/deepseek-harness/vendor');
-  const aliases = new Map(['schemastery', 'cosmokit'].map(name => [
-    '@deepseek-ai/' + name, pathToFileURL(path.join(vendor, name, 'src/index.ts')).href,
-  ]));
-  // Preserve import.meta.url for upstream's packaged prompts and skill paths.
-  const hook = registerHooks({
-    resolve(specifier, context, next) { return next(aliases.get(specifier) ?? specifier, context); },
-  });
-  try {
-    const fileUrl = pathToFileURL(path.join(root, 'upstream/superagent/src/app/store.ts'));
-    const { Store } = await import(fileUrl.href);
-    return new Store(file);
-  } finally { hook.deregister(); }
+  const fileUrl = pathToFileURL(path.join(root, 'upstream/superagent/src/app/store.ts'));
+  const { Store } = await import(fileUrl.href);
+  return new Store(file);
 }
 
 export async function openSuperAgentEffects(store: SuperAgentStore): Promise<SuperAgentEffects> {

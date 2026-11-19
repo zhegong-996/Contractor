@@ -8,14 +8,14 @@ import { setTimeout as delay } from 'node:timers/promises';
 import test from 'node:test';
 
 test('原生工单带口径交接、阻塞接续、多版验收、成果重授权与研发接单隔离', { timeout: 60000 }, async t => {
-  const dir = await mkdtemp(path.join(os.tmpdir(), 'suitme-iterations-'));
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'contractor-iterations-'));
   process.env.COLLAB_STATE_DIR = dir;
   await mkdir(path.join(dir, 'console'));
   const fixture = path.join(dir, 'agent.mjs'), trace = path.join(dir, 'trace.jsonl');
   await writeFile(fixture, [
     "import {readFileSync,appendFileSync,existsSync,writeFileSync} from 'node:fs';",
-    "const [trace,mode]=process.argv.slice(2);const c=JSON.parse(readFileSync(process.env.AGENT_AUTOLOOP_CONTEXT,'utf8'));",
-    "const mark=event=>appendFileSync(trace,JSON.stringify({event,mode,context:c})+'\\n');mark('start');",
+    "const [trace,mode,prompt]=process.argv.slice(2);const c=JSON.parse(readFileSync(process.env.AGENT_AUTOLOOP_CONTEXT,'utf8'));",
+    "const mark=event=>appendFileSync(trace,JSON.stringify({event,mode,prompt,context:c})+'\\n');mark('start');",
     "const confirmed=c.events.filter(e=>e.type==='task.confirmation');",
     "if(mode==='old'&&!confirmed.length) console.log('```agent-autoloop\\n'+JSON.stringify({ask:[{key:'criteria',title:'确认推荐理由口径',text:'是否按两句、先场景后事实？',options:['确认两句，先场景后事实','另行说明']}]})+'\\n```');",
     "else if(mode==='old') {process.on('SIGTERM',()=>{mark('stopping');setTimeout(()=>{mark('stopped');process.exit(0)},400)});mark('holding');setInterval(()=>{},100)}",
@@ -27,11 +27,12 @@ test('原生工单带口径交接、阻塞接续、多版验收、成果重授�
     import('../src/workbench/collaboration.ts'), import('../src/workbench/config.ts'), import('../src/console-auth.ts'),
   ]);
   const auth = new ConsoleAuth(); await auth.ready(); await auth.bootstrapOwner('product', 'test-only-password');
-  for (const name of ['engineering', 'replacement', 'resource']) await auth.createAccount(name, 'test-only-password', 'operator', 'product');
+  for (const name of ['engineering', 'replacement', 'resource', 'former-member']) await auth.createAccount(name, 'test-only-password', 'operator', 'product');
   const agent = (id: string, owner: string, mode: string) => ({ id, owner, title: id, function: 'review', projects: ['store'],
-    kind: 'personal', execution: { kind: 'test', provider: 'fixture' }, engine: 'command', command: [process.execPath, fixture, trace, mode], capability: '核对门店理由', skill: '核对', active: true });
+    kind: 'personal', execution: { kind: 'test', provider: 'fixture' }, engine: 'command', command: [process.execPath, fixture, trace, mode, '{prompt}'], capability: '核对门店理由', skill: '核对', active: true });
   const config = settingsSchema.parse({ projects: [{ id: 'store', title: '门店推荐理由',
-    members: ['product', 'engineering', 'replacement', 'resource'], maintainers: ['product'],
+    members: ['product', 'engineering', 'replacement', 'resource', 'former-member'], maintainers: ['product'],
+    topics: [{ id: 'screen', title: '小屏推荐理由' }, { id: 'other', title: '另一个主题' }],
     resources: [{ source: 'github', externalId: 'team/test', state: 'bound', contributors: ['engineering'],
       execution: { base: 'main', paths: ['collab-pilot/'] } }] }], functions: [{ id: 'review', title: '核对' }],
     attribution: { entireCommand: '/bin/true', checkouts: { 'team/test': '/not-launched-in-this-unit-test' } },
@@ -47,39 +48,64 @@ test('原生工单带口径交接、阻塞接续、多版验收、成果重授�
     assert.fail('等待原生工单状态超时');
   }
   const detail = (id: string) => work.detail('product', id);
-  const start = async (agent: string, material: string[] = []) => {
+  const start = async (agent: string, material: string[] = [], topic?: string) => {
     const result = work.start('product', { project: 'store', agent, title: '门店推荐理由', request: '核对门店推荐理由',
-      nonce: randomUUID(), material, priority: 'normal' });
+      nonce: randomUUID(), material, priority: 'normal', topic });
     return wait(() => work.resolveStart('product', result.trigger) ?? undefined);
   };
   const assignments = (id: string) => JSON.parse(String(db.prepare('SELECT value FROM ticket WHERE id=?').get(id)!.value)).assignments.length;
   const traces = async () => (await readFile(trace, 'utf8')).trim().split('\n').map(line => JSON.parse(line));
 
-  const handoff = await start('old');
+  const post = (actor: string, topic: string, text: string) => work.postConversation(actor, 'store', { topic, text, nonce: randomUUID() });
+  const basis = post('engineering', 'screen', '经门店确认，320px 和 360px 都验证连续长词换行。');
+  const offTopic = post('product', 'other', '别的主题的记录不能带进来');
+  const handoff = await start('old', [], 'screen');
   const question = await wait(() => detail(handoff).questions[0]);
+  assert.equal(detail(handoff).recovery?.kind, 'answer');
+  assert.deepEqual(detail(handoff).recovery?.owners, ['product']);
+  assert.deepEqual(work.detail('engineering', handoff).recovery?.decisionIds, []);
+  post('former-member', 'screen', '当时有权，撤权后接手人不能带走这段记录');
   assert.throws(() => work.resume('product', handoff, { nonce: randomUUID(), version: 1, reason: '不能跳过问题' }), /必答/);
   work.reply('product', handoff, { card: question.id, choice: 0, nonce: 'criteria' });
   await wait(async () => (await traces()).find(row => row.event === 'holding'));
+  const offered = work.ticketTopicContext('product', handoff).recent.find(row => row.id === basis.id)!;
+  const input = { id: offered.id, source: offered.source, revision: offered.revision, confirmed: true };
+  assert.throws(() => work.setTicketTopicBasis('replacement', handoff, input), { status: 403 });
+  assert.throws(() => work.setTicketTopicBasis('product', handoff, { ...input, id: offTopic.id }), { status: 409 });
+  assert.deepEqual(work.setTicketTopicBasis('product', handoff, input), { changed: true });
+  assert.deepEqual(work.setTicketTopicBasis('product', handoff, input), { changed: false });
+  work.removeProjectMember('product', 'store', 'former-member');
+  post('product', 'screen', '门店建议记录正文容器宽度作为讨论线索。');
   work.handoff('product', handoff, { agent: 'new', reason: '另一个成员接续' });
   work.handoff('product', handoff, { agent: 'new', reason: '重试同一次交接' });
   await wait(() => detail(handoff).result);
   assert.equal(assignments(handoff), 2);
   const rows = await traces();
   assert.ok(rows.findIndex(row => row.event === 'stopped') < rows.findIndex(row => row.mode === 'new'));
-  const confirmation = rows.find(row => row.mode === 'new').context.events.find((e: { type: string }) => e.type === 'task.confirmation');
+  const nextContext = rows.find(row => row.mode === 'new').context.events;
+  const confirmation = nextContext.find((e: { type: string }) => e.type === 'task.confirmation');
   assert.equal(JSON.parse(confirmation.detail).by, 'product');
   assert.equal(JSON.parse(confirmation.detail).answer, '确认两句，先场景后事实');
+  assert.equal(JSON.parse(nextContext.find((event: { type: string }) => event.type === 'task.topic-basis').detail).revision, input.revision);
+  assert.ok(nextContext.some((event: { type: string; detail: string }) => event.type === 'task.topic-history' && event.detail.includes('正文容器宽度')));
+  assert.doesNotMatch(JSON.stringify(nextContext), /别的主题的记录|撤权后接手人不能带走/);
+  const finalRun = detail(handoff).result!.run;
+  assert.equal(work.executionSnapshot('replacement', handoff, finalRun).readable, true);
 
   const blocked = await start('failure');
   const executionDb = new DatabaseSync(path.join(dir, 'autoloop/hub.db'), { readOnly: true });
   await wait(() => executionDb.prepare("SELECT id FROM runs WHERE lane=? AND state='queued' AND attempts>0").get(blocked));
   executionDb.close();
   const resume = { nonce: randomUUID(), version: 1, reason: '外部阻塞已排除，继续同一版' };
-  work.resume('engineering', blocked, resume); work.resume('engineering', blocked, resume);
+  work.resume('engineering', blocked, resume); work.resume('engineering', blocked, { ...resume, nonce: randomUUID() });
   await wait(() => detail(blocked).result);
   work.resume('engineering', blocked, resume);
   assert.equal(assignments(blocked), 2);
   assert.equal(detail(blocked).work.version, 1);
+  const continued = (await traces()).findLast(row => row.mode === 'fail' && row.context.events.some((event: { type: string }) => event.type === 'task.continuation'));
+  assert.ok(continued.context.events.some((event: { type: string }) => event.type === 'task.request'));
+  assert.match(continued.prompt, /恢复原因不替代原需求/);
+  assert.doesNotMatch(continued.prompt, /在现有代码上修改/);
 
   const ticket = await start('review');
   const v1 = await wait(() => detail(ticket).result);
@@ -120,6 +146,8 @@ test('原生工单带口径交接、阻塞接续、多版验收、成果重授�
   // Time-bound expiry is a local clock fixture; live integration separately performs actual revoke/reapply.
   db.prepare('UPDATE workbench_access SET expires=0 WHERE id=?').run(access.id);
   assert.equal(detail(expired).result, undefined);
+  assert.equal(detail(expired).requests[0]?.state, 'expired');
+  assert.equal(detail(expired).requests[0]?.approvalState, 'granted');
   assert.deepEqual(work.resume('product', expired, { nonce: randomUUID(), version: 1, reason: '继续查阅本版交付' }),
     { version: 1, waiting: 'review-access' });
   const review = detail(expired).requests.find(r => r.state === 'requested')!;
@@ -150,6 +178,9 @@ test('原生工单带口径交接、阻塞接续、多版验收、成果重授�
   assert.ok(!detail(expired).history.some(item => item.text === privateReason));
 
   const target = work.overview('product').projects[0]!.deliveryTargets[0]!.ref;
+  const deliveryExecution = config.projects[0]!.resources.find(ref => ref.externalId === 'team/test')!.execution!;
+  deliveryExecution.deliveryTemplate = { id: 'store-screen', version: 1 };
+  deliveryExecution.requiredChecks = [{ name: 'check-screen-1', app: 'github-actions' }];
   const sender = { provider: 'feishu' as const, namespace: 'app', id: 'ou_product', label: '产品' };
   assert.ok(work.proveAccount(work.accountProof('product', 'feishu').command.split(' ')[1]!, sender));
   work.confirmAccount('product', 'feishu', sender);
@@ -164,6 +195,17 @@ test('原生工单带口径交接、阻塞接续、多版验收、成果重授�
   assert.ok(code);
   assert.equal(work.receiveChannel(channel).status, 'duplicate');
   assert.equal(detail(code).work.development?.repository, 'team/test');
+  assert.deepEqual(detail(code).work.deliveryTemplate?.checks.map(check => check.name), ['check-screen-1']);
+  deliveryExecution.requiredChecks = [{ name: 'check-screen-2', app: 'github-actions' }];
+  const draft = { project: 'store', title: '新单交付规则试点', request: '核对第二版模板。', agent: 'coder',
+    target, nonce: randomUUID(), material: [], priority: 'normal' as const };
+  assert.throws(() => work.start('product', draft, undefined, true), { status: 409, message: /请发布新版本/ });
+  deliveryExecution.deliveryTemplate.version = 2;
+  const next = work.start('product', draft, undefined, true).ticket!;
+  assert.equal(detail(next).work.deliveryTemplate?.version, 2);
+  assert.deepEqual(detail(next).work.deliveryTemplate?.checks.map(check => check.name), ['check-screen-2']);
+  assert.equal(detail(code).work.deliveryTemplate?.version, 1);
+  assert.deepEqual(detail(code).work.deliveryTemplate?.checks.map(check => check.name), ['check-screen-1']);
   assert.equal(detail(code).channelHistory[0]?.id, sourceId);
   const offer = work.needsYou('engineering').find(d => d.kind === 'development' && d.ticket === code)!;
   assert.ok(offer);

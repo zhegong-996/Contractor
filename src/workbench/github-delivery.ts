@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { command } from '../commands.ts';
 import { githubApi, parsePr } from '../github.ts';
+import { protocolMatches } from './compatibility.ts';
 
 export const commitSha = z.string().regex(/^[a-f0-9]{40}$/);
 const identity = z.object({ id: z.number().int().positive(), login: z.string(), type: z.string().default('User') });
@@ -51,6 +52,45 @@ export const requiredCheckSchema = z.object({
 }).strict();
 export type RequiredCheck = z.infer<typeof requiredCheckSchema>;
 export const defaultChecks: RequiredCheck[] = [{ name: 'collab-pilot', app: 'github-actions' }];
+export const requiredDeploymentSchema = z.object({
+  environment: z.string().trim().min(1).max(100),
+}).strict();
+export type RequiredDeployment = z.infer<typeof requiredDeploymentSchema>;
+export const deploymentSelectionSchema = z.object({
+  id: z.number().int().positive(), statusId: z.number().int().positive(),
+}).strict();
+export type DeploymentSelection = z.infer<typeof deploymentSelectionSchema>;
+const deployment = z.object({ id: z.number().int().positive(), sha: commitSha, environment: z.string() });
+const deploymentStatus = z.object({ id: z.number().int().positive(), state: z.string(), environment: z.string(),
+  environment_url: z.string().nullish(), created_at: z.iso.datetime() });
+type DeploymentEvidence = z.infer<typeof deployment> & { status?: z.infer<typeof deploymentStatus> };
+export class DeliveryChangedError extends Error {}
+
+export function deploymentState(required: RequiredDeployment, sha: string, evidence?: DeploymentEvidence) {
+  if (!evidence || evidence.environment !== required.environment || evidence.sha !== sha) return 'missing';
+  if (!evidence.status || evidence.status.environment !== required.environment) return 'pending';
+  if (evidence.status.state === 'success') return 'passed';
+  return ['queued', 'pending', 'in_progress'].includes(evidence.status.state) ? 'pending' : 'failed';
+}
+
+async function inspectDeployment(repository: string, required: RequiredDeployment): Promise<DeploymentEvidence | undefined> {
+  const list = 'deployments?environment=' + encodeURIComponent(required.environment) + '&per_page=1';
+  // The latest deployment must be the accepted SHA. Filtering by SHA could find an older successful deployment.
+  const [latest] = z.array(deployment).parse(await githubApi(repository, list));
+  if (!latest || latest.environment !== required.environment) return;
+  const statuses = 'deployments/' + latest.id + '/statuses?per_page=1';
+  const [raw] = z.array(deploymentStatus).parse(await githubApi(repository, statuses));
+  const [current] = z.array(deployment).parse(await githubApi(repository, list));
+  if (current?.id !== latest.id || current.sha !== latest.sha || current.environment !== latest.environment)
+    throw new DeliveryChangedError('部署环境正在更新，请刷新后重试。');
+  const [statusNow] = z.array(deploymentStatus).parse(await githubApi(repository, statuses));
+  if (JSON.stringify(raw) !== JSON.stringify(statusNow)) throw new DeliveryChangedError('部署状态正在更新，请刷新后重试。');
+  if (!raw) return latest;
+  const { environment_url, ...status } = raw;
+  const url = environment_url ? URL.parse(environment_url) : null;
+  return { ...latest, status: { ...status, ...(url?.protocol === 'https:' && !url.username && !url.password && !url.search && !url.hash
+    && { environment_url: url.href }) } };
+}
 
 // A passing check from another SHA, another app, or a superseded attempt is not evidence for this version.
 export function pullChecks(sha: string, checks: PullCheck[], required: RequiredCheck[] = defaultChecks) {
@@ -94,26 +134,27 @@ export async function inspectBranch(repository: string, url: string): Promise<Gi
     push: pushes.find(row => row.ref === 'refs/heads/' + name && row.after === branch.commit.sha) };
 }
 
-export async function inspectPull(repository: string, url: string, required: RequiredCheck[] = defaultChecks) {
+export async function inspectPull(repository: string, url: string, required: RequiredCheck[] = defaultChecks, environment?: RequiredDeployment) {
   const number = parsePr(url, repository);
   const live = pull.parse(await githubApi(repository, 'pulls/' + number));
   if (live.base.repo?.full_name.toLowerCase() !== repository.toLowerCase() || live.number !== number) throw new Error('PR 仓库已变化');
   const reviewPages = command('gh', ['api', 'repos/' + repository + '/pulls/' + number + '/reviews?per_page=100', '--paginate', '--slurp']);
-  const [{ attempts, ...shaChecks }, listed, reviews, pushes] = await Promise.all([
+  const [{ attempts, ...shaChecks }, listed, reviews, pushes, deployed] = await Promise.all([
     inspectCommitChecks(repository, live.head.sha, required),
     command('gh', ['api', 'repos/' + repository + '/pulls/' + number + '/commits?per_page=100', '--paginate', '--slurp']),
     reviewPages,
     live.head.repo?.id === live.base.repo.id
       ? githubApi(repository, 'activity?ref=' + encodeURIComponent(live.head.ref) + '&per_page=100').then(value => z.array(activity).parse(value)).catch(() => [])
       : Promise.resolve([] as GitHubPush[]),
+    environment ? inspectDeployment(repository, environment) : undefined,
   ]);
   const after = pull.parse(await githubApi(repository, 'pulls/' + number));
-  if (JSON.stringify(after) !== JSON.stringify(live)) throw new Error('PR 正在更新，请刷新后再关联。');
+  if (JSON.stringify(after) !== JSON.stringify(live)) throw new DeliveryChangedError('PR 正在更新，请刷新后再关联。');
   const observed = z.array(commits).parse(JSON.parse(listed)).flat();
   if (!observed.some(commit => commit.sha === live.head.sha)) throw new Error('未核对到 PR 的当前提交。');
   const snapshot = {
     repository, repoId: live.base.repo.id, url: live.html_url, pr: number, baseSha: live.base.sha, headSha: live.head.sha, ...shaChecks,
-    requiredChecks: required,
+    requiredChecks: required, deployed,
     baseBranch: live.base.ref, headBranch: live.head.ref, headRepoId: live.head.repo?.id,
     state: live.merged ? 'merged' as const : live.draft && live.state === 'open' ? 'draft' as const : live.state,
     creator: live.user, createdAt: live.created_at, updatedAt: live.updated_at,
@@ -125,5 +166,5 @@ export async function inspectPull(repository: string, url: string, required: Req
 }
 
 export function referencesTicket(body: string, ticket: string) {
-  return body.split(/\r?\n/).some(line => line.trim() === 'SuitMe-Work: ' + ticket);
+  return body.split(/\r?\n/).some(line => protocolMatches(line.trim(), 'Contractor-Work: ' + ticket));
 }

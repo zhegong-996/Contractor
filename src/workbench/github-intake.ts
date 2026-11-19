@@ -123,6 +123,21 @@ async function githubRepository(name: string) {
   return { id: String(info.id), name };
 }
 
+type PollStage = 'repository' | 'messages' | 'pulls' | 'delivery';
+export type GitHubConnection = {
+  repository: string; state: 'connecting' | 'ready' | 'unavailable' | 'disabled';
+  attemptedAt?: string; lastSuccessAt?: string; cursor?: string;
+  failure?: { stage: PollStage; reason: 'network' | 'rate-limit' | 'access' | 'sync'; at: string };
+};
+
+function failureReason(error: unknown): NonNullable<GitHubConnection['failure']>['reason'] {
+  const message = error instanceof Error ? error.message : '';
+  if (/rate limit|HTTP 429/i.test(message)) return 'rate-limit';
+  if (/timeout|timed out|ETIMEDOUT|ECONN|no such host|network is unreachable|TLS|killed|signal: SIGTERM|temporary failure/i.test(message)) return 'network';
+  if (/HTTP (401|403|404)|Bad credentials|authentication|gh auth login/i.test(message)) return 'access';
+  return 'sync';
+}
+
 export function watchGithub(options: {
   repositories: () => string[];
   tracksPull: (origin: ChannelRef) => boolean;
@@ -134,12 +149,18 @@ export function watchGithub(options: {
   log: (message: string) => void;
 }) {
   const repositoryIds = new Map<string, Repository>();
+  const connections = new Map<string, GitHubConnection>();
+  const status = (scope = options.repositories()): GitHubConnection[] => [...new Set(scope.map(name => name.toLowerCase()))]
+    .map(name => connections.get(name) ?? { repository: name, state: 'connecting' });
   let closed = false;
   let running: Promise<void> | undefined;
   async function poll() {
-    for (const name of new Set(options.repositories())) {
+    for (const name of new Set(options.repositories().map(name => name.toLowerCase()))) {
       if (closed) return;
       if (!repositoryName.test(name)) continue;
+      const connection: GitHubConnection = { repository: name, state: 'connecting', ...connections.get(name), attemptedAt: new Date().toISOString() };
+      connections.set(name, connection);
+      let stage: PollStage = 'repository';
       try {
         let repository = repositoryIds.get(name);
         if (!repository) {
@@ -147,8 +168,8 @@ export function watchGithub(options: {
           repositoryIds.set(name, repository);
         }
         const now = new Date().toISOString();
-        const previous = options.checkpoint(repository.id);
-        if (!previous) { options.checkpoint(repository.id, now); continue; }
+        const previous = options.checkpoint(repository.id) ?? options.checkpoint(repository.id, now) ?? { start: now, at: now };
+        connection.cursor = previous.at;
         // Overlap each read window. The input ledger deduplicates authored commands by repository and object.
         const since = new Date(Math.max(Date.parse(previous.start), Date.parse(previous.at) - 120_000)).toISOString();
         const paths = [
@@ -156,6 +177,7 @@ export function watchGithub(options: {
           'issues/comments?sort=updated&direction=asc',
           'pulls/comments?sort=updated&direction=asc',
         ];
+        stage = 'messages';
         const batches = await Promise.all(paths.map(url => command('gh', ['api',
           'repos/' + name + '/' + url + '&per_page=100&since=' + encodeURIComponent(since), '--paginate', '--slurp'])));
         for (const [index, raw] of batches.entries())
@@ -165,6 +187,7 @@ export function watchGithub(options: {
               await options.consume(input);
             }
         // PR list has no reliable "since" filter. Walk newest changes only until the cursor window ends.
+        stage = 'pulls';
         const refreshed = new Set<string>();
         for (let page = 1; !closed; page++) {
           const raw = await command('gh', ['api', 'repos/' + name + '/pulls?state=all&sort=updated&direction=desc&per_page=50&page=' + page]);
@@ -178,10 +201,15 @@ export function watchGithub(options: {
           }
           if (items.length < 50 || changes.length < items.length) break;
         }
+        stage = 'delivery';
         await options.refresh?.(repository, refreshed);
         options.checkpoint(repository.id, now);
-      } catch {
-        options.log('GitHub 协作入口读取失败，稍后重试（' + name + '）。');
+        connections.set(name, { repository: name, state: 'ready', attemptedAt: connection.attemptedAt,
+          lastSuccessAt: new Date().toISOString(), cursor: now });
+      } catch (error) {
+        const failure = { stage, reason: failureReason(error), at: new Date().toISOString() };
+        connections.set(name, { ...connection, state: 'unavailable', failure });
+        options.log('GitHub 同步失败，稍后重试（' + name + ' / ' + stage + ' / ' + failure.reason + '）。');
       }
     }
   }
@@ -190,7 +218,7 @@ export function watchGithub(options: {
   };
   tick();
   const timer = setInterval(tick, options.interval * 1000);
-  return async () => { closed = true; clearInterval(timer); await running; };
+  return { status, async close() { closed = true; clearInterval(timer); await running; } };
 }
 
 export async function githubReferenceDetails(text: string, repositories: string[]) {

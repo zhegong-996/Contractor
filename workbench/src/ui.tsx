@@ -1,11 +1,11 @@
-import { createContext, useContext, useEffect, useRef, type ComponentProps, type ReactNode } from 'react';
-import { ArrowUpRight, CircleAlert, FileText, FolderOpen, LoaderCircle, Search, X } from 'lucide-react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-import { Badge } from './paperclip/badge.tsx';
-import { Button } from './paperclip/button.tsx';
-import { Input } from './paperclip/input.tsx';
-import { Tabs, TabsList, TabsTrigger } from './paperclip/tabs.tsx';
+import { createContext, useContext, useLayoutEffect, useRef, type ComponentProps, type ReactNode, type UIEvent } from 'react';
+import { Alert, Card, Empty as DesignEmpty, Modal as DesignModal, Spin } from 'antd';
+import { ArrowUpRight, FileText, FolderOpen, HardHat, Search } from 'lucide-react';
+import { Badge } from './components/badge.tsx';
+import { Button } from './components/button.tsx';
+import { Input } from './components/input.tsx';
+export { PageTabs, Segments } from './components/page-tabs.tsx';
+export { Avatar } from './components/avatar.tsx';
 import type { Project, Ticket, TicketRow } from './api.ts';
 
 type Actions = {
@@ -14,6 +14,7 @@ type Actions = {
   clearError: () => void;
   stored: Record<string, unknown>;
   store: (key: string, value: unknown) => void;
+  scrollPositions: Map<string, { top: number; left: number }>;
 };
 export const ActionContext = createContext<Actions | null>(null);
 export const useActions = () => useContext(ActionContext)!;
@@ -22,8 +23,24 @@ export function useStored<T>(key: string, initial: T): [T, (next: T) => void] {
   return [Object.hasOwn(action.stored, key) ? action.stored[key] as T : initial, next => action.store(key, next)];
 }
 
+export function useSessionScroll(key: string, { ready = true, visibleAt, preserveInitial = false }: {
+  ready?: boolean; visibleAt?: string; preserveInitial?: boolean;
+} = {}) {
+  const { scrollPositions } = useActions();
+  const ref = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const pane = ref.current;
+    if (!ready || !pane?.clientHeight) return;
+    const saved = scrollPositions.get(key);
+    if (saved || !preserveInitial) pane.scrollTo(saved ?? { top: 0, left: 0 });
+  }, [key, ready, scrollPositions, visibleAt, preserveInitial]);
+  return { ref, onScroll: ({ currentTarget }: UIEvent<HTMLDivElement>) => {
+    if (ready && currentTarget.clientHeight) scrollPositions.set(key, { top: currentTarget.scrollTop, left: currentTarget.scrollLeft });
+  } };
+}
+
 export function Logo() {
-  return <span className="logo" aria-hidden="true"><i /><i /><i /></span>;
+  return <span className="logo" aria-hidden="true"><HardHat size={21} strokeWidth={1.8} /></span>;
 }
 
 export function IconButton({ label, children, ...props }: ComponentProps<typeof Button> & { label: string }) {
@@ -36,17 +53,17 @@ export function SearchBox({ label, value, onChange }: { label: string; value: st
 }
 
 export function Empty({ title, description, action, icon = <FolderOpen /> }: { title: string; description?: string; action?: ReactNode; icon?: ReactNode }) {
-  return <div className="empty"><div className="empty-icon">{icon}</div><strong>{title}</strong>
-    {description && <p>{description}</p>}{action}</div>;
+  return <DesignEmpty className="empty" image={<div className="empty-icon">{icon}</div>}
+    description={<><strong>{title}</strong>{description && <p>{description}</p>}</>}>{action}</DesignEmpty>;
 }
 
 export function Loading() {
-  return <div className="loading" role="status"><LoaderCircle size={17} />加载中</div>;
+  return <div className="loading" role="status"><Spin size="small" />加载中</div>;
 }
 
 export function Failure({ error, retry }: { error: Error | null; retry?: () => void }) {
-  return <div className="alert" role="alert"><CircleAlert size={17} /><span>{error?.message ?? '加载失败'}</span>
-    {retry && <Button type="button" size="sm" variant="outline" onClick={retry}>重试</Button>}</div>;
+  return <Alert type="error" showIcon message={error?.message ?? '加载失败'}
+    action={retry && <Button type="button" size="sm" variant="outline" onClick={retry}>重试</Button>} />;
 }
 
 export function FormError() {
@@ -55,52 +72,26 @@ export function FormError() {
 }
 
 export function Modal({ title, children, close }: { title: string; children: ReactNode; close: () => void }) {
-  const dialog = useRef<HTMLDialogElement>(null);
   const { busy, clearError } = useActions();
-  useEffect(() => {
-    const node = dialog.current;
-    node?.showModal();
-    return () => node?.close();
-  }, []);
   const dismiss = () => { if (!busy) { clearError(); close(); } };
-  return <dialog className="modal" ref={dialog} aria-label={title} onCancel={event => { event.preventDefault(); dismiss(); }}>
-    <header className="modal-header"><h2>{title}</h2><IconButton label="关闭" disabled={busy} onClick={dismiss}><X /></IconButton></header>
+  return <DesignModal className="contractor-dialog" open title={<h2>{title}</h2>} onCancel={dismiss}
+    width={620} footer={null} keyboard={!busy} closable={!busy} mask={{ closable: false }}>
     <div className="modal-body"><FormError />{children}</div>
-  </dialog>;
+  </DesignModal>;
 }
 
 export function Section({ title, action, children, id }: { title: string; action?: ReactNode; children: ReactNode; id?: string }) {
-  return <section id={id} className="section"><div className="section-heading"><h2>{title}</h2>{action}</div>{children}</section>;
-}
-
-export function Segments<T extends string>({ value, onChange, items, label }: { value: T; onChange: (value: T) => void; items: readonly (readonly [T, string])[]; label: string }) {
-  return <Tabs value={value} onValueChange={value => onChange(value as T)}>
-    <TabsList className="segments" aria-label={label}>{items.map(([id, name]) => <TabsTrigger key={id} value={id}>{name}</TabsTrigger>)}</TabsList>
-  </Tabs>;
-}
-
-export function PageTabs<T extends string>({ value, onChange, items, label, children }: {
-  value: T; onChange: (value: T) => void; items: readonly (readonly [T, string])[]; label: string; children: ReactNode;
-}) {
-  return <Tabs className="page-tabs" value={value} onValueChange={v => onChange(v as T)}>
-    <TabsList variant="line" className="underline-tabs" aria-label={label}>{items.map(([id, name]) => <TabsTrigger key={id} value={id}>{name}</TabsTrigger>)}</TabsList>
-    {children}
-  </Tabs>;
+  return <Card id={id} className="section" size="small" title={<h2>{title}</h2>} extra={action}>{children}</Card>;
 }
 
 export function Field({ label, children, hint }: { label: string; children: ReactNode; hint?: string }) {
   return <label className="field"><span>{label}</span>{children}{hint && <small>{hint}</small>}</label>;
 }
 
-export function Avatar({ value, kind = 'person' }: { value: string; kind?: 'person' | 'agent' | 'project' }) {
-  const initials = Array.from(value.trim()).slice(0, /[A-Za-z]/.test(value[0] ?? '') ? 2 : 1).join('').toUpperCase();
-  return <span className={'avatar avatar-' + kind} aria-hidden="true">{initials || '·'}</span>;
-}
-
 export function Dot({ tone = 'neutral' }: { tone?: string }) { return <i className={'dot dot-' + tone} aria-hidden="true" />; }
 
 export function Pill({ children, tone = 'neutral' }: { children: ReactNode; tone?: string }) {
-  return <Badge variant="outline" className={'pill pill-' + tone}><Dot tone={tone} />{children}</Badge>;
+  return <Badge className={'pill pill-' + tone}><Dot tone={tone} />{children}</Badge>;
 }
 
 export function Source({ channel }: { channel: string }) {
@@ -108,7 +99,15 @@ export function Source({ channel }: { channel: string }) {
 }
 
 export function sourceName(channel: string) {
-  return ({ feishu: '飞书', 'feishu-doc': '飞书文档', github: 'GitHub', web: '工作台', figma: 'Figma', document: '外部文档' } as Record<string, string>)[channel] ?? channel;
+  return ({ feishu: '飞书', 'feishu-doc': '飞书文档', github: 'GitHub', web: '工作台', figma: 'Figma', document: '外部文档',
+    wecom: '企业微信', weixin: '微信', dingtalk: '钉钉', qq: 'QQ', telegram: 'Telegram', discord: 'Discord' } as Record<string, string>)[channel] ?? channel;
+}
+
+const grantLabels = { requested: '待授权', granted: '已授权', revoked: '已撤回', expired: '已到期', 'source-unavailable': '访问失效 · 来源不可用' };
+
+export function KnowledgeGrantStatus({ state, approvalState }: Pick<Ticket['requests'][number], 'state' | 'approvalState'>) {
+  return <><Pill tone={state === 'granted' ? 'green' : state === 'requested' ? 'amber' : 'neutral'}>{grantLabels[state]}</Pill>
+    {state === 'source-unavailable' && approvalState === 'granted' && <span className="muted-text">曾获授权</span>}</>;
 }
 
 export function Ext({ href, children, icon = true }: { href?: string; children: ReactNode; icon?: boolean }) {
@@ -119,13 +118,6 @@ export function Ext({ href, children, icon = true }: { href?: string; children: 
   return <a className="external" href={destination.href} target="_blank" rel="noreferrer noopener">{children}{icon && <ArrowUpRight size={13} aria-hidden="true" />}</a>;
 }
 
-export function Markdown({ text }: { text: string }) {
-  return <div className="markdown"><ReactMarkdown skipHtml remarkPlugins={[remarkGfm]} components={{
-    a: ({ href, children }) => <Ext href={href}>{children}</Ext>,
-    img: ({ alt }) => alt ? <span>〔{alt}〕</span> : null,
-  }}>{text}</ReactMarkdown></div>;
-}
-
 export const short = (sha?: string, length = 8) => sha?.slice(0, length) ?? '—';
 export function date(value?: string, full = false) {
   if (!value || !Number.isFinite(Date.parse(value))) return '—';
@@ -134,22 +126,41 @@ export function date(value?: string, full = false) {
 }
 
 export function Version({ version }: { version?: number }) {
-  return <Badge variant="outline" className="version-badge">第 {version ?? 1} 版</Badge>;
+  return <Badge className="version-badge">第 {version ?? 1} 版</Badge>;
 }
+
+const recoveryLabels: Record<string, string> = {
+  'receipt-pending': '回执待补写', 'old-execution-stop': '等待旧执行停止', access: '待授权', development: '待研发接单',
+  answer: '等待答复', 'development-returned': '研发已退回', intake: '待确认子任务', 'child-result-missing': '子任务结果缺失',
+  'child-results-pending': '等待子任务', acceptance: '待验收', 'source-changed': '资料访问已变化',
+  'execution-disconnected': '执行端已断线', 'device-offline': '执行端离线', 'execution-endpoint': '执行环境异常',
+  'model-unavailable': '模型暂不可用', 'model-authorization': '模型授权已变化', quota: '额度受限',
+  worktree: '代码工作区待核对', 'result-incomplete': '执行结果待补齐', 'execution-failed': '执行失败',
+  'execution-cancelled': '执行已取消', 'authority-changed': '委托权限已变化', resuming: '正在接续',
+  'ci-pending': '等待 CI', 'ci-failed': 'CI 未通过', 'deployment-pending': '等待部署', 'deployment-failed': '部署未通过',
+};
+
+export const recoveryLabel = (kind: string) => recoveryLabels[kind];
 
 export function ticketStatus(ticket: Ticket | TicketRow): [string, string] {
   const { work, stage } = ticket;
+  if (work.accepted) return ['已验收', 'green'];
+  if (work.consultation && ticket.result) return ['咨询已回复', 'green'];
+  if (ticket.endReason && ticket.endReason !== 'completed') return [ticket.endReason === 'stopped' ? '已停止' : '已结束', 'neutral'];
+  const needsProductChecks = 'productChecksPending' in ticket ? ticket.productChecksPending : ticket.productVerification?.ready === false;
+  const recovery = 'recoveryKind' in ticket ? ticket.recoveryKind : ticket.recovery?.kind;
+  if (needsProductChecks && (!recovery || recovery === 'acceptance')) return ['待核对验收项', 'amber'];
+  if (recovery && recoveryLabel(recovery)) return [recoveryLabel(recovery), 'amber'];
   if (work.handoff && !work.handoff.completedAt && !work.handoff.cancelledAt) return ['交接或恢复中', 'blue'];
   if (work.developmentResponse) return ['待重新安排', 'amber'];
-  if (work.accepted) return ['已验收', 'green'];
   if (work.development && work.approvalRequired && !work.developmentApproval && stage.stage !== 'ended') return ['待研发接单', 'amber'];
-  if (work.consultation && ticket.result) return ['咨询已回复', 'green'];
-  if ('deliveryStatus' in ticket && ticket.deliveryStatus && ticket.deliveryStatus.state !== 'ready') return ['待交付证据', 'amber'];
+  if (ticket.deliveryStatus && ticket.deliveryStatus.state !== 'ready') return ['待交付证据', 'amber'];
   if (ticket.result) return ['待验收', 'amber'];
   if ('waitingAccess' in ticket && ticket.waitingAccess) return ['等待资料授权', 'amber'];
   if ('materialHidden' in ticket && ticket.materialHidden) return ['资料受限', 'amber'];
   if (stage.stage === 'person') return [({ answer: '待答复', delivery: '待交付', review: '待核对', blocked: '暂时阻塞', failed: '执行失败' })[stage.action], 'amber'];
-  if (stage.stage === 'working') return [stage.action === 'queued' ? '排队中' : '执行中', 'blue'];
+  const runState = 'runState' in ticket ? ticket.runState : ticket.currentRun?.state;
+  if (stage.stage === 'working') return [stage.action === 'queued' || runState === 'queued' ? '排队中' : '执行中', 'blue'];
   if (stage.stage === 'ended') return ['已结束', 'neutral'];
   return ['等待中', 'neutral'];
 }

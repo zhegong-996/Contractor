@@ -1,0 +1,11 @@
+{
+  "name": "contractor-store-small-screen",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "install-ci": "playwright install --with-deps --only-shell chromium"
+  },
+  "dependencies": {
+    "playwright": "1.65.1"
+  }
+}

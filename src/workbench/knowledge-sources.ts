@@ -93,3 +93,22 @@ export async function readKnowledgeSource(connection: Connection, feishu: Feishu
   const source: SourceVersion = { resource: connection.resource, path: connection.path, authority: connection.authority, revision, fingerprint, url };
   return { body, source };
 }
+
+export function watchFigmaKnowledge(refresh: () => Promise<void>) {
+  let closing = false;
+  let active: Promise<void> | undefined;
+  function sync() {
+    if (closing || active) return;
+    active = refresh().catch(error => {
+      if (!closing) console.error('Figma 同步未完成：', (error as Error).name);
+    }).finally(() => { active = undefined; });
+  }
+  const timer = setInterval(sync, 120_000);
+  timer.unref();
+  sync();
+  return async () => {
+    closing = true;
+    clearInterval(timer);
+    await active;
+  };
+}

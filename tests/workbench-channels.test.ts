@@ -22,7 +22,7 @@ test('群命令只移除平台确认的机器人提及，明确引用单独解�
 });
 
 test('渠道身份绑定、同一引用去重和负责人确认共用原版工单事务', async t => {
-  const directory = await mkdtemp(path.join(os.tmpdir(), 'suitme-channels-'));
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'contractor-channels-'));
   await mkdir(path.join(directory, 'console'));
   process.env.COLLAB_STATE_DIR = directory;
   const [{ openCollaboration }, { settingsSchema }, { ConsoleAuth }, { key }, { messageRef }] = await Promise.all([
@@ -205,7 +205,7 @@ test('渠道身份绑定、同一引用去重和负责人确认共用原版工�
 });
 
 test('GitHub 首次读取区分 Issue 元数据更新与正文编辑，失败可重试', async t => {
-  const dir = await mkdtemp(path.join(os.tmpdir(), 'suitme-github-opening-'));
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'contractor-github-opening-'));
   const priorPath = process.env.PATH;
   process.env.PATH = dir + path.delimiter + priorPath;
   t.after(async () => { process.env.PATH = priorPath; await rm(dir, { recursive: true, force: true }); });

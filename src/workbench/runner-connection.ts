@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
+import { formerName } from './compatibility.ts';
 
 export const runnerEndpoint = z.url().transform(value => new URL(value)).refine(url =>
   (url.protocol === 'https:' || url.protocol === 'http:' && url.hostname === '127.0.0.1')
@@ -14,6 +15,7 @@ export const runnerConnectInput = z.object({
 export type RunnerConnectInput = z.infer<typeof runnerConnectInput>;
 
 // Only the private polling secret, stored by the requesting machine, can recover its device credential.
-export function enrollmentToken(id: string, secret: string) {
-  return createHash('sha256').update('suitme-runner-enrollment-v1:' + id + ':' + secret).digest('base64url');
+export function enrollmentToken(id: string, secret: string, former = false) {
+  const scope = 'contractor-runner-enrollment-v1:';
+  return createHash('sha256').update((former ? formerName(scope) : scope) + id + ':' + secret).digest('base64url');
 }

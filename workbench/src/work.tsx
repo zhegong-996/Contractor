@@ -1,23 +1,59 @@
 import { useLayoutEffect, useRef, useState } from 'react';
-import { ArrowLeft, ArrowRight, Bot, Check, ChevronRight, CircleCheck, FileCheck2, GitBranch, GitPullRequest, History, Link2, ListChecks, LockKeyhole, PanelRightClose, PanelRightOpen, Plus, ShieldCheck } from 'lucide-react';
-import { api, uid, useData, type DeviceRow, type Knowledge, type Snapshot, type Ticket } from './api.ts';
+import { ArrowLeft, ArrowRight, Bot, Check, ChevronRight, CircleCheck, FileCheck2, GitBranch, GitPullRequest, History, Link2, ListChecks, LockKeyhole, MessageSquare, PanelRightClose, PanelRightOpen, Plus, ShieldCheck } from 'lucide-react';
+import { api, uid, useData, useTickets, type Knowledge, type Ticket, type TicketRow, type TicketTopicContext } from './api.ts';
 import { AgentOptions, MaterialPicker } from './creation.tsx';
 import { Conversation } from './conversation.tsx';
 import { AcceptedEvidence } from './accepted-evidence.tsx';
-import { go, routeFor, type PageProps } from './navigation.ts';
-import { Button } from './paperclip/button.tsx';
-import { Input } from './paperclip/input.tsx';
-import { TabsContent } from './paperclip/tabs.tsx';
-import { Avatar, date, Empty, Ext, Failure, Field, IconButton, Loading, Markdown, Modal, PageTabs, Pill, SearchBox, Section, short, Source,
-  TicketStatus, TopicOptions, topicName, useActions, useStored, Version } from './ui.tsx';
+import { ChannelReceipt, DeliveryVerification } from './work-evidence.tsx';
+import { WorkBoard, workStates, type BoardGrouping } from './work-board.tsx';
+import { RunHistory } from './work-execution.tsx';
+import { eligibleExecutionDevices, ExecutionTargetPicker, useExecutionTargets } from './execution-target.tsx';
+import { CaseEditor, ProductChecks, ProductVerificationPanel } from './product-criteria.tsx';
+import { go, routeFor, runRoute, type PageProps } from './navigation.ts';
+import { Button } from './components/button.tsx';
+import { Input, TextArea } from './components/input.tsx';
+import { TicketPicker } from './components/ticket-picker.tsx';
+import { forest, type Branch } from './hierarchy.ts';
+import { TabsContent } from './components/page-tabs.tsx';
+import { Markdown } from './markdown.tsx';
+import { Avatar, date, Empty, Ext, Failure, Field, IconButton, KnowledgeGrantStatus, Loading, Modal, PageTabs, Pill, recoveryLabel, SearchBox, Section, short, Source,
+  Segments, TicketStatus, TopicOptions, topicName, useActions, useSessionScroll, useStored, Version } from './ui.tsx';
 
-const workTabs = [['activity', '协作动态'], ['delivery', '交付与验收'], ['context', '上下文']] as const;
+const workTabs = [['activity', '协作动态'], ['execution', '执行记录'], ['delivery', '交付与验收'], ['context', '上下文']] as const;
 type WorkTab = (typeof workTabs)[number][0];
-const runStates: Record<string, string> = { queued: '排队中', claimed: '执行中', done: '执行完成', nothing: '无进一步动作',
-  cancelled: '已停止', failed: '执行失败', unknown: '等待执行端回执' };
-const accessStates: Record<string, string> = { requested: '待授权', granted: '本工单已授权', revoked: '已撤回', expired: '已到期' };
 const pullStates: Record<string, string> = { open: '开启', draft: '草稿', closed: '已关闭', merged: '已合并' };
 const reviewStates: Record<string, string> = { APPROVED: '已通过', CHANGES_REQUESTED: '要求修改', COMMENTED: '已评论', DISMISSED: '已撤销', PENDING: '待提交' };
+
+const recoveryActions: Record<string, string> = {
+  'wait-receipt': '等待原执行的回执补写', 'restore-old-runner': '让原执行端恢复连接并回报停止',
+  'authorize-material': '由资料负责人核对并授权', 'confirm-assignment': '由受托研发确认是否接单',
+  'answer-required-question': '回答全部必答问题', 'review-returned-assignment': '由负责人重新安排执行',
+  'confirm-delegation': '由负责人确认子任务', 'review-required-child': '检查缺失或失效的子任务结果',
+  'wait-child-results': '等待必需的子任务结果齐全', 'wait-ci': '等待本版提交的 CI 完成',
+  'wait-deployment': '等待本版部署核对', 'check-delivery': '核对本版交付证据',
+  'review-current-version': '验收当前版本', 'request-or-check-material': '核对资料或重新申请授权',
+  'reconnect-original-runner': '连接原执行端，接续原工单', 'wait-native-retry': '等待 AutoLoop 自动重试',
+  'check-runner': '检查执行端、模型或成员凭据', 'review-mandate': '核对当前委托与权限',
+  'fix-and-resume': '处理阻塞后接续原工单', 'wait-handoff': '等待交接完成',
+};
+function TicketRecovery({ ticket, project, workspace }: PageProps & { ticket: Ticket }) {
+  const recovery = ticket.recovery;
+  if (!recovery) return null;
+  const base = routeFor(project.id, 'work', ticket.id);
+  const next = recovery.next;
+  return <Section title={recoveryLabel(recovery.kind) ?? '本版待处理'} action={<Version version={recovery.version} />}>
+    <p>{recoveryActions[next] ?? '查看当前工单的处理依据'}</p>
+    <div className="inline-meta">
+      {!!recovery.owners.length && <span>处理人 {recovery.owners.map(owner => owner === workspace.actor ? '我' : owner).join('、')}</span>}
+      {recovery.retryAt && <span>预计重试 {date(recovery.retryAt, true)}</span>}
+      {recovery.run && <a href={runRoute(project.id, ticket.id, recovery.run)}>执行 #{recovery.run}</a>}
+      {!!recovery.decisionIds.length && <a href={routeFor(project.id, 'inbox')}>待我处理</a>}
+      {['authorize-material', 'request-or-check-material'].includes(next) && <a href={base + '?tab=context'}>资料与授权</a>}
+      {['wait-ci', 'wait-deployment', 'check-delivery', 'review-current-version'].includes(next) && <a href={base + '?tab=delivery'}>查看本版交付</a>}
+      {['restore-old-runner', 'reconnect-original-runner', 'check-runner'].includes(next) && <a href={routeFor(project.id, 'agents', undefined, 'devices')}>查看执行端</a>}
+    </div>
+  </Section>;
+}
 
 function githubActor(identity: { login: string; member?: string } | null | undefined) {
   if (!identity) return '—';
@@ -27,50 +63,105 @@ function githubActor(identity: { login: string; member?: string } | null | undef
 export function WorkPage(props: PageProps) {
   const { project, route, workspace, openTask } = props;
   const [filters, setFilters] = useStored('work:' + project.id, { query: '', topic: '', status: 'all' });
-  const savedScroll = useRef(0);
-  const listRef = useRef<HTMLDivElement>(null);
-  useLayoutEffect(() => { if (listRef.current) listRef.current.scrollTop = savedScroll.current; }, [route.item]);
-  const inProject = workspace.tickets.filter(item => item.work.project === project.id);
-  const shown = inProject.filter(item => {
-    const matching = !filters.topic || item.work.topic === filters.topic || project.topics.some(t => t.id === item.work.topic && t.parent === filters.topic);
-    const query = filters.query.trim().toLocaleLowerCase();
-    const target = workspace.agents.find(a => a.id === item.work.agent)?.title;
-    const status = filters.status === 'all' || (filters.status === 'active' && !item.work.accepted && item.stage.stage !== 'ended')
-      || (filters.status === 'acceptance' && item.result && !item.work.accepted && !item.work.consultation) || (filters.status === 'accepted' && !!item.work.accepted);
-    return matching && status && (!query || [item.title, topicName(project, item.work.topic), item.work.requester, target]
-      .filter(Boolean).join(' ').toLocaleLowerCase().includes(query));
-  });
-  const tab: WorkTab = workTabs.find(([id]) => id === route.tab)?.[0] ?? 'activity';
+  const [scope, setScope] = useStored('work-scope', 'project');
+  const [view, setView] = useStored<'board' | 'list'>('work-view', 'board');
+  const [group, setGroup] = useStored<BoardGrouping>('work-board-group', 'status');
+  const [origin] = useStored('board-origin:' + route.item, project.id);
+  const boardProject = workspace.projects.some(item => item.id === origin) ? origin : project.id;
+  const status = ({ active: 'running', acceptance: 'review', accepted: 'done', answered: 'done', ended: 'closed' } as Record<string, string>)[filters.status] ?? filters.status;
+  const listScroll = useSessionScroll(JSON.stringify(['work-list', project.id, scope, filters]), { visibleAt: route.item });
+  const tickets = useTickets({ ...(scope === 'mine' ? { mine: true } : { project: project.id, topic: filters.topic }),
+    q: filters.query.trim().slice(0, 240), state: workStates.find(item => item.id === status)?.id }, view === 'list' || !route.item, 4000);
+  const shown = tickets.rows;
+  const listState = <>{tickets.error && <Failure error={tickets.error} retry={() => void tickets.refetch()} />}
+    {tickets.isPending && <Loading />}
+    {tickets.hasNextPage && <Button size="sm" variant="outline" disabled={tickets.isFetching} onClick={() => void tickets.fetchNextPage()}>
+      加载更多工单</Button>}</>;
+  const tab: WorkTab = route.tab === 'context' && route.run ? 'execution' : workTabs.find(([id]) => id === route.tab)?.[0] ?? 'activity';
   const data = useData<Ticket>(route.item ? 'ticket/' + route.item : '', 2200);
-  return <div className="split" data-has-detail={!!route.item}>
-    <aside className="split-list" aria-label="项目工单列表">
-      <div className="list-header">
-        <div className="list-title"><h1>协作工单</h1>{project.mayStart && <IconButton label="新建工单" onClick={() => openTask({ topic: filters.topic || undefined })}><Plus /></IconButton>}</div>
-        <SearchBox label="搜索工单" value={filters.query} onChange={query => setFilters({ ...filters, query })} />
-        <div className="filters">
-          <select aria-label="筛选主题" value={filters.topic} onChange={e => setFilters({ ...filters, topic: e.target.value })}><TopicOptions project={project} empty="全部主题" /></select>
-          <select aria-label="筛选状态" value={filters.status} onChange={e => setFilters({ ...filters, status: e.target.value })}>
-            <option value="all">全部状态</option><option value="active">执行中</option><option value="acceptance">待验收</option><option value="accepted">已验收</option>
+  const detailScroll = useSessionScroll(JSON.stringify(['work-detail', project.id, route.item, tab, route.revision, route.run, route.attempt]), {
+    ready: !route.item || data.data?.project === project.id && data.data.id === route.item,
+    preserveInitial: tab === 'delivery' && !!route.revision,
+  });
+  const scopeFilter = <Segments label="任务范围" items={[[ 'project', '项目任务' ], [ 'mine', '我的任务' ]]} value={scope} onChange={setScope} />;
+  const viewFilter = <Segments label="任务视图" items={[[ 'board', '看板' ], [ 'list', '列表' ]]} value={view} onChange={setView} />;
+  const taskFilters = <>
+    <SearchBox label="搜索工单" value={filters.query} onChange={query => setFilters({ ...filters, query })} />
+    <div className="filters">
+      {scope !== 'mine' && <select aria-label="筛选主题" value={filters.topic} onChange={e => setFilters({ ...filters, topic: e.target.value })}><TopicOptions project={project} empty="全部主题" /></select>}
+      <select aria-label="筛选状态" value={status} onChange={e => setFilters({ ...filters, status: e.target.value })}>
+        <option value="all">全部状态</option>{workStates.map(({ id, title }) => <option value={id} key={id}>{title}</option>)}
+      </select>
+    </div>
+  </>;
+  const add = () => openTask({ topic: scope === 'project' && filters.topic || undefined });
+  if (view === 'board' && !route.item) return <section className="work-desk" aria-label="任务">
+    <header className="work-desk-header">
+      <div className="work-desk-title"><h1>任务</h1>
+        {project.mayStart && <Button size="sm" onClick={add}><Plus size={16} />新建工单</Button>}</div>
+      <div className="work-desk-controls">
+        <div className="work-desk-views">{scopeFilter}{viewFilter}</div>
+        <div className="work-desk-filters">{taskFilters}
+          <select aria-label="看板分组" value={group} onChange={e => setGroup(e.target.value as BoardGrouping)}>
+            <option value="status">按状态分组</option><option value="priority">按优先级分组</option>
           </select>
         </div>
       </div>
-      <div className="list-scroll" ref={listRef} onScroll={e => { savedScroll.current = e.currentTarget.scrollTop; }}>
-        {shown.map(item => <a className="list-item" key={item.id} href={routeFor(project.id, 'work', item.id)}
-          aria-current={route.item === item.id ? 'page' : undefined}>
-          <div className="list-item-top"><strong>{item.title}</strong><time>{date(item.updatedAt)}</time></div>
-          <div className="list-item-meta"><Source channel={item.work.source} /><span>{topicName(project, item.work.topic) ?? '项目工单'}</span></div>
-          <TicketStatus ticket={item} />
-        </a>)}
-        {!shown.length && <Empty title={inProject.length ? '没有匹配的工单' : '暂无工单'} icon={<ListChecks />} />}
+    </header>
+    <WorkBoard tickets={shown} workspace={workspace} project={project} mine={scope === 'mine'} group={group}
+      scrollKey={JSON.stringify(['work-board', project.id, scope, group, filters])} />
+    {listState}
+  </section>;
+  return <div className="split" data-has-detail={!!route.item}>
+    {view === 'list' && <aside className="split-list" aria-label="项目工单列表">
+      <div className="list-header">
+        <div className="list-title"><h1>任务</h1>{project.mayStart && <IconButton label="新建工单" onClick={add}><Plus /></IconButton>}</div>
+        {scopeFilter}{viewFilter}{taskFilters}
       </div>
-    </aside>
-    <div className="split-detail">
-      {route.item && <a className="mobile-back" href={routeFor(project.id, 'work')}><ArrowLeft size={16} />工单列表</a>}
-      {!route.item ? <Empty title="选择一张工单" icon={<ListChecks />} description="查看讨论、当前交付和引用资料。" />
+      <div className="list-scroll" {...listScroll}>
+        {(scope === 'mine' ? workspace.projects : [project]).map(home => {
+          const roots = forest(shown.filter(item => item.work.project === home.id), item => item.work.parent);
+          return roots.length > 0 && <section key={home.id} aria-label={home.title}>
+            {scope === 'mine' && <h2 className="tree-heading">{home.title}</h2>}
+            {roots.map(branch => <TaskBranch key={branch.item.id} branch={branch} home={home} current={route.item} />)}
+          </section>;
+        })}
+        {!shown.length && !tickets.isPending && !tickets.hasNextPage && <Empty title="没有匹配的工单" icon={<ListChecks />} />}
+        {listState}
+      </div>
+    </aside>}
+    <div className="split-detail" {...detailScroll}>
+      {route.item && <a className={view === 'board' ? 'work-back' : 'mobile-back'} href={routeFor(view === 'board' ? boardProject : project.id, 'work')}>
+        <ArrowLeft size={16} />{view === 'board' ? '返回看板' : '工单列表'}</a>}
+      {!route.item ? <div className="desk-overview"><h1>{scope === 'mine' ? '我的任务' : project.title}</h1>
+        <div className="status-grid">{workStates.map(({ id, title }) => <button key={id} type="button" aria-pressed={status === id}
+          onClick={() => setFilters({ ...filters, status: status === id ? 'all' : id })}>{title}</button>)}</div>
+        <Section title="近期更新">{shown.length ? shown.slice(0, 10).map(item => <div className="record-row" key={item.id}>
+          <TicketStatus ticket={item} /><a href={routeFor(item.work.project, 'work', item.id)}>{item.title}</a><time>{date(item.updatedAt)}</time>
+        </div>) : <p className="muted-text">暂无匹配任务</p>}</Section>
+      </div>
         : data.error ? <Failure error={data.error} retry={() => void data.refetch()} />
         : !data.data || data.data.project !== project.id ? (data.data ? <Empty title="请选择当前项目的工单" /> : <Loading />)
         : <TicketDetail key={data.data.id} {...props} ticket={data.data} tab={tab} />}
     </div>
+  </div>;
+}
+
+function TaskBranch({ branch, home, current }: { branch: Branch<TicketRow>; home: PageProps['project']; current?: string }) {
+  const { item, children } = branch;
+  const containsCurrent = (node: Branch<TicketRow>): boolean => node.item.id === current || node.children.some(containsCurrent);
+  const [expanded, setExpanded] = useStored('task-tree:' + item.id, false);
+  const open = expanded || children.some(containsCurrent);
+  return <div className="task-tree-branch">
+    <a className="list-item" href={routeFor(home.id, 'work', item.id)} aria-current={current === item.id ? 'page' : undefined}>
+      <div className="list-item-top"><strong>{item.title}</strong><time>{date(item.updatedAt)}</time></div>
+      <div className="list-item-meta"><Source channel={item.work.source} /><TicketStatus ticket={item} /><span>{topicName(home, item.work.topic) ?? '项目工单'}</span></div>
+    </a>
+    {children.length > 0 && <div className="task-tree-children">
+      <button type="button" className="task-tree-trigger" aria-expanded={open} onClick={() => setExpanded(!open)}
+        disabled={children.some(containsCurrent)}><ChevronRight size={14} className={open ? 'tree-open' : undefined} />{children.length} 张子工单</button>
+      {open && children.map(child => <TaskBranch key={child.item.id} branch={child} home={home} current={current} />)}
+    </div>}
   </div>;
 }
 
@@ -80,28 +171,50 @@ function TicketDetail(props: PageProps & { ticket: Ticket; tab: WorkTab }) {
   const [dialog, setDialog] = useState('');
   const { busy, run } = useActions();
   const agent = workspace.agents.find(a => a.id === ticket.work.agent);
+  const topic = project.topics.find(item => item.id === ticket.work.topic);
+  const discussion = topic
+    ? { name: topic.title, href: routeFor(project.id, 'chat', topic.id) }
+    : !ticket.work.topic ? { name: '项目讨论', href: routeFor(project.id, 'chat', undefined, 'project') } : undefined;
   const decision = workspace.needsYou.find(d => d.ticket === ticket.id && (d.kind === 'development' || d.kind === 'development-returned'));
   const status = ticket.work.handoff && !ticket.work.handoff.completedAt && !ticket.work.handoff.cancelledAt;
   const agentChoices = workspace.agents.filter(a => a.active && a.projects.includes(project.id)
+    && (!ticket.work.personal || a.kind === 'personal' && a.owner === ticket.work.requester)
     && (!ticket.work.development || project.deliveryTargets.some(ref => ref.externalId === ticket.work.development!.repository
       && ref.eligibleAgents.includes(a.id))));
+  const handoffChoices = agentChoices.filter(a => a.id !== ticket.work.agent && a.engine !== 'octop' && agent?.engine !== 'octop');
   const actions = ticket.actions;
   const deviceWaiting = !!ticket.device && !ticket.device.online && !ticket.endReason;
-  const canResume = actions.resume && !status && (deviceWaiting || ticket.materialHidden || ticket.report?.state === 'blocked' || ticket.report?.state === 'failed'
+  const recoveryNext = ticket.recovery?.next;
+  const waitingOnRecovery = !!recoveryNext && (recoveryNext.startsWith('wait-') || recoveryNext === 'restore-old-runner');
+  const canResume = actions.resume && !status && !waitingOnRecovery && (deviceWaiting || ticket.materialHidden || ticket.report?.state === 'blocked' || ticket.report?.state === 'failed'
     || ticket.requests.some(r => r.state === 'revoked' || r.state === 'expired') || ticket.stage.stage === 'idle');
+  const maySwitch = tab === 'execution' && actions.resume && !!agent && !ticket.endReason && !status && !ticket.materialHidden
+    && !!ticket.currentRun && ['queued', 'claimed', 'unknown'].includes(ticket.currentRun.state)
+    && !ticket.questions.length && !['access', 'source-changed', 'development', 'answer', 'receipt-pending'].includes(ticket.recovery?.kind ?? '');
+  const targets = useExecutionTargets(maySwitch ? project.id : undefined);
+  const canSwitch = maySwitch && (eligibleExecutionDevices(targets.devices.data, agent).some(device => device.id !== ticket.device?.id)
+    || !!ticket.device && agent.executionCapabilities.local);
+  const canHandoff = actions.handoff && recoveryNext !== 'wait-receipt' && !!handoffChoices.length;
+  const inspectorAvailable = tab === 'activity' || tab === 'delivery';
   const viewedVersion = tab === 'delivery' && route.revision !== undefined
     ? ticket.versions.find(version => version.revision === route.revision) : undefined;
   const versionAccepted = viewedVersion?.reviews.some(review => review.kind === 'accepted');
   const versionAgent = viewedVersion && ticket.runs.find(run => run.id === viewedVersion.run)?.attribution?.agent;
   const send = (action: string, data: unknown, message: string) => run(() => api('ticket/' + ticket.id + '/' + action, data), message);
   const upcoming = ticket.work.version ?? 1;
+  const executionActions = (canResume || canHandoff || canSwitch || actions.stop) && <div className="actions context-actions">
+    {canResume && <Button variant="outline" size="sm" onClick={() => setDialog('resume')}>{ticket.materialHidden ? '重新申请查阅' : '接续执行'}</Button>}
+    {canSwitch && <Button variant="outline" size="sm" onClick={() => setDialog('switch')}>切换执行端</Button>}
+    {canHandoff && <Button variant="outline" size="sm" onClick={() => setDialog('handoff')}>交接 Agent</Button>}
+    {actions.stop && <Button variant="ghost" size="sm" onClick={() => setDialog('stop')}>停止工单</Button>}
+  </div>;
   return <div className="ticket-shell">
     <div className="ticket-top">
       <div className="ticket-title-line">
         <h1>{ticket.title}</h1>
         <div className="ticket-top-actions">
-          <IconButton label={side ? '隐藏工单信息' : '显示工单信息'} className="desktop-inspector" onClick={() => setSide(!side)}>
-            {side ? <PanelRightClose /> : <PanelRightOpen />}</IconButton>
+          {inspectorAvailable && <IconButton label={side ? '隐藏工单信息' : '显示工单信息'} className="desktop-inspector" onClick={() => setSide(!side)}>
+            {side ? <PanelRightClose /> : <PanelRightOpen />}</IconButton>}
           {project.mayStart && <IconButton label="新建子工单" onClick={() => props.openTask({ parent: ticket.id, topic: ticket.work.topic })}><Plus /></IconButton>}
         </div>
       </div>
@@ -111,14 +224,19 @@ function TicketDetail(props: PageProps & { ticket: Ticket; tab: WorkTab }) {
         <Version version={viewedVersion.version} />
       </> : <><TicketStatus ticket={ticket} /><Version version={ticket.work.version} /></>}
         <Source channel={ticket.work.source} />
+        {discussion && <a className="ticket-discussion" href={discussion.href} aria-label={'返回讨论 ' + discussion.name}>
+          <MessageSquare size={14} aria-hidden="true" /><span>{discussion.name}</span>
+        </a>}
         <span>{versionAgent ? workspace.agents.find(item => item.id === versionAgent)?.title ?? versionAgent : agent?.title ?? ticket.work.agent}</span>
-        {!viewedVersion && ticket.device && <span>{ticket.device.name}{deviceWaiting ? ' · 离线' : ''}</span>}</div>
+        {!viewedVersion && ticket.device && <span>{ticket.device.name}{ticket.device.state === 'retired' ? ' · 已退役'
+          : ticket.device.state === 'lost' ? ' · 已丢失' : ticket.device.state === 'suspended' ? ' · 已暂停' : deviceWaiting ? ' · 离线' : ''}</span>}</div>
     </div>
-    <div className="ticket-frame" data-inspector={side && tab !== 'context'}>
+    <div className="ticket-frame" data-inspector={side && inspectorAvailable}>
       <PageTabs value={tab} onChange={value => go(project.id, 'work', ticket.id, value)} items={workTabs} label="工单详情">
         <TabsContent className="ticket-tab" value="activity">
-          {status && <div className="info-callout"><History size={17} /><span>正在确认旧执行停止及接续权限。{ticket.report?.summary}</span></div>}
-          {deviceWaiting && !status && <div className="info-callout"><Bot size={17} />{ticket.device?.name} 当前离线，等待连接或确认接续。</div>}
+          <TicketRecovery {...props} ticket={ticket} />
+          {status && !ticket.recovery && <div className="info-callout"><History size={17} /><span>正在确认旧执行停止及接续权限。{ticket.report?.summary}</span></div>}
+          {deviceWaiting && !status && !ticket.recovery && <div className="info-callout"><Bot size={17} />{ticket.device?.name} 当前离线，等待连接或确认接续。</div>}
           {decision && <section className="decision-box">
             <span className="decision-mark"><ShieldCheck size={18} /></span><div>
               <h2>{decision.title}</h2>{decision.detail && <p>{decision.detail}</p>}
@@ -136,21 +254,20 @@ function TicketDetail(props: PageProps & { ticket: Ticket; tab: WorkTab }) {
           <Timeline {...props} ticket={ticket} />
           <Conversation {...props} ticket={ticket.id} topic={ticket.work.topic} canReplyInFeishu={ticket.canReplyInFeishu} />
           {ticket.report && !ticket.result && !ticket.questions.length && !status && <div className="info-callout"><Bot size={17} /><span>{ticket.report.summary}</span></div>}
-          {(canResume || actions.handoff || actions.stop) && <div className="actions context-actions">
-            {canResume && <Button variant="outline" size="sm" onClick={() => setDialog('resume')}>{ticket.materialHidden ? '重新申请查阅' : '接续执行'}</Button>}
-            {actions.handoff && agentChoices.some(a => a.id !== ticket.work.agent) && <Button variant="outline" size="sm" onClick={() => setDialog('handoff')}>交接 Agent</Button>}
-            {actions.stop && <Button variant="ghost" size="sm" onClick={() => setDialog('stop')}>停止工单</Button>}
-          </div>}
+          {executionActions}
+        </TabsContent>
+        <TabsContent className="ticket-tab" value="execution">
+          <RunHistory {...props} ticket={ticket} actions={<><TicketRecovery {...props} ticket={ticket} />{executionActions}</>} />
         </TabsContent>
         <TabsContent className="ticket-tab" value="delivery"><Delivery {...props} ticket={ticket} /></TabsContent>
         <TabsContent className="ticket-tab" value="context"><ContextPanel {...props} ticket={ticket} /></TabsContent>
       </PageTabs>
-      {side && tab !== 'context' && <aside className="inspector" aria-label="工单信息">
+      {side && inspectorAvailable && <aside className="inspector" aria-label="工单信息">
         <h2>工单信息</h2>
         <dl className="facts">
           <dt>发起人</dt><dd>{ticket.work.requester}</dd>
           <dt>Agent 所有者</dt><dd>{agent?.owner ?? '—'}</dd>
-          <dt>主题</dt><dd>{ticket.topicTitle ?? '未归入主题'}</dd>
+          {!discussion && <><dt>主题</dt><dd>{ticket.topicTitle ?? '未归入主题'}</dd></>}
           <dt>优先级</dt><dd>{ticket.work.priority === 'urgent' ? '紧急' : '普通'}</dd>
           <dt>创建时间</dt><dd>{date(ticket.createdAt)}</dd>
         </dl>
@@ -159,7 +276,8 @@ function TicketDetail(props: PageProps & { ticket: Ticket; tab: WorkTab }) {
         {ticket.work.parent && <a className="inspector-link" href={routeFor(project.id, 'work', ticket.work.parent)}><Link2 size={16} />上游工单</a>}
       </aside>}
     </div>
-    {dialog && <TicketCommand {...props} name={dialog} close={() => setDialog('')} nextVersion={upcoming} />}
+    {dialog && <TicketCommand {...props} name={dialog} agentChoices={dialog === 'handoff' ? handoffChoices : agentChoices}
+      close={() => setDialog('')} nextVersion={upcoming} />}
   </div>;
 }
 
@@ -196,6 +314,7 @@ function Timeline({ ticket, project }: PageProps & { ticket: Ticket }) {
       <Avatar value="AI" kind="agent" /><div className="message result-message">
         <div className="message-meta"><strong>{ticket.work.consultation ? '咨询回复' : 'Agent 交付'}</strong><Version version={ticket.result.version} /><time>{date(ticket.result.at)}</time></div>
         <Markdown text={ticket.result.text} />
+        {ticket.channelReturn && <ChannelReceipt receipt={ticket.channelReturn} />}
         <a className="text-button" href={routeFor(project.id, 'work', ticket.id, 'delivery')}>查看交付与验收<ArrowRight size={15} /></a>
       </div>
     </article>}
@@ -225,30 +344,35 @@ function Question({ ticket, question }: { ticket: string; question: Ticket['ques
   </article>;
 }
 
-function TicketCommand({ name, ticket, close, project, workspace, nextVersion }: PageProps & {
-  name: string; ticket: Ticket; close: () => void; nextVersion: number;
+function TicketCommand({ name, ticket, close, project, workspace, nextVersion, agentChoices }: PageProps & {
+  name: string; ticket: Ticket; close: () => void; nextVersion: number; agentChoices: PageProps['workspace']['agents'];
 }) {
   const { busy, run } = useActions();
-  const devices = useData<DeviceRow[]>(name === 'resume' ? 'project/' + project.id + '/devices' : '', 2500);
-  const eligible = devices.data?.filter(device => device.agent === ticket.work.agent && device.active && device.eligible) ?? [];
-  const options = workspace.agents.filter(a => a.active && a.projects.includes(project.id)
-    && (name !== 'handoff' || a.id !== ticket.work.agent) && (!ticket.work.development || ['codex','cursor'].includes(a.engine)));
+  const [agent, setAgent] = useState('');
+  const [device, setDevice] = useState('');
+  const [nonce] = useState(uid);
+  const changesDevice = name === 'switch' || name === 'resume';
+  const targetAgent = name === 'handoff' ? agentChoices.find(item => item.id === agent)
+    : changesDevice && !ticket.materialHidden && !ticket.endReason ? workspace.agents.find(item => item.id === ticket.work.agent) : undefined;
+  const targets = useExecutionTargets(targetAgent ? project.id : undefined);
+  const validDevice = device === 'workbench' ? !!targetAgent?.executionCapabilities.local && !!ticket.device
+    : !!eligibleExecutionDevices(targets.devices.data, targetAgent).find(item => item.id === device && (name !== 'switch' || item.id !== ticket.device?.id));
   const offer = workspace.needsYou.find(d => d.ticket === ticket.id && d.kind === (name === 'respond' ? 'development' : 'development-returned'));
   const settings: Record<string, [string, string]> = {
     respond: ['处理研发委托', '确认提交'], reoffer: ['重新安排研发', '重新发出委托'], stop: ['停止工单', '停止工单'],
     resume: [ticket.materialHidden ? '重新申请查阅' : '接续原工单', '确认接续'], handoff: ['交接 Agent', '发起交接'],
+    switch: ['切换执行端', '提交切换'],
   };
   const [title, submit] = settings[name]!;
   return <Modal title={title} close={close}><form className="form" onSubmit={async e => {
     e.preventDefault();
     const form = new FormData(e.currentTarget);
     const reason = String(form.get('reason') ?? '').trim();
-    const target = form.get('device');
-    const agent = String(form.get('agent') ?? '');
+    const resumePayload = { version: nextVersion, nonce, reason, baseSha: form.get('baseSha') || undefined,
+      device: device === 'workbench' ? null : device || undefined };
     const commands: Record<string, [string, unknown]> = {
-      stop: ['stop', {}], handoff: ['handoff', { agent, reason }],
-      resume: ['resume', { version: nextVersion, nonce: uid(), reason, baseSha: form.get('baseSha') || undefined,
-        device: target === 'workbench' ? null : target || undefined }],
+      stop: ['stop', {}], handoff: ['handoff', { agent, reason, device: device || undefined }],
+      resume: ['resume', resumePayload], switch: ['resume', resumePayload],
       respond: ['respond-development', { offer: offer?.id, response: form.get('response'), reason }],
       reoffer: ['reoffer-development', { offer: offer?.subject, agent, reason }],
     };
@@ -257,15 +381,17 @@ function TicketCommand({ name, ticket, close, project, workspace, nextVersion }:
   }}>
     {name === 'stop' && <p>停止将结束本次委托。已记录的执行、提交与验收证据会保留。</p>}
     {name === 'handoff' && <p>工作台会先等待旧执行退出，再请新执行人确认所需资料。</p>}
-    {['handoff','reoffer'].includes(name) && <Field label="接续 Agent"><select name="agent" required defaultValue=""><AgentOptions agents={options} /></select></Field>}
+    {name === 'switch' && <p>当前执行端为 {ticket.device?.name ?? '工作台运行时'}。收到旧执行的停止回执并核对权限后，才会接续原工单。</p>}
+    {['handoff','reoffer'].includes(name) && <Field label="接续 Agent"><select name="agent" required value={agent} onChange={event => {
+      setAgent(event.target.value); setDevice('');
+    }}><AgentOptions agents={agentChoices} /></select></Field>}
+    {targetAgent && <ExecutionTargetPicker project={project.id} agent={targetAgent} targets={targets} value={device} onChange={setDevice}
+      mode={name === 'switch' ? 'switch' : name === 'resume' ? 'resume' : 'start'} current={ticket.device} />}
     {name === 'respond' && <Field label="处理方式"><select name="response"><option value="return">退回给负责人</option><option value="decline">拒接</option></select></Field>}
-    {name !== 'stop' && <Field label="原因"><textarea name="reason" rows={4} maxLength={3500} required /></Field>}
-    {name === 'resume' && !ticket.materialHidden && (ticket.device || eligible.length > 0) && <Field label="接续执行端"><select name="device" defaultValue="">
-      <option value="">沿用当前执行端</option><option value="workbench">工作台执行端</option>
-      {eligible.map(device => <option key={device.id} value={device.id}>{device.name}{device.online ? '' : ' · 离线'}</option>)}
-    </select></Field>}
+    {name !== 'stop' && <Field label="原因"><TextArea name="reason" rows={4} maxLength={3500} required /></Field>}
     {name === 'resume' && ticket.actions.baseline && !ticket.materialHidden && <Field label="新 Git 基线（选填）"><Input name="baseSha" pattern="[a-f0-9]{40}" maxLength={40} /></Field>}
-    <div className="form-actions"><Button type="submit" variant={name === 'stop' ? 'destructive' : 'default'} disabled={busy}>{submit}</Button></div>
+    <div className="form-actions"><Button type="submit" variant={name === 'stop' ? 'destructive' : 'default'}
+      disabled={busy || (name === 'switch' || !!device) && !validDevice}>{submit}</Button></div>
   </form></Modal>;
 }
 
@@ -278,8 +404,9 @@ function Delivery(props: PageProps & { ticket: Ticket }) {
   const accepted = ticket.work.accepted;
   const [acceptDraft, saveDraft] = useStored('accept:' + ticket.id + ':' + result?.revision, { body: '', conditions: '' });
   const scope = ticket.work.development;
-  const ci = ticket.deliveryStatus ? ticket.deliveryStatus.state === 'ready' ? 'passed'
-    : ticket.deliveryStatus.state === 'ci-failed' ? 'failed' : 'pending' : delivery?.ci;
+  const ci = delivery?.ci;
+  const deployment = delivery?.deployed;
+  const gate = ticket.deploymentGate;
   if (props.route.revision !== undefined) return <DeliveryVersion {...props} revision={props.route.revision} />;
   return <div className="detail-stack">
     <Section title="当前成果" action={<Version version={ticket.work.version} />}>
@@ -290,6 +417,7 @@ function Delivery(props: PageProps & { ticket: Ticket }) {
         : <p className="muted-text">尚未提交本版成果。</p>}
       {accepted && <div className="acceptance-line"><CircleCheck size={17} /><span>{accepted.actor} 已验收 · {date(accepted.at, true)}</span>
         {accepted.commit && <code>{short(accepted.commit, 12)}</code>}</div>}
+      {ticket.channelReturn && <ChannelReceipt receipt={ticket.channelReturn} />}
       {ticket.candidate && <a className="text-button" href={routeFor(project.id, 'knowledge', ticket.candidate, ticket.candidateTab)}>
         {ticket.candidateTab === 'review' ? '查看知识候选' : '查看关联知识'} <ArrowRight size={15} /></a>}
     </Section>
@@ -309,8 +437,17 @@ function Delivery(props: PageProps & { ticket: Ticket }) {
         {delivery.state && <span>{pullStates[delivery.state]}</span>}
         {ci && <Pill tone={ci === 'passed' ? 'green' : ci === 'failed' ? 'red' : 'amber'}>{({ passed: 'CI 通过', pending: 'CI 待完成', failed: 'CI 失败' })[ci]}</Pill>}
       </div>}
-      {!!delivery?.checks?.length && <div className="record-row">{delivery.checks.map(check =>
+      {!ticket.deliveryVerification && !!delivery?.checks?.length && <div className="record-row">{delivery.checks.map(check =>
         <Ext key={check.id} href={check.html_url ?? undefined}>CI · {check.name}</Ext>)}</div>}
+      {result && ticket.deliveryVerification && <DeliveryVerification ticket={ticket.id} revision={result.revision} verification={ticket.deliveryVerification} />}
+      {gate && <div className="record-row">
+        <span>部署 · {gate.environment}</span>
+        {deployment && <><span>部署 #{deployment.id}</span><code title={deployment.sha}>{short(deployment.sha, 12)}</code></>}
+        <Pill tone={gate.selection ? 'green' : ticket.deliveryStatus?.state === 'deployment-failed' ? 'red' : 'amber'}>
+          {gate.selection ? '部署通过' : ticket.deliveryStatus?.state === 'deployment-failed' ? '部署失败' : '待核对部署'}
+        </Pill>
+        {gate.selection && deployment?.status?.environment_url && <Ext href={deployment.status.environment_url}>打开部署</Ext>}
+      </div>}
       {ticket.deliveryStatus && <p className="muted-text">{ticket.deliveryStatus.detail}</p>}
       {ticket.githubIssues.map(issue => <div className="record-row" key={issue.html_url}>
         <Ext href={issue.html_url}>Issue #{issue.number}</Ext><span>{issue.state === 'open' ? '开启' : '已关闭'}</span>
@@ -362,24 +499,36 @@ function Delivery(props: PageProps & { ticket: Ticket }) {
       </div>)}
       {ticket.mayLinkDelivery && <Button variant="ghost" size="sm" onClick={() => setAction('branch')}><GitBranch />关联分支</Button>}
     </Section>}
+    {ticket.reusedAcceptance && <Section title="本版沿用的验收知识">
+      <a href={routeFor(project.id, 'knowledge', ticket.reusedAcceptance.id, 'current')}>{ticket.reusedAcceptance.title}</a>
+      {ticket.reusedAcceptance.source && <AcceptedEvidence source={ticket.reusedAcceptance.source} project={project.id} />}
+    </Section>}
+    {result && ticket.productVerification && <ProductVerificationPanel key={result.revision} ticket={ticket.id}
+      revision={result.revision} verification={ticket.productVerification} />}
     {result && !accepted && (ticket.actions.accept || ticket.actions.revise || ticket.work.requester === workspace.actor) && <Section title="本版验收">
       {ticket.actions.accept ? <form className="form" onSubmit={async e => {
         e.preventDefault();
         await run(() => api('ticket/' + ticket.id + '/accept', { revision: result.revision, commit: delivery?.headSha,
+          deployment: gate?.selection,
           body: acceptDraft.body.trim(), conditions: acceptDraft.conditions.trim() }), '已验收此版本');
       }}>
+        {gate?.selection && <div className="record-row"><span>验收环境 {gate.environment}</span>
+          <span>部署 #{gate.selection.id} · 状态 #{gate.selection.statusId}</span></div>}
         <details className="form-disclosure"><summary>填写可复用结论（选填）</summary>
-          <Field label="结论"><textarea rows={3} maxLength={16000} value={acceptDraft.body} onChange={e => saveDraft({ ...acceptDraft, body: e.target.value })} /></Field>
+          <Field label="结论"><TextArea rows={3} maxLength={16000} value={acceptDraft.body} onChange={e => saveDraft({ ...acceptDraft, body: e.target.value })} /></Field>
           {acceptDraft.body.trim() && <Field label="适用条件"><Input maxLength={600} required value={acceptDraft.conditions}
             onChange={e => saveDraft({ ...acceptDraft, conditions: e.target.value })} /></Field>}
         </details>
         <div className="actions"><Button type="submit" disabled={busy}><Check />验收第 {result.version ?? 1} 版</Button>
           {ticket.actions.revise && <Button type="button" variant="outline" onClick={() => setAction('revision')}>打回修改</Button>}</div>
-      </form> : <div className="actions"><span className="muted-text">{ticket.deliveryStatus?.detail ?? '等待本版达到验收条件。'}</span>
+      </form> : <div className="actions"><span className="muted-text">{ticket.deliveryStatus?.state === 'ready' || !ticket.deliveryStatus
+        ? '等待本版需求验收条件通过。' : ticket.deliveryStatus.detail}</span>
         {ticket.actions.revise && <Button variant="outline" size="sm" onClick={() => setAction('revision')}>打回修改</Button>}</div>}
     </Section>}
     {accepted && ticket.actions.revise && <Button variant="outline" className="self-start" onClick={() => setAction('revision')}>
       {props.route.consultation ? '确认咨询对应的改动范围' : '在原单开启下一版'} <ArrowRight /></Button>}
+    {ticket.actions.retryUnpublished && result && <Button size="sm" variant="outline" className="self-start" onClick={() => setAction('retry-unpublished')}>
+      修正未推送的代码成果</Button>}
     {ticket.versions.length > 0 && <Section title="版本历史">
       {ticket.versions.slice().reverse().map(version => <details className="version-record" key={version.revision}>
         <summary><Version version={version.version} /><code>{short(version.revision, 12)}</code><time>{date(version.at)}</time>
@@ -397,6 +546,18 @@ function Delivery(props: PageProps & { ticket: Ticket }) {
         <div className="form-actions"><Button type="submit" disabled={busy}>关联</Button></div></form>
     </Modal>}
     {action === 'revision' && result && <Revise ticket={ticket} project={project} consultation={props.route.consultation} close={() => setAction('')} />}
+    {action === 'retry-unpublished' && result && <Modal title="修正未推送的代码成果" close={() => setAction('')}>
+      <form className="form" onSubmit={async event => {
+        event.preventDefault();
+        const reason = new FormData(event.currentTarget).get('reason');
+        if (await run(() => api('ticket/' + ticket.id + '/retry-local-code', { revision: result.revision, reason }), '已接续原工单')) {
+          setAction(''); go(project.id, 'work', ticket.id, 'activity');
+        }
+      }}><p>将重新核对原 PR 和 Git 基线，保留本版撤回记录，并在原工单接续。</p>
+        <Field label="修正原因"><TextArea name="reason" rows={3} required maxLength={3500} /></Field>
+        <div className="form-actions"><Button disabled={busy} type="submit">确认接续</Button></div>
+      </form>
+    </Modal>}
   </div>;
 }
 
@@ -419,9 +580,12 @@ function DeliveryVersion({ ticket, project, revision }: PageProps & { ticket: Ti
 function VersionBody({ version, project }: { version: Ticket['versions'][number]; project: string }) {
   return <>
     {version.text !== undefined ? <Markdown text={version.text} /> : <p className="muted-text">此版本正文当前受限。</p>}
-    {version.reviews.map(review => <div className="record-row" key={review.kind + review.at}>
-      <strong>{({ accepted: '验收', rejected: '打回', continued: '开启下一版', withdrawn: '交付前撤回' })[review.kind]}</strong><span>{review.actor}</span>
-      <time>{date(review.at)}</time>{review.reason && <span>{review.reason}</span>}
+    {version.reviews.map(review => <div key={review.kind + review.at}>
+      <div className="record-row">
+        <strong>{({ accepted: '验收', rejected: '打回', continued: '开启下一版', withdrawn: '交付前撤回', rechecked: '重新核对' })[review.kind]}</strong><span>{review.actor}</span>
+        <time>{date(review.at)}</time>{review.reason && <span>{review.reason}</span>}
+      </div>
+      {review.product && <details className="minor-disclosure"><summary>本版验收检查</summary><ProductChecks verification={review.product} /></details>}
     </div>)}
     {version.acceptedSource && <AcceptedEvidence source={version.acceptedSource} project={project} linkVersion={false} />}
   </>;
@@ -431,19 +595,23 @@ function Revise({ ticket, project, consultation, close }: { ticket: Ticket; proj
   consultation?: PageProps['route']['consultation']; close: () => void }) {
   const catalog = useData<Knowledge[]>('knowledge/' + project.id);
   const [selected, select] = useState<string[] | undefined>();
+  const [productCases, setProductCases] = useState<{ title: string; expectation: string }[]>();
   const { busy, run } = useActions();
   return <Modal title={ticket.work.accepted ? '开启原单下一版' : '打回修改'} close={close}>
     <form className="form" onSubmit={async e => {
       e.preventDefault();
       const reason = String(new FormData(e.currentTarget).get('reason') ?? '').trim();
       if (await run(() => api('ticket/' + ticket.id + '/revise', { revision: ticket.result?.revision, reason,
-        kind: ticket.work.accepted ? 'continued' : 'rejected', ...(selected ? { material: selected } : {}), consultation }),
+        kind: ticket.work.accepted ? 'continued' : 'rejected', ...(selected ? { material: selected } : {}), consultation, productCases }),
       ticket.work.development ? '已开启下一版，等待研发接单' : '已开启下一版')) close();
     }}>
-      <Field label="修改要求"><textarea name="reason" rows={4} required maxLength={3500} /></Field>
+      <Field label="修改要求"><TextArea name="reason" rows={4} required maxLength={3500} /></Field>
       <details className="form-disclosure"><summary>本版资料</summary>
         <p className="muted-text">沿用原单引用的现行版本，可另行选择。</p>
         <MaterialPicker entries={catalog.data ?? []} values={selected ?? ticket.work.material} onChange={select} />
+      </details>
+      <details className="form-disclosure"><summary>本版人工核对项</summary>
+        <CaseEditor value={productCases ?? ticket.productCases.map(({ title, expectation }) => ({ title, expectation }))} onChange={setProductCases} />
       </details>
       <div className="form-actions"><Button type="submit" disabled={busy}>{ticket.work.development ? '确认范围并请研发接单' : '提交下一版'}</Button></div>
     </form>
@@ -471,37 +639,35 @@ function ObservationPane({ ticket, project, workspace }: PageProps & { ticket: T
       }), '观测已保存')) setOpen(false);
     }}>
       <Field label={'实际值（' + measure.unit + '）'}><Input name="actual" type="number" step="any" required /></Field>
-      <Field label="观测依据"><textarea name="evidence" rows={3} maxLength={3500} required /></Field>
-      <details className="form-disclosure"><summary>可复用经验（选填）</summary><Field label="经验"><textarea name="body" rows={3} maxLength={3500} /></Field>
+      <Field label="观测依据"><TextArea name="evidence" rows={3} maxLength={3500} required /></Field>
+      <details className="form-disclosure"><summary>可复用经验（选填）</summary><Field label="经验"><TextArea name="body" rows={3} maxLength={3500} /></Field>
         <Field label="适用条件"><Input name="conditions" maxLength={600} /></Field></details>
       <div className="form-actions"><Button type="submit" disabled={busy}>保存</Button></div>
     </form></Modal>}
   </Section>;
 }
 
-function ContextPanel({ ticket, project, workspace, route }: PageProps & { ticket: Ticket }) {
-  const [selected, select] = useStored('runs:' + ticket.id, 0);
+function ContextPanel({ ticket, project, workspace }: PageProps & { ticket: Ticket }) {
   const [access, setAccess] = useState<{ request: Ticket['requests'][number]; action: 'request' | 'revoke' }>();
   const { run, busy } = useActions();
   const relatedProjects = new Set([project.id, project.parent, ...project.relatedProjects, ...workspace.projects.filter(p => p.parent === project.id).map(p => p.id)]);
   const [related, setRelated] = useState('');
   const editable = ticket.work.requester === workspace.actor || project.maintain;
-  const runId = route.run ?? selected;
-  const info = runId ? ticket.runs.find(r => r.id === runId) : ticket.runs.at(-1);
   const handoff = ticket.work.handoff;
   const agentTitle = (id: string) => workspace.agents.find(agent => agent.id === id)?.title ?? id;
   return <div className="detail-stack">
+    {ticket.work.topic && !ticket.work.consultation && !ticket.work.delegatedVia && <TopicBasis ticket={ticket} />}
     <Section title="资料与授权">
       {(ticket.work.resources ?? []).map(ref => <div className="record-row" key={ref.ref}><Source channel={ref.source} /><Ext href={ref.url}>{ref.label}</Ext>
         {ref.revision && <code>{ref.revision}</code>}</div>)}
       {!ticket.requests.length && !ticket.work.resources?.length && <p className="muted-text">{ticket.work.material.length ? '引用资料已记录在执行快照中。' : '没有单独的资料授权。'}</p>}
       {ticket.requests.map(request => <article className="grant" key={request.id}>
         <div><strong>{request.title}</strong><p>{request.readerOwner || '原执行者'} · {request.purpose === 'review' ? '仅查阅本版成果' : '仅本工单执行'} · 版本 {short(request.revision)}</p></div>
-        <Pill tone={request.state === 'granted' ? 'green' : request.state === 'requested' ? 'amber' : 'neutral'}>{accessStates[request.state] ?? request.state}</Pill>
+        <KnowledgeGrantStatus {...request} />
         <div className="actions">
-          {request.canManage && request.state === 'requested' && <Button size="sm" disabled={busy}
-            onClick={() => void run(() => api('ticket/' + ticket.id + '/access/' + request.id, { state: 'granted' }), '已授权本工单，有效期 8 小时')}>授权 8 小时</Button>}
-          {request.canManage && request.state === 'granted' && <Button size="sm" variant="outline" onClick={() => setAccess({ request, action: 'revoke' })}>撤权</Button>}
+          {request.canGrant && <Button size="sm" disabled={busy}
+            onClick={() => void run(() => api('ticket/' + ticket.id + '/access/' + request.id, { state: 'granted', hours: request.hours }), '已授权本工单')}>授权 {request.hours} 小时</Button>}
+          {request.canRevoke && <Button size="sm" variant="outline" onClick={() => setAccess({ request, action: 'revoke' })}>撤权</Button>}
           {!ticket.work.accepted && ticket.work.requester === workspace.actor && ['revoked','expired'].includes(request.state)
             && ticket.work.material.includes(request.entry) && !ticket.requests.some(r => r.entry === request.entry && r.generation > request.generation)
             && <Button size="sm" variant="outline" onClick={() => setAccess({ request, action: 'request' })}>重新申请</Button>}
@@ -518,19 +684,6 @@ function ContextPanel({ ticket, project, workspace, route }: PageProps & { ticke
         {(handoff.completedAt || handoff.cancelledAt) && <time>{date(handoff.completedAt ?? handoff.cancelledAt!)}</time>}
       </div>
     </Section>}
-    <Section title="执行快照" action={ticket.runs.length > 0 ? <select aria-label="选择执行轮次" value={info?.id ?? ''} onChange={e => {
-      select(Number(e.target.value));
-      if (route.run) go(project.id, 'work', ticket.id, 'context');
-    }}>
-      {ticket.runs.slice().reverse().map(r => <option key={r.id} value={r.id}>执行 #{r.id} · {runStates[r.state] ?? r.state}</option>)}
-    </select> : undefined}>
-      {ticket.timers[0] && <p className="muted-text">下次复查 {date(ticket.timers[0].at)}</p>}
-      {info ? <><div className="inline-meta"><Bot size={16} /><span>{info.attribution?.agent ?? 'Agent'} · {info.attribution?.owner ?? '—'}</span>
-        {info.attribution && <span>委托 {info.attribution.delegatedBy}</span>}{info.resumed && <span>接续会话</span>}</div>
-        {info.assembly ? <SnapshotBody ticket={ticket.id} id={info.id} attempt={route.run === info.id ? route.attempt : undefined}
-          project={project.id} /> : <p className="muted-text">此轮暂未保存装配快照。</p>}</>
-        : <p className="muted-text">等待首轮执行。</p>}
-    </Section>
     {(ticket.children.length > 0 || ticket.related.length > 0 || ticket.work.parent || editable) && <Section title="关联工单">
       {ticket.work.parent && <a className="text-button" href={routeFor(project.id, 'work', ticket.work.parent)}>上游工单 <ArrowRight size={15} /></a>}
       {ticket.children.map(child => <div className="record-row" key={child.id}><span>子工单</span><a href={routeFor(project.id, 'work', child.id)}>{child.title}</a></div>)}
@@ -538,9 +691,9 @@ function ContextPanel({ ticket, project, workspace, route }: PageProps & { ticke
       {editable && <form className="inline-form" onSubmit={async e => {
         e.preventDefault();
         if (await run(() => api('ticket/' + ticket.id + '/related', { ticket: related }), '已关联工单')) setRelated('');
-      }}><select aria-label="选择有关联的工单" value={related} onChange={e => setRelated(e.target.value)} required>
-        <option value="">选择已有工单</option>{workspace.tickets.filter(t => t.id !== ticket.id && relatedProjects.has(t.work.project)
-          && !ticket.related.some(r => r.id === t.id)).map(t => <option key={t.id} value={t.id}>{t.title}</option>)}</select>
+      }}><TicketPicker label="选择有关联的工单" value={related} onChange={setRelated}
+        projects={[project, ...workspace.projects.filter(item => item.id !== project.id && relatedProjects.has(item.id))]}
+        allow={row => row.id !== ticket.id && !ticket.related.some(item => item.id === row.id)} />
         <Button size="sm" variant="outline" type="submit" disabled={busy || !related}>关联</Button></form>}
     </Section>}
     <Section title="归属">
@@ -561,7 +714,7 @@ function ContextPanel({ ticket, project, workspace, route }: PageProps & { ticke
       }}>
         <strong>{access.request.title}</strong>
         {access.action === 'revoke' ? <p>此授权下的资料正文、执行快照和派生知识会停止返回。</p>
-          : <Field label="申请原因"><textarea name="reason" rows={4} maxLength={3500} required /></Field>}
+          : <Field label="申请原因"><TextArea name="reason" rows={4} maxLength={3500} required /></Field>}
         <div className="form-actions"><Button type="submit" disabled={busy} variant={access.action === 'revoke' ? 'destructive' : 'default'}>
           {access.action === 'revoke' ? '确认撤权' : '发送申请'}</Button></div>
       </form>
@@ -569,25 +722,31 @@ function ContextPanel({ ticket, project, workspace, route }: PageProps & { ticke
   </div>;
 }
 
-function SnapshotBody({ id, attempt, ticket, project }: { id: number; attempt?: number; ticket: string; project: string }) {
-  const data = useData<Snapshot>('ticket/' + ticket + '/runs/' + id + (attempt ? '?attempt=' + attempt : ''), 2300);
-  if (data.error) return <Failure error={data.error} retry={() => void data.refetch()} />;
-  if (!data.data) return <Loading />;
-  const snap = data.data;
-  if (!snap.readable || !snap.contents) return <div className="info-callout"><LockKeyhole size={16} />此执行快照的资料正文当前不可读。</div>;
-  const material = snap.materials ?? [];
-  const context = snap.contents.context;
-  const evidence = context.events.filter(e => e.type === 'knowledge.source' || e.type === 'task.confirmation' || e.type === 'project.reference');
-  return <>
-    <div className="inline-meta">尝试 {snap.attempt} · {snap.contents.runtime.model ?? '历史记录未提供模型'}
-      {snap.isolation && <span>成员隔离 · {snap.isolation.owner}</span>}</div>
-    {material.map(ref => <div className="record-row" key={ref.id}>
-      <a href={routeFor(project, 'knowledge', ref.id, 'history')}>{ref.title ?? evidence.find(e => e.id === ref.id)?.summary ?? '资料'}</a>
-      <code>{short(ref.revision, 12)}</code>{ref.sourceRevision && <Ext href={ref.url}>源版本 {short(ref.sourceRevision, 12)}</Ext>}
-      <Pill tone="neutral">{ref.recalled ? '按任务检索' : '随工单引用'}</Pill>
-    </div>)}
-    {evidence.length > 0 && <details className="minor-disclosure"><summary>查看实际装配内容</summary>
-      {evidence.map(event => <article className="revision-note" key={event.id}><h3>{event.summary}</h3><Markdown text={event.detail} /></article>)}
-    </details>}
-  </>;
+function TopicBasis({ ticket }: { ticket: Ticket }) {
+  const path = 'ticket/' + ticket.id + '/topic-context';
+  const data = useData<TicketTopicContext>(path, 5000);
+  const { run, busy } = useActions();
+  const update = async (row: { id: string; source: 'web' | 'feishu'; revision: string }, confirmed: boolean) => {
+    if (await run(() => api(path, { id: row.id, source: row.source, revision: row.revision, confirmed }),
+      confirmed ? '已确认主题依据' : '已移除本单确认')) await data.refetch();
+  };
+  return <Section title="主题依据" action={<a className="text-button" href={routeFor(ticket.project, 'chat', ticket.work.topic)}>主题讨论 <ArrowRight size={15} /></a>}>
+    {data.error ? <Failure error={data.error} retry={() => void data.refetch()} /> : !data.data ? <Loading /> : <>
+      {!data.data.basis.length && <p className="muted-text">暂无已确认的主题依据。</p>}
+      {data.data.basis.map(row => <div className="revision-note" key={row.source + row.id + row.revision}>
+        <div className="inline-meta"><Source channel={row.source} /><span>{row.confirmed.actor} · {date(row.confirmed.at)}</span>
+          {data.data?.editable && <Button size="sm" variant="ghost" disabled={busy} onClick={() => void update(row, false)}>移除确认</Button>}
+          {row.message?.url && <Ext href={row.message.url}>查看原消息</Ext>}
+        </div>
+        {row.message ? <Markdown text={row.message.text} /> : <span className="muted-text">原消息已变更或不可访问。</span>}
+      </div>)}
+      {!!data.data.recent.length && <details className="minor-disclosure"><summary>近期主题讨论</summary>
+        {data.data.recent.filter(row => !data.data?.basis.some(ref => ref.source === row.source && ref.id === row.id && ref.revision === row.revision))
+          .map(row => <div className="revision-note" key={row.source + row.id}><div className="inline-meta">
+            <Source channel={row.source} /><span>{row.actor} · {date(row.at)}</span>{row.url && <Ext href={row.url}>原消息</Ext>}
+            {data.data?.editable && <Button size="sm" variant="outline" disabled={busy} onClick={() => void update(row, true)}>确认作为依据</Button>}
+          </div><Markdown text={row.text} /></div>)}
+      </details>}
+    </>}
+  </Section>;
 }

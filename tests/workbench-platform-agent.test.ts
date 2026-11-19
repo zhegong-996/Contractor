@@ -10,7 +10,7 @@ import type { Trigger } from '../upstream/superagent/src/core/index.ts';
 test('平台整理的空窗口不产生预算待办，新反馈触及额度后仍可由下一窗口处理', { timeout: 20000 }, async t => {
   let clock = Date.now();
   t.mock.method(Date, 'now', () => clock);
-  const dir = await mkdtemp(path.join(os.tmpdir(), 'suitme-platform-agent-'));
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'contractor-platform-agent-'));
   process.env.COLLAB_STATE_DIR = dir;
   await mkdir(path.join(dir, 'console'));
   const fixture = path.join(dir, 'fixture.mjs');
@@ -28,7 +28,9 @@ test('平台整理的空窗口不产生预算待办，新反馈触及额度后�
   const auth = new ConsoleAuth();
   await auth.ready();
   await auth.bootstrapOwner('product', 'fixture-password-only');
+  const driver = process.env.CONTRACTOR_TEST_EXECUTION === 'contractor' ? 'contractor' : 'autoloop';
   const config = settingsSchema.parse({
+    executionRuntime: driver,
     projects: [{
       id: 'store', title: '门店推荐理由', members: ['product'], maintainers: ['product'],
       topics: [{ id: 'reason', title: '推荐理由' }],
@@ -45,29 +47,33 @@ test('平台整理的空窗口不产生预算待办，新反馈触及额度后�
     crossChannel: {},
   });
   const work = await openCollaboration(config, auth);
-  const db = new DatabaseSync(path.join(dir, 'orchestrator.sqlite'), { readOnly: true });
+  const db = new DatabaseSync(path.join(dir, 'orchestrator.sqlite'));
   t.after(async () => {
     db.close();
     await work.close();
     await rm(dir, { recursive: true, force: true });
   });
-  const hub = await import('../upstream/autoloop/host/runtime.ts');
+  const hub = driver === 'autoloop' ? await import('../upstream/autoloop/host/runtime.ts') : undefined;
   const pool = { kind: 'platform', subject: 'platform' } as const;
   const platformUsage = () => work.budgetPools('product', 'store').find(row => row.kind === 'platform')!;
   const budgetWait = () => work.needsYou('product').some(decision => decision.kind === 'budget');
-  async function runWindow(expected: string) {
+  async function runWindow(expected: string, dropFault?: () => void) {
     const slot = work.discussionView('product', 'store').next!;
     clock = slot;
-    hub.tick();
+    hub?.tick();
     const state = db.prepare('SELECT state FROM workbench_discussion_run WHERE project=? AND slot=?');
     for (let attempt = 0; attempt < 80; attempt++) {
+      if (dropFault && db.prepare('SELECT 1 FROM workbench_receipt_journal WHERE draft IS NOT NULL').get()) {
+        dropFault();
+        dropFault = undefined;
+      }
       if (state.get('store', slot)?.state === expected) return;
       await delay(60);
     }
     assert.equal(state.get('store', slot)?.state, expected);
   }
 
-  hub.tick();
+  hub?.tick();
   work.setBudget('product', pool, 'day', 0);
   await runWindow('empty');
   assert.equal(budgetWait(), false);
@@ -82,9 +88,17 @@ test('平台整理的空窗口不产生预算待办，新反馈触及额度后�
   assert.equal(platformUsage().used, 0);
 
   work.setBudget('product', pool, 'day', 1);
-  await runWindow('done');
+  db.exec(`CREATE TRIGGER break_digest_receipt BEFORE UPDATE ON workbench_receipt_journal
+    WHEN OLD.draft IS NOT NULL AND NEW.draft IS NULL BEGIN SELECT RAISE(ABORT,'digest projection fault'); END`);
+  await runWindow('done', () => {
+    assert.equal(work.discussionView('product', 'store').items.length, 0, '回执与整理投影同时回滚');
+    assert.equal(work.projectUsage('product', 'store').attempts.length, 0);
+    db.exec('DROP TRIGGER break_digest_receipt');
+  });
   assert.equal(platformUsage().used, 1);
   assert.equal(platformUsage().pending, 0);
   assert.equal(work.discussionView('product', 'store').items[0]?.title, '推荐理由难懂');
+  assert.equal(work.discussionView('product', 'store').items.length, 1);
+  assert.equal(work.projectUsage('product', 'store').attempts.length, 1);
   assert.equal(work.budgetPools('product', 'store').find(row => row.kind === 'execution')?.used, 0);
 });

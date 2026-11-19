@@ -47,7 +47,7 @@ test('GitHub Markdown follows the allowed branch tree and freezes the commit and
 });
 
 test('替换与失效保留历史版本，撤回原资料的精确授权会隐藏多级派生知识', { timeout: 36000 }, async t => {
-  const dir = await mkdtemp(path.join(os.tmpdir(), 'suitme-knowledge-versions-'));
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'contractor-knowledge-versions-'));
   process.env.COLLAB_STATE_DIR = dir;
   await mkdir(path.join(dir, 'console'));
   const fixture = path.join(dir, 'agent.mjs');

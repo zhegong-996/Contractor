@@ -8,7 +8,7 @@ import { sandboxPolicy } from '../src/workbench/isolation.ts';
 
 test('Linux 原版 SRT：受托精确文件可写，邻接文件和宿主资料不可写读', { skip: process.platform !== 'linux' }, t => {
   execFileSync('which', ['bwrap']); // Required on supported Linux runners; do not silently weaken isolation.
-  const dir = mkdtempSync(path.join(os.tmpdir(), 'suitme-linux-policy-'));
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'contractor-linux-policy-'));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   for (const item of ['workspace/pilot', 'home', 'input', 'temp']) mkdirSync(path.join(dir, item), { recursive: true });
   writeFileSync(path.join(dir, 'workspace/pilot/index.html'), '');

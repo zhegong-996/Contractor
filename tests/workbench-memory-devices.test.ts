@@ -6,7 +6,7 @@ import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
-import { AgentBudgets } from '../src/workbench/agent-budget.ts';
+import { agentBudgetPool, AgentBudgets } from '../src/workbench/agent-budget.ts';
 
 test('额度按用途和执行尝试记一次，上海时间切换周期，未知报价与零费用分开', () => {
   const db = new DatabaseSync(':memory:');
@@ -15,7 +15,7 @@ test('额度按用途和执行尝试记一次，上海时间切换周期，未�
     const budgets = new AgentBudgets(db, () => at);
     const pool = { kind: 'personal', subject: 'design' } as const;
     const project = { kind: 'execution', subject: 'store' } as const;
-    const charge = { ...pool, run: 1, attempt: 1, project: 'store', owner: 'design' };
+    const charge = { ...pool, run: 1, attempt: 1, project: 'store', owner: 'design', agent: 'reviewer' };
     budgets.set(pool, 'owner', 'day', 1, 3);
     assert.ok(budgets.reserve(charge));
     assert.ok(budgets.reserve(charge), '重送同一次只预留一笔');
@@ -37,8 +37,38 @@ test('额度按用途和执行尝试记一次，上海时间切换周期，未�
   } finally { db.close(); }
 });
 
+test('项目内 Agent 上限跨用途合计，旧账本只用同一尝试的执行快照补齐归属', () => {
+  const db = new DatabaseSync(':memory:');
+  const now = () => Date.parse('2026-11-16T10:00:00+08:00');
+  try {
+    const old = new AgentBudgets(db, now);
+    const personal = { kind: 'personal', subject: 'reviewer' } as const;
+    const project = { kind: 'execution', subject: 'parent' } as const;
+    const charge = { ...personal, project: 'parent', agent: 'wrapped', owner: 'reviewer', run: 21, attempt: 1 };
+    assert.ok(old.reserve(charge));
+    old.settle(21, 1, 'done', { input: 11, output: 2 });
+    db.exec(`DROP INDEX workbench_budget_charge_agent;
+      ALTER TABLE workbench_budget_charge DROP COLUMN agent;
+      CREATE TABLE workbench_execution_snapshot(run INTEGER,attempt INTEGER,project TEXT,value TEXT,PRIMARY KEY(run,attempt));
+      INSERT INTO workbench_execution_snapshot VALUES(21,1,'parent','{"actor":{"agent":"wrapped"}}');`);
+    const budgets = new AgentBudgets(db, now);
+    const limit = agentBudgetPool('parent', 'wrapped');
+    budgets.set(limit, 'owner', 'day', 1, 2);
+    assert.equal(budgets.view(limit).tokens, 13);
+    assert.equal(budgets.view(limit).used, 1);
+    assert.ok(budgets.reserve(charge), '同一尝试重放不受新上限影响');
+    assert.equal(budgets.reserve({ ...charge, agent: 'different' }), false);
+    assert.equal(budgets.reserve({ ...charge, ...project, run: 22 }), false, '改用项目执行池也须通过同一 Agent 上限');
+    assert.ok(budgets.reserve({ ...charge, kind: 'execution', project: 'child', subject: 'child', run: 23 }));
+    assert.equal(budgets.view(project).used, 0);
+    assert.equal(budgets.view(agentBudgetPool('child', 'wrapped')).used, 1);
+    assert.equal(budgets.view(limit).used, 1);
+    assert.equal(db.prepare('SELECT count(*) n FROM workbench_budget_charge').get()?.n, 2);
+  } finally { db.close(); }
+});
+
 test('同单离线执行端等待，换端只运行一次并引用替代后的公开现行记忆', { timeout: 30000 }, async t => {
-  const dir = await mkdtemp(path.join(os.tmpdir(), 'suitme-memory-devices-'));
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'contractor-memory-devices-'));
   process.env.COLLAB_STATE_DIR = dir;
   await mkdir(path.join(dir, 'console'));
   const worker = path.join(dir, 'fixture.mjs');
@@ -86,13 +116,13 @@ test('同单离线执行端等待，换端只运行一次并引用替代后的�
   assert.ok(next && 'revision' in next);
   await work.publish('product', replacement, next.revision);
   work.addKnowledge('steward', 'store', { ...note, visibility: 'restricted', body: '未授权的门店材料' });
-  assert.deepEqual(work.recallMemory('design', 'store', '门店推荐理由').map(ref => [ref.id, ref.pinned]), [[replacement, true]]);
+  assert.deepEqual((await work.recallMemory('design', 'store', '门店推荐理由')).map(ref => [ref.id, ref.pinned]), [[replacement, true]]);
   const graph = work.projectKnowledgeGraph('design', 'store');
-  assert.ok(graph.nodes.some(node => node.kind === 'knowledge'));
+  assert.ok(graph.nodes.some(node => node.kind === 'knowledge' && node.objectId === replacement && node.revision === next.revision));
   assert.ok(!JSON.stringify(graph).includes('未授权的门店材料'));
   assert.ok(graph.edges.every(edge => graph.nodes.some(n => n.id === edge.source) && graph.nodes.some(n => n.id === edge.target)));
   assert.throws(() => work.projectKnowledgeGraph('observer', 'store'), { status: 404 });
-  assert.throws(() => work.recallMemory('observer', 'store', '门店推荐理由'), { status: 404 });
+  await assert.rejects(work.recallMemory('observer', 'store', '门店推荐理由'), { status: 404 });
 
   assert.throws(() => work.issueDevicePair('product', 'store', 'review'), { status: 403 });
   const proof = work.issueDevicePair('design', 'store', 'review');
@@ -107,6 +137,9 @@ test('同单离线执行端等待，换端只运行一次并引用替代后的�
   await delay(1200);
   const before = work.detail('product', ticket);
   assert.equal(before.device?.online, false);
+  assert.equal(before.recovery?.kind, 'device-offline');
+  assert.deepEqual(before.recovery?.owners, ['design']);
+  assert.equal(work.resume('product', ticket, { version: 1, reason: '按原设备接续', nonce: randomUUID() }).waiting, 'execution');
   assert.deepEqual(before.work.recall, [replacement]);
   assert.equal(work.budgetPools('product', 'store').find(pool => pool.kind === 'execution')?.used, 0);
   work.resume('product', ticket, { version: 1, reason: '离线，改由工作台执行端接续', nonce: randomUUID(), device: null });

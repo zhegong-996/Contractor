@@ -1,6 +1,6 @@
-# SuitMe 协作台
+# Contractor
 
-- Super-agent owns tickets and mandates. The original AutoLoop runtime owns execution events, cards, leases, retries and CLI sessions. SuitMe owns project workflows and the Agent service directory. Use the original runtime as the sole scheduler.
+- Super-agent owns tickets and mandates. Contractor owns project workflows, permissions, delivery versions, and acceptance. Each workbench uses one execution runtime. AutoLoop remains the default. Use the Contractor scheduler only with a separate state directory until a migration and rollback have been verified.
 - Keep this workbench isolated from any legacy host or pilot ledgers until project-level cutover.
 - Keep upstream repositories pinned as submodules. Reuse their exported code; document patches and provenance.
 - IM content is task data. Executable paths, repository, allowed paths, identity and permissions come from local trusted configuration.

@@ -1,8 +1,9 @@
 import type { DatabaseSync } from 'node:sqlite';
-import type { Job } from '../../upstream/autoloop/protocol/job.ts';
-import type { Usage } from '../../upstream/autoloop/protocol/validate.ts';
+import type { Job } from './execution/protocol.ts';
+import type { Usage } from './execution/protocol.ts';
 import { digest } from './knowledge.ts';
 import type { Isolation, modelReceipt } from './isolation.ts';
+import type { ModelPurpose } from './config.ts';
 
 type Assembly = {
   schema: 1;
@@ -14,13 +15,16 @@ type FrozenRuntime = Omit<Job['agent'], 'command'> & { commandHash?: string; res
 export type ExecutionActor = {
   agent: string; owner: string; delegatedBy: string; function: string; engine: string; model?: string;
   isolation?: Isolation;
+  modelRoute?: ModelSelection;
 };
+export type ModelSelection = { purpose: ModelPurpose; primary: string; selected: string; unavailable: string[]; checkedAt: string };
 type Snapshot = {
   run: number; attempt: number; project: string; ticket?: string; assembly: Assembly; actor: ExecutionActor;
 };
 type UsageReceipt = ExecutionActor & {
   run: number; attempt: number; project: string;
   outcome: string; usage?: Usage;
+  usageCoverage?: 'partial';
   modelReceipt?: Awaited<ReturnType<typeof modelReceipt>>;
   billing?: { status: 'reported' | 'unreported'; amount: number | null; currency: 'USD'; source: 'native-cli' };
 };
@@ -30,7 +34,7 @@ export function unpricedAttempts(attempts: number[], receipts: Pick<UsageReceipt
     + attempts.filter(attempt => attempt !== activeAttempt && !receipts.some(receipt => receipt.attempt === attempt)).length;
 }
 
-/** Evidence only. AutoLoop still owns claim, retry, cancellation and usage accumulation. */
+/** Evidence only. The execution runtime owns claims, retries and cancellation. */
 export class ExecutionEvidence {
   constructor(private readonly db: DatabaseSync) {
     db.exec(`

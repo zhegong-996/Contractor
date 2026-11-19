@@ -1,11 +1,12 @@
 import { mkdir, readFile, readdir, rm, rename } from 'node:fs/promises';
 import path from 'node:path';
 import { z } from 'zod';
-import type { Job } from '../../upstream/autoloop/protocol/job.ts';
-import { workerStopped } from './autoloop.ts';
-import { remoteEngine, type RunnerAgent } from './config.ts';
+import type { Job } from './execution/protocol.ts';
+import { workerStopped } from './worker-process.ts';
+import { protocolMatches } from './compatibility.ts';
+import { remoteEngine, type RunnerAgent } from './runner-profile.ts';
 import type { DeviceJob, ReleasedLease, RemoteStop } from './devices.ts';
-import { cleanIsolationTemp, discardIsolation, exportCodeDelta, isolateJob, modelReceipt, readIsolation } from './isolation.ts';
+import { codexSessionEvidence, cleanIsolationTemp, discardIsolation, exportCodeDelta, isolateJob, readIsolation } from './isolation.ts';
 
 const leaseSchema = z.object({
   run: z.number().int().positive(), attempt: z.number().int().positive(), lease: z.string().min(1).max(500),
@@ -36,16 +37,19 @@ export async function prepareRemote(home: string, profile: RunnerAgent, job: Dev
   }
   const cwd = runDirectory(home, lease);
   await mkdir(cwd, { recursive: true, mode: 0o700 });
-  return { ...job, agent: { ...job.agent, use: 'suitme-remote-claude' }, rule: { ...job.rule, cwd } };
+  return { ...job, agent: { ...job.agent, use: 'contractor-remote-claude' }, rule: { ...job.rule, cwd } };
 }
 
 export async function remoteStop(home: string, entry: { run: number; attempt: number; token: string; turn: number; dir: string;
-  job: Job }, session?: string): Promise<RemoteStop> {
+  job: Job }, session?: string, recoverUsage = false) {
   if (!workerStopped(entry.run, entry.attempt, entry.token, home)) throw new Error('等待远端旧进程和它的子进程退出');
   let model: string | undefined;
-  if (entry.job.agent.use === 'suitme-isolated') {
-    const receipt = await modelReceipt(await readIsolation(entry.run, entry.attempt), session);
-    if (receipt.verification === 'session-reported') model = receipt.reported;
+  let usage;
+  const codex = protocolMatches(entry.job.agent.use, 'contractor-isolated');
+  if (codex) {
+    // Only a fresh first turn can use the session total without charging another turn or attempt.
+    ({ model, usage } = await codexSessionEvidence(await readIsolation(entry.run, entry.attempt), session,
+      recoverUsage && entry.turn === 1 && !entry.job.session));
   } else {
     const stream = await readFile(path.join(entry.dir, 'stdout-' + entry.turn + '.log'), 'utf8').catch(() => '');
     for (const line of stream.split('\n')) {
@@ -55,8 +59,10 @@ export async function remoteStop(home: string, entry: { run: number; attempt: nu
       } catch { /* Plain CLI diagnostics are not model receipts. */ }
     }
   }
-  const code = entry.job.agent.use === 'suitme-isolated' ? await exportCodeDelta(entry.run, entry.attempt) : undefined;
-  return { ...(code && { code }), attempt: entry.attempt, state: entry.turn > 0 ? 'exited' : 'not-launched', ...(model && { model }) };
+  const code = codex ? await exportCodeDelta(entry.run, entry.attempt) : undefined;
+  const stop: RemoteStop = { ...(code && { code }), attempt: entry.attempt, state: entry.turn > 0 ? 'exited' : 'not-launched',
+    ...(model && { model }), ...(usage && { usageCoverage: 'partial' }) };
+  return { stop, usage };
 }
 
 export async function cleanRemoteCodex(run: number, attempt: number) {
@@ -72,11 +78,12 @@ export async function cleanAcknowledged(home: string, codex: boolean) {
     if (!/^\d+-\d+$/.test(name)) continue;
     const directory = path.join(base, name);
     const files = await readdir(directory);
-    if (!files.includes('suitme-acknowledged') || files.includes('entry.json')) continue;
+    const receipt = files.find(file => protocolMatches(file, 'contractor-acknowledged'));
+    if (!receipt || files.includes('entry.json')) continue;
     const [run, attempt] = name.split('-').map(Number);
     if (codex) await cleanRemoteCodex(run!, attempt!);
-    for (const file of files.filter(file => file !== 'suitme-acknowledged'))
+    for (const file of files.filter(file => file !== receipt))
       await rm(path.join(directory, file), { recursive: true, force: true });
-    await rename(path.join(directory, 'suitme-acknowledged'), path.join(directory, 'suitme-settled'));
+    await rename(path.join(directory, receipt), path.join(directory, 'contractor-settled'));
   }
 }

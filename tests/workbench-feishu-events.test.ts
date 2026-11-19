@@ -7,7 +7,7 @@ import test from 'node:test';
 import { watchFeishu } from '../src/workbench/feishu-events.ts';
 
 test('飞书退出时降级，收到官方就绪标记后恢复消费', { timeout: 8000 }, async t => {
-  const dir = await mkdtemp(path.join(os.tmpdir(), 'suitme-feishu-reconnect-'));
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'contractor-feishu-reconnect-'));
   const previousPath = process.env.PATH;
   process.env.PATH = dir + path.delimiter + previousPath;
   const attemptFile = path.join(dir, 'attempt');
@@ -48,7 +48,7 @@ test('飞书退出时降级，收到官方就绪标记后恢复消费', { timeou
 });
 
 test('进程仍活着但本地总线失去该订阅时自动重连，空闲群不会触发误重连', { timeout: 8000 }, async t => {
-  const dir = await mkdtemp(path.join(os.tmpdir(), 'suitme-feishu-bus-'));
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'contractor-feishu-bus-'));
   const previousPath = process.env.PATH;
   process.env.PATH = dir + path.delimiter + previousPath;
   const pidFile = path.join(dir, 'pid'), broken = path.join(dir, 'broken');

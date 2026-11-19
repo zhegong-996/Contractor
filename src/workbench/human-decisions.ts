@@ -27,6 +27,7 @@ export class HumanDecisions {
       );
       CREATE INDEX IF NOT EXISTS workbench_human_inbox ON workbench_human_decision(member,closed_at);
       CREATE INDEX IF NOT EXISTS workbench_human_subject ON workbench_human_decision(kind,subject,closed_at);
+      CREATE INDEX IF NOT EXISTS workbench_human_ticket ON workbench_human_decision(json_extract(value,'$.ticket')) WHERE closed_at IS NULL;
     `);
   }
 
@@ -35,8 +36,10 @@ export class HumanDecisions {
     return row && JSON.parse(String(row.value));
   }
 
-  open(input: DecisionInput) {
-    const record = { ...input, id: key('human-decision', input.kind, input.subject, input.member), openedAt: new Date().toISOString() };
+  open(input: DecisionInput, previous?: string) {
+    const id = previous ? key('human-decision-reassigned', previous, input.member)
+      : key('human-decision', input.kind, input.subject, input.member);
+    const record = { ...input, id, openedAt: new Date().toISOString() };
     this.db.prepare('INSERT OR IGNORE INTO workbench_human_decision VALUES (?,?,?,?,?,?,NULL)')
       .run(record.id, record.member, record.project, record.kind, record.subject, JSON.stringify(record));
     return this.get(record.id)!;
@@ -45,6 +48,11 @@ export class HumanDecisions {
   pending(member: string): HumanDecision[] {
     return this.db.prepare('SELECT value FROM workbench_human_decision WHERE member=? AND closed_at IS NULL ORDER BY rowid DESC')
       .all(member).map(row => JSON.parse(String(row.value)));
+  }
+
+  forTicket(ticket: string): HumanDecision[] {
+    return this.db.prepare("SELECT value FROM workbench_human_decision WHERE json_extract(value,'$.ticket')=? AND closed_at IS NULL ORDER BY rowid")
+      .all(ticket).map(row => JSON.parse(String(row.value)));
   }
 
   subject(kind: HumanDecisionKind, subject: string): HumanDecision[] {

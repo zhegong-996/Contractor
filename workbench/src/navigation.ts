@@ -1,10 +1,11 @@
 import { useSyncExternalStore } from 'react';
 import type { Overview, Project } from './api.ts';
 
-export const titles = { inbox: '待我处理', work: '协作工单', knowledge: '知识与记忆', agents: 'Agent', project: '项目', accounts: '连接与账号' } as const;
+export const titles = { chat: '对话', inbox: '待我处理', work: '任务', knowledge: '知识与记忆', agents: 'Agent', project: '项目', accounts: '连接与账号' } as const;
 export type View = keyof typeof titles;
+export type GlobalView = 'platform' | 'account';
 export type Route = { project: string; view: View; item?: string; tab?: string; run?: number; attempt?: number; revision?: string;
-  reply?: string; consultation?: { ticket: string; revision: string } };
+  reply?: string; participant?: string; global?: GlobalView; consultation?: { ticket: string; revision: string } };
 export type TaskPreset = {
   request?: string;
   agent?: string; parent?: string; topic?: string; material?: string[];
@@ -22,8 +23,8 @@ export function routeFor(project: string, view: View, item?: string, tab?: strin
 export function go(project: string, view: View, item?: string, tab?: string) {
   window.location.hash = routeFor(project, view, item, tab);
 }
-export function runRoute(project: string, ticket: string, run: number, attempt: number) {
-  return routeFor(project, 'work', ticket, 'context') + '&run=' + run + '&attempt=' + attempt;
+export function runRoute(project: string, ticket: string, run: number, attempt?: number) {
+  return routeFor(project, 'work', ticket, 'execution') + '&run=' + run + (attempt === undefined ? '' : '&attempt=' + attempt);
 }
 export function deliveryVersionRoute(project: string, ticket: string, revision: string) {
   return routeFor(project, 'work', ticket, 'delivery') + '&revision=' + encodeURIComponent(revision);
@@ -36,6 +37,8 @@ export function useRoute(): Route {
   const hash = useSyncExternalStore(subscribe, () => window.location.hash);
   const [pathname, search] = hash.slice(2).split('?');
   try {
+    if (pathname === 'platform' || pathname === 'account')
+      return { project: '', view: 'inbox', global: pathname, tab: new URLSearchParams(search).get('tab') ?? undefined };
     const [project = '', view = 'inbox', item] = (pathname ?? '').split('/').map(decodeURIComponent);
     const params = new URLSearchParams(search);
     const consultation = /^([a-z0-9-]{1,80})\.([a-f0-9]{64})$/.exec(params.get('consultation') ?? '');
@@ -45,7 +48,7 @@ export function useRoute(): Route {
     };
     return { project, view: Object.hasOwn(titles, view) ? view as View : 'inbox', item, tab: params.get('tab') ?? undefined,
       run: positive('run'), attempt: positive('attempt'), revision: params.get('revision') ?? undefined,
-      reply: params.get('reply') ?? undefined,
+      reply: params.get('reply') ?? undefined, participant: params.get('agent') ?? undefined,
       ...(consultation && { consultation: { ticket: consultation[1]!, revision: consultation[2]! } }) };
   } catch { return { project: '', view: 'inbox' }; }
 }

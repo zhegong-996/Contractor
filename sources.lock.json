@@ -10,26 +10,26 @@
       "commit": "ba8cf6d8cf24f9ce005958c15d88f2d9cff7f05d",
       "license": "MIT"
     },
-    "deepseek-harness": {
-      "url": "https://github.com/deepseek-ai/deepseek-harness",
-      "commit": "fcc0ad462172522aaf5c93a7b2e01f6b9f0b0159",
+    "octop-gateway": {
+      "url": "https://github.com/TencentCloud/octop-gateway",
+      "commit": "224ed078ce20042fb5fa59240d6e3c7c34bcd67f",
+      "license": "MIT"
+    },
+    "octop-memory": {
+      "url": "https://github.com/TencentCloud/octop-memory",
+      "commit": "37ef325d46f13181eba69591604465d04c95cb5f",
       "license": "MIT"
     }
   },
   "vendored": {
-    "paperclip": {
-      "url": "https://github.com/paperclipai/paperclip",
-      "commit": "8cd2d6a73d2097253dd329f55b637e12b20361c6",
+    "octop": {
+      "url": "https://github.com/TencentCloud/Octop",
+      "commit": "bf134dbd379036ce7545c7df1a1da7e381ece9ff",
       "license": "MIT",
+      "licenseFile": "licenses/octop-MIT.txt",
       "files": {
-        "SidebarShell.tsx": "ui/src/components/SidebarShell.tsx",
-        "usePaneWidthReset.ts": "ui/src/hooks/usePaneWidthReset.ts",
-        "utils.ts": "ui/src/lib/utils.ts",
-        "badge.tsx": "ui/src/components/ui/badge.tsx",
-        "breadcrumb.tsx": "ui/src/components/ui/breadcrumb.tsx",
-        "button.tsx": "ui/src/components/ui/button.tsx",
-        "input.tsx": "ui/src/components/ui/input.tsx",
-        "tabs.tsx": "ui/src/components/ui/tabs.tsx"
+        "TopicMemberPicker.tsx": "dashboard/src/pages/Experts/components/TeamMemberPicker.tsx",
+        "SignedTopicReply.tsx": "dashboard/src/pages/Chat/components/MessageBubble.tsx"
       }
     }
   }

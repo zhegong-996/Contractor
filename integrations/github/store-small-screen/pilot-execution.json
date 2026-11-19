@@ -1,0 +1,75 @@
+{
+  "base": "contractor/layout-ci-pilot-base",
+  "paths": [
+    "collab-pilot/index.html"
+  ],
+  "requiredChecks": [
+    {
+      "name": "collab-pilot",
+      "app": "github-actions",
+      "appId": 15368
+    },
+    {
+      "name": "contractor-store-small-screen",
+      "app": "github-actions",
+      "appId": 15368
+    }
+  ],
+  "deliveryTemplate": {
+    "id": "store-small-screen",
+    "version": 2,
+    "product": {
+      "browser": {
+        "check": {
+          "name": "contractor-store-small-screen",
+          "app": "github-actions",
+          "appId": 15368
+        },
+        "workflow": ".github/workflows/contractor-store-small-screen.yml",
+        "trustedFiles": [
+          {
+            "path": ".github/workflows/contractor-store-small-screen.yml",
+            "blob": "642d17bd0955e93c8ebf051f01f5d08db6b6f550"
+          },
+          {
+            "path": ".github/contractor-store-small-screen/check.mjs",
+            "blob": "b36b3ee9a345c30c269af9e4b98c589f51925d94"
+          },
+          {
+            "path": ".github/contractor-store-small-screen/package.json",
+            "blob": "3e497cbe86c3410be5a3987b25248125e44262bb"
+          },
+          {
+            "path": ".github/contractor-store-small-screen/package-lock.json",
+            "blob": "db3845ba500ff725ea9d32750cfef01e3fddda71"
+          }
+        ],
+        "artifact": "contractor-small-screen",
+        "cases": [
+          {
+            "id": "viewport-280",
+            "title": "280px 连续长词",
+            "expectation": "正文可见，连续长词实际换行，页面和正文无横向溢出，正文可用宽度至少 244px。"
+          },
+          {
+            "id": "viewport-320",
+            "title": "320px 连续长词",
+            "expectation": "正文可见，连续长词实际换行，页面和正文无横向溢出。"
+          },
+          {
+            "id": "viewport-360",
+            "title": "360px 连续长词",
+            "expectation": "正文可见，连续长词实际换行，页面和正文无横向溢出。"
+          }
+        ]
+      },
+      "manual": [
+        {
+          "id": "copy-review",
+          "title": "内容与视觉核对",
+          "expectation": "标题和推荐文案维持已确认的口径，三档视口的正文均易读。"
+        }
+      ]
+    }
+  }
+}

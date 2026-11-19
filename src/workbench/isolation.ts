@@ -1,16 +1,19 @@
 import { chmod, copyFile, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
+import { createInterface } from 'node:readline';
 import path from 'node:path';
 import os from 'node:os';
 import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
-import type { Job } from '../../upstream/autoloop/protocol/job.ts';
-import type { Turn } from '../../upstream/autoloop/worker/agents.ts';
+import type { Job } from './execution/protocol.ts';
+import type { Usage } from './execution/protocol.ts';
+import type { Turn } from './execution/protocol.ts';
+import { codexProgram } from './execution/cli.ts';
 import { runtime } from '../config.ts';
 import { allowedFile } from '../github.ts';
 import { bundleHash, codeBundleSchema, codeDeltaSchema, materializeCode, type CodeBundle, type CodeDelta } from './code-bundle.ts';
-import type { RunnerAgent } from './config.ts';
+import type { RunnerAgent } from './runner-profile.ts';
 
 const hash = (value: string | Buffer) => createHash('sha256').update(value).digest('hex');
 const scopeRoot = (scope: string) => runtime('isolated', scope);
@@ -22,7 +25,7 @@ const privateFile = async (file: string, value: unknown) => {
 };
 export type Isolation = {
   scope: string; owner: string; agent: string; provider: string; model: string; credentialVersion: string;
-  boundary: 'os-sandbox' | 'remote' | 'test'; executableVersion?: string;
+  boundary: 'os-sandbox' | 'remote' | 'test' | 'octop'; executableVersion?: string;
 };
 type Launch = {
   isolation: Isolation; executable: string; workspace: string; home: string; input: string; temp: string;
@@ -103,6 +106,88 @@ export function sandboxPolicy(workspace: string, home: string, input: string, ex
   };
 }
 
+async function codexExecutable() {
+  let executable = realpathSync(codexProgram());
+  if (executable.endsWith('.js')) {
+    const target = (process.arch === 'arm64' ? 'aarch64' : 'x86_64')
+      + (process.platform === 'darwin' ? '-apple-darwin' : '-unknown-linux-musl');
+    const pkg = createRequire(executable).resolve('@openai/codex-' + process.platform + '-' + process.arch + '/package.json');
+    executable = realpathSync(path.join(path.dirname(pkg), 'vendor', target, 'bin', 'codex'));
+  }
+  return executable;
+}
+
+const catalogCache = new Map<string, { expires: number; result: Promise<{ models: Set<string>; checkedAt: string }> }>();
+export async function codexModelCatalog(agent: RunnerAgent) {
+  if (agent.engine !== 'codex' || agent.execution?.kind !== 'sandbox' || agent.execution.provider !== 'openai' || !agent.model)
+    throw new Error('当前执行端没有经授权的模型目录适配');
+  const auth = await credential(agent);
+  const executable = await codexExecutable();
+  const key = hash(JSON.stringify([agent.owner, agent.execution.credential, auth.version, agent.execution.domains, executable]));
+  const now = Date.now();
+  const cached = catalogCache.get(key);
+  if (cached && cached.expires > now) return cached.result;
+  for (const [id, entry] of catalogCache) if (entry.expires <= now) catalogCache.delete(id);
+  const result = loadCodexCatalog(executable, auth.bytes, agent.execution.domains).catch(error => {
+    if (catalogCache.get(key)?.result === result) catalogCache.delete(key);
+    throw error;
+  });
+  catalogCache.set(key, { expires: now + 60_000, result });
+  return result;
+}
+
+// Discover capabilities in a fresh sandbox. No ticket, file contents or execution prompt enter this process.
+async function loadCodexCatalog(executable: string, auth: Buffer, domains: string[]) {
+  const temp = await realpath(await mkdtemp(path.join(process.platform === 'darwin' ? '/private/tmp' : os.tmpdir(), 'contractor-catalog-')));
+  const home = path.join(temp, 'home');
+  const workspace = path.join(temp, 'work');
+  const policy = path.join(temp, 'policy.json');
+  try {
+    await Promise.all([mkdir(home, { mode: 0o700 }), mkdir(workspace, { mode: 0o700 })]);
+    await writeFile(path.join(home, 'auth.json'), auth, { mode: 0o600 });
+    await writeFile(path.join(home, 'config.toml'), 'model_provider = "openai"\ncli_auth_credentials_store = "file"\n[features]\napps = false\nmulti_agent = false\n', { mode: 0o600 });
+    await privateFile(policy, sandboxPolicy(workspace, home, workspace, executable, [], domains, temp));
+    const [command, ...args] = sandboxInvocation({ home, temp, policy }, [executable, 'app-server', '--listen', 'stdio://'], workspace);
+    const models = await new Promise<string[]>((resolve, reject) => {
+      const child = spawn(command!, args, { cwd: workspace, stdio: ['pipe', 'pipe', 'ignore'], detached: true });
+      const stream = createInterface({ input: child.stdout });
+      const send = (value: object) => child.stdin.write(JSON.stringify(value) + '\n');
+      let reported: string[] | undefined;
+      const stop = () => { if (child.pid) try { process.kill(-child.pid, 'SIGKILL'); } catch {} };
+      const timeout = setTimeout(stop, 12_000);
+      child.stdin.on('error', stop);
+      child.once('error', stop);
+      child.once('close', () => {
+        clearTimeout(timeout);
+        stream.close();
+        if (reported?.length) resolve(reported);
+        else reject(new Error('无法核对当前成员的模型目录'));
+      });
+      stream.on('line', line => {
+        try {
+          const response = JSON.parse(line);
+          if (response.id === 1 && response.result) {
+            send({ method: 'initialized' });
+            send({ id: 2, method: 'model/list', params: { limit: 100, includeHidden: false } });
+          } else if (response.id === 2 && !response.result?.nextCursor && Array.isArray(response.result?.data)) {
+            reported = response.result.data.flatMap((item: { model?: string }) => typeof item.model === 'string' ? [item.model] : []);
+            stop();
+          } else if (response.error || response.id === 2) stop();
+        } catch { /* The CLI may print non-protocol startup messages. */ }
+      });
+      send({ id: 1, method: 'initialize', params: { clientInfo: { name: 'contractor', version: '0.1.0' } } });
+    });
+    // Codex falls back to its bundled catalog when the service cannot be reached. Require the fresh provider catalog file.
+    const cache = JSON.parse(await readFile(path.join(home, 'models_cache.json'), 'utf8'));
+    if (!Array.isArray(cache.models) || !cache.models.length || typeof cache.fetched_at !== 'string' || !Number.isFinite(Date.parse(cache.fetched_at)))
+      throw new Error('当前模型服务目录不可用');
+    const remote = new Set(cache.models.map((row: { slug?: string }) => row.slug));
+    const verified = models.filter(model => remote.has(model));
+    if (!verified.length) throw new Error('当前模型服务没有返回可用目录');
+    return { models: new Set(verified), checkedAt: cache.fetched_at as string };
+  } finally { await rm(temp, { recursive: true, force: true }); }
+}
+
 /** Prepare an AutoLoop job; no queue, lease, retry or parallel execution is introduced here. */
 export async function isolateJob(agent: RunnerAgent, job: Job, authority: unknown, previous?: Isolation,
   code?: { canonical: string; paths: string[] } | { bundle: CodeBundle; paths: string[] }): Promise<{ job: Job; isolation: Isolation }> {
@@ -116,18 +201,7 @@ export async function isolateJob(agent: RunnerAgent, job: Job, authority: unknow
   if (agent.engine !== 'codex' || agent.execution.provider !== 'openai')
     throw new Error('此 CLI 或模型服务尚未完成隔离适配，不能继承宿主环境执行');
   const auth = await credential(agent);
-  // Load after openExecution has set AutoLoop's runtime paths (its plugin loader reads them on import).
-  const { default: codex } = await import('../../upstream/autoloop/plugins/codex/agent.ts');
-  // A noninteractive runner can be installed in a private prefix that a login shell removes from PATH.
-  const installed = (process.env.PATH ?? '').split(path.delimiter).filter(path.isAbsolute)
-    .map(directory => path.join(directory, 'codex')).find(candidate => existsSync(candidate));
-  let executable = realpathSync(installed ?? codex.command({ model: agent.model } as Turn)[0]!);
-  if (executable.endsWith('.js')) {
-    const target = (process.arch === 'arm64' ? 'aarch64' : 'x86_64')
-      + (process.platform === 'darwin' ? '-apple-darwin' : '-unknown-linux-musl');
-    const pkg = createRequire(executable).resolve('@openai/codex-' + process.platform + '-' + process.arch + '/package.json');
-    executable = realpathSync(path.join(path.dirname(pkg), 'vendor', target, 'bin', 'codex'));
-  }
+  const executable = await codexExecutable();
   const executableVersion = execFileSync(executable, ['--version'], { encoding: 'utf8', timeout: 10000,
     env: { PATH: '/usr/bin:/bin' }, stdio: ['ignore', 'pipe', 'ignore'] }).trim();
   const effort = job.agent.effort ?? agent.execution.effort;
@@ -135,12 +209,15 @@ export async function isolateJob(agent: RunnerAgent, job: Job, authority: unknow
     ...(job.agent.effort && { effort }) })),
     owner: agent.owner, agent: agent.id, provider: agent.execution.provider, model: agent.model,
     credentialVersion: auth.version, boundary: 'os-sandbox', executableVersion };
-  const folder = scopeRoot(isolation.scope);
+  // macOS may expose the same data directory via /var and /private/var.
+  // Give Seatbelt and the CLI the same canonical paths without broadening its read rules.
+  const folder = path.join(await realpath(runtime()), 'isolated', isolation.scope);
+  await plainPath(folder);
   const workspace = path.join(folder, 'workspace');
   const home = path.join(folder, 'home');
   const input = path.join(folder, 'input');
   // Unix socket names have a small OS limit. A private short temp root is not shared across runs.
-  const temp = await realpath(await mkdtemp(path.join(process.platform === 'darwin' ? '/private/tmp' : os.tmpdir(), 'suitme-')));
+  const temp = await realpath(await mkdtemp(path.join(process.platform === 'darwin' ? '/private/tmp' : os.tmpdir(), 'contractor-')));
   await chmod(temp, 0o700);
   await mkdir(folder, { recursive: true, mode: 0o700 });
   // Reconstruct code from the trusted handoff, never from a different agent's working directory.
@@ -204,7 +281,7 @@ export async function isolateJob(agent: RunnerAgent, job: Job, authority: unknow
     remoteBase: code && 'bundle' in code ? bundleHash(code.bundle) : undefined, placeholders };
   await privateFile(launchFile(job.run, job.attempt), launch);
   return { isolation, job: { ...job, session: previous?.scope === isolation.scope ? job.session : null,
-    agent: { ...job.agent, use: 'suitme-isolated', model: agent.model, effort,
+    agent: { ...job.agent, use: 'contractor-isolated', model: agent.model, effort,
       command: [launchFile(job.run, job.attempt)] }, rule: { ...job.rule, cwd: workspace } } };
 }
 
@@ -308,7 +385,7 @@ export async function importRemoteCode(canonical: string, bundle: CodeBundle, in
     if (!allowedFile(name, bundle.paths)) throw new Error('远端改动超出授权路径');
     if (data === null) delete files[name]; else files[name] = data;
   }
-  const workspace = await mkdtemp(path.join(os.tmpdir(), 'suitme-import-'));
+  const workspace = await mkdtemp(path.join(os.tmpdir(), 'contractor-import-'));
   try {
     await materializeCode(workspace, { paths: bundle.paths, files });
     await importWorkspace({ workspace, canonical, paths: bundle.paths,
@@ -332,15 +409,8 @@ export async function readIsolation(run: number, attempt: number): Promise<Isola
   });
 }
 
-export async function modelReceipt(isolation: Isolation | undefined, session?: string, runnerModel?: string) {
-  if (!isolation) return { verification: 'legacy-unverified' as const };
-  const receipt = { provider: isolation.provider, requested: isolation.model, verification: 'requested-only' as 'requested-only' | 'session-reported', reported: undefined as string | undefined };
-  if (isolation.boundary === 'remote' && runnerModel) {
-    receipt.reported = runnerModel;
-    receipt.verification = 'session-reported';
-    return receipt;
-  }
-  if (isolation.boundary !== 'os-sandbox' || !session || !/^[a-zA-Z0-9-]+$/.test(session)) return receipt;
+export async function codexSessionEvidence(isolation: Isolation | undefined, session?: string, includeUsage = false) {
+  if (isolation?.boundary !== 'os-sandbox' || !session || !/^[a-zA-Z0-9-]+$/.test(session)) return {};
   const sessions = path.join(scopeRoot(isolation.scope), 'home', 'sessions');
   async function walk(folder: string): Promise<string | undefined> {
     for (const entry of await readdir(folder, { withFileTypes: true }).catch(() => [])) {
@@ -351,12 +421,27 @@ export async function modelReceipt(isolation: Isolation | undefined, session?: s
     }
   }
   const file = await walk(sessions);
-  if (file) {
-    const models: string[] = [];
-    for (const line of (await readFile(file, 'utf8')).split('\n')) {
-      try { const row = JSON.parse(line); if (row.type === 'turn_context' && typeof row.payload?.model === 'string') models.push(row.payload.model); } catch {}
-    }
-    if (models.length) { receipt.reported = models.at(-1); receipt.verification = 'session-reported'; }
+  if (!file) return {};
+  let model: string | undefined, usage: Usage | undefined;
+  for (const line of (await readFile(file, 'utf8')).split('\n')) {
+    try {
+      const row = JSON.parse(line);
+      if (row.type === 'turn_context' && typeof row.payload?.model === 'string') model = row.payload.model;
+      if (!includeUsage || row.type !== 'event_msg' || row.payload?.type !== 'token_count') continue;
+      const total = row.payload.info?.total_token_usage;
+      if (!total) continue;
+      const { input_tokens: input, output_tokens: output, cached_input_tokens: cached } = total;
+      const valid = (value: number) => Number.isSafeInteger(value) && value >= 0;
+      if (valid(input) && valid(output) && (input > 0 || output > 0))
+        usage = { input, output, ...(valid(cached) && cached <= input && { cached }) };
+    } catch { /* Ignore a malformed or interrupted JSONL record. */ }
   }
-  return receipt;
+  return { model, usage };
+}
+
+export async function modelReceipt(isolation: Isolation | undefined, session?: string, runnerModel?: string) {
+  if (!isolation) return { verification: 'legacy-unverified' as const };
+  const reported = isolation.boundary === 'remote' || isolation.boundary === 'octop' ? runnerModel : (await codexSessionEvidence(isolation, session)).model;
+  return { provider: isolation.provider, requested: isolation.model, reported,
+    verification: reported ? 'session-reported' as const : 'requested-only' as const };
 }

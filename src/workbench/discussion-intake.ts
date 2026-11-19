@@ -2,12 +2,12 @@ import { z } from 'zod';
 import { FeishuSources, withFeishuReads } from '../feishu-sources.ts';
 import { feishuChatLink, feishuHistory, feishuTrigger, feishuTriggerId, type NativeTrigger } from '../upstream.ts';
 import type { Trigger } from '../../upstream/superagent/src/core/index.ts';
-import { channelCommand, feishuCommandText, type ChannelRef, type PlatformActor } from './channel-links.ts';
-import type { Project, Settings } from './config.ts';
+import { channelCommand, feishuCommandText, feishuConsultation, type ChannelRef, type PlatformActor } from './channel-links.ts';
+import type { FeishuHistoryReader, Project, Settings } from './config.ts';
 import type { ProjectResource } from './project-resources.ts';
 
 export type DiscussionInput = { trigger: Trigger; origin: ChannelRef; sender: PlatformActor; history?: boolean; updatedAt?: number;
-  command?: ReturnType<typeof channelCommand>; answer?: string };
+  command?: ReturnType<typeof channelCommand>; answer?: string; consultation?: ReturnType<typeof feishuConsultation> };
 export type DiscussionThread = { id: string; root: string; at: number };
 const threadKey = /^omt_[A-Za-z0-9_-]+$/;
 export function discussionThread(meta: Record<string, unknown>, at: number): DiscussionThread | undefined {
@@ -37,7 +37,7 @@ const rawMessage = z.looseObject({ chat_id: z.string(), msg_type: z.string(), me
   sender: z.looseObject({ id: z.string(), sender_type: z.string(), id_type: z.string().optional() }) });
 const tombstone = z.object({ chat_id: z.string(), message_id: z.string(), deleted: z.literal(true) });
 
-type History = NonNullable<NonNullable<Project['discussion']>['history']>;
+type History = FeishuHistoryReader;
 type Feishu = NonNullable<Settings['feishu']>;
 
 async function confirmReader(reader: FeishuSources, history: History) {
@@ -89,6 +89,7 @@ function historyMessages(items: unknown[], history: History, feishu: Feishu, cha
     const answer = /^\/答\s+([\s\S]{1,3500})$/.exec(text)?.[1];
     inputs.push({ ...discussionInput(trigger, feishu.appId, history.appId), history: true,
       ...(command?.kind === 'work' && { command }), ...(answer && !command && { answer }),
+      consultation: feishuConsultation(text),
       updatedAt: typeof updatedAt === 'number' && Number.isSafeInteger(updatedAt) ? updatedAt : undefined });
   }
   return { inputs, withdrawn, threads };

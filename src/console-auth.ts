@@ -12,16 +12,17 @@
  * 正常使用业务功能与自己的配置。
  */
 import { createHmac, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
-import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { runtime } from './config.ts';
 import { initRbac, rebindHuman, bindHuman, syncHumans, rbacEnforce, rbacPolicyText, RBAC_HUMAN_ROLES, ROLE_PERMISSIONS as RBAC_ROLE_PERMISSIONS } from './rbac.ts';
+import type { ExternalIdentity, VerifiedIdentity } from './workbench/im-login-providers.ts';
 
 export const CONSOLE_ROLES = RBAC_HUMAN_ROLES;
 export type ConsoleRole = typeof CONSOLE_ROLES[number];
 
 export const ROLE_LABELS: Record<ConsoleRole, string> = {
-  owner: '所有者', admin: '管理员', operator: '运营', viewer: '只读',
+  owner: '所有者', admin: '管理员', operator: '协作者', viewer: '只读',
 };
 
 /** 权威定义在 src/rbac.ts（人与 agent 共用 casbin 策略文件）；此处 re-export 供前端与既有调用方。 */
@@ -31,16 +32,21 @@ export const PERMISSION_LABELS: Record<string, string> = {
   read: '查看', 'knowledge-review': '知识审核', 'task-control': '任务接续/暂停',
   'services-control': '服务管理', 'audit-view': '审计日志', 'feishu-auth': '飞书授权',
   'accounts-manage': '账号与角色',
+  'project-create': '创建独立项目', 'platform-quota-admin': '平台积分管理',
+  'workspace-members-admin': '管理协作者和只读账号',
   'knowledge-write-team': '写团队知识', 'knowledge-write-org': '写组织知识', 'knowledge-delete-org': '删组织知识',
   'users-settings-view': '用户配置总览',
 };
 
 export type ConsoleAccount = {
   username: string;
-  passwordHash: string;
+  passwordHash?: string;
   salt: string;
   role: ConsoleRole;
   feishuOpenId?: string;
+  displayName?: string;
+  imProfile?: Pick<NonNullable<VerifiedIdentity['profile']>, 'provider' | 'avatar'>;
+  imLogins?: ExternalIdentity[];
   disabled?: boolean;
   createdAt: string;
   createdBy: string;
@@ -84,7 +90,7 @@ function maskSettings(s: ConsoleUserSettings): ConsoleUserSettings & { model: { 
 }
 
 const SESSION_TTL_MS = 2 * 60 * 60 * 1000;
-const COOKIE_NAME = 'suitme_console';
+export const consoleCookieName = 'contractor_console';
 const dir = () => { const d = runtime('console'); mkdirSync(d, { recursive: true, mode: 0o700 }); return d; };
 const accountsFile = () => path.join(dir(), 'accounts.json');
 const auditFile = () => path.join(dir(), 'console-audit.jsonl');
@@ -97,8 +103,20 @@ function signingKey(): string {
   return String(secrets.jwtSecret);
 }
 
+function updateIMProfile(account: ConsoleAccount, identity: VerifiedIdentity) {
+  const name = identity.profile?.name || account.displayName || identity.label;
+  const source = identity.profile;
+  const changed = account.displayName !== name || !!source
+    && (account.imProfile?.provider !== source.provider || account.imProfile?.avatar !== source.avatar);
+  if (changed) {
+    account.displayName = name;
+    if (source) account.imProfile = { provider: source.provider, avatar: source.avatar };
+  }
+  return changed;
+}
+
 export class ConsoleAuth {
-  private sessions = new Map<string, ConsoleSession>();
+  private sessions = new Map<string, ConsoleSession & { credentialVersion: string; external?: ExternalIdentity }>();
   private failures = new Map<string, { count: number; lockedUntil: number }>();
 
   /** 初始化 casbin enforcer（幂等，见 src/rbac.ts）并同步账号绑定。 */
@@ -118,7 +136,10 @@ export class ConsoleAuth {
   }
 
   private saveAccounts(accounts: ConsoleAccount[]) {
-    writeFileSync(accountsFile(), JSON.stringify(accounts, null, 2), { mode: 0o600 });
+    const file = accountsFile();
+    const temporary = file + '.next-' + process.pid;
+    writeFileSync(temporary, JSON.stringify(accounts, null, 2), { mode: 0o600 });
+    renameSync(temporary, file);
   }
 
   audit(action: string, actor: string, detail: Record<string, unknown>) {
@@ -142,23 +163,58 @@ export class ConsoleAuth {
 
   async createAccount(username: string, password: string, role: ConsoleRole, createdBy: string,
     feishuOpenId?: string): Promise<ConsoleAccount> {
+    if (String(password ?? '').length < 8) throw new Error('口令至少 8 位');
+    return this.create(username, role, createdBy, { password, feishuOpenId });
+  }
+
+  async createExternalAccount(username: string, identity: VerifiedIdentity, role: ConsoleRole, createdBy: string) {
+    return this.create(username, role, createdBy, { identity });
+  }
+
+  private async create(username: string, role: ConsoleRole, createdBy: string, { password, feishuOpenId, identity }: {
+    password?: string; feishuOpenId?: string; identity?: VerifiedIdentity;
+  }) {
     const name = String(username ?? '').trim();
     if (!/^[a-zA-Z0-9_-]{2,32}$/.test(name)) throw new Error('用户名只允许 2-32 位字母 / 数字 / 下划线 / 连字符');
-    if (String(password ?? '').length < 8) throw new Error('口令至少 8 位');
     if (!CONSOLE_ROLES.includes(role)) throw new Error('未知角色');
     const accounts = this.listAccounts();
     if (accounts.some(a => a.username === name)) throw new Error('用户名已存在');
+    if (identity && this.externalOwner(identity, accounts)) throw new Error('该渠道身份已绑定账号');
     const salt = randomBytes(16).toString('hex');
     const account: ConsoleAccount = {
-      username: name, salt, passwordHash: scryptSync(password, salt, 32).toString('hex'),
-      role, createdAt: new Date().toISOString(), createdBy,
+      username: name, salt, role, createdAt: new Date().toISOString(), createdBy,
+      ...(password && { passwordHash: scryptSync(password, salt, 32).toString('hex') }),
       ...(feishuOpenId ? { feishuOpenId } : {}),
+      ...(identity && { imLogins: [{ authority: identity.authority, subject: identity.subject }] }),
     };
+    if (identity) updateIMProfile(account, identity);
     accounts.push(account);
     this.saveAccounts(accounts);
     await bindHuman(name, role);
     this.audit('account.created', createdBy, { username: name, role });
     return account;
+  }
+
+  externalOwner(identity: ExternalIdentity, accounts = this.listAccounts()) {
+    return accounts.find(account => account.imLogins?.some(row => row.authority === identity.authority && row.subject === identity.subject));
+  }
+
+  linkExternalAccount(username: string, identity: VerifiedIdentity) {
+    const accounts = this.listAccounts();
+    const account = accounts.find(row => row.username === username && !row.disabled);
+    const existing = this.externalOwner(identity, accounts);
+    if (!account || existing && existing.username !== username) return false;
+    const prior = account.imLogins?.find(row => row.authority === identity.authority);
+    if (prior) {
+      if (prior.subject !== identity.subject) return false;
+      if (updateIMProfile(account, identity)) this.saveAccounts(accounts);
+      return true;
+    }
+    account.imLogins = [...account.imLogins ?? [], { authority: identity.authority, subject: identity.subject }];
+    updateIMProfile(account, identity);
+    this.saveAccounts(accounts);
+    this.audit('account.im-login-linked', username, { username });
+    return true;
   }
 
   async setRole(operator: string, username: string, role: ConsoleRole) {
@@ -191,26 +247,35 @@ export class ConsoleAuth {
     this.audit(disabled ? 'account.disabled' : 'account.enabled', operator, { username });
   }
 
-  changePassword(username: string, newPassword: string) {
+  changePassword(username: string, newPassword: string, operator = username) {
     if (String(newPassword ?? '').length < 8) throw new Error('口令至少 8 位');
     const accounts = this.listAccounts();
     const account = accounts.find(a => a.username === username);
-    if (!account) throw new Error('账号不存在');
+    if (!account?.passwordHash) throw new Error('此账号未启用口令');
     account.salt = randomBytes(16).toString('hex');
     account.passwordHash = scryptSync(newPassword, account.salt, 32).toString('hex');
     this.saveAccounts(accounts);
-    this.audit('account.password-changed', username, {});
+    this.revokeSessions(username);
+    this.audit('account.password-changed', operator, { username });
   }
 
-  login(username: string, password: string): { cookie: string; session: ConsoleSession } {
+  revokeSessions(username: string) {
+    for (const [token, session] of this.sessions) if (session.username === username) this.sessions.delete(token);
+  }
+
+  revokeLoginMethod(method: 'im' | 'password') {
+    for (const [token, session] of this.sessions) if ((session.external ? 'im' : 'password') === method) this.sessions.delete(token);
+  }
+
+  verifyPassword(username: string, password: string) {
     const name = String(username ?? '').trim();
     const fail = this.failures.get(name);
     if (fail && fail.lockedUntil > Date.now())
       throw new Error(`连续失败次数过多，已锁定到 ${new Date(fail.lockedUntil).toLocaleTimeString('zh-CN')}`);
     const account = this.listAccounts().find(a => a.username === name);
-    const ok = Boolean(account) && !account!.disabled
-      && timingSafeEqual(Buffer.from(account!.passwordHash, 'hex'),
-        scryptSync(String(password ?? ''), account!.salt, 32));
+    const ok = account && !account.disabled && account.passwordHash && /^[a-f0-9]{64}$/.test(account.passwordHash)
+      && timingSafeEqual(Buffer.from(account.passwordHash, 'hex'),
+        scryptSync(String(password ?? ''), account.salt, 32));
     if (!ok) {
       const entry = fail ?? { count: 0, lockedUntil: 0 };
       entry.count += 1;
@@ -220,11 +285,35 @@ export class ConsoleAuth {
       throw new Error(account?.disabled ? '账号已被禁用' : '用户名或口令不正确');
     }
     this.failures.delete(name);
+    return account!;
+  }
+
+  login(username: string, password: string) {
+    return this.createSession(this.verifyPassword(username, password));
+  }
+
+  loginExternal(identity: VerifiedIdentity) {
+    const accounts = this.listAccounts();
+    const account = this.externalOwner(identity, accounts);
+    if (!account || account.disabled) return;
+    if (updateIMProfile(account, identity)) this.saveAccounts(accounts);
+    return this.createSession(account, { authority: identity.authority, subject: identity.subject });
+  }
+
+  private createSession(account: ConsoleAccount, external?: ExternalIdentity): { cookie: string; session: ConsoleSession } {
+    const name = account.username;
     const token = randomBytes(24).toString('base64url');
-    const session: ConsoleSession = { username: name, role: account!.role, exp: Date.now() + SESSION_TTL_MS };
-    this.sessions.set(token, session);
-    this.audit('login.ok', name, { role: account!.role });
-    return { cookie: `${COOKIE_NAME}=${token}.${this.sign(token)}`, session };
+    const session: ConsoleSession = { username: name, role: account.role, exp: Date.now() + SESSION_TTL_MS };
+    // The random password salt is a persistent credential generation. Checking it
+    // on every request also invalidates sessions when another process changes it.
+    this.sessions.set(token, { ...session, credentialVersion: account.salt, external });
+    this.audit('login.ok', name, { role: account.role, method: external ? 'im' : 'password' });
+    return { cookie: `${consoleCookieName}=${token}.${this.sign(token)}`, session };
+  }
+
+  sessionBinding(cookieHeader: string | undefined) {
+    const token = this.tokenFromCookie(cookieHeader);
+    return token && this.sign('im-link:' + token);
   }
 
   logout(cookieHeader: string | undefined) {
@@ -241,24 +330,33 @@ export class ConsoleAuth {
 
   private tokenFromCookie(header: string | undefined): string | null {
     const match = header?.split(';').map(part => part.trim())
-      .find(part => part.startsWith(COOKIE_NAME + '='));
+      .find(part => part.startsWith(consoleCookieName + '='));
     if (!match) return null;
-    const value = match.slice(COOKIE_NAME.length + 1);
+    const value = match.slice(consoleCookieName.length + 1);
     const dot = value.lastIndexOf('.');
     if (dot <= 0) return null;
     const token = value.slice(0, dot), signature = value.slice(dot + 1);
+    if (!/^[A-Za-z0-9_-]{32}$/.test(token) || !/^[A-Za-z0-9_-]{43}$/.test(signature)) return null;
     const expect = this.sign(token);
-    return signature.length === expect.length && timingSafeEqual(Buffer.from(signature), Buffer.from(expect))
+    return timingSafeEqual(Buffer.from(signature), Buffer.from(expect))
       ? token : null;
   }
 
-  sessionFromRequest(cookieHeader: string | undefined): ConsoleSession | null {
+  sessionFromRequest(cookieHeader: string | undefined, allowed?: (account: ConsoleAccount, external?: ExternalIdentity) => boolean): ConsoleSession | null {
     const token = this.tokenFromCookie(cookieHeader);
     if (!token) return null;
     const session = this.sessions.get(token);
     if (!session) return null;
-    if (session.exp < Date.now()) { this.sessions.delete(token); return null; }
-    return session;
+    const account = this.listAccounts().find(item => item.username === session.username);
+    const external = session.external;
+    if (session.exp < Date.now() || !account || account.disabled || account.role !== session.role
+      || account.salt !== session.credentialVersion || external && this.externalOwner(external, [account]) !== account) {
+      this.sessions.delete(token);
+      return null;
+    }
+    if (allowed && !allowed(account, external)) return null;
+    const { credentialVersion: _version, external: _external, ...current } = session;
+    return current;
   }
 
   sessionCount(): number { return this.sessions.size; }

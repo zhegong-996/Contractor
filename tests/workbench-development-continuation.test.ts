@@ -6,13 +6,13 @@ import os from 'node:os';
 import test from 'node:test';
 
 test('真实本地 Git 保留交接改动，多轮提交沿用本单历史，基线漂移需确认且冲突回退', async t => {
-  const dir = await mkdtemp(path.join(os.tmpdir(), 'suitme-git-continuation-'));
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'contractor-git-continuation-'));
   const originalPath = process.env.PATH;
   process.env.COLLAB_STATE_DIR = dir;
   const checkout = path.join(dir, 'checkout'), remote = path.join(dir, 'remote.git'), bin = path.join(dir, 'bin');
   await mkdir(checkout); await mkdir(bin);
   const git = (cwd: string, ...args: string[]) => execFileSync('/usr/bin/git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
-  git(checkout, 'init', '-b', 'main'); git(checkout, 'config', 'user.name', 'SuitMe local test');
+  git(checkout, 'init', '-b', 'main'); git(checkout, 'config', 'user.name', 'Contractor local test');
   git(checkout, 'config', 'user.email', 'test@example.invalid');
   await mkdir(path.join(checkout, 'collab-pilot')); await writeFile(path.join(checkout, 'collab-pilot/index.html'), 'base\n');
   git(checkout, 'add', 'collab-pilot/index.html'); git(checkout, 'commit', '-m', 'base');
@@ -51,7 +51,7 @@ test('真实本地 Git 保留交接改动，多轮提交沿用本单历史，基
   await assert.rejects(developmentCheckout(config, target, 'test-ticket', { retry }), /无法安全/);
   await rm(untracked);
   assert.equal((await developmentCheckout(config, target, 'test-ticket', { retry })).startSha, first);
-  assert.equal(git(folder, 'rev-parse', 'refs/suitme/discarded/' + second), second);
+  assert.equal(git(folder, 'rev-parse', 'refs/contractor/discarded/' + second), second);
   assert.equal((await developmentCheckout(config, target, 'test-ticket', { retry })).startSha, first);
   git(folder, 'reset', '--hard', second);
 

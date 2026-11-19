@@ -8,9 +8,9 @@
       "maintainers": ["product"],
       "resources": [{
         "source": "github",
-        "externalId": "zhegong-996/desktop-tutorial",
+        "externalId": "example/contractor-pilot",
         "state": "bound",
-        "url": "https://github.com/zhegong-996/desktop-tutorial"
+        "url": "https://github.com/example/contractor-pilot"
       }]
     }
   ],

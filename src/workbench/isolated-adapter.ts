@@ -5,7 +5,7 @@ import { findProgram, type Turn } from '../../upstream/autoloop/worker/agents.ts
 export default {
   command: (turn: Turn) => isolatedCommand(turn, (input, executable) => {
     findProgram('codex', () => [executable]);
-    return codex.command(input);
+    return codex.command(input as Turn);
   }),
   read: codex.read,
 };

@@ -1,14 +1,14 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { z } from 'zod';
 import type { Trigger } from '../../upstream/superagent/src/core/index.ts';
-import { render } from '../../upstream/autoloop/plugins/feishu/channel.ts';
 import { command } from '../commands.ts';
 
 const messageId = z.string().regex(/^om_[a-zA-Z0-9_-]+$/);
 const chatId = z.string().regex(/^oc_[a-zA-Z0-9_-]+$/);
 export type CardReference = { ref: string; chat: string };
+type InboxReference = CardReference & { digest: string };
 export type DecisionCard = { id: number; decision: string; title: string; text: string; options: string[];
-  revision?: string; commit?: string; ref?: string; chat?: string; group?: boolean; chosen?: number; outcome?: string;
+  revision?: string; commit?: string; ref?: string; chat?: string; group?: boolean; reviewUrl?: string; chosen?: number; outcome?: string;
   consultation?: { project: string; topic: string; actor: string; request: string; trigger: Trigger; agents: string[] } };
 export type CardTransport = {
   available?(): boolean;
@@ -17,19 +17,27 @@ export type CardTransport = {
 };
 
 export function cardContent(card: DecisionCard) {
-  if (card.consultation) {
-    const model = render({ id: card.id, title: card.title, text: '', options: card.options,
-      version: 1, ref: card.ref ?? null, kind: card.chosen !== undefined ? 'notice' : 'ask',
-      state: card.chosen === undefined ? 'open' : 'closed', recommend: null, choice: null, answer: null,
-      result: card.chosen === undefined ? null : '已交给 ' + card.options[card.chosen], link: null });
-    return JSON.stringify({ ...model, body: { elements: [plainText(card.text), ...model.body.elements.map(element => {
-      if (element.tag !== 'interactive_container' || !('behaviors' in element)) return element;
-      return { ...element, behaviors: element.behaviors!.map(behavior => ({ ...behavior, value: { ...behavior.value, kind: 'consultation' } })) };
-    })] } });
-  }
-  return JSON.stringify(render({ id: card.id, title: card.title, text: card.text, options: card.options,
-    version: 1, ref: card.ref ?? null, kind: 'ask', state: card.chosen !== undefined ? 'done' : card.outcome ? 'closed' : 'open',
-    recommend: null, choice: card.chosen ?? null, answer: null, result: card.chosen === undefined ? card.outcome ?? null : null, link: null }));
+  const chosen = card.chosen !== undefined;
+  const closed = !!card.outcome;
+  const title = card.reviewUrl && (chosen || card.outcome === '已验收') ? '已验收' : card.title;
+  const options = !chosen && !closed ? card.options.map((label, index) => ({
+    tag: 'interactive_container', width: 'fill', has_border: true, border_color: 'grey', corner_radius: '8px',
+    padding: '8px 12px 8px 12px',
+    behaviors: [{ type: 'callback', value: { card: card.id, choice: index, ...(card.consultation && { kind: 'consultation' }) } }],
+    elements: [plainText(label)],
+  })) : [];
+  const selection = card.chosen === undefined ? undefined : card.options[card.chosen];
+  const outcome = card.consultation && selection ? '已交给 ' + selection
+    : selection ? '你选了「' + selection + '」。已执行。'
+      : closed ? '不用决定了：' + card.outcome : undefined;
+  return JSON.stringify({ schema: '2.0', config: { update_multi: true, enable_forward: false },
+    header: { title: { tag: 'plain_text', content: title }, template: closed || card.consultation && chosen ? 'grey' : chosen ? 'green' : 'blue' },
+    body: { elements: [
+      ...(card.reviewUrl && !closed ? [openLink('在工作台查看汇总', card.reviewUrl)] : []),
+      ...(card.text ? [card.consultation ? plainText(card.text) : { tag: 'markdown', content: card.text }] : []),
+      ...options,
+      ...(outcome ? [plainText(outcome)] : []),
+    ] } });
 }
 
 const plainText = (content: string) => ({ tag: 'div', text: { tag: 'plain_text', content } });
@@ -37,14 +45,53 @@ const openLink = (label: string, url: string, primary = false) => ({ tag: 'butto
   type: primary ? 'primary_filled' : 'default', text: { tag: 'plain_text', content: label },
   behaviors: [{ type: 'open_url', default_url: url }] });
 
-export function consultationResultCard(input: { agent: string; summary: string; source: string; link?: string;
-  delivery?: { pr: number; url: string; checks: { url?: string; name: string }[] } }) {
-  const check = input.delivery?.checks.find(item => item.url);
+export function feishuInboxCard(items: { scope: string; group: string; title: string; link: string; action?: DecisionCard;
+  work?: { label: string; url: string; ref: string } }[]) {
+  const groups = new Map<string, typeof items>();
+  for (const item of items) {
+    const list = groups.get(item.scope) ?? [];
+    if (!groups.has(item.scope)) groups.set(item.scope, list);
+    list.push(item);
+  }
+  const elements: unknown[] = [plainText(items.length ? items.length + ' 项待处理' : '暂无待处理事项')];
+  let shown = 0, actions = 0;
+  for (const rows of groups.values()) {
+    if (shown >= 12) break;
+    elements.push({ tag: 'hr' }, plainText(rows[0]!.group));
+    const links = new Set<string>();
+    for (const row of rows) {
+      if (shown >= 12) break;
+      shown++;
+      if (row.action && actions++ < 3) {
+        const ref = row.work?.ref;
+        const action = ref && row.action.revision
+          ? { ...row.action, options: row.action.options.map(option => option + ' · ' + ref) }
+          : row.action;
+        const rendered = JSON.parse(cardContent(action)).body.elements as { tag: string }[];
+        elements.push(plainText(row.title), ...rendered.filter(element => ['interactive_container', 'div', 'markdown'].includes(element.tag)));
+      } else elements.push(plainText(row.title));
+      if (row.work && !links.has(row.work.url)) {
+        links.add(row.work.url);
+        elements.push(openLink('打开' + row.work.label, row.work.url));
+      }
+    }
+    elements.push(openLink('打开项目待办', rows[0]!.link));
+  }
+  if (shown < items.length) elements.push(plainText('另有 ' + (items.length - shown) + ' 项，请在工作台查看。'));
   return JSON.stringify({ schema: '2.0', config: { update_multi: true, enable_forward: false },
-    header: { title: { tag: 'plain_text', content: input.agent + ' · 只读咨询' }, template: 'blue' },
-    body: { elements: [plainText(input.summary), plainText(input.source),
-      ...(input.link ? [openLink('查看工作台完整回复', input.link, true)] : [plainText('完整回复可在工作台的项目主题中查看。')]),
-      ...(input.delivery ? [openLink('PR #' + input.delivery.pr, input.delivery.url)] : []),
+    header: { title: { tag: 'plain_text', content: 'Contractor · 待处理' }, template: 'blue' }, body: { elements } });
+}
+
+export type SharedConsultation = { agent: string; summary: string; source: string;
+  delivery?: { pr: number; url: string; checks: { url?: string; name: string }[] } };
+export function consultationResultCard(link?: string, shared?: SharedConsultation) {
+  const check = shared?.delivery?.checks.find(item => item.url);
+  return JSON.stringify({ schema: '2.0', config: { update_multi: true, enable_forward: false },
+    header: { title: { tag: 'plain_text', content: shared ? shared.agent + ' · 只读咨询' : '咨询已处理' }, template: 'blue' },
+    body: { elements: [
+      ...(shared ? [plainText(shared.summary), plainText(shared.source)] : []),
+      ...(link ? [openLink('查看工作台完整回复', link, true)] : [plainText('请在工作台查看处理结果。')]),
+      ...(shared?.delivery ? [openLink('PR #' + shared.delivery.pr, shared.delivery.url)] : []),
       ...(check?.url ? [openLink('CI · ' + check.name.slice(0, 80), check.url)] : []),
     ] } });
 }
@@ -81,7 +128,9 @@ export function readCardClick(line: string) {
 export class FeishuDecisionCards {
   constructor(private readonly db: DatabaseSync) {
     db.exec(`CREATE TABLE IF NOT EXISTS workbench_feishu_decision_card (
-      id INTEGER PRIMARY KEY, decision TEXT NOT NULL UNIQUE, value TEXT NOT NULL)`);
+      id INTEGER PRIMARY KEY, decision TEXT NOT NULL UNIQUE, value TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS workbench_feishu_inbox (
+        account TEXT PRIMARY KEY, value TEXT NOT NULL)`);
   }
 
   get(id: number | string): DecisionCard | undefined {
@@ -98,5 +147,20 @@ export class FeishuDecisionCards {
 
   save(card: DecisionCard) {
     this.db.prepare('UPDATE workbench_feishu_decision_card SET value=? WHERE id=?').run(JSON.stringify(card), card.id);
+  }
+
+  inbox(account: string): InboxReference | undefined {
+    const row = this.db.prepare('SELECT value FROM workbench_feishu_inbox WHERE account=?').get(account);
+    return row && JSON.parse(String(row.value));
+  }
+
+  saveInbox(account: string, value: InboxReference) {
+    this.db.prepare('INSERT OR REPLACE INTO workbench_feishu_inbox VALUES (?,?)').run(account, JSON.stringify(value));
+  }
+
+  pendingConsultations(actor: string): DecisionCard[] {
+    return this.db.prepare(`SELECT id,value FROM workbench_feishu_decision_card
+      WHERE json_extract(value,'$.consultation.actor')=? AND json_extract(value,'$.chosen') IS NULL
+      ORDER BY id DESC`).all(actor).map(row => ({ ...JSON.parse(String(row.value)), id: Number(row.id) }));
   }
 }

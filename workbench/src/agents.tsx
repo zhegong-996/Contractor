@@ -1,25 +1,31 @@
-import { ArrowLeft, Bot, ChevronRight, Cpu, ListChecks, Play, ReceiptText, ShieldCheck } from 'lucide-react';
-import { api, useData, type Agent, type Usage } from './api.ts';
+import { ArrowLeft, Bot, ChevronRight, Cpu, Layers, ListChecks, MessageSquare, Play, ReceiptText, ShieldCheck } from 'lucide-react';
+import { api, useData, useTickets, type Agent, type Usage } from './api.ts';
 import { go, routeFor, type PageProps } from './navigation.ts';
-import { TabsContent } from './paperclip/tabs.tsx';
-import { Button } from './paperclip/button.tsx';
-import { Avatar, Empty, Failure, Loading, PageTabs, Pill, SearchBox, Section, useActions, useStored } from './ui.tsx';
+import { TabsContent } from './components/page-tabs.tsx';
+import { Button } from './components/button.tsx';
+import { Avatar, Empty, Failure, Loading, PageTabs, Pill, SearchBox, Section, Segments, TicketStatus, useActions, useStored } from './ui.tsx';
 import { AgentMemory, AgentOperations } from './agent-operations.tsx';
+import { AgentLibrary } from './agent-library.tsx';
 
 const agentTabs = [['profile', '职责与委托'], ['memory', '记忆'], ['receipts', '执行与费用']] as const;
 export function AgentsPage(props: PageProps) {
   const { workspace, project, route } = props;
   const [query, search] = useStored('agents-search:' + project.id, '');
+  const [scope, setScope] = useStored('agents-scope:' + project.id, 'all');
   const all = workspace.agents.filter(agent => agent.projects.includes(project.id));
-  const shown = all.filter(a => (a.title + a.owner + a.capability).toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
+  const shown = all.filter(a => (scope === 'all' || a.owner === workspace.actor)
+    && (a.title + a.owner + a.capability).toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
   const selected = route.item ? all.find(agent => agent.id === route.item) : undefined;
   if (!route.item && (route.tab === 'devices' || route.tab === 'budgets')) return <AgentOperations {...props} page={route.tab} />;
+  if (!route.item && route.tab === 'library' && workspace.octopEnabled) return <AgentLibrary {...props} />;
   return <div className="split" data-has-detail={!!route.item}>
     <aside className="split-list" aria-label="项目 Agent 列表">
       <div className="list-header"><h1>Agent</h1><div className="actions">
+        {workspace.octopEnabled && <a className="text-button" href={routeFor(project.id, 'agents', undefined, 'library')}><Layers size={15} />专家与技能</a>}
         <a className="text-button" href={routeFor(project.id, 'agents', undefined, 'devices')}><Cpu size={15} />执行端</a>
         <a className="text-button" href={routeFor(project.id, 'agents', undefined, 'budgets')}><ReceiptText size={15} />额度管理</a>
-      </div><SearchBox label="搜索 Agent 或负责人" value={query} onChange={search} /></div>
+      </div><Segments label="Agent 范围" items={[[ 'all', '项目 Agent' ], [ 'mine', '我的 Agent' ]]} value={scope} onChange={setScope} />
+      <SearchBox label="搜索 Agent 或负责人" value={query} onChange={search} /></div>
       <div className="list-scroll">
         {shown.map(agent => <a className="list-item entry-item" href={routeFor(project.id, 'agents', agent.id)} key={agent.id}
           aria-current={selected?.id === agent.id ? 'page' : undefined}>
@@ -34,17 +40,17 @@ export function AgentsPage(props: PageProps) {
       {selected ? <AgentDetail key={selected.id} agent={selected} {...props} />
         : <div className="agent-overview"><div className="object-header"><div className="object-emblem"><Bot size={25} /></div><div><h1>项目 Agent</h1>
           <p className="muted-text">{all.filter(a => a.active).length} 位在岗 · {all.length} 位已登记</p></div></div>
-          {all.length ? <div className="agent-cards">{all.map(agent => <a key={agent.id} className="agent-card" href={routeFor(project.id, 'agents', agent.id)}>
+          {shown.length ? <div className="agent-cards">{shown.map(agent => <a key={agent.id} className="agent-card" href={routeFor(project.id, 'agents', agent.id)}>
             <div className="agent-card-top"><Avatar value={agent.title} kind="agent" /><Pill tone={agent.active ? 'green' : 'neutral'}>{agent.active ? '在岗' : '未启用'}</Pill></div>
             <h2>{agent.title}</h2><p>{agent.capability}</p><div className="agent-card-foot"><span>{agent.owner} · {engineName(agent.engine)}</span><ChevronRight size={16} /></div>
-          </a>)}</div> : <Empty title="等待项目配置执行成员" icon={<Bot />} />}
+          </a>)}</div> : <Empty title={all.length ? '没有匹配的 Agent' : '等待项目配置执行成员'} icon={<Bot />} />}
         </div>}
     </div>
   </div>;
 }
 
 function engineName(engine: string) {
-  return ({ codex: 'Codex', claude: 'Claude Code', cursor: 'Cursor', acp: 'ACP', command: '命令行' } as Record<string,string>)[engine] ?? engine;
+  return ({ codex: 'Codex', claude: 'Claude Code', cursor: 'Cursor', acp: 'ACP', command: '命令行', octop: 'Octop 只读专家' } as Record<string,string>)[engine] ?? engine;
 }
 function AgentDetail({ agent, project, workspace, route, openTask }: PageProps & { agent: Agent }) {
   const { run, busy } = useActions();
@@ -52,7 +58,8 @@ function AgentDetail({ agent, project, workspace, route, openTask }: PageProps &
   const mine = agent.kind === 'personal' && agent.owner === workspace.actor;
   const role = workspace.functions.find(f => f.id === agent.function);
   const duties = project.dispatch.filter(rule => rule.agent === agent.id);
-  const assigned = workspace.tickets.filter(t => t.work.project === project.id && t.work.agent === agent.id);
+  const assigned = useTickets({ project: project.id, agent: agent.id, limit: 12 }, active === 'profile', 5000).rows;
+  const topics = project.topics.filter(topic => topic.consultants.includes(agent.id));
   return <div className="agent-detail">
     <header className="object-header"><div className="object-emblem"><Bot size={26} /></div>
       <div className="min-w-0"><h1>{agent.title}</h1><div className="object-meta">
@@ -76,9 +83,12 @@ function AgentDetail({ agent, project, workspace, route, openTask }: PageProps &
             <ShieldCheck />{agent.active ? '暂停接单' : '启用接单'}
           </Button>}
         </Section>
+        {!!topics.length && <Section title="主题咨询">{topics.map(topic => <div className="record-row" key={topic.id}>
+          <a className="text-button" href={routeFor(project.id, 'chat', topic.id) + '?agent=' + encodeURIComponent(agent.id)}><MessageSquare size={15} />{topic.title}</a>
+        </div>)}</Section>}
         <Section title="项目工单" action={<a className="text-button" href={routeFor(project.id, 'work')}><ListChecks size={15} />全部工单</a>}>
           {assigned.length ? assigned.slice(0, 12).map(t => <div className="record-row" key={t.id}>
-            <a href={routeFor(project.id, 'work', t.id)}>{t.title}</a><span className="muted-text">第 {t.work.version ?? 1} 版</span>
+            <a href={routeFor(project.id, 'work', t.id)}>{t.title}</a><TicketStatus ticket={t} /><span className="muted-text">第 {t.work.version ?? 1} 版</span>
           </div>) : <p className="muted-text">当前没有分配给该 Agent 的工单。</p>}
         </Section>
       </TabsContent>

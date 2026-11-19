@@ -6,3 +6,7 @@ evidence/private/
 .env
 *.log
 .DS_Store
+.playwright-cli/
+__pycache__/
+upstream/deepseek-harness/
+upstream/octop-harness/

@@ -6,10 +6,11 @@ import path from 'node:path';
 import { setTimeout as wait } from 'node:timers/promises';
 import { parseArgs } from 'node:util';
 import { z } from 'zod';
-import { remoteEngine, runnerAgentSchema, runnerOllamaUrl } from './config.ts';
+import { remoteEngine, runnerAgentSchema, runnerOllamaUrl } from './runner-profile.ts';
 import { runnerEndpoint, runnerRequestId, runnerSecret } from './runner-connection.ts';
+import { configuredEnv, formerName } from './compatibility.ts';
 
-const connectionSchema = z.object({ id: runnerRequestId, token: runnerSecret, endpoint: runnerEndpoint,
+const connectionSchema = z.object({ driver: z.literal('contractor').optional(), id: runnerRequestId, token: runnerSecret, endpoint: runnerEndpoint,
   profile: runnerAgentSchema.refine(remoteEngine) }).strict();
 const pendingSchema = z.object({ id: runnerRequestId, secret: runnerSecret, expires: z.number() }).strict();
 const resultSchema = z.union([z.object({ pending: z.literal(true) }).strict(), connectionSchema.omit({ endpoint: true })]);
@@ -178,12 +179,15 @@ async function main() {
   } });
   const [action, address] = positionals;
   if (positionals.length !== 2 || !['connect', 'stop'].includes(action ?? ''))
-    throw new Error('用法：suitme connect <团队地址> [--profile 名称] [--foreground]，或 suitme stop <团队地址> [--profile 名称]');
+    throw new Error('用法：contractor connect <团队地址> [--profile 名称] [--foreground]，或 contractor stop <团队地址> [--profile 名称]');
   const endpoint = runnerEndpoint.parse(address);
   const profile = z.string().regex(/^[a-z0-9][a-z0-9-]{0,47}$/).parse(values.profile);
-  const home = process.env.SUITME_RUNNER_HOME ?? path.join(homedir(), '.suitme-runner');
+  const home = configuredEnv('CONTRACTOR_RUNNER_HOME');
   const key = createHash('sha256').update(endpoint).digest('hex').slice(0, 24);
-  const folder = path.resolve(home, key, profile);
+  const current = path.resolve(home ?? path.join(homedir(), '.contractor-runner'), key, profile);
+  const former = path.join(homedir(), formerName('.contractor-runner'), key, profile);
+  const remembered = (folder: string) => file(path.join(folder, 'device.json')).then(value => value ?? file(path.join(folder, 'pending.json')));
+  const folder = !home && !await remembered(current) && await remembered(former) ? former : current;
   await mkdir(folder, { recursive: true, mode: 0o700 });
   const release = action === 'connect' ? await setupLock(folder) : undefined;
   try { await run(); }

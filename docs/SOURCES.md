@@ -1,36 +1,27 @@
-# 实现来源
+# 第三方来源与分发
 
-| 项目 | 工作台中的实际调用 |
-| --- | --- |
-| [Super-agent](https://github.com/deepseek-ai/dsh-superagent-prototype/tree/8c32a9dc5d72c033816c6a8110b37f40cf94fba4) | 原版 Engine、SQLite Store、Effects、来源消息解析与飞书回复。SuitMe 写在 `src/superagent-ports.ts`、`src/upstream.ts` 和 `src/workbench/collaboration.ts` 中的适配层负责业务配置、工单关联及授权。 |
-| [Agent AutoLoop](https://github.com/KKKKhazix/agent-autoloop/tree/ba8cf6d8cf24f9ce005958c15d88f2d9cff7f05d) | `src/workbench/autoloop.ts` 调用原版 Runtime、kernel 和 worker。在工单委托后开始执行，由原版存储调度、卡片、会话、重试、租约和停止记录。 |
-| [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness/tree/fcc0ad462172522aaf5c93a7b2e01f6b9f0b0159) | `src/superagent-ports.ts` 将 Super-agent Store 的 `@deepseek-ai/schemastery` 和 `@deepseek-ai/cosmokit` 解析到该版本的原版 vendor 源码。 |
-| [Backstage catalog model](https://github.com/backstage/backstage/tree/master/packages/catalog-model) | `src/workbench/project-resources.ts` 调用 `parseEntityRef`、`stringifyEntityRef` 规范化来源引用。npm 固定为 `1.10.2`。 |
-| [飞书官方 CLI](https://github.com/larksuite/cli) 和 [GitHub Git Trees API](https://docs.github.com/en/rest/git/trees#get-a-tree) | `src/workbench/knowledge-sources.ts` 使用既有飞书授权读取 Markdown 与文档修订，使用既有 GitHub CLI 读取配置分支的提交、Git tree 和 blob。知识检索继续调用工作台原有 BM25 投影。 |
-| [Entire CLI](https://github.com/entireio/cli/releases/tag/v0.13.4) | `src/workbench/entire.ts` 调用本机配置的 CLI 检查与提交关联的会话元数据。 |
-| [Anthropic Sandbox Runtime](https://github.com/anthropics/sandbox-runtime) | `src/workbench/isolation.ts` 直接调用固定 npm 版本 `0.0.83` 的原版 CLI，在 AutoLoop 适配器外约束文件和网络。复用 OS 沙箱及代理，不另造执行调度。具体边界见 [成员执行隔离](MEMBER-EXECUTION-ISOLATION.md)。 |
-| [Casbin](https://github.com/casbin/node-casbin) | 为工作台提供登录角色的策略判定。 |
-| [Paperclip 前端](https://github.com/paperclipai/paperclip/tree/8cd2d6a73d2097253dd329f55b637e12b20361c6/ui/src) | React 工作台复用可伸缩侧栏、面包屑、按钮、状态徽标、输入框和标签页。文件位于 `workbench/src/paperclip/`，通过同源 SuitMe API 接入协作流程。 |
-| [Octop 前端](https://github.com/TencentCloud/Octop/tree/bf134dbd379036ce7545c7df1a1da7e381ece9ff/dashboard/src/pages) | `workbench/src/octop/` 适配 `Experts/components/TeamMemberPicker.tsx` 的去重选择和焦点顺序，以及 `Chat/components/MessageBubble.tsx` 的说话者归属。使用 SuitMe 的项目资格、权限、工单及知识出处。 |
+Contractor 原创代码使用 [MIT](../LICENSE)。源码包、浏览器构建和执行端安装包保留各自使用的第三方声明。源码子模块固定到 [sources.lock.json](../sources.lock.json) 的提交，npm 依赖固定版本和完整性校验值。[第三方声明](../THIRD_PARTY_NOTICES.md)
 
-[第三方声明](../THIRD_PARTY_NOTICES.md)保留各组件的版本、许可和原文位置。三个源码子模块的提交记录在 [sources.lock.json](../sources.lock.json)。
+| 来源 | 实际使用 | 分发位置 |
+| --- | --- | --- |
+| [Super-agent](https://github.com/deepseek-ai/dsh-superagent-prototype/tree/8c32a9dc5d72c033816c6a8110b37f40cf94fba4) | 原版 Engine、Store、Effects、飞书来源和回传。Contractor 实现项目、主题与权限适配。 | 源码子模块，MIT |
+| [Agent AutoLoop](https://github.com/KKKKhazix/agent-autoloop/tree/ba8cf6d8cf24f9ce005958c15d88f2d9cff7f05d) | 原版调度、租约、worker、会话及 CLI 的兼容部署。 | 源码子模块与默认执行端包，MIT。自研执行端专用包不含该源码 |
+| [Octop Gateway](https://github.com/TencentCloud/octop-gateway/tree/224ed078ce20042fb5fa59240d6e3c7c34bcd67f) · [Octop Memory](https://github.com/TencentCloud/octop-memory/tree/37ef325d46f13181eba69591604465d04c95cb5f) | 可选的 IM 接入及全文检索。服务通过授权后的请求取得输入。 | 两个源码子模块，MIT |
+| [Octop](https://github.com/TencentCloud/Octop/tree/bf134dbd379036ce7545c7df1a1da7e381ece9ff) | 成员选择、消息署名两个组件，采用 Contractor 项目权限和消息来源。 | 浏览器产物附原 MIT 声明 |
+| [Ant Design](https://github.com/ant-design/ant-design/tree/6.7.1) | Contractor 侧栏、菜单、面包屑、表单、标签页、弹窗、状态和权限界面。 | npm 锁定，浏览器产物附许可证 |
+| [Backstage catalog-model](https://github.com/backstage/backstage/tree/40525466a0f70119579cbfc4a60b9d2aa6c8a52d/packages/catalog-model) · [Casbin](https://github.com/casbin/node-casbin) | 资料引用、知识关系和角色策略。 | npm 锁定，Apache-2.0 |
+| [Anthropic Sandbox Runtime](https://github.com/anthropics/sandbox-runtime) | Agent 执行时的文件与网络约束。原版 CLI 由隔离适配器调用。 | npm 锁定，Apache-2.0 |
+| [Entire CLI](https://github.com/entireio/cli/releases/tag/v0.13.4) · [Figma REST API 类型](https://github.com/figma/rest-api-spec) | 可选本机提交溯源，Figma 响应类型。 | Entire CLI 由部署者安装，Figma 类型为开发依赖 |
 
-LobeHub 的前端参考包括项目话题列表与搜索、Agent 分页档案、交付详情旁的协作记录。SuitMe 实现对应交互，并使用自己的项目权限、工单版本和知识投影。[LobeHub 会话导航](https://github.com/lobehub/lobehub/tree/a8424d204a7ed1eb36985ebdfa6eac8041615392/src/features/AgentSidebar/Topic) · [Agent 档案](https://github.com/lobehub/lobehub/tree/a8424d204a7ed1eb36985ebdfa6eac8041615392/src/features/AgentProfileTabs) · [交付协作记录](https://github.com/lobehub/lobehub/tree/a8424d204a7ed1eb36985ebdfa6eac8041615392/src/features/Acceptance/Viewer/Conversation)
+## 设计参考与自研落点
 
-批量整理、唤醒及上下文装配参考 LobeHub。逐项验收和版本证据参考 [Acceptance](https://github.com/lobehub/acceptance/tree/f720feb862bdbe3acc653bdedc297e20e08be1ae)。
+- DeepSeek Harness 把 Agent Loop、Session 与外部模型、工具、接口分开，通过服务注册与插件生命周期组装。Contractor 采用启动时绑定能力、关闭时反序回收的思路。Super-agent Store 所需的 Schemastery 和 Cosmokit 使用独立发布的 MIT 包。 [Harness 架构](https://github.com/deepseek-ai/deepseek-harness/blob/fcc0ad462172522aaf5c93a7b2e01f6b9f0b0159/docs/architecture.md) · [能力接口](https://github.com/deepseek-ai/deepseek-harness/blob/fcc0ad462172522aaf5c93a7b2e01f6b9f0b0159/docs/capability-seams.md)
+- LobeHub 的批量整理、题内对话和档案为设计参考。Acceptance 的需求逐项验收、产物证据和人工签收为产品参考。需求版本、回执校验、浏览器报告解析、签收和知识采用均由 Contractor 实现。 [LobeHub 许可](https://github.com/lobehub/lobehub/blob/a8424d204a7ed1eb36985ebdfa6eac8041615392/LICENSE) · [Acceptance](https://github.com/lobehub/acceptance/tree/f720feb862bdbe3acc653bdedc297e20e08be1ae)
+- Octop Harness 的全量源码含使用独立许可的内置技能。当前只读专家由 Contractor 的 DeepSeek HTTPS 适配器、回执解析和 YAML 技能版本实现。Octop Gateway 和 Memory 是独立保留的选配。 [Octop Harness 技能许可](https://github.com/TencentCloud/octop-harness/blob/86a48ad11be041d1939e4c38581a7f03641bb9e7/src/octop_harness/builtin/skills/en/powerpoint/LICENSE.txt)
+- 交付模板借鉴 LoopForge 的版本化交付物和门禁，落地到 Contractor 工单快照和 GitHub Actions 证据。 [LoopForge 工作流定义](https://github.com/Tencent/LoopForge/blob/e89cda9804643d3631e77652d1bca47a079adb69/internal/domain/workflow.go)
 
-协作记忆采用 Anthropic 对过程记录、可复用笔记和少量预载规则的组织方式。界面参考 LobeHub 的记忆详情和返回来源，也借鉴 Dify 的检索测试和 Letta 的按需挂载记忆。记忆版本、审核与权限继续调用 SuitMe 的既有实现。 [Anthropic](https://www.anthropic.com/research/components-of-agent-memory) · [LobeHub 记忆界面](https://github.com/lobehub/lobehub/tree/a8424d204a7ed1eb36985ebdfa6eac8041615392/src/routes/%28main%29/memory) · [Dify 检索与引用](https://www.dify.ai/rag) · [Letta 记忆模块](https://docs.letta.com/v1-sdk/memory/memory-blocks)
+## 制品检查
 
-设备登记和按任务选择参考 LobeHub 的设备与执行配置，接单客户端直接复用本仓固定的 AutoLoop WorkerHub 接口和 worker 源码。 [LobeHub 执行目标选择](https://github.com/lobehub/lobehub/blob/a8424d204a7ed1eb36985ebdfa6eac8041615392/apps/server/src/services/taskRunner/resolveRunExecution.ts) · [原版 AutoLoop 协议](https://github.com/KKKKhazix/agent-autoloop/blob/ba8cf6d8cf24f9ce005958c15d88f2d9cff7f05d/docs/protocol.md) · [SuitMe 使用说明](WORKBENCH-MEMORY-AND-DEVICES.md)
+`npm run audit:upstream` 检查源码提交、已保留的组件出处、npm 锁定及许可清单。 `npm run package:source` 以显式路径清单收集源码、锁文件、文档和必要上游版本。 `npm run package:runner` 生成执行端包。网页的第三方许可证可从 `/licenses/components` 和 `/licenses/browser-dependencies` 取得。
 
-跨主机模式沿用同一个 AutoLoop 账本、worker、CLI 回执协议和 Claude Code 适配。SuitMe 增加了配对入口、授权资料装配和按远端停止回执交接。 [原版 Claude 插件](https://github.com/KKKKhazix/agent-autoloop/blob/ba8cf6d8cf24f9ce005958c15d88f2d9cff7f05d/plugins/claude/agent.ts) · [远程执行端说明](WORKBENCH-REMOTE-RUNNER.md)
-
-2026-11-16 后端补齐继续直接调用上述固定版本，不修改上游子模块。代码包传输及差异导入为 SuitMe 适配层，进程和网络隔离仍由原版 Sandbox Runtime 执行。Linux 的挂载装配修正在 `isolation.ts`，未旁路原版沙箱。
-
-受控父子任务使用 AutoLoop 原版 `parseResult` 和原生事件协议，子单通过 Super-agent 原版 Engine 创建。`delegations.ts` 仅增加授权提案与父子关系投影，不形成新 scheduler。父子结果回流借鉴 LobeHub 的协作机制；没有复制其 supervisor 或声称已经整合其全部能力。
-
-`knowledge-graph.ts` 实际复用 `@backstage/catalog-model@1.10.2` 的 `stringifyEntityRef`、`RELATION_OWNED_BY`、`RELATION_PART_OF`、`RELATION_DEPENDS_ON`，输入来自 SuitMe 现有授权知识与执行证据。它是来源及使用关系的后端投影，不是 Backstage 完整目录服务或自动语义图谱。
-
-`figma-source.ts` 使用 Figma 官方生成的 `@figma/rest-api-spec@0.47.0` 响应类型和官方节点、版本及 PNG 渲染接口，接入现有知识候选与版本账本。飞书恢复补读继续调用官方 CLI，复用 Super-agent 原消息标识与既有整理游标。 [Figma OpenAPI 源码](https://github.com/figma/rest-api-spec) · [Figma 文件接口](https://developers.figma.com/docs/rest-api/file-endpoints/) · [飞书历史消息接口](https://open.feishu.cn/document/uAjLw4CM/ukTMukTMukTM/reference/im-v1/message/list)
-
-话题补读使用同一飞书历史接口的 `thread` 容器，复用 Super-agent 的原版 `feishuHistory`、`feishuTrigger` 和消息 ID。漏收命令进入既有跨渠道待办，确认后仍由 Super-agent 工单与 AutoLoop 原生必答流程接续。Figma 修订轮询复用官方 `GetFileMetaResponse` 类型和知识候选账本。SuitMe 增加的来源授权代次是既有知识、快照和执行权限共用的上游检查。 [Figma 文件元数据](https://developers.figma.com/docs/rest-api/file-endpoints/#get-file-metadata)
+源码包只包含选定的配置样例。运行数据、账号及凭据、私有证据和本机测试记录位于部署者的运行目录。Codex、Claude Code、外部模型服务和渠道 API 由使用方配置。自带这些工具或第三方服务的安装镜像需要核对其随包条款。

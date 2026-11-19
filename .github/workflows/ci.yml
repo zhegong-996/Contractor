@@ -1,4 +1,4 @@
-name: SuitMe collaboration checks
+name: Contractor collaboration checks
 on: [push, pull_request]
 permissions:
   contents: read
@@ -15,8 +15,37 @@ jobs:
         with:
           node-version: '24'
           cache: npm
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - name: Install Linux sandbox tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bubblewrap socat ripgrep
       - run: npm ci
       - run: npm run audit:upstream
       - run: npm test
+      - name: Verify Contractor execution
+        env:
+          CONTRACTOR_TEST_EXECUTION: contractor
+        run: |
+          node --import tsx --test tests/workbench-owned-scheduler.test.ts tests/workbench-required-answers.test.ts tests/workbench-remote-runner.test.ts tests/workbench-platform-agent.test.ts
       - run: npm run typecheck
       - run: npm run build:ui
+      - name: Verify native adapters
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          python -m pip install ./upstream/octop-memory ./upstream/octop-gateway
+          python tests/deepseek-readonly.py
+          python tests/octop-memory-native.py
+          python tests/octop-im-native.py
+      - run: npm run package:runner
+      - name: Package Contractor execution device
+        run: |
+          npm run package:runner -- dist/runner/contractor --contractor-only
+          tar -tzf dist/runner/contractor/contractor-runner-*.tgz > dist/runner/contractor/contents.txt
+          if grep -q '^package/upstream/autoloop/' dist/runner/contractor/contents.txt; then
+            exit 1
+          fi
+      - run: npm run package:source -- --committed

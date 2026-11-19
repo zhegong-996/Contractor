@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { key } from '../../upstream/superagent/src/core/index.ts';
-import { describeCron, nextRun, parseCron } from '../../upstream/autoloop/kernel/cron.ts';
-import type { EventInput } from '../../upstream/autoloop/protocol/validate.ts';
+import { describeDigestSchedule, digestSchedule } from './execution/cron.ts';
+import type { EventInput } from './execution/protocol.ts';
 import type { SuperAgentStore } from '../superagent-ports.ts';
 import type { ChannelRef, PlatformActor } from './channel-links.ts';
 import type { DiscussionInput, DiscussionThread, SourceFact } from './discussion-intake.ts';
@@ -57,11 +57,7 @@ const proposalSchema = z.object({
 }).strict();
 export type Proposal = z.infer<typeof proposalSchema>;
 
-export function confirmedDiscussionDestination(proposal: Proposal, matched?: { id: string; topic?: string }): Destination {
-  if (proposal.action === 'dismiss') return { action: 'dismiss' };
-  if (matched && proposal.action !== 'review') return { action: 'link', ticket: matched.id, topic: matched.topic };
-  return { action: proposal.action, ticket: proposal.action === 'review' ? proposal.ticket : undefined, topic: proposal.topic };
-}
+export { confirmedDiscussionDestination } from './router.ts';
 
 export function digestProposals(scope: DigestScope, events: EventInput[] | undefined): Proposal[] | undefined {
   const expected = new Set(scope.ids);
@@ -130,6 +126,7 @@ export class Discussions {
     const columns = new Set(store.db.prepare('PRAGMA table_info(workbench_discussion_message)').all().map(column => column.name));
     for (const [name, type] of [['source', 'TEXT'], ['updated', 'INTEGER'], ['checked', 'INTEGER'], ['withdrawn', 'INTEGER NOT NULL DEFAULT 0']])
       if (!columns.has(name)) store.db.exec('ALTER TABLE workbench_discussion_message ADD COLUMN ' + name + ' ' + type);
+    store.db.exec(`CREATE INDEX IF NOT EXISTS workbench_discussion_topic ON workbench_discussion_message(project,json_extract(source,'$.topic'),at DESC);`);
   }
 
   chat(project: string, chat: string) {
@@ -157,6 +154,15 @@ export class Discussions {
     return this.store.db.prepare(`SELECT id,root,at,cursor FROM workbench_discussion_thread
       WHERE project=? AND chat=? AND at>=? AND cursor<? ORDER BY checked,at,id LIMIT 12`)
       .all(project, chat, end - discussionLookback, end) as (DiscussionThread & { cursor: number })[];
+  }
+
+  thread(project: string, chat: string, id: string) {
+    return this.store.db.prepare('SELECT id,root,at,cursor FROM workbench_discussion_thread WHERE project=? AND chat=? AND id=?')
+      .get(project, chat, id) as (DiscussionThread & { cursor: number }) | undefined;
+  }
+
+  forgetThread(project: string, chat: string, root: string) {
+    this.store.db.prepare('DELETE FROM workbench_discussion_thread WHERE project=? AND chat=? AND root=?').run(project, chat, root);
   }
 
   advanceThread(project: string, chat: string, thread: string, end: number, covered: boolean) {
@@ -236,6 +242,12 @@ export class Discussions {
     const data = this.store.db.prepare('SELECT source,body FROM workbench_discussion_message WHERE id=? AND withdrawn=0').get(id);
     const raw = data?.source ?? data?.body;
     return typeof raw === 'string' ? JSON.parse(raw) as Observation : undefined;
+  }
+
+  recentTopic(project: string, topic: string): string[] {
+    return this.store.db.prepare(`SELECT id FROM workbench_discussion_message WHERE project=? AND json_extract(source,'$.topic')=?
+      AND withdrawn=0 AND COALESCE(json_extract(source,'$.channel'),0)=0 ORDER BY at DESC,id LIMIT 16`)
+      .all(project, topic).map(row => String(row.id));
   }
 
   withdrawn(id: string) {
@@ -394,8 +406,8 @@ export class Discussions {
   view(project: string, cron: string, next?: number) {
     const result = this.store.db.prepare(`SELECT slot,state,detail FROM workbench_discussion_run
       WHERE project=? AND state<>'empty' ORDER BY slot DESC,run DESC LIMIT 1`).get(project);
-    return { schedule: cron === '0 0,12 * * *' ? '每天 00:00 和 12:00' : describeCron(cron),
-      next: next ?? nextRun(parseCron(cron)!, Date.now(), discussionZone), last: result,
+    return { schedule: cron === '0 0,12 * * *' ? '每天 00:00 和 12:00' : describeDigestSchedule(cron),
+      next: next ?? digestSchedule(cron).next(Date.now()), last: result,
       waiting: Number(this.store.db.prepare('SELECT COUNT(*) AS count FROM workbench_discussion_message WHERE project=? AND settled=0').get(project)?.count) };
   }
 }

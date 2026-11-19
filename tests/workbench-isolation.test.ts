@@ -8,15 +8,15 @@ import { createHash } from 'node:crypto';
 import test from 'node:test';
 
 const execute = promisify(execFile);
-const state = await realpath(await mkdtemp(path.join(os.tmpdir(), 'suitme-isolation-test-')));
+const state = await realpath(await mkdtemp(path.join(os.tmpdir(), 'contractor-isolation-test-')));
 process.env.COLLAB_STATE_DIR = state;
-const { sandboxPolicy, sandboxInvocation, isolateJob, importIsolatedChanges, modelReceipt, discardIsolation } = await import('../src/workbench/isolation.ts');
+const { sandboxPolicy, sandboxInvocation, isolateJob, importIsolatedChanges, codexSessionEvidence, modelReceipt, discardIsolation } = await import('../src/workbench/isolation.ts');
 test.after(() => rm(state, { recursive: true, force: true }));
 
 test('实际 Seatbelt 限制跨成员资料、旧会话、宿主环境、符号链接及写入范围', { skip: process.platform !== 'darwin', timeout: 20000 }, async () => {
   const base = path.join(state, 'boundary');
   const workspace = path.join(base, 'workspace'), home = path.join(base, 'home'), input = path.join(base, 'input');
-  const temp = await realpath(await mkdtemp('/private/tmp/suitme-boundary-'));
+  const temp = await realpath(await mkdtemp('/private/tmp/contractor-boundary-'));
   try {
     for (const directory of [workspace, home, input]) await mkdir(directory, { recursive: true });
     const outside = path.join(state, 'other-member.txt');
@@ -26,7 +26,7 @@ test('实际 Seatbelt 限制跨成员资料、旧会话、宿主环境、符号�
     const policy = path.join(base, 'policy.json');
     await writeFile(policy, JSON.stringify(sandboxPolicy(workspace, home, input, '/bin/sh', ['allowed.txt'], [], temp)));
     const script = [
-      'test -z "$SUITME_TEST_HOST_SECRET" || exit 90',
+      'test -z "$CONTRACTOR_TEST_HOST_SECRET" || exit 90',
       'test "$HOME" = "$1" || exit 91',
       'test "$CODEX_HOME" = "$1" || exit 92',
       'test ! -r "$2" || exit 93',
@@ -39,7 +39,7 @@ test('实际 Seatbelt 限制跨成员资料、旧会话、宿主环境、符号�
     ].join('\n');
     const args = sandboxInvocation({ home, temp, policy }, ['/bin/sh', '-c', script, 'probe', home, outside, input], path.join(input, 'context.json'));
     const { stdout } = await execute(args[0]!, args.slice(1), { cwd: workspace, timeout: 15000,
-      env: { ...process.env, SUITME_TEST_HOST_SECRET: 'must-not-leak' } });
+      env: { ...process.env, CONTRACTOR_TEST_HOST_SECRET: 'must-not-leak' } });
     assert.equal(stdout.trim(), 'ISOLATION_OK');
     assert.equal((await readFile(path.join(workspace, 'allowed.txt'), 'utf8')).trim(), 'allowed');
     assert.equal(await readFile(outside, 'utf8'), 'another member secret');
@@ -94,8 +94,16 @@ test('代码交接核对全部路径和宿主基线后才导入，旧授权环�
     credentialVersion: 'test', boundary: 'os-sandbox' as const };
   const logs = path.join(state, 'isolated', isolation.scope, 'home', 'sessions', '2026');
   await mkdir(logs, { recursive: true });
-  await writeFile(path.join(logs, 'rollout-session-a.jsonl'), JSON.stringify({ type: 'turn_context', payload: { model: 'actual-model' } }));
+  const count = (input_tokens: number, output_tokens: number, cached_input_tokens: number) => ({
+    type: 'event_msg', payload: { type: 'token_count', info: { total_token_usage: { input_tokens, output_tokens, cached_input_tokens } } },
+  });
+  await writeFile(path.join(logs, 'rollout-session-a.jsonl'), [
+    { type: 'turn_context', payload: { model: 'actual-model' } }, count(0, 0, 0), count(90, 7, 48), count(90, 7, 48), count(112, 9, 90),
+  ].map(row => JSON.stringify(row)).join('\n') + '\n{"type":"event_msg"');
   assert.deepEqual(await modelReceipt(isolation, 'session-a'), { provider: 'openai', requested: 'requested-model', reported: 'actual-model', verification: 'session-reported' });
+  assert.equal((await codexSessionEvidence(isolation, 'session-b', true)).usage, undefined);
+  assert.equal((await codexSessionEvidence(isolation, 'session-a')).usage, undefined);
+  assert.deepEqual((await codexSessionEvidence(isolation, 'session-a', true)).usage, { input: 112, output: 9, cached: 90 });
   await discardIsolation(isolation);
   assert.equal((await modelReceipt(isolation, 'session-a')).verification, 'requested-only');
 });

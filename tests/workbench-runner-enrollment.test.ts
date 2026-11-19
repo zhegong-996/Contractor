@@ -50,8 +50,8 @@ test('浏览器批准后只有原执行端可领取，领回执中断或重启�
 });
 
 test('连接地址必须是团队 HTTPS 根地址或明确的回环 HTTP 地址', () => {
-  assert.equal(runnerEndpoint.parse('HTTPS://SUITME.EXAMPLE:443/'), 'https://suitme.example');
+  assert.equal(runnerEndpoint.parse('HTTPS://CONTRACTOR.EXAMPLE:443/'), 'https://contractor.example');
   assert.equal(runnerEndpoint.parse('http://127.0.0.1:4380'), 'http://127.0.0.1:4380');
-  for (const address of ['http://suitme.example', 'https://suitme.example/path', 'https://user@suitme.example', 'https://suitme.example/?token=1'])
+  for (const address of ['http://contractor.example', 'https://contractor.example/path', 'https://user@contractor.example', 'https://contractor.example/?token=1'])
     assert.equal(runnerEndpoint.safeParse(address).success, false);
 });

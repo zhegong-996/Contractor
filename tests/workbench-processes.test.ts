@@ -7,7 +7,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import test from 'node:test';
 
 test('原生 CLI 的脱离进程组子进程退出后才确认停止并交接', { timeout: 20000 }, async t => {
-  const directory = await mkdtemp(path.join(os.tmpdir(), 'suitme-descendants-'));
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'contractor-descendants-'));
   process.env.COLLAB_STATE_DIR = directory;
   await mkdir(path.join(directory, 'console'));
   const marks = path.join(directory, 'marks.jsonl');
@@ -62,7 +62,7 @@ test('原生 CLI 的脱离进程组子进程退出后才确认停止并交接', 
   const runDirectory = path.join(directory, 'autoloop', 'worker', 'runs');
   const ledger = await wait(async () => {
     for (const item of await readdir(runDirectory)) {
-      const value = await readFile(path.join(runDirectory, item, 'suitme-processes.json'), 'utf8').catch(() => 'null');
+      const value = await readFile(path.join(runDirectory, item, 'contractor-processes.json'), 'utf8').catch(() => 'null');
       const parsed = JSON.parse(value);
       if (parsed?.processes.some((p: { pid: number }) => p.pid === childPid)) return parsed;
     }

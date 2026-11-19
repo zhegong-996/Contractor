@@ -1,20 +1,26 @@
 import { useEffect, useState } from 'react';
 import { ArrowRight, BookOpen, Clipboard, FolderKanban, GitBranch, Link2, MessageSquare, Plus, Plug2 } from 'lucide-react';
-import { api, useData, type Channels, type Discussion, type Resource } from './api.ts';
+import { ProjectPermissions } from './access-settings.tsx';
+import { roleLabel } from './platform-access.tsx';
+import { api, useData, useTickets, type Channels, type Discussion, type FigmaSourceStatus, type GitHubConnection, type Imported, type ProjectChannels, type Resource } from './api.ts';
+import { TicketPicker } from './components/ticket-picker.tsx';
 import { go, routeFor, type PageProps } from './navigation.ts';
 import { AgentOptions } from './creation.tsx';
 import { Receipts } from './agents.tsx';
 import { Conversation } from './conversation.tsx';
-import { Button } from './paperclip/button.tsx';
-import { Input } from './paperclip/input.tsx';
-import { TabsContent } from './paperclip/tabs.tsx';
-import { Avatar, date, Empty, Ext, Failure, Field, Loading, Markdown, MaterialIcon, Modal, PageTabs, Pill, Section, short, Source,
+import { ProjectRoutingPanel } from './operations-settings.tsx';
+import { Button } from './components/button.tsx';
+import { Input } from './components/input.tsx';
+import { TabsContent } from './components/page-tabs.tsx';
+import { Markdown } from './markdown.tsx';
+import { Avatar, date, Empty, Ext, Failure, Field, Loading, MaterialIcon, Modal, PageTabs, Pill, Section, short, Source,
   TopicOptions, topicName, useActions, useStored } from './ui.tsx';
 
-const tabs = [['chat', '讨论'], ['structure', '项目结构'], ['sources', '资料与连接'], ['discussion', '群反馈'], ['usage', '用量']] as const;
+const tabs = [['chat', '讨论'], ['structure', '项目结构'], ['sources', '资料与连接'], ['discussion', '群反馈'], ['usage', '用量'],
+  ['settings', '项目设置'], ['routing', '职责与路由']] as const;
 export function ProjectPage(props: PageProps) {
   const { project, route } = props;
-  const shown = project.discussion ? tabs : tabs.filter(([id]) => id !== 'discussion');
+  const shown = tabs.filter(([id]) => (id !== 'discussion' || !!project.discussion) && (!['settings', 'routing'].includes(id) || project.maintain));
   const tab = shown.find(([id]) => id === route.tab)?.[0] ?? 'structure';
   return <div className="page-scroll"><div className="project-page">
     <header className="object-header"><div className="object-emblem"><FolderKanban size={25} /></div>
@@ -22,20 +28,24 @@ export function ProjectPage(props: PageProps) {
         <span>{project.topics.length} 个主题</span><span>{project.resources.filter(r => r.state === 'bound').length} 个来源</span></div></div>
       <a className="text-button object-action" href={routeFor(project.id, 'work')}>项目工单 <ArrowRight size={16} /></a>
     </header>
+    {['settings', 'routing'].includes(route.tab ?? '') && !project.maintain && <Failure error={new Error('当前账号没有项目设置权限。')} />}
     <PageTabs label="项目详情" value={tab} items={shown} onChange={value => go(project.id, 'project', undefined, value)}>
       <TabsContent value="chat" className="detail-stack"><ProjectChat {...props} /></TabsContent>
       <TabsContent value="structure" className="detail-stack"><Structure {...props} /></TabsContent>
       <TabsContent value="sources" className="detail-stack"><Sources {...props} /></TabsContent>
       {project.discussion && <TabsContent value="discussion" className="detail-stack"><GroupFeedback {...props} /></TabsContent>}
       <TabsContent value="usage" className="detail-stack"><Receipts project={project.id} /></TabsContent>
+      {project.maintain && <TabsContent value="settings" className="detail-stack"><ProjectPermissions project={project.id} actor={props.workspace.actor}
+        afterTransfer={() => go(project.id, 'project', undefined, 'structure')} /></TabsContent>}
+      {project.maintain && <TabsContent value="routing" className="detail-stack"><ProjectRoutingPanel project={project.id} /></TabsContent>}
     </PageTabs>
   </div></div>;
 }
 
 function ProjectChat(props: PageProps) {
-  const { project, route, openTask, workspace } = props;
+  const { project, route, openTask } = props;
   const topic = project.topics.find(item => item.id === route.item)?.id ?? '';
-  const tickets = topic ? workspace.tickets.filter(item => item.work.project === project.id && item.work.topic === topic && !item.work.consultation) : [];
+  const tickets = useTickets({ project: project.id, topic, purpose: 'work', limit: 12 }, !!topic, 5000).rows;
   return <Section title={topicName(project, topic) ?? '项目讨论'} action={<div className="actions">
     {!!project.topics.length && <select aria-label="讨论范围" value={topic} onChange={event => go(project.id, 'project', event.target.value || undefined, 'chat')}>
     <TopicOptions project={project} empty="项目讨论" />
@@ -51,7 +61,6 @@ function ProjectChat(props: PageProps) {
 function Structure({ workspace, project, openTask }: PageProps) {
   const related = workspace.projects.filter(p => p.parent === project.id || project.relatedProjects.includes(p.id) || p.id === project.parent);
   const [open, show] = useState(false);
-  const [memberForm, setMemberForm] = useState(false);
   const [agentForm, setAgentForm] = useState(false);
   const own = workspace.ownAgents.filter(item => !item.projects.includes(project.id));
   const projectAgents = workspace.agents.filter(item => item.projects.includes(project.id));
@@ -68,21 +77,17 @@ function Structure({ workspace, project, openTask }: PageProps) {
         {project.mayStart && <Button size="sm" variant="ghost" onClick={() => openTask({ topic: topic.id })}>发起</Button>}
       </div>) : <p className="muted-text">暂无主题。</p>}
     </Section>
-    <Section title="项目成员" action={project.maintain ? <Button variant="outline" size="sm" onClick={() => setMemberForm(true)}><Plus />添加成员</Button> : undefined}>
-      <div className="member-grid">{project.members.map(m => <div className="member" key={m.name}><Avatar value={m.name} />
-        <div><strong>{m.name}</strong><small>{m.responsibilities.map(r => workspace.functions.find(f => f.id === r)?.title ?? r).join('、') || (m.maintain ? '项目维护人' : '项目成员')}</small></div>
+    <Section title="项目成员">
+      <div className="member-grid">{project.members.map(m => <div className="member" key={m.name}><Avatar avatar={m.avatar} value={m.name} />
+        <div><strong title={m.name}>{m.displayName ?? m.name}</strong><small>{roleLabel[m.maintain ? 'maintainer' : m.mayCollaborate ? 'collaborator' : 'reader']}
+          {m.responsibilities.length > 0 && ' · ' + m.responsibilities.map(r => workspace.functions.find(f => f.id === r)?.title ?? r).join('、')}</small>
+          {m.bio && <p className="profile-bio">{m.bio}</p>}</div>
       </div>)}</div>
     </Section>
     <Section title="项目 Agent" action={project.mayStart && own.length ? <Button variant="outline" size="sm" onClick={() => setAgentForm(true)}><Plus />加入我的 Agent</Button> : undefined}>
       {projectAgents.map(agent => <div className="record-row" key={agent.id}><strong>{agent.title}</strong><span>{agent.owner}</span></div>)}
       {!projectAgents.length && <p className="muted-text">暂无已加入的 Agent。</p>}
     </Section>
-    {memberForm && <Modal title="添加项目成员" close={() => setMemberForm(false)}><form className="form" onSubmit={async event => {
-      event.preventDefault(); const form = new FormData(event.currentTarget);
-      if (await run(() => api('project/' + project.id + '/member', { member: String(form.get('member')).trim() }), '成员已添加')) setMemberForm(false);
-    }}><Field label="工作台账号"><Input required name="member" autoFocus maxLength={32} /></Field>
-      <div className="form-actions"><Button disabled={busy} type="submit">添加</Button></div>
-    </form></Modal>}
     {agentForm && <Modal title="加入我的 Agent" close={() => setAgentForm(false)}><form className="form" onSubmit={async event => {
       event.preventDefault(); const form = new FormData(event.currentTarget);
       if (await run(() => api('project/' + project.id + '/agent', { agent: form.get('agent') }), 'Agent 已加入')) setAgentForm(false);
@@ -104,11 +109,27 @@ function Sources({ project, workspace }: PageProps) {
   const [adding, setAdding] = useState(false);
   const [group, setGroup] = useState(false);
   const { run, busy } = useActions();
+  const github = useData<GitHubConnection[]>('project/' + project.id + '/github-connections', 5000);
+  const channels = useData<ProjectChannels>('project/' + project.id + '/channels', 5000);
+  const figma = useData<FigmaSourceStatus[]>(project.importableSources.some(ref => ref.source === 'figma')
+    ? 'project/' + project.id + '/figma-sources' : '', 5000);
   return <><Section title="项目来源" action={project.maintain ? <div className="actions">
     {!!workspace.feishuGroups.length && <Button size="sm" variant="outline" onClick={() => setGroup(true)}>绑定飞书群</Button>}
     <Button size="sm" variant="outline" onClick={() => setAdding(true)}><Plus />关联资料</Button></div> : undefined}>
-    {project.resources.length ? project.resources.map(ref => <ResourceRow refInfo={ref} key={ref.ref} project={project} />)
+    {github.error && <Failure error={github.error} retry={() => void github.refetch()} />}
+    {figma.error && <Failure error={figma.error} retry={() => void figma.refetch()} />}
+    {project.resources.length ? project.resources.map(ref => <ResourceRow refInfo={ref} key={ref.ref} project={project}
+      connection={ref.source === 'github' ? github.data?.find(repo => repo.repository === ref.externalId.toLowerCase()) : undefined}
+      figma={figma.data?.find(status => status.resource === ref.ref)}
+      feishu={ref.source === 'feishu' && ref.state === 'bound' && channels.data ? { online: channels.data.feishuReady,
+        history: channels.data.feishuHistory.find(history => history.resource === ref.ref) } : undefined} />)
       : <Empty title="暂无项目来源" icon={<Link2 />} />}
+    {channels.data?.im.map(item => <div className="resource-row" key={item.connector}>
+      <MaterialIcon /><div><strong><Source channel={item.kind} /></strong><div className="inline-meta">{item.topics.map(topic =>
+        <a href={routeFor(project.id, 'chat', topic)} key={topic}>{topicName(project, topic)}</a>)}</div></div>
+      <Pill tone={item.ready ? 'green' : 'amber'}>{item.ready ? '在线' : '未就绪'}</Pill>
+    </div>)}
+    {channels.error && <Failure error={channels.error} retry={() => void channels.refetch()} />}
     {project.importableSources.length > 0 && <a className="text-button mt-3" href={routeFor(project.id, 'knowledge')}><BookOpen size={16} />在知识库接入正文 <ArrowRight size={15} /></a>}
     {adding && <Modal title="关联项目资料" close={() => setAdding(false)}><form className="form" onSubmit={async e => {
       e.preventDefault(); const data = new FormData(e.currentTarget);
@@ -146,12 +167,37 @@ function ChannelArchive({ project }: { project: PageProps['project'] }) {
   </Section>;
 }
 
-function ResourceRow({ refInfo, project }: { refInfo: Resource; project: PageProps['project'] }) {
+function ResourceRow({ refInfo, project, connection, figma, feishu }: { refInfo: Resource; project: PageProps['project']; connection?: GitHubConnection;
+  figma?: FigmaSourceStatus; feishu?: { online: boolean; history?: ProjectChannels['feishuHistory'][number] } }) {
   const { run, busy } = useActions();
+  const reason = connection?.failure?.reason;
   return <div className="resource-row"><MaterialIcon /><div>
     <strong><Ext href={refInfo.url}>{refInfo.label}</Ext></strong>
     <div className="inline-meta"><Source channel={refInfo.source} />
       <span>{({ discussion: '讨论入口', reference: '参考资料', delivery: '交付仓库' })[refInfo.purpose]}</span>{refInfo.revision && <code>{short(refInfo.revision, 12)}</code>}</div>
+    {connection && <div className="inline-meta">
+      <Pill tone={connection.state === 'ready' ? 'green' : connection.state === 'unavailable' ? 'amber' : 'neutral'}>
+        {({ ready: '同步正常', connecting: '等待首次同步', disabled: '未启用同步', unavailable: '同步异常' })[connection.state]}
+      </Pill>
+      {reason && <span>{({ network: '网络连接失败', 'rate-limit': 'GitHub 限流', access: '仓库访问失败', sync: '数据同步未完成' })[reason]}</span>}
+      {connection.lastSuccessAt && <span>上次成功 {date(connection.lastSuccessAt, true)}</span>}
+    </div>}
+    {feishu && <div className="inline-meta"><Pill tone={feishu.online ? 'green' : 'amber'}>{feishu.online ? '飞书入口在线' : '飞书入口未就绪'}</Pill>
+      {feishu.history && <><span>{feishu.history.state ? ({ ready: '补读已核对', partial: '补读尚有缺口',
+        failed: '补读失败', unauthorized: '补读授权失效' })[feishu.history.state] : '等待首次补读'}</span>
+        {feishu.history.at && <time>{date(new Date(feishu.history.at).toISOString(), true)}</time>}</>}
+    </div>}
+    {figma && <div className="inline-meta"><Pill tone={figma.state === 'verified' ? 'green' : 'amber'}>
+      {({ verified: '源站权限已核对', unverified: '等待核对源站权限', unavailable: '源站资料不可用' })[figma.state]}</Pill>
+      {figma.revision && <code title={figma.revision}>源版本 {short(figma.revision, 12)}</code>}
+      {figma.checkedAt && <time>{date(new Date(figma.checkedAt).toISOString(), true)}</time>}
+      {figma.candidate && <a href={routeFor(project.id, 'knowledge', figma.candidate, figma.knowledgeState === 'candidate' ? 'review' : 'current')}>
+        {figma.knowledgeState === 'candidate' ? '查看知识候选' : '查看关联知识'}</a>}
+      {project.importableSources.some(source => source.ref === refInfo.ref) && <Button size="sm" variant="ghost" disabled={busy} onClick={async () => {
+        const result = await run(() => api<Imported>('project/' + project.id + '/knowledge-import', { resource: refInfo.ref }), '已核对来源版本');
+        if (result) go(project.id, 'knowledge', result.id, result.state === 'published' ? 'current' : 'review');
+      }}>核对源版本</Button>}
+    </div>}
     </div>
     {project.maintain && refInfo.state === 'observe' && refInfo.purpose !== 'reference' && ['feishu','github'].includes(refInfo.source)
       ? <Button size="sm" variant="outline" disabled={busy} onClick={() => void run(() => api('project/' + project.id + '/bind',
@@ -184,7 +230,6 @@ function Feedback({ item, project, workspace, route }: PageProps & { item: Feedb
   const { busy, run } = useActions();
   const [draft, set] = useStored('feedback-edit:' + item.id, { action: item.destination.action === 'review' ? 'project' : item.destination.action,
     ticket: item.destination.ticket ?? '', topic: item.destination.topic ?? '', agent: item.destination.agent ?? '', message: '' });
-  const subjects = workspace.tickets.filter(t => t.work.project === project.id);
   return <article className="feedback" id={'feedback-' + item.id}>
     <div className="section-heading"><h3>{item.title}</h3><Pill tone={item.status === 'applied' ? 'neutral' : 'amber'}>{item.status === 'applied'
       ? destinations[item.destination.action] ?? '已归档' : '待确认'}</Pill></div>
@@ -195,7 +240,7 @@ function Feedback({ item, project, workspace, route }: PageProps & { item: Feedb
         <Ext href={entry.url}>{entry.title}</Ext>{entry.revision && <code>{short(entry.revision, 12)}</code>}</div>)}
       {item.sources.map(source => <FeedbackSource key={source.id} source={source} project={project} />)}
     </details>}
-    {item.ticket && <a className="text-button" href={routeFor(workspace.tickets.find(t => t.id === item.ticket)?.work.project ?? project.id, 'work', item.ticket)}>
+    {item.ticket && <a className="text-button" href={routeFor(project.id, 'work', item.ticket)}>
       关联工单 <ArrowRight size={15} /></a>}
     {item.status !== 'applied' && project.maintain && (open
       ? <form className="form feedback-form" onSubmit={async e => {
@@ -215,8 +260,7 @@ function Feedback({ item, project, workspace, route }: PageProps & { item: Feedb
           {item.sources.length > 1 && <Field label="处理范围"><select value={draft.message} onChange={e => set({ ...draft, message: e.target.value })}>
             <option value="">此条归纳的全部消息</option>{item.sources.map(s => <option key={s.id} value={s.id}>{s.member ?? '发言人'}{s.at ? ' · ' + date(new Date(s.at).toISOString()) : ''}</option>)}</select></Field>}
         </div>
-        {draft.action === 'link' && <Field label="已有工单"><select value={draft.ticket} onChange={e => set({ ...draft, ticket: e.target.value })} required>
-          <option value="">选择工单</option>{subjects.map(t => <option key={t.id} value={t.id}>{t.title}</option>)}</select></Field>}
+        {draft.action === 'link' && <Field label="已有工单"><TicketPicker projects={[project]} value={draft.ticket} onChange={ticket => set({ ...draft, ticket })} /></Field>}
         {['topic','create'].includes(draft.action) && <Field label="主题"><select value={draft.topic} onChange={e => set({ ...draft, topic: e.target.value })}
           required={draft.action === 'topic'}><TopicOptions project={project} empty="当前项目" /></select></Field>}
         {draft.action === 'create' && <Field label="执行 Agent"><select value={draft.agent} onChange={e => set({ ...draft, agent: e.target.value })}>
@@ -240,20 +284,21 @@ function FeedbackSource({ source, project }: { source: FeedbackItem['sources'][n
   </div>;
 }
 
-export function AccountsPage({ workspace }: PageProps) {
-  const channels = useData<Channels>(workspace.crossChannel ? 'channels' : '', 3200);
-  const [proofs, save] = useStored<Partial<Record<'feishu' | 'github', string>>>('account-proof', {});
+export function AccountsPage({ workspace, embedded = false }: Pick<PageProps, 'workspace'> & { embedded?: boolean }) {
+  const enabled = workspace.crossChannel || workspace.imAccountBinding;
+  const channels = useData<Channels>(enabled ? 'channels' : '', 3200);
+  const [proofs, save] = useStored<Partial<Record<'feishu' | 'github' | 'octop', string>>>('account-proof', {});
   const [unlink, setUnlink] = useState<Channels['accounts'][number]>();
   const { busy, run } = useActions();
-  return <div className="page-scroll"><div className="project-page">
-    <header className="object-header"><div className="object-emblem"><Plug2 size={24} /></div><div><h1>连接与账号</h1></div></header>
-    {!workspace.crossChannel ? <Empty title="跨渠道账号绑定尚未启用" icon={<Plug2 />} />
+  const content = <>
+    {!enabled ? <Empty title="跨渠道账号绑定尚未启用" icon={<Plug2 />} />
       : channels.error ? <Failure error={channels.error} retry={() => void channels.refetch()} /> : !channels.data ? <Loading />
-      : <div className="detail-stack">{(['feishu','github'] as const).map(provider => {
+      : <div className="detail-stack">{(['feishu','github','octop'] as const).filter(provider => provider === 'octop'
+        ? workspace.imAccountBinding || channels.data!.accounts.some(account => account.provider === 'octop') : workspace.crossChannel).map(provider => {
         const accounts = channels.data!.accounts.filter(a => a.provider === provider);
         const proof = channels.data!.proofs.find(p => p.provider === provider);
-        return <Section key={provider} title={provider === 'feishu' ? '飞书账号' : 'GitHub 账号'}
-          action={<Button variant="outline" size="sm" disabled={busy} onClick={async () => {
+        return <Section key={provider} title={provider === 'feishu' ? '飞书账号' : provider === 'github' ? 'GitHub 账号' : '其他 IM 账号'}
+          action={(provider !== 'octop' || workspace.imAccountBinding) && <Button variant="outline" size="sm" disabled={busy} onClick={async () => {
             const result = await run(() => api<{ command: string }>('channels/proof', { provider }));
             if (result) save({ ...proofs, [provider]: result.command });
           }}><Link2 />绑定账号</Button>}>
@@ -265,19 +310,26 @@ export function AccountsPage({ workspace }: PageProps) {
             <Button size="sm" disabled={busy} onClick={() => void run(() => api('channels/confirm', {
               provider, namespace: proof.sender!.namespace, id: proof.sender!.id,
             }), '账号已绑定')}>确认绑定</Button></div> : proof && proofs[provider] ? <div className="proof-box">
-              <p>{provider === 'feishu' ? '把这条命令发给飞书机器人单聊。' : '在项目已接入的 GitHub 仓库 Issue 下评论这条命令。'}</p>
+              <p>{provider === 'feishu' ? '把这条命令发给飞书机器人单聊。' : provider === 'github'
+                ? '在项目已接入的 GitHub 仓库 Issue 下评论这条命令。' : '把这条命令发给已开启绑定的 IM 机器人单聊。'}</p>
               <code>{proofs[provider]}</code><Button size="sm" variant="ghost" onClick={() => void run(async () => {
                 await navigator.clipboard.writeText(proofs[provider]!); return true;
               }, '已复制验证命令')}><Clipboard />复制</Button>
             </div> : null}
         </Section>;
       })}</div>}
-    <a className="muted-text text-sm" href="/licenses/paperclip" target="_blank" rel="noopener noreferrer">开源许可</a>
-  </div>
+    <div className="form-actions">
+      <a className="muted-text text-sm" href="/licenses/components" target="_blank" rel="noopener noreferrer">组件许可</a>
+      <a className="muted-text text-sm" href="/licenses/browser-dependencies" target="_blank" rel="noopener noreferrer">浏览器依赖许可</a>
+    </div>
   {unlink && <Modal title="解除账号绑定" close={() => setUnlink(undefined)}><div className="form"><p>解除 {unlink.label} 后，此账号的新消息将无法以你的身份发起协作。</p>
     <div className="form-actions"><Button variant="destructive" disabled={busy} onClick={async () => {
       if (await run(() => api('channels/unlink', { provider: unlink.provider, namespace: unlink.namespace, id: unlink.id }), '账号绑定已解除')) setUnlink(undefined);
     }}>解除绑定</Button></div>
   </div></Modal>}
-  </div>;
+  </>;
+  return embedded ? content : <div className="page-scroll"><div className="project-page">
+    <header className="object-header"><div className="object-emblem"><Plug2 size={24} /></div><div><h1>连接与账号</h1></div></header>
+    {content}
+  </div></div>;
 }

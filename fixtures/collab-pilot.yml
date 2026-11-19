@@ -1,4 +1,4 @@
-name: SuitMe collaboration pilot
+name: Contractor collaboration pilot
 on:
   pull_request:
     types: [opened, synchronize, reopened]

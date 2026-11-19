@@ -10,7 +10,7 @@ import type { ChannelRequest, PlatformActor } from '../src/workbench/channel-lin
 import type { OutboundMessage } from '../upstream/superagent/src/core/index.ts';
 
 test('通用路由推送接单和执行决策，权限分离且旧进程退出后才重派原工单', { timeout: 25000 }, async t => {
-  const directory = await mkdtemp(path.join(os.tmpdir(), 'suitme-routing-'));
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'contractor-routing-'));
   const fixture = path.join(directory, 'agent.mjs');
   const markers = path.join(directory, 'markers');
   await mkdir(path.join(directory, 'console'));

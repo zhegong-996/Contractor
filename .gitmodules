@@ -4,6 +4,9 @@
 [submodule "upstream/autoloop"]
 	path = upstream/autoloop
 	url = https://github.com/KKKKhazix/agent-autoloop.git
-[submodule "upstream/deepseek-harness"]
-	path = upstream/deepseek-harness
-	url = https://github.com/deepseek-ai/deepseek-harness.git
+[submodule "upstream/octop-gateway"]
+	path = upstream/octop-gateway
+	url = https://github.com/TencentCloud/octop-gateway.git
+[submodule "upstream/octop-memory"]
+	path = upstream/octop-memory
+	url = https://github.com/TencentCloud/octop-memory.git

@@ -18,8 +18,8 @@ test('重试尚未装配时，上一尝试丢失的费用回执仍算未知', ()
   assert.equal(unpricedAttempts([1], [], 1), 0, '当前正在执行的一轮在未返回前不虚记为历史缺价');
 });
 
-test('装配可复核、决策知识先审后用、撤权隐藏快照和候选、取消计费与预算缺价阻断', { timeout: 60000 }, async t => {
-  const dir = await mkdtemp(path.join(os.tmpdir(), 'suitme-production-evidence-'));
+test('装配、知识授权与本机回执故障后的用量和成果补写', { timeout: 60000 }, async t => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'contractor-production-evidence-'));
   process.env.COLLAB_STATE_DIR = dir;
   await mkdir(path.join(dir, 'console'));
   const fixture = path.join(dir, 'agent.mjs'), trace = path.join(dir, 'trace.jsonl'), meter = path.join(dir, 'meter.json');
@@ -64,8 +64,23 @@ test('装配可复核、决策知识先审后用、撤权隐藏快照和候选�
   };
   const id = await start('store', '确认口径后整理门店推荐理由');
   const question = await wait(() => work.detail('product', id).questions[0]);
+  work.setPointPolicy('product', { tokensPerPoint: 1000, rates: [
+    { provider: 'fixture', model: 'configured-test-model', multiplier: 2, reserveTokens: 1000 },
+  ] });
+  const native = await import('../upstream/autoloop/host/runtime.ts');
+  db.exec(`CREATE TRIGGER break_local_receipt BEFORE UPDATE ON workbench_budget_charge
+    WHEN OLD.settled IS NULL AND NEW.settled IS NOT NULL BEGIN SELECT RAISE(ABORT,'local settlement fault'); END`);
   work.reply('product', id, { card: question.id, choice: 0, nonce: randomUUID() });
+  const unfinished = await wait(() => db.prepare('SELECT run FROM workbench_receipt_journal WHERE draft IS NOT NULL').all()
+    .find(row => native.one('SELECT 1 FROM runs WHERE id=? AND state=\'done\'', [Number(row.run)])));
+  assert.equal(work.detail('product', id).result, undefined);
+  assert.equal(work.projectUsage('product', 'store').attempts.length, 1);
+  assert.equal(work.projectUsage('product', 'store').pointAttempts[0]?.outstanding, 2);
+  db.exec('DROP TRIGGER break_local_receipt');
   const output = await wait(() => work.detail('product', id).result);
+  assert.equal(output.run, unfinished.run);
+  assert.equal(work.projectUsage('product', 'store').pointAttempts[0]?.charged, 0.02);
+  assert.equal(work.needsYou('product').filter(row => row.kind === 'acceptance' && row.ticket === id).length, 1);
   const snapshot = work.executionSnapshot('product', id, output.run);
   assert.equal(snapshot.recorded, true); assert.equal(snapshot.readable, true);
   assert.ok(snapshot.policyVersion);
@@ -75,7 +90,7 @@ test('装配可复核、决策知识先审后用、撤权隐藏快照和候选�
   assert.equal(snapshot.contents!.runtime.model, 'configured-test-model');
   assert.equal('command' in snapshot.contents!.runtime, false, '命令参数不向查询者暴露');
   const skill = config.agents[0]!.skill; config.agents[0]!.skill = '本机配置已变';
-  assert.ok(work.executionSnapshot('product', id, output.run).contents!.skill.prompt.startsWith(skill));
+  assert.ok(work.executionSnapshot('product', id, output.run).contents!.skill.prompt.includes(skill));
   config.agents[0]!.skill = skill;
   assert.throws(() => work.executionSnapshot('outsider', id, output.run), { status: 404 });
   const packed = db.prepare('SELECT value FROM workbench_execution_pack WHERE hash=?').get(snapshot.assembly!.context)!;
@@ -141,10 +156,13 @@ test('装配可复核、决策知识先审后用、撤权隐藏快照和候选�
   assert.equal(work.projectUsage('product', 'unpriced').unpriced, 1);
   assert.equal(work.projectUsage('product', 'unpriced').billing.totalAmount, null);
   assert.equal(work.projectUsage('product', 'unpriced').attempts[0]!.billing?.amount, null);
-  const held = await start('unpriced', '费用不明时不能继续执行');
+  const allowed = await start('unpriced', '供应商金额未知仍按资源额度运行');
+  await wait(() => work.detail('product', allowed).result);
+  work.setPointLimit('product', { kind: 'project', subject: 'unpriced', period: 'day', limit: 0 });
+  const held = await start('unpriced', '项目积分用尽后不能继续执行');
   await wait(() => work.detail('product', held).report?.state === 'blocked' || undefined);
-  assert.match(work.detail('product', held).report!.summary, /费用/);
-  assert.ok(!(await readFile(trace, 'utf8')).includes('费用不明时不能继续执行'));
-  assert.equal(work.projectUsage('product', 'unpriced').attempts.length, 1, '预检阻断不伪造费用回执');
+  assert.match(work.detail('product', held).report!.summary, /项目总积分/);
+  assert.ok(!(await readFile(trace, 'utf8')).includes('项目积分用尽后不能继续执行'));
+  assert.equal(work.projectUsage('product', 'unpriced').attempts.length, 2, '预检阻断不制造用量回执');
   assert.ok(work.needsYou('product').some(item => item.ticket === held && item.kind === 'blocked'));
 });

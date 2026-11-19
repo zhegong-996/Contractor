@@ -20,14 +20,18 @@
 
 ## 安装与连接
 
-部署时在带固定子模块的源码目录运行 `npm run package:runner`，将 `dist/runner/suitme-runner-0.1.0.tgz` 提供给成员。执行机需要 Node.js 24，以及管理员为项目启用的执行引擎。安装包可单独安装到执行机，无需克隆工作台仓库。
+部署时在带固定子模块的源码目录运行 `npm run package:runner`，将 `dist/runner/contractor-runner-0.1.0.tgz` 提供给成员。执行机需要 Node.js 24，以及管理员为项目启用的执行引擎。安装包可单独安装到执行机，无需克隆工作台仓库。
 
 ```sh
-npm install -g ./suitme-runner-0.1.0.tgz
-suitme connect https://collab.example.com
+npm install -g ./contractor-runner-0.1.0.tgz
+contractor connect https://collab.example.com
 ```
 
-浏览器里登录工作台并选定项目、自己的 Agent，确认后执行端启动接单。命令会打印链接，支持把无图形执行机的确认链接在自己的浏览器打开。默认后台运行。连接身份保存在执行用户的 `~/.suitme-runner`，保留该目录并在重启后重复相同的 `connect` 命令即可上线。若同一台机器要挂载多个 Agent，在命令末尾加 `--profile <名称>`，每个名称独立配对。`suitme stop <团队地址> [--profile <名称>]` 停止接单并保留本地身份及待回传记录。部署方可使用 `--foreground` 交由操作系统的服务管理器守护进程。
+浏览器里登录工作台并选定项目、自己的 Agent，确认后执行端启动接单。命令会打印链接，支持把无图形执行机的确认链接在自己的浏览器打开。默认后台运行。连接身份保存在执行用户的 `~/.contractor-runner`，保留该目录并在重启后重复相同的 `connect` 命令即可上线。若同一台机器要挂载多个 Agent，在命令末尾加 `--profile <名称>`，每个名称独立配对。`contractor stop <团队地址> [--profile <名称>]` 停止接单并保留本地身份及待回传记录。部署方可使用 `--foreground` 交由操作系统的服务管理器守护进程。
+
+项目维护人在「项目 → 职责与路由 → 执行端路由」按 Agent 设置默认及备用执行端。主端在线时优先使用主端，只有获准的备用端在线时派给备用端。两台合资格的设备都离线时，新单等待主端。发起人仍可在同一 Agent 下指定执行端。已派出的任务沿原工单处理断线恢复，换端继续核对原执行停止、资料授权和额度。
+
+浏览器验收通过项目仓库配置的 GitHub Actions 工作流执行。可以由该工作流指定团队的验证 runner。工作台显示验证运行及 runner 标签，并按本单版本核对证据。
 
 首次使用 Codex 时，若所选 Agent 的本机凭据槽位为空，交互终端会启动该槽位独立的 Codex 登录。Debian 执行机一次性安装隔离依赖 `sudo apt-get install bubblewrap socat ripgrep`。Claude Code 使用已登记的 Ollama 或 DeepSeek 配置。浏览器的项目授权和模型服务凭据分别生效。
 
@@ -42,21 +46,29 @@ suitme connect https://collab.example.com
    ```
 
    第一条命令从标准输入读取配对码，输入后用 Ctrl+D 结束。可将 URL 替换为已配置 TLS 的 HTTPS 入口。配对成功后，执行机的私有目录保存设备凭据。
-3. 工单可显式传 `device`。项目规则选中远程 Agent 且只有一个合适设备在线时，系统可选用该端。若已登记的唯一设备离线，工单等它重新上线。有多个可选设备时，由人指定。
+3. 工单可显式传 `device`。配置了主备设备时，省略该字段即使用项目路由。未配置主备且有多台合资格的在线设备时，发起人指定设备。
 4. 原单可通过现有接续和交接接口换执行端。`POST /api/ticket/<id>/resume` 可为同一 Agent 传入 `device`。`POST /api/ticket/<id>/handoff` 可指定接替 Agent 及其 `device`。
 5. 所有者通过 `POST /api/device/<id>` 提交 `{"state":"suspended"}`、`lost`、`retired` 或 `active` 管理执行端。停用后停止派入新任务，并请求结束持有的运行。丢失和退役会生成恢复停止回执的待办；两者都不等于旧进程已停止。退役不可直接重启，需重新配对；原配对仍可交回它已持有运行的停止回执。旧 `{"active":false}` 请求仍兼容为暂停。
 
 ## 断线、权限与账本
 
-AutoLoop 原版 worker 持久化本地执行状态和待发回执。连接重建后，同一设备可以继续交回原运行与尝试的回执。派工服务在准备上下文和接收结果时复核项目、资料与委托权限，匹配设备、运行、尝试和租约。已授权执行端可能在短暂断线时继续完成本轮，断线期间新增的撤权与取消会在连接恢复后送达。回执确认后，接单程序清理本轮装配的上下文和本地会话文件。
+执行端持久化本地执行状态和待发回执。连接重建后，同一设备可以继续交回原运行与尝试的回执。派工服务在准备上下文和接收结果时复核项目、资料与委托权限，匹配设备、运行、尝试和租约。已授权执行端可能在短暂断线时继续完成本轮，断线期间新增的撤权与取消会在连接恢复后送达。回执确认后，接单程序清理本轮装配的上下文和本地会话文件。
 
 换端时，工作台先从原生运行请求取消，旧端检查进程组及其已观察的子进程并交回停止证明。工作台核对该证明属于原尝试后，才在同一工单开启接替运行。旧端离线期间保留等待状态。证明由配对设备的接单程序生成，因此应只给受信的用户设备配对。跨轮接续重新装配原单上下文，远程 Agent 每轮以新 CLI 会话开始。
 
-平台整理、个人代办和项目执行沿用原有用量账本，按实际发出的运行和尝试扣一次。接单程序重报同一结果不重复扣。如果 AutoLoop 已收妥结果而工作台账本写入失败，重报会补记原尝试的账本和回执。工作台保存 CLI 实际报告的模型和用量，未上报的字段保持未知。新一轮授权及人工验收沿用现有工单接口。
+平台整理、个人代办和项目执行沿用原有用量账本，按实际发出的运行和尝试扣一次。接单程序重报同一结果不重复扣。如果调度器已收妥结果而工作台账本写入失败，重报会补记原尝试的账本和回执。远程 Codex 首轮在完成回执前被取消或失败时，执行端确认进程退出后，从本轮隔离会话读取最后一次累计 Token 数，并以 `usageCoverage: partial` 保存。复用会话或 CLI 已有用量回执时不读取这个累计值。未上报的用量和账单金额保持未知。新一轮授权及人工验收沿用现有工单接口。
+
+### 回执跨库恢复
+
+处理本机任务和群整理时，Contractor 在提交调度器前保存待补写记录，绑定原运行、尝试、租约摘要和经校验的回执。调度器确认后，按租约编号与回执摘要校验。在一个工作台事务内提交用量、积分、成果或整理建议和通知入箱。事务失败时，原生 worker 重报或服务重启均可补写该记录。同一租约重报相同内容返回原确认，同一租约更改回执内容返回冲突。待补写期间相关执行范围等待结清，其他执行范围可继续工作。
+
+原消息、资料版本和授权在补写整理建议时复核。撤权后仍保留该次实际模型用量。恢复适用于已记录待补写数据的尝试。更早的记录需要有效的原始执行证据才能单独核对。
 
 ## 源码复用
 
-安装入口沿用 AutoLoop `join` 的本机身份持久化方式，使用固定提交的 `createWorker`、CLI 适配、领取、租约和回执恢复。SuitMe 提供浏览器授权、项目和 Agent 绑定、授权上下文与交接门禁。Claude Code 的输出和 Token 解析沿用原版插件。本地 Ollama 保留 Token 回执，平台不把 CLI 估价当作账单金额。 [AutoLoop 领取与回执协议](https://github.com/KKKKhazix/agent-autoloop/blob/ba8cf6d8cf24f9ce005958c15d88f2d9cff7f05d/docs/protocol.md) · [Claude Code CLI 参考](https://code.claude.com/docs/en/cli-reference) · [Ollama 连接 Claude Code](https://docs.ollama.com/integrations/claude-code)
+默认执行端包保留固定版本的 AutoLoop worker，用于连接既有工作台。独立后端使用 `executionRuntime: contractor` 时，可以用 `npm run package:runner -- --contractor-only` 构建不含 AutoLoop 源码的执行端包。配对记录携带运行协议，接单时校验协议一致。Codex 和 Claude Code 的新适配器读取 CLI 的实际回执。同一 Codex 会话接续时按启动基线计算本轮 Token 增量。
+
+在独立环境使用门店推荐理由测试资料验证过本机 Codex 的必答与重启恢复、macOS Codex 到 Debian Claude Code 的交接、旧执行停止证明和回执重放去重。已有环境的账本迁移和回退在切换前另行验证。 [AutoLoop 领取与回执协议](https://github.com/KKKKhazix/agent-autoloop/blob/ba8cf6d8cf24f9ce005958c15d88f2d9cff7f05d/docs/protocol.md) · [Claude Code CLI 参考](https://code.claude.com/docs/en/cli-reference) · [Ollama 连接 Claude Code](https://docs.ollama.com/integrations/claude-code)
 
 ## 门店推荐理由联调
 
@@ -73,4 +85,4 @@ AutoLoop 原版 worker 持久化本地执行状态和待发回执。连接重建
 - 旧端离线或进程仍在运行期间，接替端不能领取。旧端回传退出证明后，Codex 接续同一工单，经产品测试账号验收。
 - 账本共保留五条回执，分别为平台整理一次、个人委托一次、项目执行三次。被取消的尝试没有模型用量数据。
 
-2026-11-16 的新增验证：macOS 工作台向无共享目录的 Debian Linux 执行端派单，真实飞书测试群进入，真实 Codex 修改单一 HTML 文件。测试 PR [#16](https://github.com/zhegong-996/desktop-tutorial/pull/16) 和 [#17](https://github.com/zhegong-996/desktop-tutorial/pull/17) 的精确提交 CI 通过后，由产品测试身份通过后端验收；PR 均未合并或部署。#17 还实际运行了个人 Agent 提出子单、负责人确认、研发接单、子单验收后父 Agent 汇总。完整结果和限制见[后端补齐记录](BACKEND-COMPLETION-2026-11-16.md)。
+2026-11-16 的新增验证：macOS 工作台向无共享目录的 Debian Linux 执行端派单，真实飞书测试群进入，真实 Codex 修改单一 HTML 文件。测试 PR #16 和 #17 的精确提交 CI 通过后，由产品测试身份通过后端验收；PR 均未合并或部署。#17 还实际运行了个人 Agent 提出子单、负责人确认、研发接单、子单验收后父 Agent 汇总。完整结果和限制见[后端补齐记录](BACKEND-COMPLETION-2026-11-16.md)。

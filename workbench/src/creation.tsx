@@ -1,10 +1,12 @@
 import { useState, type FormEvent } from 'react';
 import { Bot, GitPullRequest, Plus } from 'lucide-react';
-import { api, readable, uid, useData, type DeviceRow, type Knowledge, type StartResult } from './api.ts';
+import { api, readable, uid, useData, type Knowledge, type StartResult } from './api.ts';
+import { eligibleExecutionDevices, ExecutionTargetPicker, useExecutionTargets } from './execution-target.tsx';
 import { Field, Modal, SearchBox, Source, TopicOptions, useActions, useStored } from './ui.tsx';
-import { Button } from './paperclip/button.tsx';
-import { Input } from './paperclip/input.tsx';
+import { Button } from './components/button.tsx';
+import { Input, TextArea } from './components/input.tsx';
 import { go, type PageProps, type TaskPreset } from './navigation.ts';
+import { CaseEditor } from './product-criteria.tsx';
 
 export function MaterialPicker({ entries, values, onChange }: {
   entries: Knowledge[]; values: string[]; onChange: (next: string[]) => void;
@@ -26,6 +28,8 @@ type Draft = {
   title: string; request: string; topic: string; agent: string; target: string; material: string[]; resources: string[];
   priority: 'normal' | 'urgent'; nonce: string; metric: string; unit: string; baseline: string; targetValue: string;
   recall: boolean; device: string;
+  productCases?: { title: string; expectation: string }[];
+  reuseAcceptance?: boolean;
 };
 function initialDraft(preset: TaskPreset): Draft {
   return { title: preset.lesson ? preset.lesson.title.slice(0, 94) + ' · 复查' : preset.request?.split('\n')[0]?.slice(0, 100) ?? '', request: preset.request ?? '', topic: preset.topic ?? '',
@@ -40,13 +44,14 @@ export function Composer({ project, workspace, preset, close }: PageProps & { pr
   const [draft, setDraft] = useStored(preset.request ? key + '/' + defaultDraft.nonce : key, defaultDraft);
   const { busy, run } = useActions();
   const catalog = useData<Knowledge[]>('knowledge/' + project.id);
-  const devices = useData<DeviceRow[]>('project/' + project.id + '/devices', 3500);
   const change = <K extends keyof Draft>(name: K, value: Draft[K]) => setDraft({ ...draft, [name]: value });
   const options = workspace.agents.filter(a => a.active && a.projects.includes(project.id)
     && (!preset.personal || a.kind === 'personal' && a.owner === workspace.actor));
   const chosenAgent = options.find(a => a.id === draft.agent);
-  const attached = devices.data?.filter(device => device.agent === chosenAgent?.id && device.eligible && device.active) ?? [];
+  const targets = useExecutionTargets(chosenAgent ? project.id : undefined);
+  const selectedDevice = eligibleExecutionDevices(targets.devices.data, chosenAgent).find(device => device.id === draft.device);
   const codeTargets = project.deliveryTargets.filter(ref => ref.eligibleAgents.some(id => options.some(agent => agent.id === id)));
+  const product = codeTargets.find(ref => ref.ref === draft.target)?.product;
   const resources = project.resources.filter(ref => ref.state === 'bound');
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
@@ -65,6 +70,7 @@ export function Composer({ project, workspace, preset, close }: PageProps & { pr
         topic: draft.topic || undefined, target: draft.target || undefined, material: draft.material, resources: draft.resources,
         priority: draft.priority, parent: preset.lesson?.ticket ?? preset.parent, measure, reusedLesson: preset.lesson?.id,
         personal: preset.personal, recall: draft.recall, device: draft.device || undefined,
+        productCases: draft.productCases, reuseAcceptance: draft.reuseAcceptance,
       });
       if (started.ticket || started.pending) return started;
       for (let count = 0; count < 15; count++) {
@@ -83,7 +89,7 @@ export function Composer({ project, workspace, preset, close }: PageProps & { pr
   return <Modal title={preset.personal ? '交给我的 Agent' : preset.parent ? '新建子工单' : '发起协作'} close={close}>
     <form className="form" onSubmit={handleSubmit}>
       <Field label="工单标题"><Input autoFocus value={draft.title} onChange={e => change('title', e.target.value)} required maxLength={100} /></Field>
-      <Field label="要做什么"><textarea rows={5} value={draft.request} onChange={e => change('request', e.target.value)} required maxLength={3500}
+      <Field label="要做什么"><TextArea rows={5} value={draft.request} onChange={e => change('request', e.target.value)} required maxLength={3500}
         placeholder="描述要解决的问题和验收条件" /></Field>
       <div className="form-grid">
         <Field label="执行 Agent"><select value={draft.agent} required={preset.personal}
@@ -94,10 +100,10 @@ export function Composer({ project, workspace, preset, close }: PageProps & { pr
         </select></Field>
         <Field label="主题"><select value={draft.topic} onChange={e => change('topic', e.target.value)}><TopicOptions project={project} empty="未归入主题" /></select></Field>
       </div>
-      {attached.length > 0 && <Field label="挂载执行端"><select value={draft.device} onChange={e => change('device', e.target.value)}>
-        <option value="">工作台执行端</option>
-        {attached.map(device => <option key={device.id} value={device.id}>{device.name}{device.online ? '' : ' · 离线等待'}</option>)}
-      </select></Field>}
+      {chosenAgent && <details className="form-disclosure">
+        <summary>执行端 · {selectedDevice?.name ?? (draft.device ? '所选设备不可用' : '按项目规则')}</summary>
+        <ExecutionTargetPicker project={project.id} agent={chosenAgent} targets={targets} value={draft.device} onChange={id => change('device', id)} />
+      </details>}
       {draft.agent && chosenAgent && <div className="inline-meta"><Bot size={16} />{chosenAgent.capability}</div>}
       <details open={preset.material?.length || preset.lesson ? true : undefined} className="form-disclosure">
         <summary>知识与资料{draft.material.length ? ' · ' + draft.material.length + ' 份' : ''}</summary>
@@ -118,6 +124,14 @@ export function Composer({ project, workspace, preset, close }: PageProps & { pr
           {codeTargets.map(ref => <option key={ref.ref} value={ref.ref} disabled={!!chosenAgent && !ref.eligibleAgents.includes(chosenAgent.id)}>{ref.label}</option>)}
         </select></Field>
       </details>}
+      {!preset.personal && <details className="form-disclosure">
+        <summary>需求验收{(product?.cases.length ?? 0) + (draft.productCases?.length ?? 0)
+          ? ' · ' + ((product?.cases.length ?? 0) + (draft.productCases?.length ?? 0)) + ' 项' : ''}</summary>
+        {product && <ul>{product.cases.map(row => <li key={row.id + row.title}>{row.title} · {row.expectation}</li>)}</ul>}
+        {draft.topic && (product || draft.recall) && <label className="check-row"><input type="checkbox" checked={draft.reuseAcceptance !== false}
+          onChange={e => change('reuseAcceptance', e.target.checked)} />沿用本主题的现行验收知识</label>}
+        <CaseEditor value={draft.productCases ?? []} onChange={cases => change('productCases', cases)} />
+      </details>}
       <details className="form-disclosure" open={preset.lesson ? true : undefined}>
         <summary>优先级与观测</summary>
         <Field label="优先级"><select value={draft.priority} onChange={e => change('priority', e.target.value as Draft['priority'])}>
@@ -130,7 +144,7 @@ export function Composer({ project, workspace, preset, close }: PageProps & { pr
           <Field label="目标"><Input type="number" step="any" value={draft.targetValue} onChange={e => change('targetValue', e.target.value)} /></Field>
         </div>
       </details>
-      <footer className="form-actions"><Button type="submit" disabled={busy}><Plus />提交委托</Button></footer>
+      <footer className="form-actions"><Button type="submit" disabled={busy || !!draft.device && !selectedDevice}><Plus />提交委托</Button></footer>
     </form>
   </Modal>;
 }

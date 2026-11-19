@@ -11,7 +11,7 @@ import { readMessage } from '../upstream/autoloop/worker/contract.ts';
 import { claudeRunnerAdapter } from '../src/workbench/claude-runner-adapter.ts';
 
 test('远端代码按冻结基线回收：拒绝越界、过期、路径伪造与并发覆盖，重复回执不重复改写', async t => {
-  const folder = await mkdtemp(path.join(os.tmpdir(), 'suitme-code-bundle-'));
+  const folder = await mkdtemp(path.join(os.tmpdir(), 'contractor-code-bundle-'));
   t.after(() => rm(folder, { recursive: true, force: true }));
   execFileSync('git', ['init', '-q', folder]);
   await mkdir(path.join(folder, 'pilot'));

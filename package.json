@@ -1,17 +1,21 @@
 {
-  "name": "suitme-collab",
+  "name": "contractor-collab",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "SuitMe 协作台 · Super-agent 工单与 AutoLoop 执行",
+  "description": "Contractor · 项目协作、Agent 执行与版本验收",
   "engines": {
     "node": ">=24.11.0"
   },
   "scripts": {
     "start": "npm run workbench",
     "workbench": "npm run build:ui && node --import tsx src/workbench/server.ts",
+    "service:feishu": "node --import tsx src/workbench/feishu-ingress-service.ts",
+    "service:knowledge": "node --import tsx src/workbench/octop-index-service.ts",
     "runner": "node --import tsx src/workbench/device-client.ts",
+    "ledger": "node --import tsx scripts/ledger.mjs",
     "package:runner": "node scripts/package-runner.mjs",
+    "package:source": "node scripts/package-source.mjs",
     "audit:upstream": "node --import tsx scripts/audit-upstream.ts",
     "test": "node --import tsx --test tests/*.test.ts",
     "typecheck": "tsc --noEmit",
@@ -21,22 +25,23 @@
   "dependencies": {
     "@anthropic-ai/sandbox-runtime": "0.0.83",
     "@backstage/catalog-model": "1.10.2",
-    "@radix-ui/react-slot": "1.3.3",
-    "@radix-ui/react-tabs": "1.2.1",
+    "@deepseek-ai/cosmokit": "1.9.0",
+    "@deepseek-ai/schemastery": "3.19.0",
     "@tanstack/react-query": "5.102.8",
+    "antd": "6.7.1",
+    "boring-avatars": "2.0.4",
     "casbin": "5.51.1",
-    "class-variance-authority": "0.7.1",
-    "clsx": "2.1.1",
     "lucide-react": "1.48.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "react-markdown": "10.1.0",
     "remark-gfm": "4.0.1",
-    "tailwind-merge": "3.6.0",
     "tsx": "4.23.15",
+    "yaml": "2.9.1",
     "zod": "4.6.7"
   },
   "devDependencies": {
+    "@ant-design/static-style-extract": "2.1.0",
     "@figma/rest-api-spec": "0.47.0",
     "@tailwindcss/vite": "4.3.3",
     "@types/node": "24.0.0",
@@ -51,5 +56,6 @@
     "@anthropic-ai/sandbox-runtime": {
       "zod": "$zod"
     }
-  }
+  },
+  "license": "MIT"
 }

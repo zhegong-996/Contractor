@@ -54,7 +54,7 @@ flowchart TD
     {
       "from": "personal-product",
       "to": "delivery",
-      "repository": "zhegong-996/desktop-tutorial",
+      "repository": "example-org/example-test-repo",
       "maxChildren": 1,
       "maxDepth": 1
     }
@@ -69,7 +69,7 @@ flowchart TD
 ```json
 {
   "id": "store-reason-code",
-  "type": "suitme.delegate",
+  "type": "contractor.delegate",
   "subject": "store",
   "summary": "建议研发落实推荐理由",
   "detail": "{\"function\":\"delivery\",\"title\":\"推荐理由代码落实\",\"request\":\"落实已确认的推荐理由口径\"}"
@@ -97,7 +97,7 @@ flowchart TD
 
 ## 知识关系 API
 
-`GET /api/project/:id/knowledge-graph` 返回 `nodes`、`edges` 和 `truncated`。节点先经过既有资料、派生来源及运行快照的授权判断。没有无权节点的标题、正文或悬空边。关系包括 `ownedBy`、`partOf`、`dependsOn`，以及 SuitMe 的 `supersedes`、`executes`、`derivedFrom`。保留具体知识修订、运行、尝试和工单业务版本。
+`GET /api/project/:id/knowledge-graph` 返回 `nodes`、`edges` 和 `truncated`。节点先经过既有资料、派生来源及运行快照的授权判断。没有无权节点的标题、正文或悬空边。关系包括 `ownedBy`、`partOf`、`dependsOn`，以及 Contractor 的 `supersedes`、`executes`、`derivedFrom`。保留具体知识修订、运行、尝试和工单业务版本。
 
 这是基于真实记录的来源与使用关系图，不是模型抽取的业务实体图谱。当前最多 200 条可见知识、每条至多 20 条可见使用记录；超出知识数量会标记 `truncated`，使用记录仍沿用既有接口限制。尚未添加语义检索、实体字典或图谱前端，也未启用新的模型服务。
 
@@ -105,8 +105,8 @@ flowchart TD
 
 | 场景 | 结果 |
 | --- | --- |
-| 跨主机代码链路 | 真实飞书消息、macOS 工作台、无共享挂载 Debian 执行端、真实 Codex。提交 `150781f6d2a4f449fc02aa6a5d1fd643540a0515`，测试 [PR #16](https://github.com/zhegong-996/desktop-tutorial/pull/16)。CI 通过后测试身份验收。缺 PR、错误 SHA、研发冒充产品验收均拒绝 |
-| 个人 Agent 转委托 | 父单 `fe9dc8db5eb2862ecd551d47538b41ea`，子单 `b3d4b3abec0250de527add4e5df2e07e`。提交 `14bfaf87b0e679f53945d555cb154f07b90a7421`，测试 [PR #17](https://github.com/zhegong-996/desktop-tutorial/pull/17)。负责人重复确认仍只有一个子单，子单验收后父 Agent 实际再次运行汇总 |
+| 跨主机代码链路 | 真实飞书消息、macOS 工作台、无共享挂载 Debian 执行端、真实 Codex。提交 `150781f6d2a4f449fc02aa6a5d1fd643540a0515`，测试 PR #16。CI 通过后测试身份验收。缺 PR、错误 SHA、研发冒充产品验收均拒绝 |
+| 个人 Agent 转委托 | 父单 `fe9dc8db5eb2862ecd551d47538b41ea`，子单 `b3d4b3abec0250de527add4e5df2e07e`。提交 `14bfaf87b0e679f53945d555cb154f07b90a7421`，测试 PR #17。负责人重复确认仍只有一个子单，子单验收后父 Agent 实际再次运行汇总 |
 | 实际调用与计量 | #17 共三个真实 Codex 运行：个人提案、远端执行、个人汇总。原生报告累计输入 92,970、输出 814；三个回执均未报价，金额未知，不能解读为免费 |
 | 最新后端重启 | 对上述完成账本重启最新服务，产品、研发、旁观者三个测试账号读取授权图、待办和历史工单正常。伪造设备令牌携带大请求在读取结果前返回 401 |
 | 本地回归 | `npm test`：55 项，54 通过、1 项 Linux 专属测试在 macOS 跳过。`npm run typecheck` 通过 |
@@ -115,7 +115,7 @@ flowchart TD
 
 两个 PR 保持 open，不合并或部署。测试平台账号分饰产品、研发、旁观者，模型登录来自已有授权测试凭据的独立工作区副本，不能称为三个真人、三个供应商账号的生产验证。
 
-原始运行日志、消息 ID、账本及模型回执留在私有运行目录 `/private/tmp/suitme-gaps-live`、`/private/tmp/suitme-delegation-live`，不提交仓库。最新资料失效门禁及 HTTP 认证修正另经回归和最新服务接口复测，没有再把同一批真实外发消息重复发送一遍。
+原始运行日志、消息 ID、账本及模型回执留在私有运行目录 本机私有证据目录、本机私有证据目录，不提交仓库。最新资料失效门禁及 HTTP 认证修正另经回归和最新服务接口复测，没有再把同一批真实外发消息重复发送一遍。
 
 ## 本轮发现与修正的问题
 
@@ -140,7 +140,7 @@ flowchart TD
 
 - 飞书订阅就绪后即触发授权补读，之后每分钟检查。补读复用现有项目、群授权身份、消息 ID 及整理游标。查询成功才推进游标，和定时整理串行更新同一群。查询保留两分钟重叠，允许补齐短暂迟到的消息。普通文字反馈仍按原定时批次整理。历史中的显式命令只补已登记的消息修订，未登记的命令需要人重新交办。
 - 负责人通过 `GET /api/discussion/:project` 查看 `history` 的游标和最近状态。恢复采用现有三天整理窗口。群历史查询覆盖接口提供的根消息，话题回复可能需要独立查询。上游丢弃事件仍要按实际覆盖情况核对。
-- 飞书实测在服务启动前向原测试群发送一条门店推荐理由反馈。工作台补读后按原消息 ID 保存一条待整理记录并推进游标，期间没有模型整理运行。普通成员看不到历史补读状态。重启同一账本并重复补读后，原消息和修订仍各保留一条。私有证据保存在 `/private/tmp/suitme-source-recovery-nNElrf/evidence.json`。
+- 飞书实测在服务启动前向原测试群发送一条门店推荐理由反馈。工作台补读后按原消息 ID 保存一条待整理记录并推进游标，期间没有模型整理运行。普通成员看不到历史补读状态。重启同一账本并重复补读后，原消息和修订仍各保留一条。私有证据保存在 本机私有证据目录。
 - Figma 已接配置校验、节点与版本限定、可见文本提取、知识候选导入与版本替代、按权限读取原修订的 PNG。独立后端仍需配置 REST 凭据。已通过 Figma 连接器读取现有门店原型节点。用受控 Figma 响应走真实工作台 HTTP 接口，验证负责人导入、采用与预览，普通成员返回 403，重复导入沿用原条目。 [资料接入与配置](KNOWLEDGE-VERSIONS.md)
 - 修复设备生命周期 HTTP 接口只接受旧布尔值的问题，现支持状态枚举并继续兼容旧请求。
 
@@ -150,8 +150,8 @@ flowchart TD
 
 漏收的群 `/协作` 会在已绑定发言人、原项目和原话题可核对时进入待办。经确认，能匹配原单的命令会关联原单。漏收的原话题 `/答` 只在能确认原工单、原问题和答复人时产生私人待办，确认动作使用原工单的 `link`。两种操作都使用 `POST /api/channels/:event/resolve`，确认前重新读取飞书原消息并校验正文和权限。撤回、编辑移除命令、原问题已处理会关闭或阻止接续。未绑定账号、私聊漏收命令和无法定位原问题的答复仍需人工回原入口处理。
 
-飞书实跑使用门店推荐理由测试群。服务停止期间，真实发送一条 `/协作` 话题回复，把已知原话题映射到现有测试工单。恢复后等负责人确认才关联原单，两次启动后没有新增工单和重复待办，AutoLoop 运行数保持 3。实跑发现飞书话题回复的 `message_position` 可能是负数。已修正解析并添加回归。私有证据见 `/private/tmp/suitme-thread-replay-SL1Tsh/evidence.json`。
+飞书实跑使用门店推荐理由测试群。服务停止期间，真实发送一条 `/协作` 话题回复，把已知原话题映射到现有测试工单。恢复后等负责人确认才关联原单，两次启动后没有新增工单和重复待办，AutoLoop 运行数保持 3。实跑发现飞书话题回复的 `message_position` 可能是负数。已修正解析并添加回归。私有证据见 本机私有证据目录。
 
-另用同一真实话题测试停机期间的 `/答 1`。AutoLoop 使用受控 CLI 产生原问题。服务恢复后，问题等原答复人确认才接续，重复确认返回 409。私有证据见 `/private/tmp/suitme-recovered-answer-oZpsa6/evidence.json`。
+另用同一真实话题测试停机期间的 `/答 1`。AutoLoop 使用受控 CLI 产生原问题。服务恢复后，问题等原答复人确认才接续，重复确认返回 409。私有证据见 本机私有证据目录。
 
 Figma 采用元数据轮询发现修订和读取权限变化。门店推荐理由回归使用受控 Figma 版本和 403 响应，实际通过项目 API 所用的后台服务、AutoLoop worker、知识采用和撤权判断。新版先保留为候选。源站拒绝后，来源、派生知识、图谱节点和运行快照都不可读取。恢复连接另起授权代次。此次运行环境没有 Figma REST 凭据，Figma 源站实跑需在接入有 `file_metadata:read` 与 `file_content:read` 的只读凭据后补做。 [配置及同步边界](KNOWLEDGE-VERSIONS.md)

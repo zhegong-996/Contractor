@@ -6,6 +6,7 @@ import { runtime } from '../config.ts';
 import { allowedFile } from '../github.ts';
 import type { Settings } from './config.ts';
 import { commitSha } from './github-delivery.ts';
+import { protocolMatches } from './compatibility.ts';
 
 export type DevelopmentTarget = { repository: string; base: string; paths: string[] };
 export type Development = DevelopmentTarget & { branch: string; baseSha: string; startSha?: string; commit?: string; rebasedFrom?: string };
@@ -22,7 +23,7 @@ export async function developmentCheckout(config: Settings['attribution'], targe
   if (remote.toLowerCase() !== ('https://github.com/' + target.repository + '.git').toLowerCase())
     throw new Error('本地仓库与授权交付目标不一致。');
   const folder = developmentFolder(ticket);
-  const branch = 'suitme/' + ticket;
+  const newBranch = 'contractor/' + ticket;
   const remoteBase = 'refs/remotes/origin/' + target.base;
   const existing = await lstat(path.join(folder, '.git')).then(() => true, () => false);
   const marker = runtime('development', ticket + '.json');
@@ -31,11 +32,12 @@ export async function developmentCheckout(config: Settings['attribution'], targe
   if (continuation?.retry && !existing) throw new Error('找不到本版原工作区，无法接续本地修正。');
   if (!existing) {
     await mkdir(runtime('development'), { recursive: true, mode: 0o700 });
-    await git(checkout, 'worktree', 'add', '-b', branch, folder, remoteSha);
-    await writeFile(marker, JSON.stringify({ ...target, branch, baseSha: remoteSha }), { mode: 0o600, flag: 'wx' });
+    await git(checkout, 'worktree', 'add', '-b', newBranch, folder, remoteSha);
+    await writeFile(marker, JSON.stringify({ ...target, branch: newBranch, baseSha: remoteSha }), { mode: 0o600, flag: 'wx' });
   }
   const saved = JSON.parse(await readFile(marker, 'utf8')) as Development;
-  if (saved.repository !== target.repository || saved.base !== target.base || saved.branch !== branch
+  const branch = saved.branch;
+  if (saved.repository !== target.repository || saved.base !== target.base || !protocolMatches(branch, newBranch)
     || JSON.stringify(saved.paths) !== JSON.stringify(target.paths)) throw new Error('本地工作区授权已变化。');
   if (!existing || !await lstat(path.join(folder, '.entire/settings.local.json')).then(() => true, () => false)) {
     // Entire installs its upstream hooks locally. Git shares checkpoint refs with the dedicated checkout.
@@ -55,7 +57,7 @@ export async function developmentCheckout(config: Settings['attribution'], targe
       || await git(folder, 'rev-parse', discarded + '^') !== start || (await changedFiles(folder)).length)
       throw new Error('本地改动或远端基线已变化，无法安全从本版起点修正。');
     if (head === discarded) {
-      await git(folder, 'update-ref', 'refs/suitme/discarded/' + discarded, discarded);
+      await git(folder, 'update-ref', 'refs/contractor/discarded/' + discarded, discarded);
       await git(folder, 'reset', '--hard', start);
       head = start;
     }
@@ -102,7 +104,7 @@ export async function commitDevelopment(ticket: string, work: Development, run: 
   if (head !== start) {
     const parent = await git(folder, 'rev-parse', 'HEAD^');
     const subject = await git(folder, 'show', '-s', '--format=%s', 'HEAD');
-    if (parent !== start || subject !== 'SuitMe ' + ticket + ' run ' + run || (await changedFiles(folder)).length)
+    if (parent !== start || !protocolMatches(subject, 'Contractor ' + ticket + ' run ' + run) || (await changedFiles(folder)).length)
       throw new Error('发现执行范围外的本地提交。');
     return commitSha.parse(head);
   }
@@ -124,7 +126,7 @@ export async function commitDevelopment(ticket: string, work: Development, run: 
   await git(folder, 'add', '-A', '--', ...files);
   await git(folder, 'diff', '--cached', '--check');
   // Keep Entire's upstream commit hooks on so the exact code commit receives its checkpoint.
-  await git(folder, 'commit', '-m', 'SuitMe ' + ticket + ' run ' + run, '--', ...files);
+  await git(folder, 'commit', '-m', 'Contractor ' + ticket + ' run ' + run, '--', ...files);
   return commitSha.parse(await git(folder, 'rev-parse', 'HEAD'));
 }
 

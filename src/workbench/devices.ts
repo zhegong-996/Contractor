@@ -3,9 +3,9 @@ import type { DatabaseSync } from 'node:sqlite';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { runtime } from '../config.ts';
-import type { Job } from '../../upstream/autoloop/protocol/job.ts';
+import type { Job } from './execution/protocol.ts';
 import type { CodeBundle, CodeDelta } from './code-bundle.ts';
-import type { RunnerAgent } from './config.ts';
+import type { RunnerAgent } from './runner-profile.ts';
 import { enrollmentToken, type RunnerConnectInput } from './runner-connection.ts';
 
 type Binding = { owner: string; agent: string; projects: string[]; remote?: RunnerAgent };
@@ -14,11 +14,12 @@ export type DeviceState = 'active' | 'suspended' | 'lost' | 'retired';
 export type Device = Binding & { id: string; name: string; active: boolean; state: DeviceState; lastSeen: number | null };
 export type DeviceJob = Job & { remote?: { authority: string; code?: CodeBundle } };
 export type ReleasedLease = { run: number; attempt: number; lease: string };
-export type RemoteStop = { attempt: number; state: 'exited' | 'not-launched'; model?: string; code?: CodeDelta };
+export type RemoteStop = { attempt: number; state: 'exited' | 'not-launched'; model?: string; code?: CodeDelta; usageCoverage?: 'partial' };
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 const onlineWindow = 10_000;
 
-export const deviceHome = (id: string) => runtime('devices', id, 'autoloop');
+export const deviceHome = (id: string, driver: 'autoloop' | 'contractor' = 'autoloop') =>
+  runtime('devices', id, driver === 'contractor' ? 'dispatch' : 'autoloop');
 
 export async function localDeviceKey() {
   const dir = runtime('devices');
@@ -108,8 +109,13 @@ export class Devices {
   }
 
   finishEnrollment(id: string, secret: string, authorize: (entry: Enrollment) => Binding | undefined) {
-    const token = enrollmentToken(id, secret);
-    const current = this.byToken(token);
+    let token = enrollmentToken(id, secret);
+    let current = this.byToken(token);
+    if (!current) {
+      const previous = enrollmentToken(id, secret, true);
+      current = this.byToken(previous);
+      if (current) token = previous;
+    }
     if (current?.id === id && current.active && current.projects.length === 1
       && (current.remote?.engine === 'codex' || current.remote?.engine === 'claude')) {
       const binding = authorize({ id, name: current.name, engines: [current.remote.engine], expires: 0,

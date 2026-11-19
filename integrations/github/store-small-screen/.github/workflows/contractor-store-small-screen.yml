@@ -1,0 +1,42 @@
+name: Contractor small-screen verification
+
+on:
+  push:
+    branches:
+      - 'contractor/*'
+
+permissions:
+  contents: read
+
+jobs:
+  small-screen:
+    name: contractor-store-small-screen
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Install pinned Chromium test dependencies
+        working-directory: .github/contractor-store-small-screen
+        run: |
+          npm ci --ignore-scripts
+          npm run install-ci
+      - name: Measure actual page at 280, 320 and 360 pixels
+        run: |
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          node .github/contractor-store-small-screen/check.mjs \
+            collab-pilot/index.html "$GITHUB_SHA" "$RUNNER_TEMP/contractor-verification.json"
+      - name: Archive verification evidence
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: contractor-small-screen-${{ github.sha }}-attempt-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/contractor-verification.json
+          retention-days: 30
+          if-no-files-found: error

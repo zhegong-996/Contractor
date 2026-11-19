@@ -1,26 +1,37 @@
 import { executionCapabilities } from './execution-capabilities.ts';
 import { runnerEndpoint } from './runner-connection.ts';
+import { remoteEngine, runnerAgentSchema, type RunnerAgent } from './runner-profile.ts';
+export { remoteEngine, runnerAgentSchema, runnerOllamaUrl, type RunnerAgent } from './runner-profile.ts';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { z } from 'zod';
-import { nextRun, parseCron } from '../../upstream/autoloop/kernel/cron.ts';
+import { digestSchedule } from './execution/cron.ts';
 import { runtime } from '../config.ts';
-import { canonicalResourceId, feishuDocLocation, figmaNodeLocation, githubRepository, resourcePurpose, resourceSchema, routesEvents, topicInputSchema } from './project-resources.ts';
-import { digestAgentId, discussionZone } from './discussion.ts';
+import { canonicalResourceId, feishuDocLocation, feishuHistoryReader, figmaNodeLocation, githubRepository, resourcePurpose, resourceSchema, routesEvents, topicInputSchema } from './project-resources.ts';
+import { digestAgentId } from './discussion.ts';
+import { octopIMConnector } from './octop-im-contract.ts';
+import { imLoginSettings } from './im-login-providers.ts';
+import { memoryProviderIds } from './memory-providers.ts';
 
 const id = z.string().regex(/^[a-z][a-z0-9-]{0,47}$/);
 const member = z.string().regex(/^[a-zA-Z0-9_-]{2,32}$/);
-const profileId = z.string().regex(/^[a-zA-Z0-9_-]+$/).max(160);
 export const title = z.string().trim().min(1).max(100);
+export const modelId = z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,99}$/);
+const modelNames = z.array(modelId).min(1).max(12).refine(models => new Set(models).size === models.length);
+export const modelRoute = z.object({ purpose: z.enum(['summary', 'personal', 'execution']), agent: id,
+  models: modelNames.refine(models => models.length <= 4) }).strict();
+export const dispatchRule = z.object({ topic: id.optional(), function: id, agent: id, decider: member.optional() }).strict();
+export const projectResponsibility = z.object({ member, function: id }).strict();
+export type ModelPurpose = z.infer<typeof modelRoute>['purpose'];
+export type FeishuHistoryReader = z.infer<typeof feishuHistoryReader>;
 const discussion = z.object({
   agent: id,
   model: title.optional(),
   effort: z.enum(['low', 'medium', 'high']).default('low'),
   cron: z.string().max(80).refine(value => {
-    const cron = parseCron(value);
-    return !!cron && nextRun(cron, Date.now(), discussionZone) !== null;
+    try { return digestSchedule(value).next(Date.now()) !== undefined; } catch { return false; }
   }, '请输入能够触发的五段式 cron').default('0 0,12 * * *'),
-  history: z.object({ profile: profileId, appId: profileId, userOpenId: profileId, member }).strict().optional(),
+  history: feishuHistoryReader.optional(),
   documents: z.array(z.url({ protocol: /^https$/ })).max(4).default([]),
 }).strict();
 const project = z.object({
@@ -30,45 +41,54 @@ const project = z.object({
   decisionOwner: member.optional(),
   delegations: z.array(z.object({ from: id, to: id, repository: z.string().regex(githubRepository).optional(),
     maxChildren: z.number().int().min(1).max(8).default(3), maxDepth: z.number().int().min(1).max(3).default(2),
+    scope: z.object({ title, request: z.string().trim().min(1).max(3000),
+      allowRestricted: z.literal(true).optional(),
+      material: z.array(z.string().regex(/^[a-z0-9-]{1,80}$/)).max(8)
+        .refine(list => new Set(list).size === list.length) }).strict().optional(),
   }).strict()).default([]),
-  dispatch: z.array(z.object({ topic: id.optional(), function: id, agent: id, decider: member.optional() }).strict()).default([]),
-  responsibilities: z.array(z.object({ member, function: id }).strict()).default([]),
+  dispatch: z.array(dispatchRule).default([]),
+  responsibilities: z.array(projectResponsibility).default([]),
   topics: z.array(topicInputSchema).default([]),
-  consultations: z.array(z.object({ topic: id, feishu: z.boolean().optional(), agents: z.array(z.object({
+  consultations: z.array(z.object({ topic: id, feishu: z.boolean().optional(), sharedExperts: z.boolean().optional(), agents: z.array(z.object({
     agent: id, material: z.array(z.string().regex(/^[a-z0-9-]{1,80}$/)).min(1).max(4),
-  }).strict()).min(1).max(4) }).strict()).optional(),
+  }).strict()).max(4).default([]) }).strict()).optional(),
+  consultationHistory: feishuHistoryReader.optional(),
+  modelRoutes: z.array(modelRoute).max(60).optional(),
   resources: z.array(resourceSchema).default([]),
   budget: z.number().positive().optional(),
   discussion: discussion.optional(),
 }).strict();
-const agent = z.object({
-  id, title, kind: z.enum(['personal', 'specialist']), owner: member,
+const agent = runnerAgentSchema.extend({
+  title, kind: z.enum(['personal', 'specialist']),
   capability: z.string().trim().min(1).max(400), function: id,
   projects: z.array(id).min(1),
-  engine: z.enum(['codex', 'claude', 'acp', 'command', 'cursor']),
   command: z.array(z.string().min(1)).min(1).optional(),
-  model: z.string().max(100).optional(),
-  execution: z.object({
-    kind: z.enum(['sandbox', 'remote', 'test']),
-    provider: z.string().regex(/^[a-z][a-z0-9-]{0,60}$/),
-    credential: id.optional(),
-    effort: z.enum(['low', 'medium', 'high']).default('low'),
-    domains: z.array(z.string().regex(/^(?:[a-z0-9-]+\.)+[a-z0-9-]+$/)).max(12).default([]),
-  }).strict().optional(),
+  allowedModels: modelNames.optional(),
   skill: z.string().trim().min(1).max(5000),
   active: z.boolean().default(false),
 }).strict();
-export const runnerAgentSchema = agent.pick({ id: true, owner: true, engine: true, model: true, execution: true });
-export type RunnerAgent = z.infer<typeof runnerAgentSchema>;
+const octopSettings = z.object({ python: z.string().refine(path.isAbsolute),
+  indexSocket: z.string().refine(value => path.isAbsolute(value) && Buffer.byteLength(value) < 104 && !value.includes('\0'),
+    '知识索引须使用绝对路径的本机 Unix socket，路径少于 104 字节').optional(),
+  profiles: z.array(z.object({ owner: member, model: z.string().regex(/^deepseek-[a-z0-9.-]{1,70}$/), credential: id }).strict()).max(100),
+  channels: z.array(octopIMConnector).max(12).optional(),
+  feishuGateway: z.boolean().default(false) }).strict().refine(item => new Set(item.profiles.map(row => row.owner)).size === item.profiles.length,
+  '每位成员只能配置一个 Octop 执行身份');
+export type OctopSettings = z.infer<typeof octopSettings>;
 export const settingsSchema = z.object({
   port: z.number().int().min(1024).max(65535).default(4280),
+  executionRuntime: z.enum(['autoloop', 'contractor']).default('autoloop'),
   remoteRunnerPort: z.number().int().min(1024).max(65535).optional(),
   runnerConnectUrl: runnerEndpoint.optional(),
   workbenchPublicUrl: runnerEndpoint.refine(value => value.startsWith('https://'), '团队工作台地址须为 HTTPS').optional(),
+  imLogin: imLoginSettings.optional(),
   projects: z.array(project).min(1),
   functions: z.array(z.object({ id, title, lead: id.optional() }).strict()).min(1),
   agents: z.array(agent),
+  octop: octopSettings.optional(),
+  plugins: z.object({ memory: z.enum(memoryProviderIds).optional() }).strict().optional(),
   feishu: z.object({ profile: z.string(), appId: z.string(), botId: z.string(), decisionCards: z.boolean().optional(),
+    separateIngress: z.boolean().optional(),
     allowedGroups: z.array(z.string().regex(/^oc_[a-zA-Z0-9_-]+$/)).max(100).optional() }).strict().optional(),
   crossChannel: z.object({
     githubPollSeconds: z.number().int().min(15).max(300).default(30),
@@ -79,12 +99,24 @@ export const settingsSchema = z.object({
   }).strict().optional(),
 }).strict().superRefine((value, context) => {
   const flag = (message: string) => context.addIssue({ code: 'custom', message });
+  if (value.plugins?.memory === 'octop' && !value.octop) flag('Octop 索引插件需要配置 octop 服务。');
+  if (value.agents.some(agent => agent.engine === 'octop' || agent.execution?.kind === 'harness'))
+    flag('Octop Agent 由共享专家目录创建，执行凭据在 octop.profiles 登记');
+  if (value.octop?.feishuGateway && !value.feishu) flag('Octop 飞书入口须启用已授权的飞书连接');
   if (value.remoteRunnerPort === value.port) flag('远程执行端须使用独立端口');
   if (value.runnerConnectUrl && !value.remoteRunnerPort) flag('浏览器连接执行端须配置远程执行端口');
   for (const entries of [value.projects, value.functions, value.agents]) {
     if (new Set(entries.map(x => x.id)).size !== entries.length) flag('项目、职能或 Agent 标识重复');
   }
   const projectById = new Map(value.projects.map(x => [x.id, x]));
+  const connectors = value.octop?.channels ?? [];
+  if (new Set(connectors.map(row => row.id)).size !== connectors.length) flag('Octop IM 连接标识重复');
+  for (const connector of connectors) {
+    if (new Set(connector.routes.map(row => JSON.stringify([row.chat, row.thread]))).size !== connector.routes.length)
+      flag('同一 Octop IM 会话或话题只能绑定一个项目主题');
+    for (const route of connector.routes) if (!projectById.get(route.project)?.consultations?.some(row => row.topic === route.topic))
+      flag('Octop IM 会话须绑定已开启咨询的项目主题');
+  }
   const refs = new Set<string>();
   for (const p of value.projects) {
     if (p.maintainers.some(name => !p.members.includes(name))) flag('项目维护人必须是项目成员');
@@ -102,6 +134,20 @@ export const settingsSchema = z.object({
         && r.externalId.toLowerCase() === rule.repository!.toLowerCase())) flag('转委托代码仓库须是本项目已配置的交付目标');
     }
     const duties = new Set<string>();
+    const modelRoutes = new Set<string>();
+    for (const route of p.modelRoutes ?? []) {
+      const name = route.purpose + '/' + route.agent;
+      const agent = value.agents.find(candidate => candidate.id === route.agent);
+      if (modelRoutes.has(name)) flag('同一项目、用途和 Agent 的模型路线不能重复');
+      modelRoutes.add(name);
+      if (!agent?.projects.includes(p.id) || !p.members.includes(agent.owner) || agent.engine !== 'codex'
+        || agent.execution?.kind !== 'sandbox' || agent.execution.provider !== 'openai' || !executionCapabilities(agent).local
+        || route.models.some(model => !agent.allowedModels?.includes(model)))
+        flag('模型路线须引用当前项目已授权的本机 Codex 及其模型名单');
+      if (route.purpose === 'personal' && agent?.kind !== 'personal') flag('个人模型路线须引用个人 Agent');
+      if (route.purpose === 'summary' && (p.discussion?.agent !== route.agent || p.discussion.model))
+        flag('整理模型路线须使用项目的整理 Agent，并移除旧的单模型覆盖');
+    }
     for (const duty of p.dispatch) {
       const key = [duty.topic ?? '', duty.function].join('/');
       if (duties.has(key)) flag('同一项目主题下的同一职责只能配置一位牵头 Agent');
@@ -116,14 +162,23 @@ export const settingsSchema = z.object({
     if (p.discussion && (!value.feishu || !value.crossChannel || !p.resources.some(ref => ref.digest)
       || !value.agents.some(agent => agent.id === p.discussion!.agent && agent.projects.includes(p.id) && agent.active && executionCapabilities(agent).platformDigest)))
       flag('群整理须配置飞书身份、渠道绑定和当前项目的在岗 Agent');
+    if (p.discussion?.model) {
+      const models = value.agents.find(item => item.id === p.discussion!.agent)?.allowedModels;
+      if (models && !models.includes(p.discussion.model)) flag('整理单模型覆盖须在 Agent 模型名单内');
+    }
     if (p.discussion?.history && !p.maintainers.includes(p.discussion.history.member))
       flag('补读账号须由项目维护人授权并指定对应成员');
+    if (p.consultationHistory && (!p.maintainers.includes(p.consultationHistory.member) || !p.consultations?.some(item => item.feishu)))
+      flag('咨询补读须指定项目维护人的飞书读取身份，并启用飞书主题咨询');
     if (p.discussion?.documents.length && !p.discussion.history) flag('飞书文档整理须先配置授权读取身份');
     if (new Set(p.topics.map(topic => topic.id)).size !== p.topics.length) flag('项目主题标识重复');
     if (new Set(p.consultations?.map(item => item.topic)).size !== (p.consultations?.length ?? 0)) flag('主题咨询配置重复');
     for (const item of p.consultations ?? []) {
       if (!p.topics.some(topic => topic.id === item.topic)) flag('咨询主题须属于当前项目');
-      if (item.feishu && (!value.feishu || !p.resources.some(ref => ref.source === 'feishu' && ref.state === 'bound' && ref.topic === item.topic && routesEvents(ref))))
+      if ((!item.sharedExperts && !item.agents.length) || (item.sharedExperts && !value.octop))
+        flag('主题咨询须登记 Agent 或启用 Octop 共享专家');
+      if (item.feishu && (!value.feishu || !p.resources.some(ref => ref.source === 'feishu' && ref.state === 'bound' && routesEvents(ref)
+        && (ref.topic === item.topic || ref.feishuTopicRoots?.[item.topic]))))
         flag('飞书咨询须配置同一主题的讨论群');
       if (new Set(item.agents.map(row => row.agent)).size !== item.agents.length || item.agents.some(row => !value.agents.some(agent =>
         agent.id === row.agent && agent.projects.includes(p.id) && p.members.includes(agent.owner)))) flag('咨询须引用当前项目成员的 Agent，且每位只能登记一次');
@@ -151,6 +206,28 @@ export const settingsSchema = z.object({
         flag('代码执行须配置交付仓库和交付成员');
       if (ref.topic && (!routesEvents(ref) || !p.topics.some(topic => topic.id === ref.topic)))
         flag('默认主题只用于当前项目已配置的消息来源');
+      if (ref.feishuTopicRoots) {
+        const roots = Object.entries(ref.feishuTopicRoots);
+        if (ref.source !== 'feishu' || ref.state !== 'bound' || !routesEvents(ref) || !value.feishu?.allowedGroups?.includes(ref.externalId)
+          || !roots.length || roots.length > 40 || new Set(roots.map(([, root]) => root)).size !== roots.length
+          || roots.some(([topic]) => !p.topics.some(item => item.id === topic)))
+          flag('飞书固定话题须属于获准的项目群，每个主题对应不同的根消息');
+      }
+      if (ref.feishuSubprojectRoots) {
+        const roots = Object.entries(ref.feishuSubprojectRoots);
+        const ownRoots = new Set(Object.values(ref.feishuTopicRoots ?? {}));
+        const recoveryThreads = roots.flatMap(([, target]) => target.recovery ? [target.recovery.thread] : []);
+        if (ref.source !== 'feishu' || ref.state !== 'bound' || !routesEvents(ref) || !value.feishu?.allowedGroups?.includes(ref.externalId)
+          || !roots.length || roots.length > 40 || new Set(recoveryThreads).size !== recoveryThreads.length || roots.some(([root, target]) => {
+            const child = projectById.get(target.project);
+            return ownRoots.has(root) || child?.parent !== p.id || !child.topics.some(topic => topic.id === target.topic)
+              || !!target.recovery && !child.maintainers.includes(target.recovery.reader.member);
+          })) flag('群内子项目入口必须使用不同的固定话题，并指向直属子项目及已有主题');
+      }
+      if (ref.shareConsultationResults && (ref.source !== 'feishu' || !/^oc_[a-zA-Z0-9_-]+$/.test(ref.externalId)
+        || ref.state !== 'bound' || !routesEvents(ref) || !value.feishu?.allowedGroups?.includes(ref.externalId)
+        || !p.consultations?.some(item => item.feishu && item.topic === ref.topic)))
+        flag('只有已启用主题咨询的指定飞书群可以共享咨询结论');
       if (ref.digest && (ref.source !== 'feishu' || !/^oc_[a-zA-Z0-9]+$/.test(ref.externalId) || !routesEvents(ref) || !p.discussion))
         flag('群整理只适用于已配置的飞书讨论来源');
       if (ref.knowledge) {
@@ -168,6 +245,7 @@ export const settingsSchema = z.object({
     }
   }
   for (const service of value.agents) {
+    if (service.allowedModels && (!service.model || !service.allowedModels.includes(service.model))) flag('Agent 的默认模型须在授权名单内');
     if (service.id === 'auto') flag('auto 保留给自动派工');
     if (value.projects.some(p => p.discussion && service.id === digestAgentId(p.id)))
       flag('Agent 标识与群整理执行端冲突');
@@ -188,12 +266,6 @@ export type Settings = z.infer<typeof settingsSchema>;
 export type Project = Settings['projects'][number];
 export type Agent = Settings['agents'][number];
 export const loadSettings = async () => settingsSchema.parse(JSON.parse(await readFile(runtime('workbench.json'), 'utf8')));
-export const runnerOllamaUrl = 'http://127.0.0.1:11434';
-
-export function remoteEngine(agent: RunnerAgent) {
-  return executionCapabilities(agent).remote;
-}
-
 export function runnerAgent(agent: Agent): RunnerAgent {
   return runnerAgentSchema.parse({ id: agent.id, owner: agent.owner, engine: agent.engine, model: agent.model, execution: agent.execution });
 }

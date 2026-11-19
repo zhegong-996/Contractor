@@ -4,7 +4,7 @@ import { digest } from './knowledge.ts';
 
 type Use = { ticket: string; title: string; agent?: string; owner?: string; run: number; attempt: number; version: number; revision: string };
 type Node = { id: string; kind: 'project' | 'knowledge' | 'resource' | 'ticket' | 'agent' | 'member'; title: string;
-  revision?: string; state?: string; url?: string };
+  objectId?: string; revision?: string; state?: string; url?: string };
 type Edge = { source: string; target: string; type: string; run?: number; attempt?: number; version?: number };
 
 /** Build only from already authorized entries and use records. No inferred entities or extra model calls. */
@@ -18,7 +18,7 @@ export function knowledgeGraph(project: { id: string; title: string }, entries: 
   const projectId = add({ id: ref('System', project.id), kind: 'project', title: project.title });
   const knowledgeId = (entry: KnowledgeEntry) => ref('Resource', 'knowledge-' + digest([entry.id, entry.revision]).slice(0, 32));
   for (const entry of entries) add({ id: knowledgeId(entry), kind: 'knowledge', title: entry.title,
-    revision: entry.revision, state: entry.retirement?.kind ?? entry.state });
+    objectId: entry.id, revision: entry.revision, state: entry.retirement?.kind ?? entry.state });
   const visible = new Map(entries.map(entry => [entry.id + '@' + entry.revision, knowledgeId(entry)]));
   for (const entry of entries) {
     const id = knowledgeId(entry);
@@ -27,7 +27,7 @@ export function knowledgeGraph(project: { id: string; title: string }, entries: 
     link({ source: id, target: projectId, type: RELATION_PART_OF });
     const origin = entry.ticket && origins.get(entry.ticket);
     if (entry.ticket && origin) {
-      const task = add({ id: ref('Component', 'ticket-' + entry.ticket), kind: 'ticket', title: origin.title });
+      const task = add({ id: ref('Component', 'ticket-' + entry.ticket), kind: 'ticket', title: origin.title, objectId: entry.ticket });
       link({ source: id, target: task, type: 'derivedFrom', version: entry.draft?.version });
       link({ source: task, target: projectId, type: RELATION_PART_OF });
     }
@@ -49,11 +49,11 @@ export function knowledgeGraph(project: { id: string; title: string }, entries: 
     }
     for (const use of uses.get(entry.id) ?? []) {
       if (use.revision !== entry.revision) continue;
-      const task = add({ id: ref('Component', 'ticket-' + use.ticket), kind: 'ticket', title: use.title });
+      const task = add({ id: ref('Component', 'ticket-' + use.ticket), kind: 'ticket', title: use.title, objectId: use.ticket });
       link({ source: task, target: id, type: RELATION_DEPENDS_ON, run: use.run, attempt: use.attempt, version: use.version });
       link({ source: task, target: projectId, type: RELATION_PART_OF });
       if (use.agent) {
-        const agent = add({ id: ref('Component', 'agent-' + use.agent), kind: 'agent', title: use.agent });
+        const agent = add({ id: ref('Component', 'agent-' + use.agent), kind: 'agent', title: use.agent, objectId: use.agent });
         link({ source: agent, target: task, type: 'executes', run: use.run, attempt: use.attempt });
       }
     }

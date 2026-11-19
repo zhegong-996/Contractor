@@ -1,10 +1,13 @@
+import { TextArea } from './components/input.tsx';
 import { useState } from 'react';
 import { ArrowRight, Bot, CheckCheck, ChevronRight, ClipboardCheck, GitPullRequest, Inbox, Link2, ListChecks, LockKeyhole, MessageSquare, Workflow } from 'lucide-react';
-import { api, useData, type Decision, type Knowledge } from './api.ts';
+import { api, useData, useTickets, type Decision, type Knowledge } from './api.ts';
+import { TicketPicker } from './components/ticket-picker.tsx';
 import { AgentOptions, MaterialPicker } from './creation.tsx';
 import { go, routeFor, type PageProps } from './navigation.ts';
-import { Button } from './paperclip/button.tsx';
-import { date, Empty, Ext, Field, Markdown, Modal, Section, Segments, TicketStatus, TopicOptions, useActions, useStored } from './ui.tsx';
+import { Button } from './components/button.tsx';
+import { Markdown } from './markdown.tsx';
+import { date, Empty, Ext, Field, Modal, Section, Segments, TicketStatus, TopicOptions, useActions, useStored } from './ui.tsx';
 
 const decisionVisual = {
   channel: [Link2, '确认归属'], intake: [Workflow, '确认分工'], discussion: [MessageSquare, '群反馈'],
@@ -19,7 +22,7 @@ export function InboxPage(props: PageProps) {
   const [scope, setScope] = useStored<'all' | 'project'>('inbox-scope', 'all');
   const [opened, open] = useState<Decision>();
   const decisions = workspace.needsYou.filter(d => scope === 'all' || d.project === project.id);
-  const latest = workspace.tickets.filter(t => t.work.project === project.id).slice().sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt)).slice(0, 6);
+  const latest = useTickets({ project: project.id, limit: 6 }, true, 5000).rows;
   const memberAgents = workspace.agents.filter(a => a.projects.includes(project.id));
   function decisionRoute(d: Decision) {
     if (d.ticket) {
@@ -40,13 +43,13 @@ export function InboxPage(props: PageProps) {
           {decisions.length ? decisions.map(d => {
             const [Icon, kind] = decisionVisual[d.kind];
             const href = decisionRoute(d);
-            const ticket = workspace.tickets.find(item => item.id === d.ticket);
+            const ticket = d.ticketTitle;
             const contents = <><span className="inbox-icon"><Icon size={18} /></span><div className="inbox-item-body">
               <div><span className="category-label">{kind}</span>{scope === 'all' && <span> · {workspace.projects.find(p => p.id === d.project)?.title}</span>}</div>
-              <strong>{ticket?.title ?? d.title}</strong>
-              {(ticket && d.title !== ticket.title || d.request?.text || d.detail) && <p>
-                {ticket && d.title !== ticket.title && d.title}
-                {ticket && d.title !== ticket.title && (d.request?.text || d.detail) && ' · '}
+              <strong>{ticket ?? d.title}</strong>
+              {(ticket && d.title !== ticket || d.request?.text || d.detail) && <p>
+                {ticket && d.title !== ticket && d.title}
+                {ticket && d.title !== ticket && (d.request?.text || d.detail) && ' · '}
                 {d.request?.text ?? d.detail}
               </p>}
             </div><div className="inbox-item-end"><time>{date(d.openedAt)}</time><ChevronRight size={17} /></div></>;
@@ -70,9 +73,6 @@ export function InboxPage(props: PageProps) {
           {project.discussion && <a className="inspector-link" href={routeFor(project.id, 'project', undefined, 'discussion')}>
             <MessageSquare size={16} /><span>群反馈整理</span><ChevronRight size={15} /></a>}
         </Section>
-        {!!project.budget && <Section title="项目预算"><p>{project.usage.billing.totalAmount === null ? '总费用待核对' : '已回报 $' + project.usage.billing.totalAmount}
-          <span className="muted-text">{' / $' + project.budget}</span></p>
-          <a className="text-button" href={routeFor(project.id, 'project', undefined, 'usage')}>查看回执 <ArrowRight size={15} /></a></Section>}
       </aside>
     </div>
   </div>
@@ -96,7 +96,7 @@ function DecisionModal({ workspace, decision, close }: PageProps & { decision: D
   const crossed = target.id !== project.id;
   const repositories = target.deliveryTargets.filter(ref => ref.eligibleAgents.length);
   const repository = repositories.find(ref => ref.ref === draft.repository);
-  const candidates = workspace.tickets.filter(t => scope.some(p => p.id === t.work.project && p.mayStart));
+  const [linkedProject, setLinkedProject] = useState<string>();
   const agents = workspace.agents.filter(a => a.active && a.projects.includes(target.id)
     && (!repository || repository.eligibleAgents.includes(a.id)));
   const materials = useData<Knowledge[]>(channel && draft.action === 'create' ? 'knowledge/' + target.id : '');
@@ -112,7 +112,7 @@ function DecisionModal({ workspace, decision, close }: PageProps & { decision: D
     const result = await run(() => api<{ ticket?: string }>((channel ? 'channels/' : 'intake/') + decision.subject + '/resolve', data), '已处理待办');
     if (result) {
       close();
-      if (result.ticket) go(workspace.tickets.find(t => t.id === result.ticket)?.work.project ?? target.id, 'work', result.ticket);
+      if (result.ticket) go((draft.action === 'link' ? linkedProject : target.id) ?? project.id, 'work', result.ticket);
     }
   }}>
     <div className="context-preview"><div className="inline-meta">{decision.request?.sender && <strong>{decision.request.sender}</strong>}
@@ -126,15 +126,13 @@ function DecisionModal({ workspace, decision, close }: PageProps & { decision: D
         {!!project.topics.length && <option value="topic">记到主题</option>}</>}
       <option value="dismiss">忽略</option>
     </select></Field>
-    {draft.action === 'link' && <Field label="关联工单"><select value={draft.ticket} required onChange={e => set({ ...draft, ticket: e.target.value })}>
-      <option value="">请选择</option>{candidates.map(t => <option key={t.id} value={t.id}>{t.title}
-        {t.work.project !== project.id && ' · ' + scope.find(p => p.id === t.work.project)?.title}</option>)}
-    </select></Field>}
+    {draft.action === 'link' && <Field label="关联工单"><TicketPicker projects={scope.filter(p => p.mayStart)} value={draft.ticket}
+      onChange={(ticket, target) => { setLinkedProject(target); set({ ...draft, ticket }); }} /></Field>}
     {channel && draft.action === 'create' && destinations.length > 1 && <Field label="工单项目"><select value={target.id}
       onChange={e => set({ ...draft, project: e.target.value, topic: '', agent: '', material: [], repository: '' })}>
       {destinations.map(p => <option key={p.id} value={p.id}>{p.title}</option>)}
     </select></Field>}
-    {crossed && <Field label="可共享的委托说明" hint="目标项目按这份说明建立工单。"><textarea rows={3} required maxLength={3500}
+    {crossed && <Field label="可共享的委托说明" hint="目标项目按这份说明建立工单。"><TextArea rows={3} required maxLength={3500}
       value={draft.brief} onChange={e => set({ ...draft, brief: e.target.value })} /></Field>}
     {channel && draft.action === 'create' && (repositories.length > 0 || draft.repository) && <Field label="交付仓库"><select value={draft.repository ?? ''}
       onChange={e => {

@@ -2,7 +2,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import type { Trigger } from '../../upstream/superagent/src/core/index.ts';
 
-export type Provider = 'feishu' | 'github';
+export type Provider = 'feishu' | 'github' | 'octop';
 export type PlatformActor = { provider: Provider; namespace: string; id: string; label: string };
 export type ChannelRef = { key: string; url?: string; label: string; project?: string };
 export type ChannelRequest = {
@@ -32,6 +32,7 @@ export type PendingRequest = {
 
 const digest = (value: string) => createHash('sha256').update(value).digest('hex');
 export const messageRef = (id: string, url?: string): ChannelRef => ({ key: 'channel-message:' + id, label: '原消息', url });
+export const consultationReplyType = 'contractor.consultation-reply';
 
 export function feishuCommandText(content: string, mention?: { key?: string; name?: string }) {
   const text = content.trim();
@@ -46,6 +47,10 @@ export function feishuConsultation(text: string) {
 }
 
 export function channelCommand(text: string) {
+  const activation = /^\/开通协作\s+([a-f0-9]{32})$/.exec(text.trim());
+  if (activation) return { kind: 'activation' as const, code: activation[1]! };
+  const recovery = /^\/找回口令\s+([a-f0-9]{32})$/.exec(text.trim());
+  if (recovery) return { kind: 'recovery' as const, code: recovery[1]! };
   const proof = /^\/绑定协作\s+([a-f0-9]{32})$/.exec(text.trim());
   if (proof) return { kind: 'proof' as const, code: proof[1]! };
   const answer = /^\/答\s+([a-f0-9]{32})\s+([\s\S]{1,3500})$/.exec(text.trim());
@@ -55,7 +60,7 @@ export function channelCommand(text: string) {
     return { kind: 'work' as const, agent: work[1]!, reference: work[2]?.trim(), request: work[3]!.trim() };
 }
 
-/** SuitMe mappings share the native Store transaction with Engine ticket creation. */
+/** Contractor mappings share the native Store transaction with Engine ticket creation. */
 export class ChannelLinks {
   constructor(private readonly db: DatabaseSync) {
     db.exec(`
@@ -118,13 +123,18 @@ export class ChannelLinks {
     if (!proof?.sender) return 'missing';
     const sender = JSON.parse(proof.sender) as PlatformActor;
     if (sender.id !== expected.id || sender.namespace !== expected.namespace) return 'changed';
-    const existing = this.member(sender);
-    if (existing && existing !== member) return 'conflict';
-    this.db.prepare(`INSERT INTO workbench_account_link VALUES (?,?,?,?,?,?)
-      ON CONFLICT(provider,namespace,id) DO UPDATE SET label=excluded.label`)
-      .run(provider, sender.namespace, sender.id, sender.label, member, new Date().toISOString());
+    if (!this.bindVerified(member, sender)) return 'conflict';
     this.db.prepare('DELETE FROM workbench_account_proof WHERE member=? AND provider=?').run(member, provider);
     return 'bound';
+  }
+
+  bindVerified(member: string, sender: PlatformActor) {
+    const existing = this.member(sender);
+    if (existing && existing !== member) return false;
+    this.db.prepare(`INSERT INTO workbench_account_link VALUES (?,?,?,?,?,?)
+      ON CONFLICT(provider,namespace,id) DO UPDATE SET label=excluded.label`)
+      .run(sender.provider, sender.namespace, sender.id, sender.label, member, new Date().toISOString());
+    return true;
   }
 
   unlink(member: string, provider: Provider, namespace: string, id: string) {
@@ -194,6 +204,15 @@ export class ChannelLinks {
   event(id: string) {
     const row = this.db.prepare('SELECT * FROM workbench_channel_event WHERE id=?').get(id);
     return row && this.read(row);
+  }
+
+  recentFeishuTriggers(project: string, chat: string, since: string): Trigger[] {
+    return this.db.prepare(`SELECT json_extract(request,'$.trigger') AS trigger FROM workbench_channel_event
+      WHERE project=? AND json_extract(request,'$.trigger.source')='feishu'
+        AND json_extract(request,'$.trigger.meta.chatId')=?
+        AND json_extract(request,'$.trigger.at')>=?
+        AND json_extract(request,'$.trigger.meta.threadId') IS NOT NULL
+      ORDER BY rowid DESC LIMIT 100`).all(project, chat, since).map(row => JSON.parse(String(row.trigger)) as Trigger);
   }
 
   pending(project: string) {

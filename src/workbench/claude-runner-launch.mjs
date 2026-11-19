@@ -17,7 +17,7 @@ if (provider === 'ollama') {
   Object.assign(env, { ANTHROPIC_BASE_URL: endpoint, ANTHROPIC_AUTH_TOKEN: process.env.ANTHROPIC_AUTH_TOKEN });
 } else throw new Error('不支持的 Claude Code 模型服务');
 const input = await readFile(context, 'utf8');
-const instructions = '你是 SuitMe 的只读执行 Agent。依据委托和已装配的资料完成任务。第一行直接给出完整、可执行的结论。'
+const instructions = '你是 Contractor 的只读执行 Agent。依据委托和已装配的资料完成任务。第一行直接给出完整、可执行的结论。'
   + '不要复述标题，不写开场白、计划或思考过程。\n\n' + prompt;
 const args = [...options, '--settings', '{"disableAllHooks":true,"disableClaudeAiConnectors":true}', '--system-prompt', instructions];
 const child = spawn(executable, args, { stdio: ['pipe', 'inherit', 'inherit'], env });

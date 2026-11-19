@@ -1,4 +1,5 @@
 import type { GetFileMetaResponse, GetFileNodesResponse, GetImagesResponse } from '@figma/rest-api-spec';
+import { configuredEnv } from './compatibility.ts';
 import { z } from 'zod';
 import { digest } from './knowledge.ts';
 
@@ -54,7 +55,7 @@ async function boundedResponse(response: Response, limit: number) {
 }
 
 export class FigmaSources {
-  constructor(private readonly request = fetch, private readonly credential = (name: string) => process.env['SUITME_FIGMA_' + name]) {}
+  constructor(private readonly request = fetch, private readonly credential = (name: string) => configuredEnv('CONTRACTOR_FIGMA_' + name)) {}
 
   credentialVersion(scope: FigmaNodeScope) {
     const value = this.credential(scope.credential);

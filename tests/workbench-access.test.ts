@@ -8,14 +8,14 @@ import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
 import type { OutboundMessage } from '../upstream/superagent/src/core/index.ts';
 
-const runtime = await mkdtemp(path.join(os.tmpdir(), 'suitme-access-flow-'));
+const runtime = await mkdtemp(path.join(os.tmpdir(), 'contractor-access-flow-'));
 process.env.COLLAB_STATE_DIR = runtime;
 const [{ ProjectKnowledge, digest }, { openSuperAgentStore }] = await Promise.all([
   import('../src/workbench/knowledge.ts'), import('../src/superagent-ports.ts'),
 ]);
 
 test('资料授权按 Agent 及所有者隔离，撤权和到期重申保留独立轮次，旧票据不可再批准', async t => {
-  const dir = await mkdtemp(path.join(os.tmpdir(), 'suitme-access-'));
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'contractor-access-'));
   const store = await openSuperAgentStore(path.join(dir, 'store.sqlite'));
   t.after(async () => { store.close(); await rm(dir, { recursive: true, force: true }); });
   // Existing pilot databases have ticket-only grants. Preserve their audit history but fail closed.

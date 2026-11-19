@@ -1,4 +1,4 @@
-import type { Adapter, Reading } from '../../upstream/autoloop/worker/agents.ts';
+import type { Adapter, Reading } from './execution/protocol.ts';
 
 export default {
   command: turn => [
@@ -22,7 +22,7 @@ export default {
         }
       } catch { /* The last streamed line can be incomplete. */ }
     }
-    if (code !== null && (code !== 0 || !receipt.finished)) receipt.error = stderr.trim().slice(-450) || 'Cursor 未完成本轮。';
+    if (code !== null && (code !== 0 || !receipt.finished)) receipt.error = (stderr ?? '').trim().slice(-450) || 'Cursor 未完成本轮。';
     return receipt;
   },
 } satisfies Adapter;

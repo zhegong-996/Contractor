@@ -1,6 +1,6 @@
 # 成员执行隔离与模型费用回执
 
-本次仅调整独立工作台后端。Super-agent 继续维护工单和委托，AutoLoop 继续负责唯一的执行队列、租约、等待、重试与取消。新增的是其运行时本地插件 `suitme-isolated`，直接复用原版 Codex 参数生成和回执解析，用固定版本 `@anthropic-ai/sandbox-runtime@0.0.83` 建立操作系统文件与网络限制。
+本次仅调整独立工作台后端。Super-agent 继续维护工单和委托，AutoLoop 继续负责唯一的执行队列、租约、等待、重试与取消。新增的是其运行时本地插件 `contractor-isolated`，直接复用原版 Codex 参数生成和回执解析，用固定版本 `@anthropic-ai/sandbox-runtime@0.0.83` 建立操作系统文件与网络限制。
 
 ## 一张工单怎样换人
 
@@ -59,7 +59,7 @@ Git 的提交、推送、PR 与 CI 核对继续走既有受托交付流程。Ent
 
 `GET /api/project/:project/usage` 的 `attempts` 分别记录运行、尝试、所有者、委托人、模型、隔离范围、原生 token 数和结局。`modelReceipt.requested` 为明确配置的模型；`reported` 从该范围的 Codex 会话 `turn_context` 提取，`verification=session-reported` 表示 CLI 会话回报，不能当成服务商签名证明。模型回报不一致会阻断交付；没有可查会话时明确为 `requested-only`。
 
-`billing.status=reported` 才有实际金额；CLI 没回报金额时为 `unreported`、`amount=null`。项目 `billing.knownAmount` 是已知小计，`totalAmount=null` 表示总额未知，避免把未知读成免费。既有预算检查继续阻止缺价后的下一次执行。没有把订阅费摊分、价格表推算或 tokens 直接冒充真实费用，也没有新增模型服务。
+`billing.status=reported` 表示 CLI 回报了金额。CLI 没回报金额时保留 `unreported` 和 `amount=null`。项目 `billing.knownAmount` 是已回报金额小计，`totalAmount=null` 表示总额未知。当前派工额度以 [Token 和积分](WORKBENCH.md#token-和积分) 为准。
 
 撤权无法收回已经合法读到的人脑信息或已经公开推送的 Git 代码。工作台撤销的是后续执行和访问：停止仍在运行的旧进程、不再恢复旧授权范围的会话、隐藏对应快照和派生成果。宿主操作系统管理员仍是可信边界，不是互相敌对租户的容器云。
 
@@ -75,7 +75,7 @@ Git 的提交、推送、PR 与 CI 核对继续走既有受托交付流程。Ent
 | 澄清接续 | 原版 Codex 发出必答卡，产品在飞书原话题选择“先场景后事实”。原单保留问答及两次执行之间的会话延续 |
 | 真实取消／换人 | 第一位研发在写出 `handoff-draft-v1` 后进入工具等待。11:53:02.458 UTC 记录其执行及观察到的子进程已退出；接替成员获得独立批准后，11:53:05.899 UTC 才启动新会话。没有重建工单 |
 | 交接上下文 | 接替成员收到获准的代码草稿和确认卡；新范围与旧范围不同，`resumed=false`，旧执行环境已清除。接替者继续修改同一文件，未把受限测试标记写入代码 |
-| PR 与 CI | [测试 PR #15](https://github.com/zhegong-996/desktop-tutorial/pull/15) 只修改 `collab-pilot/index.html`，head 为 `1c5c7b05ca1c17bbbec9b164e58938580c39f47c`。[对应 SHA 的 collab-pilot 检查](https://github.com/zhegong-996/desktop-tutorial/actions/runs/43711184917/job/132802867904) 成功 |
+| PR 与 CI | 测试 PR #15 只修改 `collab-pilot/index.html`，head 为 `1c5c7b05ca1c17bbbec9b164e58938580c39f47c`。对应 SHA 的 collab-pilot 检查 成功 |
 | 版本验收 | 没有 PR 证据时拒绝验收；错误 SHA 返回 409，研发代替产品验收返回 403。产品测试账号在 11:54:58.955 UTC 签署第 1 版，保留成果修订、提交和 CI。不合并、不部署 |
 | 撤权 | 第一成员及接替成员的资料授权分别撤回后，对应原始快照与派生知识不再返回。知识保留为候选，没有自动采用 |
 | 撤权后的实际文件读取 | 子单 `69a85fb2aa83ba1e968e2db5fdc4ece6` 让同一 `design` 成员以新的范围、无该资料授权执行真实 Codex。旧上下文和旧登录文件仍真实存在于宿主磁盘；CLI 逐个执行 `test -r`，返回 `denied`、`denied`。不是只验证 API 隐藏或文件已经删除 |
@@ -84,4 +84,4 @@ Git 的提交、推送、PR 与 CI 核对继续走既有受托交付流程。Ent
 
 真实过程保留了环境兼容失败：只验证模型能回答，并不能证明工具可用；首次工具调用被重复 Seatbelt 安装拒绝。调整为强制外层沙箱后，真实 shell 执行成功且宿主登录仍不可读，再按原生五分钟重试接续同一工单。系统 CA 的显式读取配置通过真实模型调用验证；没有将沙箱改成无限制以绕过连接问题。独立连接诊断的临时模型调用不计入项目业务账本，不能把上述项目小计当作整个本次开发的服务商账单。
 
-最终本机 `npm test` 为 43 项全部通过，`npm run typecheck`、`npm run audit:upstream` 通过。Seatbelt 测试在 macOS 真实运行；其他平台的该专用用例明确跳过。依赖审计无高等级记录，保留既有 Casbin 链的 3 项中等级记录；SRT 的 `zod/v3` 入口已通过 Zod 4.6.7 兼容导出验证。私有脚本和完整证据位于本机 `/private/tmp/suitme-member-isolation-live/`，不随代码提交。平台前端没有修改。
+最终本机 `npm test` 为 43 项全部通过，`npm run typecheck`、`npm run audit:upstream` 通过。Seatbelt 测试在 macOS 真实运行；其他平台的该专用用例明确跳过。依赖审计无高等级记录，保留既有 Casbin 链的 3 项中等级记录；SRT 的 `zod/v3` 入口已通过 Zod 4.6.7 兼容导出验证。私有脚本和完整证据位于本机 本机私有证据目录，不随代码提交。平台前端没有修改。

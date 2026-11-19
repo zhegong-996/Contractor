@@ -74,8 +74,8 @@ flowchart TD
 | --- | --- |
 | [Super-agent Engine](https://github.com/deepseek-ai/dsh-superagent-prototype/blob/8c32a9dc5d72c033816c6a8110b37f40cf94fba4/src/core/engine.ts) | 直接调用现有导入的原版 `receive`、`attach`、`retryTicket`、`report` 与原版事务 Store／Effects。下一版用独立内部触发器 attach 到指定 Ticket，避免共享群话题扇出唤醒其他工单 |
 | [AutoLoop](https://github.com/KKKKhazix/agent-autoloop/tree/ba8cf6d8cf24f9ce005958c15d88f2d9cff7f05d) | 继续直接用原版 Runtime、worker、cards、事件合并、取消和重试。交接包从原生卡片及执行记录装配，无新增执行队列 |
-| [LobeHub ServerContextBuilder](https://github.com/lobehub/lobehub/blob/a8424d204a7ed1eb36985ebdfa6eac8041615392/apps/server/src/modules/AgentRuntime/adapters/ServerContextBuilder.ts) | 借鉴按当前运行输入重新装配上下文的机制，适配到 SuitMe 的资料授权与原生 AutoLoop context；没有导入 LobeHub 第二套 runtime |
-| [Acceptance](https://github.com/lobehub/acceptance/tree/f720feb862bdbe3acc653bdedc297e20e08be1ae) | 参考多轮验收与历史证据的契约。SuitMe 的 review 表记录本平台的人工验收事实 |
+| [LobeHub ServerContextBuilder](https://github.com/lobehub/lobehub/blob/a8424d204a7ed1eb36985ebdfa6eac8041615392/apps/server/src/modules/AgentRuntime/adapters/ServerContextBuilder.ts) | 借鉴按当前运行输入重新装配上下文的机制，适配到 Contractor 的资料授权与原生 AutoLoop context；没有导入 LobeHub 第二套 runtime |
+| [Acceptance](https://github.com/lobehub/acceptance/tree/f720feb862bdbe3acc653bdedc297e20e08be1ae) | 参考多轮验收与历史证据的契约。Contractor 的 review 表记录本平台的人工验收事实 |
 
 ## 验证与边界
 
@@ -93,11 +93,11 @@ flowchart TD
 | 人工口径 | 真实 Codex 提出原生 ask，机器人发送真实飞书私聊；产品测试身份用 `/答` 确认两句、先场景后事实，卡片编号 12 |
 | 撤权与重启恢复 | 运行 51 已生成部分页面，撤权后 Codex 及工具子进程停止。重启后端、重新申请并由资料负责人批准，运行 52 用新 CLI 会话继续，manifest 保留确认卡 12；同版仍只有一个 Assignment |
 | 换成员交接 | 运行 52 在 `07:16:02.778Z` 记录退出；接替成员确认代码委托并获得自己的资料授权后，`07:16:04.770Z` 完成交接，`07:16:07.226Z` 才启动运行 53。其 context 带原确认口径、部分页面路径与 hash，交付保留原注释及第一句 |
-| 第一版打回 | 运行 53 生成 `a94e477e5a785de923d99b636cef1c4d84c8326b`；[第一版 CI](https://github.com/zhegong-996/desktop-tutorial/actions/runs/43689353394) 成功。产品指出第二句缺少现场试穿提示；原单开第二版，重复打回没有增加 Assignment |
-| 第二版交付 | 运行 54 生成 `57f1630818d673a39de3648011ca7b78c5e04ad7`，父提交是第一版，仍为 [同一 PR #11](https://github.com/zhegong-996/desktop-tutorial/pull/11)。[第二版 CI](https://github.com/zhegong-996/desktop-tutorial/actions/runs/43689547285) 成功；PR 仅改 `collab-pilot/index.html` |
+| 第一版打回 | 运行 53 生成 `a94e477e5a785de923d99b636cef1c4d84c8326b`；第一版 CI 成功。产品指出第二句缺少现场试穿提示；原单开第二版，重复打回没有增加 Assignment |
+| 第二版交付 | 运行 54 生成 `57f1630818d673a39de3648011ca7b78c5e04ad7`，父提交是第一版，仍为 同一 PR #11。第二版 CI 成功；PR 仅改 `collab-pilot/index.html` |
 | 完成后重申查阅 | 撤销接替 Agent 的执行授权，成果隐藏；新建 `review` 申请向资料负责人发送真实飞书通知。批准后恢复精确第二版成果，运行数保持五；接替研发替资料所有者批准返回 403 |
 | 验收与回流 | 旧修订、旧 SHA 均不能验收第二版。产品测试身份按第二版 SHA 和检查 `132737067833` 签署；候选经明确采用后能检索。撤回查阅许可及剩余临时执行许可后，成果与派生知识均不再返回，历史验收保留 |
-| 跨渠道补充 | [本人 GitHub 评论](https://github.com/zhegong-996/desktop-tutorial/pull/11#issuecomment-6891003341) 和真实飞书补充回到同一工单，未新增运行 |
+| 跨渠道补充 | 本人 GitHub 评论 和真实飞书补充回到同一工单，未新增运行 |
 
 研发子单共五个原生运行（澄清、两次被取消的接续、第一版交付、第二版交付），三个 Assignment（原委托、换成员交接、第二版）。飞书入单父单另有一次真实 Codex 梳理。最终没有运行中、失联或排队中的执行，临时资料授权全部撤回。
 
@@ -109,8 +109,8 @@ flowchart TD
 
 | 交付阶段 | 实跑证据 |
 | --- | --- |
-| 第一版 `da8e3ba1` | 未挂 PR 时，研发收到一次缺证据提醒，产品无验收待办。研发首次关联 [测试 PR #12](https://github.com/zhegong-996/desktop-tutorial/pull/12)，[第一版检查](https://github.com/zhegong-996/desktop-tutorial/actions/runs/43696055749/job/132756709762) 通过后，产品收到一条验收通知并打回 |
-| 第二版 `d9114c96` | 同一 PR 的旧 SHA 和通过记录仍在时，新版无法验收，先提醒研发补交付。推送新版后，轮询自动关联其受托提交。手工关联次数仍为 1。测试基线让新版 [第一次检查](https://github.com/zhegong-996/desktop-tutorial/actions/runs/43696188492/job/132757121504) 故意失败，研发收到一次失败提醒；产品验收待办和通知均为 0 |
-| 同一 SHA 重跑 | [第二次检查](https://github.com/zhegong-996/desktop-tutorial/actions/runs/43696188492/job/132757275878) 通过。产品收到一次验收通知，旧成果修订和旧 SHA 均被拒绝，第二版按对应 SHA 签收。额外两轮真实轮询后，验收通知仍为 1、自动挂回新版仍为 1。子单全程 2 次 Assignment、2 轮执行 |
+| 第一版 `da8e3ba1` | 未挂 PR 时，研发收到一次缺证据提醒，产品无验收待办。研发首次关联 测试 PR #12，第一版检查 通过后，产品收到一条验收通知并打回 |
+| 第二版 `d9114c96` | 同一 PR 的旧 SHA 和通过记录仍在时，新版无法验收，先提醒研发补交付。推送新版后，轮询自动关联其受托提交。手工关联次数仍为 1。测试基线让新版 第一次检查 故意失败，研发收到一次失败提醒；产品验收待办和通知均为 0 |
+| 同一 SHA 重跑 | 第二次检查 通过。产品收到一次验收通知，旧成果修订和旧 SHA 均被拒绝，第二版按对应 SHA 签收。额外两轮真实轮询后，验收通知仍为 1、自动挂回新版仍为 1。子单全程 2 次 Assignment、2 轮执行 |
 
 本轮测试 `npm test` 837 项通过，类型检查通过。联调服务已结束，PR 保持开放。原始回执和账本保存在忽略目录 `.runtime/delivery-notify-live/`。

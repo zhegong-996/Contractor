@@ -1,34 +1,34 @@
-# SuitMe 协作台 · Super-agent 迁移
+# Contractor · Super-agent 迁移
 
-SuitMe 是独立的协作产品，包含团队工作台、项目、个人与专项 Agent、交付验收和授权知识库。迁移基于 GitHub `main` 的 `a44380604c9cfd1f67beb2701fceb2e3245a666b` 独立分支。设计输入是《Super-agent 项目详细解读》第 9 章、《Autoloop 项目详细解读》，以及玉伯关于每个人都有一个可被同事调用的 Agent 的访谈。
+Contractor 是独立的协作产品，包含团队工作台、项目、个人与专项 Agent、交付验收和授权知识库。迁移基于 GitHub `main` 的 `a44380604c9cfd1f67beb2701fceb2e3245a666b` 独立分支。设计输入是《Super-agent 项目详细解读》第 9 章、《Autoloop 项目详细解读》，以及玉伯关于每个人都有一个可被同事调用的 Agent 的访谈。
 
 ## 系统边界
 
 | 责任 | 采用方式 |
 | --- | --- |
-| **工单与权责** | 基于 [Super-agent 原版 Engine、Store 和 Effects](https://github.com/deepseek-ai/dsh-superagent-prototype/tree/8c32a9dc5d72c033816c6a8110b37f40cf94fba4)。原版持有 Thread、Decision、Ticket、Mandate、Assignment、Report 和出站回执。SuitMe 在入口绑定项目、核验外部身份、按资源限制权限，在出口做业务验收。 |
+| **工单与权责** | 基于 [Super-agent 原版 Engine、Store 和 Effects](https://github.com/deepseek-ai/dsh-superagent-prototype/tree/8c32a9dc5d72c033816c6a8110b37f40cf94fba4)。原版持有 Thread、Decision、Ticket、Mandate、Assignment、Report 和出站回执。Contractor 在入口绑定项目、核验外部身份、按资源限制权限，在出口做业务验收。 |
 | **后台执行** | 完整引入 [AutoLoop 原版 Runtime、内核和 worker](https://github.com/KKKKhazix/agent-autoloop/tree/ba8cf6d8cf24f9ce005958c15d88f2d9cff7f05d)。Super-agent 批准的 Assignment 映射为原版执行事件，执行回执归回该 Assignment。AutoLoop 的运行号只指一轮执行。人补充信息后由原版卡片机制接续，任务、授权和历史仍归原工单。 |
 | **产品交互与编排** | 借鉴 [LobeHub](https://github.com/lobehub/lobehub) 的来源信号归并、规则优先过滤、冻结运行配置、parked 和子 Agent 返回后的恢复、资源库入口。工作台以协作现场为主，展示来源、进行中的执行、待决定事项、交付证据和已引用知识。成员通过可上岗的个人或专项服务找到彼此的 Agent。 |
 | **存量与切换** | 旧 Paperclip 宿主仍持有其身份和工单。Super-agent 工作台使用独立 SQLite、测试会话和测试仓库。迁移时逐项目、逐入口确认写入所有者，每个工单有唯一可写业务账本。 |
 
 ```mermaid
 flowchart LR
-    A[飞书 · GitHub · 业务事件] --> B[SuitMe 入口与项目身份]
+    A[飞书 · GitHub · 业务事件] --> B[Contractor 入口与项目身份]
     B --> C[Super-agent Engine 与工单账本]
     C --> D[AutoLoop 原版 Runtime 与 worker]
     D --> E[Codex · Claude Code · ACP · 通用 CLI]
     E --> D
     D --> C
-    F[SuitMe 协作台 · 人的决定与验收] <--> C
+    F[Contractor · 人的决定与验收] <--> C
     G[授权上下文 · 交付版本 · 知识库] <--> F
     G --> C
 ```
 
 ## AutoLoop 能力接入清单
 
-“完整接入”要求在 SuitMe 中保留能力和可追溯证据。原版源码到位、适配到产品、通过真实通道验证是三个独立的交付检查项。
+“完整接入”要求在 Contractor 中保留能力和可追溯证据。原版源码到位、适配到产品、通过真实通道验证是三个独立的交付检查项。
 
-| 原版能力 | SuitMe 接入要求 | 首条链范围 |
+| 原版能力 | Contractor 接入要求 | 首条链范围 |
 | --- | --- | --- |
 | 标准事件、事件源插件、去重、同主题合并 | 入口可信身份、Webhook 验签、显式项目绑定，授权工单映射原生执行 lane | 飞书单聊与显式工单事件。GitHub/GitLab/HTTP 等入口留待接入 |
 | 声明式规则、热更新、Skill、并发隔离 | 绑定可信配置，支持按项目看生效版本、止停、错误与回退 | 原版规则和单并发 worker。配置界面待接 |
@@ -52,7 +52,7 @@ flowchart LR
 | 9.8 配额与 Agent 管理 | 按人、项目和职责归集费用，注册 Skill、生命周期、灰度与停用 | Agent 停用后拒绝新执行，存量运行可排空或取消，并可解释每笔用量 |
 | 9.9 项目树与命令权 | 层级负责上下文聚合；授权落在具体任务与资源，带版本的权限与优先级可追溯 | 子任务不会隐式继承父级权限，多来源身份在组织规则下得到一致的授权决定 |
 
-其余产品界面沿用 SuitMe 的中文工作台、资源列表与知识引用交互，逐步解开宿主接口。复用许可及声明见 [第三方声明](../THIRD_PARTY_NOTICES.md)。LobeHub 当前仅纳入设计机制和交互参考。
+其余产品界面沿用 Contractor 的中文工作台、资源列表与知识引用交互，逐步解开宿主接口。复用许可及声明见 [第三方声明](../THIRD_PARTY_NOTICES.md)。LobeHub 当前仅纳入设计机制和交互参考。
 
 ## 首条真实迁移链
 
@@ -63,10 +63,10 @@ flowchart LR
 
 ### 试点与现行入口
 
-该次试点使用单独的飞书单聊、测试仓库与本地账本。[历史试点实现](https://github.com/zhegong-996/suitme-collab/tree/a7b8b1f7c97cf3fe4cba6894e14590448c0d8ae7/src/superagent-pilot)记录当时的入口。当前复跑从[工作台说明](WORKBENCH.md)配置独立实例。工单账本、AutoLoop 日志和交付文件保存在忽略目录中。部署时需按执行身份隔离原版 worker 和 CLI 的会话目录。
+该次试点使用单独的飞书单聊、测试仓库与本地账本。历史提交 `a7b8b1f7c97cf3fe4cba6894e14590448c0d8ae7` 的 `src/superagent-pilot` 记录当时的入口。当前复跑从[工作台说明](WORKBENCH.md)配置独立实例。工单账本、AutoLoop 日志和交付文件保存在忽略目录中。部署时需按执行身份隔离原版 worker 和 CLI 的会话目录。
 
 ### 联调记录 · 2026-11-14
 
 - 飞书测试单聊实收发。Engine 产生工单 `2b66b264d80a2265bfdaddfa8688e5d7` 和一个 Assignment。回执生成原生问题卡片后进程退出。原话题收到真实测试回复后，AutoLoop 自动开第二轮并恢复第一轮 Codex 会话。
-- [测试 PR #4](https://github.com/zhegong-996/desktop-tutorial/pull/4) 的提交为 `fad5df8b945c0da07f83713233bf67fe43336ca3`。[Actions 运行](https://github.com/zhegong-996/desktop-tutorial/actions/runs/43552188817) 按该提交生成预览。预览文件的 Git blob 与远端一致。浏览器确认标题、演练提示与按钮反馈。
+- 测试 PR #4 的提交为 `fad5df8b945c0da07f83713233bf67fe43336ca3`。Actions 运行 按该提交生成预览。预览文件的 Git blob 与远端一致。浏览器确认标题、演练提示与按钮反馈。
 - 平台回归 822 项通过；固定版 AutoLoop 回归 352 项通过，2 项上游用例跳过。以该 PR 的真实预览为输入，在隔离副本验证了候选先审后收录、执行身份命中 1→0、撤权后原文拒绝及所有者仍可检索。发起人的验收、知识采用和撤权以独立测试账本收到的实际操作为准。

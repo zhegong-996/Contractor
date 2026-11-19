@@ -11,13 +11,16 @@
  * fail-closed：未初始化（未 await initRbac）时一切判定返回 false。
  */
 import { newEnforcer, newModel, FileAdapter, type Enforcer } from 'casbin';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { protocolMatches } from './workbench/compatibility.ts';
 import { runtime } from './config.ts';
 
 /** 人的四级角色 + agent 的三个档位（与 agent registry 职责对应）。 */
 export const RBAC_HUMAN_ROLES = ['owner', 'admin', 'operator', 'viewer'] as const;
 export const RBAC_AGENT_TIERS = ['agent-supervisor', 'agent-worker', 'agent-personal'] as const;
+const workbenchPolicyRevision = '# contractor-platform-capabilities-v1';
+const workbenchMembersRevision = '# contractor-platform-capabilities-v2';
 
 /**
  * 权限矩阵种子：首次生成策略文件的依据；文件落地后以文件为准（可手工扩展，
@@ -25,9 +28,9 @@ export const RBAC_AGENT_TIERS = ['agent-supervisor', 'agent-worker', 'agent-pers
  */
 export const ROLE_PERMISSIONS: Record<string, readonly string[]> = {
   owner: ['read', 'knowledge-review', 'task-control', 'services-control', 'audit-view', 'feishu-auth', 'accounts-manage',
-    'users-settings-view', 'knowledge-write-team', 'knowledge-write-org', 'knowledge-delete-org'],
+    'users-settings-view', 'knowledge-write-team', 'knowledge-write-org', 'knowledge-delete-org', 'project-create', 'platform-quota-admin'],
   admin: ['read', 'knowledge-review', 'task-control', 'services-control', 'audit-view', 'feishu-auth',
-    'users-settings-view', 'knowledge-write-team', 'knowledge-write-org', 'knowledge-delete-org'],
+    'users-settings-view', 'knowledge-write-team', 'knowledge-write-org', 'knowledge-delete-org', 'project-create', 'platform-quota-admin', 'workspace-members-admin'],
   operator: ['read', 'knowledge-review', 'task-control', 'knowledge-write-team'],
   viewer: ['read'],
   'agent-supervisor': ['read', 'knowledge-write-team', 'knowledge-write-org', 'knowledge-delete-org'],
@@ -56,6 +59,8 @@ const policyPath = () => path.join(runtime('console'), 'rbac_policy.csv');
 
 function seedPolicy(): string {
   const lines = [
+    workbenchPolicyRevision,
+    workbenchMembersRevision,
     '# casbin RBAC 策略（角色 -> 权限，act 统一 use；keyMatch 支持 * 通配）',
     '# 首次由 ROLE_PERMISSIONS 种子生成；可手工扩展（加角色/加权限），重启生效；',
     '# 删除本文件即重置为种子。人与用户的绑定（g 段）不落文件：人以 accounts.json',
@@ -69,12 +74,38 @@ function seedPolicy(): string {
 let sharedEnforcer: Enforcer | null = null;
 let readyPromise: Promise<void> | null = null;
 
+function migrateWorkbenchPolicy(file: string) {
+  const current = readFileSync(file, 'utf8');
+  const lines = current.split(/\r?\n/).map(line => line.trim());
+  const hasFirst = lines.some(line => protocolMatches(line, workbenchPolicyRevision));
+  const hasSecond = lines.some(line => protocolMatches(line, workbenchMembersRevision));
+  if (hasFirst && hasSecond) return;
+  const rules = current.split(/\r?\n/).map(line => line.split(',').map(value => value.trim()));
+  const has = (role: string, permission: string) => rules.some(([kind, subject, object, act]) =>
+    kind === 'p' && subject === role && object === permission && act === 'use');
+  const additions = hasFirst ? [] : ['owner', 'admin'].flatMap(role => {
+    if (!has(role, 'services-control')) return [];
+    return [
+      ...(!has(role, 'project-create') && has(role, 'task-control') ? [`p, ${role}, project-create, use`] : []),
+      ...(!has(role, 'platform-quota-admin') ? [`p, ${role}, platform-quota-admin, use`] : []),
+    ];
+  });
+  if (!hasSecond && has('admin', 'services-control') && !has('admin', 'workspace-members-admin'))
+    additions.push('p, admin, workspace-members-admin, use');
+  const temporary = file + '.migration-' + process.pid;
+  writeFileSync(temporary, [current.trimEnd(), ...(!hasFirst ? [workbenchPolicyRevision] : []),
+    ...(!hasSecond ? [workbenchMembersRevision] : []), ...additions, ''].join('\n'), { mode: 0o600 });
+  renameSync(temporary, file);
+}
+
 /** 初始化 enforcer（幂等）。两个进程（bridge / console）各调各的，读同一文件。 */
 export async function initRbac(): Promise<void> {
   if (!readyPromise) {
     readyPromise = (async () => {
-      if (!existsSync(policyPath())) writeFileSync(policyPath(), seedPolicy(), { mode: 0o600 });
-      sharedEnforcer = await newEnforcer(newModel(RBAC_MODEL), new FileAdapter(policyPath()));
+      const file = policyPath();
+      if (!existsSync(file)) writeFileSync(file, seedPolicy(), { mode: 0o600 });
+      else migrateWorkbenchPolicy(file);
+      sharedEnforcer = await newEnforcer(newModel(RBAC_MODEL), new FileAdapter(file));
     })().catch(error => { readyPromise = null; throw error; });
   }
   return readyPromise;

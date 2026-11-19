@@ -7,10 +7,24 @@ import path from 'node:path';
 import test from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { Trigger } from '../upstream/superagent/src/core/index.ts';
-import type { CardTransport } from '../src/workbench/feishu-cards.ts';
+import { feishuInboxCard, type CardTransport } from '../src/workbench/feishu-cards.ts';
+
+test('同一主题两项验收直接在按钮标记工单，回调仍绑定各自的版本', () => {
+  const content = feishuInboxCard(['d1d72ab6', '8248de14'].map((ref, index) => ({
+    scope: 'store:reasons', group: '门店 / 推荐理由', title: '待验收', link: 'https://suite.example/#/store/inbox',
+    work: { label: '工单 ' + ref, url: 'https://suite.example/#/store/work/' + ref, ref },
+    action: { id: 10 + index, decision: ref, title: '待验收', text: '第 1 版', options: ['验收当前版本'], revision: String(index) },
+  })));
+  const actions = JSON.parse(content).body.elements.filter((element: { tag: string }) => element.tag === 'interactive_container');
+  assert.equal(actions.length, 2);
+  assert.deepEqual(actions.map((action: { elements: Array<{ text: { content: string } }> }) => action.elements[0]!.text.content),
+    ['验收当前版本 · d1d72ab6', '验收当前版本 · 8248de14']);
+  assert.deepEqual(actions.map((action: { behaviors: Array<{ value: unknown }> }) => action.behaviors[0]!.value),
+    [{ card: 10, choice: 0 }, { card: 11, choice: 0 }]);
+});
 
 test('新项目的成员、主题和两个 Agent 隔离，飞书原卡只允许指定账号处理一次', { timeout: 30000 }, async t => {
-  const dir = await mkdtemp(path.join(os.tmpdir(), 'suitme-feishu-collaboration-'));
+  const dir = await mkdtemp(path.join(os.tmpdir(), 'contractor-feishu-collaboration-'));
   process.env.COLLAB_STATE_DIR = dir;
   await mkdir(path.join(dir, 'console'));
   const worker = path.join(dir, 'worker.mjs');
@@ -119,15 +133,16 @@ test('新项目的成员、主题和两个 Agent 隔离，飞书原卡只允许�
     assert.fail('等待飞书卡片或执行状态超时');
   }
   type Sent = (typeof deliveries)[number];
-  const forMessage = (message: string) => deliveries.find(item => 'message' in item.target && item.target.message === message
+  const forPerson = (person: string) => deliveries.find(item => 'user' in item.target && item.target.user === 'ou_' + person
     && item.card.header.title.content === 'Agent 等待你答复一项执行问题');
   await wait(() => work.detail('product', copy).questions.length && work.detail('engineering', wrap).questions.length || undefined);
-  assert.equal(forMessage('om_copy'), undefined);
-  assert.equal(forMessage('om_wrap'), undefined);
+  assert.equal(forPerson('product'), undefined);
+  assert.equal(forPerson('engineering'), undefined);
   assert.ok(!replies.some(item => item.text.includes('Agent 等待你答复一项执行问题')));
   cardsAvailable = true;
-  const copyCard = await wait(() => forMessage('om_copy'));
-  const wrapCard = await wait(() => forMessage('om_wrap'));
+  const copyCard = await wait(() => forPerson('product'));
+  const wrapCard = await wait(() => forPerson('engineering'));
+  assert.ok(!deliveries.some(item => 'message' in item.target));
   assert.deepEqual(replies.filter(item => item.text.includes(web.text)).map(item => item.message), ['om_copy']);
   const click = (item: Sent, actor: string, ref = item.ref) => readCardClick(JSON.stringify({
     type: 'card.action.trigger', event_id: randomUUID(), operator_id: 'ou_' + actor, message_id: ref, chat_id: 'oc_store',

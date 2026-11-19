@@ -1,11 +1,13 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { ArrowLeft, ArrowRight, BookOpen, Check, FilePlus2, History, Import, LockKeyhole, PencilLine, Plus, XCircle } from 'lucide-react';
-import { api, readable, useData, type Imported, type Knowledge, type MemoryRow, type MemoryUse, type ReadableKnowledge, type RecallHit } from './api.ts';
+import { ArrowLeft, ArrowRight, BookOpen, Check, FilePlus2, History, Import, LockKeyhole, Network, PencilLine, Plus, XCircle } from 'lucide-react';
+import { api, readable, useData, type Imported, type Knowledge, type MemoryRow, type MemoryUse, type ProjectKnowledgeAccess, type ReadableKnowledge, type RecallHit } from './api.ts';
 import { AcceptedEvidence } from './accepted-evidence.tsx';
+import { KnowledgeRelations } from './knowledge-relations.tsx';
 import { go, routeFor, runRoute, type PageProps } from './navigation.ts';
-import { Button } from './paperclip/button.tsx';
-import { Input } from './paperclip/input.tsx';
-import { date, Empty, Ext, Failure, Field, IconButton, Loading, Markdown, MaterialIcon, Modal, Pill, SearchBox, Section, Segments,
+import { Button } from './components/button.tsx';
+import { Input, TextArea } from './components/input.tsx';
+import { Markdown } from './markdown.tsx';
+import { date, Empty, Ext, Failure, Field, IconButton, KnowledgeGrantStatus, Loading, MaterialIcon, Modal, Pill, SearchBox, Section, Segments,
   short, Source, useActions, useStored } from './ui.tsx';
 
 const catalogTabs = [['current', '现行'], ['review', '待确认'], ['history', '历史']] as const;
@@ -23,6 +25,8 @@ export function KnowledgePage(props: PageProps) {
   const [searchTerm, setTerm] = useState(query);
   const [editing, edit] = useState<'add' | 'import' | null>(null);
   const overview = !route.item && route.tab === 'activity';
+  const relations = route.tab === 'relations';
+  const grants = route.tab === 'access';
   useEffect(() => {
     const timer = window.setTimeout(() => setTerm(query.trim()), 240);
     return () => window.clearTimeout(timer);
@@ -39,7 +43,7 @@ export function KnowledgePage(props: PageProps) {
     if (tab === 'review') return entry.state === 'candidate' && (!query || entry.title.includes(query.trim()));
     return entry.state === 'published' && (!query || entry.title.includes(query.trim()));
   });
-  return <div className="split" data-has-detail={!!route.item || overview}>
+  return <div className="split" data-has-detail={!!route.item || overview || relations || grants}>
     <aside className="split-list" aria-label="项目资料列表">
       <div className="list-header">
         <div className="list-title"><h1>知识与记忆</h1><div className="actions">
@@ -49,9 +53,9 @@ export function KnowledgePage(props: PageProps) {
         <SearchBox label="搜索项目知识" value={query} onChange={search} />
         <Segments label="知识状态" items={catalogTabs} value={tab} onChange={value => go(project.id, 'knowledge', undefined, value)} />
       </div>
-      <a className="text-button memory-home-link" href={routeFor(project.id, 'knowledge', undefined, 'activity')}>
-        协作沉淀 <ArrowRight size={14} />
-      </a>
+      <div className="knowledge-shortcuts"><a className="text-button" href={routeFor(project.id, 'knowledge', undefined, 'activity')}>协作沉淀 <ArrowRight size={14} /></a>
+        <a className="text-button" href={routeFor(project.id, 'knowledge', undefined, 'relations')}><Network size={14} />知识关系</a>
+        <a className="text-button" href={routeFor(project.id, 'knowledge', undefined, 'access')}><LockKeyhole size={14} />我管理的授权</a></div>
       <div className="list-scroll">
         {catalog.error ? <Failure error={catalog.error} retry={() => void catalog.refetch()} /> : catalog.isPending ? <Loading />
           : entries.length ? entries.map(entry => <a key={entry.id} className="list-item entry-item"
@@ -65,8 +69,8 @@ export function KnowledgePage(props: PageProps) {
       </div>
     </aside>
     <div className="split-detail">
-      {(route.item || overview) && <a className="mobile-back" href={routeFor(project.id, 'knowledge', undefined, tab)}><ArrowLeft size={16} />知识列表</a>}
-      {selected ? <KnowledgeDetail entry={selected} key={selected.id} {...props} />
+      {(route.item || overview || relations || grants) && <a className="mobile-back" href={routeFor(project.id, 'knowledge', undefined, tab)}><ArrowLeft size={16} />知识列表</a>}
+      {grants ? <KnowledgeAccess project={project.id} /> : relations ? <KnowledgeRelations project={project.id} entry={route.item} /> : selected ? <KnowledgeDetail entry={selected} key={selected.id} {...props} />
         : route.item && waiting ? <Loading /> : route.item ? <Empty title="此条目当前不可见" icon={<LockKeyhole />}
           description="可以查看现行列表，或在有权限时查询历史版本。" />
           : <MemoryHome project={project.id} />}
@@ -74,6 +78,40 @@ export function KnowledgePage(props: PageProps) {
     {editing === 'add' && <KnowledgeEditor {...props} close={() => edit(null)} />}
     {editing === 'import' && <ImportSource {...props} close={() => edit(null)} />}
   </div>;
+}
+
+function KnowledgeAccess({ project }: { project: string }) {
+  const data = useData<ProjectKnowledgeAccess>('project/' + project + '/knowledge-access', 3200);
+  const [selection, select] = useState<ProjectKnowledgeAccess[number]>();
+  const { run, busy } = useActions();
+  const chosen = selection && data.data?.find(row => row.id === selection.id);
+  const granting = selection?.canGrant === true;
+  return <div className="knowledge-detail"><div className="reading">
+    <header className="object-header"><div className="object-emblem"><LockKeyhole size={22} /></div><h1>我管理的授权</h1></header>
+    <Section title="工单资料授权">
+      {data.error ? <Failure error={data.error} retry={() => void data.refetch()} /> : !data.data ? <Loading />
+        : !data.data.length ? <Empty title="你负责的资料暂无工单授权" icon={<LockKeyhole />} />
+        : data.data.map(row => <div className="record-row access-row" key={row.id}>
+          <div className="access-identity">
+            <a href={routeFor(project, 'work', row.ticket, 'context')}><strong>{row.title}</strong></a>
+            <div className="inline-meta"><span>{row.readerOwner} · {row.readerAgent}</span><KnowledgeGrantStatus {...row} />
+              {row.expires && row.state === 'granted' && <span>有效至 {date(new Date(row.expires).toISOString())}</span>}</div>
+          </div>
+          {(row.canGrant || row.canRevoke) && <Button size="sm" variant="outline" onClick={() => select(row)}>{row.canGrant ? '确认授权' : '撤回授权'}</Button>}
+        </div>)}
+    </Section>
+    {selection && <Modal title={granting ? '确认工单资料授权' : '撤回工单资料授权'} close={() => select(undefined)}>
+      <div className="form"><p>{selection.title} · {selection.readerOwner} 的 {selection.readerAgent}</p>
+        <p className="muted-text">{granting ? `仅限当前工单与资料版本，有效期 ${chosen?.hours ?? selection.hours} 小时。` : '撤回后，系统将重新检查关联成果和派生知识的访问。'}</p>
+        <div className="form-actions"><Button disabled={busy || !(granting ? chosen?.canGrant : chosen?.canRevoke)}
+          variant={granting ? 'default' : 'destructive'} onClick={async () => {
+            if (!chosen) return;
+            if (await run(() => api('ticket/' + chosen.ticket + '/access/' + chosen.id, { state: granting ? 'granted' : 'revoked', hours: granting ? chosen.hours : undefined }),
+              granting ? '已授权' : '已撤回授权')) select(undefined);
+          }}>{granting ? `授权 ${chosen?.hours ?? selection.hours} 小时` : '确认撤回'}</Button></div>
+      </div>
+    </Modal>}
+  </div></div>;
 }
 
 function MemoryHome({ project }: { project: string }) {
@@ -136,6 +174,7 @@ function KnowledgeDetail({ entry, project, workspace, openTask, route }: PagePro
         <div className="object-meta">{badge(entry)}<span>{kinds[entry.kind] ?? entry.kind}</span>
           <span>{entry.visibility === 'restricted' ? '受限资料' : '项目可见'}</span><span>负责人 {entry.owner}</span></div>
       </div>
+      {full && <a className="text-button object-action" href={routeFor(project.id, 'knowledge', entry.id, 'relations')}><Network size={16} />知识关系</a>}
     </header>
     <div className="detail-stack reading">
       {!full && <div className="info-callout"><LockKeyhole size={17} /><span>此资料需按工单申请授权。负责人批准后，本工单的执行 Agent 才能读取。</span></div>}
@@ -170,6 +209,9 @@ function KnowledgeDetail({ entry, project, workspace, openTask, route }: PagePro
           : { material: [entry.id] })}>{full?.learning ? '复用经验' : '用于新工单'}<ArrowRight /></Button>}
         {full?.canReview && <Button variant="outline" disabled={busy} onClick={() => show('review')}><PencilLine />核对内容</Button>}
         {full?.canPublish && <Button disabled={busy} onClick={() => show('publish')}><Check />确认采用</Button>}
+        {active && full.directory && project.mayStart && <Button variant="outline" onClick={() => show('directory')}>
+          <LockKeyhole />{full.directory === 'hidden' ? '目录隐藏' : '公开标题，可申请'}
+        </Button>}
         {active && owned && !full?.source && !full?.ticket && <Button variant="outline" onClick={() => show('replace')}><FilePlus2 />拟定新版</Button>}
         {active && owned && <Button variant="ghost" onClick={() => show('invalidate')}><XCircle />标记失效</Button>}
         {active && full.visibility === 'project' && full.body.length <= 1500 && full.conditions && project.maintain && memory.data
@@ -182,6 +224,19 @@ function KnowledgeDetail({ entry, project, workspace, openTask, route }: PagePro
     {full && (dialog === 'review' || dialog === 'replace') && <KnowledgeEditor {...{ project, workspace, openTask, route }}
       close={() => show('')} entry={full} mode={dialog} />}
     {dialog === 'publish' && full && <PublishDialog entry={full} project={project} close={() => show('')} />}
+    {dialog === 'directory' && full?.directory && <Modal title="受限知识目录" close={() => show('')}>
+      <form className="form" onSubmit={async e => {
+        e.preventDefault();
+        const directory = new FormData(e.currentTarget).get('directory');
+        if (await run(() => api('knowledge/' + full.id + '/directory', { revision: full.revision, directory }), '目录设置已保存')) show('');
+      }}>
+        <Field label="项目成员可见范围"><select name="directory" defaultValue={full.directory}>
+          <option value="hidden">隐藏标题和来源</option><option value="requestable">公开标题，可按工单申请</option>
+        </select></Field>
+        <p className="muted-text">正文仍按工单授权。已授权的访问可在访问申请中撤回。</p>
+        <div className="form-actions"><Button type="submit" disabled={busy}>保存</Button></div>
+      </form>
+    </Modal>}
     {dialog === 'invalidate' && full && <Modal title="标记知识失效" close={() => show('')}>
       <form className="form" onSubmit={async e => {
         e.preventDefault();
@@ -191,7 +246,7 @@ function KnowledgeDetail({ entry, project, workspace, openTask, route }: PagePro
         }
       }}>
         <p>历史工单会保留此知识作为当时的依据。新的委托无法继续使用它。</p>
-        <Field label="失效原因"><textarea name="reason" maxLength={3500} required rows={3} /></Field>
+        <Field label="失效原因"><TextArea name="reason" maxLength={3500} required rows={3} /></Field>
         <div className="form-actions"><Button variant="destructive" type="submit" disabled={busy}>确认失效</Button></div>
       </form>
     </Modal>}
@@ -214,7 +269,7 @@ function MemoryUseHistory({ project, id }: { project: string; id: string }) {
 function KnowledgeEditor({ project, entry, mode, close }: PageProps & { entry?: ReadableKnowledge; mode?: 'review' | 'replace'; close: () => void }) {
   const key = 'knowledge-edit:' + project.id + ':' + (entry?.id ?? 'new') + ':' + (mode ?? '');
   const initial = { title: entry?.title ?? '', body: entry?.body ?? '', conditions: entry?.conditions ?? '',
-    visibility: entry?.visibility ?? 'restricted', kind: entry?.kind ?? 'reference' };
+    visibility: entry?.visibility ?? 'restricted', kind: entry?.kind ?? 'reference', directory: entry?.directory ?? 'hidden' };
   const [draft, save] = useStored(key, initial);
   const update = (name: keyof typeof draft, value: string) => save({ ...draft, [name]: value });
   const { run, busy } = useActions();
@@ -222,7 +277,8 @@ function KnowledgeEditor({ project, entry, mode, close }: PageProps & { entry?: 
     e.preventDefault();
     const outcome = await run(() => mode === 'review' && entry
       ? api<{ id: string }>('knowledge/' + entry.id + '/review', { revision: entry.revision, title: draft.title.trim(), body: draft.body.trim(), conditions: draft.conditions.trim() })
-      : api<{ id: string }>('knowledge/' + project.id, { ...draft, ...(entry ? { replaces: { id: entry.id, revision: entry.revision } } : {}) }),
+      : api<{ id: string }>('knowledge/' + project.id, { ...draft, directory: !entry && draft.visibility === 'restricted' ? draft.directory ?? 'hidden' : undefined,
+        ...(entry ? { replaces: { id: entry.id, revision: entry.revision } } : {}) }),
       mode === 'review' ? '复核已保存，等待采用' : '知识已保存');
     if (outcome) {
       save(initial);
@@ -233,8 +289,8 @@ function KnowledgeEditor({ project, entry, mode, close }: PageProps & { entry?: 
   return <Modal title={mode === 'review' ? '核对知识候选' : mode === 'replace' ? '拟定知识新版' : '新增项目知识'} close={close}>
     <form className="form" onSubmit={submit}>
       <Field label="标题"><Input autoFocus maxLength={100} value={draft.title} onChange={e => update('title', e.target.value)} required /></Field>
-      <Field label="正文"><textarea value={draft.body} onChange={e => update('body', e.target.value)} rows={8} maxLength={16000} required /></Field>
-      <Field label="适用条件"><textarea value={draft.conditions} onChange={e => update('conditions', e.target.value)} rows={2} maxLength={600} required={!!mode} /></Field>
+      <Field label="正文"><TextArea value={draft.body} onChange={e => update('body', e.target.value)} rows={8} maxLength={16000} required /></Field>
+      <Field label="适用条件"><TextArea value={draft.conditions} onChange={e => update('conditions', e.target.value)} rows={2} maxLength={600} required={!!mode} /></Field>
       {!entry && <div className="form-grid">
         <Field label="类型"><select value={draft.kind} onChange={e => update('kind', e.target.value)}>
           <option value="reference">资料</option><option value="procedure">流程</option><option value="decision">决策</option>
@@ -243,6 +299,9 @@ function KnowledgeEditor({ project, entry, mode, close }: PageProps & { entry?: 
           <option value="restricted">按工单授权</option><option value="project">项目成员</option>
         </select></Field>
       </div>}
+      {!entry && draft.visibility === 'restricted' && <Field label="目录"><select value={draft.directory ?? 'hidden'} onChange={e => update('directory', e.target.value)}>
+        <option value="hidden">隐藏标题和来源</option><option value="requestable">公开标题，可按工单申请</option>
+      </select></Field>}
       <div className="form-actions"><Button type="submit" disabled={busy}>{mode === 'replace' ? '保存待确认版本' : '保存'}</Button></div>
     </form>
   </Modal>;
