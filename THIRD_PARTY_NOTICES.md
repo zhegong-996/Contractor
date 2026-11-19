@@ -111,6 +111,8 @@ Reviewed the [LobeHub inbox digest service](https://github.com/lobehub/lobehub/b
 
 The AutoLoop adapter invokes the unmodified CLI from `@anthropic-ai/sandbox-runtime@0.0.83`, maintained at [anthropics/sandbox-runtime](https://github.com/anthropics/sandbox-runtime). Version and integrity are pinned in `package-lock.json`; the upstream license is retained in `licenses/sandbox-runtime-APACHE-2.0.txt`. Contractor supplies the per-execution filesystem and network policy. Its `zod/v3` import is resolved through Zod 4.6.7's compatibility export using a package override; the published runtime source is not patched. See `docs/MEMBER-EXECUTION-ISOLATION.md` for the integration and tested limits.
 
+Execution device archives include the same locked Sandbox Runtime and its required dependencies with their license files. The bundled Sandbox Runtime manifest pins Zod 4.6.7. Its executable and source files are copied from the upstream package. [Zod advisory](https://github.com/advisories/GHSA-mrhx-c7xc-m3w5)
+
 ## Octop
 
 Adapted React member selection and speaker attribution from TencentCloud/Octop at commit `bf134dbd379036ce7545c7df1a1da7e381ece9ff`. See `workbench/src/octop/`. [The original MIT notice](licenses/octop-MIT.txt) also ships in `component-licenses.txt`.
