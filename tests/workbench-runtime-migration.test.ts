@@ -98,8 +98,10 @@ test('门店推荐理由离线切换两次，原工单必答、会话、历史�
   }
   const init = spawn(process.execPath, [...args, 'init-owner', 'product'], { env: env(original), stdio: ['pipe', 'ignore', 'pipe'] });
   const initialized = once(init, 'exit');
+  let initializationLog = '';
+  init.stderr!.on('data', data => { initializationLog += data; });
   init.stdin!.end(password);
-  assert.deepEqual(await initialized, [0, null]);
+  assert.deepEqual(await initialized, [0, null], initializationLog);
   await start(original, 'autoloop');
   await assert.rejects(migrateRuntime(original, native), /正在写入/);
   await api('budget/points-policy', { enabled: true, tokensPerPoint: 1000, rates: [{ provider: 'deepseek', model, multiplier: 1, reserveTokens: 1000 }] });

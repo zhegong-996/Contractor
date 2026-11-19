@@ -1,5 +1,6 @@
 import { codeDeltaSchema } from './code-bundle.ts';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import { readFileSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import path from 'node:path';
@@ -867,7 +868,7 @@ const release = acquireStateLease(stateDir, 'workbench');
 try {
   if (argv[0] === 'init-owner' || argv[0] === 'add-member') {
     await prepareAuth();
-    const password = (await readFile('/dev/stdin', 'utf8')).trimEnd();
+    const password = readFileSync(0, 'utf8').trimEnd();
     if (argv[0] === 'init-owner') await auth.bootstrapOwner(argv[1] ?? '', password);
     else {
       const owner = auth.listAccounts().find(a => a.role === 'owner' && !a.disabled);
