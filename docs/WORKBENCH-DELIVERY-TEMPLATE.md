@@ -34,4 +34,4 @@ flowchart LR
 
 ## 门店小屏联调
 
-在配置好的测试仓里使用[小屏专用 CI](../integrations/github/store-small-screen/README.md)。PR #18 的历史提交 `314d594` 在 280px 视口下正文为 228px，`41abe32` 达到 244px。两版可用于复测当前检查，PR #18 的现有 Actions 记录可用于核对旧检查和同 SHA 重跑。专用 CI 产物入库需要测试仓的专用基线包含该工作流。测试验收与 GitHub 分支合并、应用发布分别记录。
+在配置好的测试仓里使用[小屏专用 CI](../integrations/github/store-small-screen/README.md)。用 280px 视口下正文宽度分别为 228px 和 244px 的两个样例，核对通过和不通过的结果。可对当前提交重跑 CI，核对同一提交的多次检查和历史版本记录。专用 CI 产物入库需要测试仓的基线包含该工作流。测试验收、GitHub 分支合并和应用发布分别记录。

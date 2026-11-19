@@ -10,7 +10,7 @@ import type { Trigger } from '../upstream/superagent/src/core/index.ts';
 import { feishuInboxCard, type CardTransport } from '../src/workbench/feishu-cards.ts';
 
 test('同一主题两项验收直接在按钮标记工单，回调仍绑定各自的版本', () => {
-  const content = feishuInboxCard(['d1d72ab6', '8248de14'].map((ref, index) => ({
+  const content = feishuInboxCard(['a1000001', 'a1000002'].map((ref, index) => ({
     scope: 'store:reasons', group: '门店 / 推荐理由', title: '待验收', link: 'https://suite.example/#/store/inbox',
     work: { label: '工单 ' + ref, url: 'https://suite.example/#/store/work/' + ref, ref },
     action: { id: 10 + index, decision: ref, title: '待验收', text: '第 1 版', options: ['验收当前版本'], revision: String(index) },
@@ -18,7 +18,7 @@ test('同一主题两项验收直接在按钮标记工单，回调仍绑定各�
   const actions = JSON.parse(content).body.elements.filter((element: { tag: string }) => element.tag === 'interactive_container');
   assert.equal(actions.length, 2);
   assert.deepEqual(actions.map((action: { elements: Array<{ text: { content: string } }> }) => action.elements[0]!.text.content),
-    ['验收当前版本 · d1d72ab6', '验收当前版本 · 8248de14']);
+    ['验收当前版本 · a1000001', '验收当前版本 · a1000002']);
   assert.deepEqual(actions.map((action: { behaviors: Array<{ value: unknown }> }) => action.behaviors[0]!.value),
     [{ card: 10, choice: 0 }, { card: 11, choice: 0 }]);
 });

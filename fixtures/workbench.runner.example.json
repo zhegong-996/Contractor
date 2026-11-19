@@ -1,0 +1,26 @@
+{
+  "port": 4280,
+  "remoteRunnerPort": 4281,
+  "runnerConnectUrl": "http://127.0.0.1:4282",
+  "projects": [{
+    "id": "runner-demo",
+    "title": "示例协作项目",
+    "members": ["product"],
+    "maintainers": ["product"]
+  }],
+  "functions": [{ "id": "review", "title": "整理验收清单" }],
+  "agents": [{
+    "id": "first-review",
+    "title": "验收清单 Agent",
+    "kind": "personal",
+    "owner": "product",
+    "function": "review",
+    "projects": ["runner-demo"],
+    "engine": "claude",
+    "model": "deepseek-flash",
+    "execution": { "kind": "remote", "provider": "deepseek" },
+    "active": true,
+    "capability": "把示例需求整理成可验证的清单。",
+    "skill": "只读取本轮工单，直接给出简明中文验收清单。"
+  }]
+}

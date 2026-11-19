@@ -49,6 +49,8 @@ npm start
 
 初始化时在终端输入独立口令，按 Ctrl+D 提交输入。打开 [本机工作台](http://127.0.0.1:4280/)，用 `product` 登录可查看示例项目、任务、Agent 和设置。示例里的 Agent 初始为停用。实际执行前，在此实例的 `workbench.json` 配置成员、职责、模型与授权，再登记自己的执行端。
 
+想直接体验接单，可以使用单独的执行端样例，完成安装、浏览器授权和首张只读工单。 [第一次用执行端接单](docs/QUICKSTART-RUNNER.md)
+
 使用源码包时，从解包目录的 `npm ci` 开始。企业 IM 登录、成员激活和渠道接入见 [IM 登录配置](docs/WORKBENCH-IM-LOGIN.md)。远程设备连接、服务商凭据和主备路由见 [执行端手册](docs/WORKBENCH-REMOTE-RUNNER.md)。
 
 ## 模块与当前运行方式

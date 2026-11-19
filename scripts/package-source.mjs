@@ -16,10 +16,16 @@ const publicPaths = [
   '.gitignore', '.gitmodules', '.github/workflows/ci.yml', 'AGENTS.md', 'CONTRIBUTING.md', 'LICENSE', 'README.md',
   'THIRD_PARTY_NOTICES.md', 'package.json', 'package-lock.json', 'sources.lock.json', 'tsconfig.json',
   'bin', 'fixtures', 'integrations', 'licenses', 'scripts', 'src', 'tests', 'workbench',
-  'docs/ARCHITECTURE.md', 'docs/PLUGIN-ARCHITECTURE.md', 'docs/SOURCES.md', 'docs/WORKBENCH-OCTOP.md',
+  'docs/ARCHITECTURE.md', 'docs/PLUGIN-ARCHITECTURE.md', 'docs/QUICKSTART-RUNNER.md', 'docs/SOURCES.md', 'docs/WORKBENCH-OCTOP.md',
   'docs/WORKBENCH-IM-LOGIN.md', 'docs/WORKBENCH-PROJECT-ARCHITECTURE.md',
   'docs/WORKBENCH-DELIVERY-TEMPLATE.md', 'docs/WORKBENCH-REMOTE-RUNNER.md',
 ];
+const upstreamPaths = {
+  superagent: ['LICENSE', 'README.md', 'package.json', 'locale', 'prompts', 'skills', 'src'],
+  autoloop: [],
+  'octop-gateway': ['LICENSE', 'README.md', 'pyproject.toml', 'src'],
+  'octop-memory': ['LICENSE', 'README.md', 'pyproject.toml', 'src'],
+};
 const files = (directory, selection = []) => [...new Set(execFileSync('git', [
   'ls-files', '-z', '--cached', ...(committed ? [] : ['--others', '--exclude-standard']), '--', ...selection,
 ], { cwd: directory, encoding: 'utf8' }).split('\0').filter(Boolean))];
@@ -30,6 +36,9 @@ function checkCommitted(directory, selection) {
 
 function copy(directory, prefix, names) {
   for (const item of names) {
+    if (/(^|\/)(?:\.git|\.runtime|node_modules|\.env|auth\.json|credentials\.json|accounts\.json)(?:\/|$)/i.test(item)
+      || /\.(?:sqlite[\w-]*|db(?:-shm|-wal)?|pem|p12|key)$/i.test(item))
+      throw new Error('发布范围包含运行数据或凭据路径：' + path.join(prefix, item));
     const source = path.join(directory, item);
     const stat = lstatSync(source, { throwIfNoEntry: false });
     if (!stat) continue;
@@ -47,7 +56,8 @@ try {
   for (const upstream of Object.keys(lock.sources)) {
     const prefix = path.join('upstream', upstream);
     const directory = path.join(root, prefix);
-    const selection = upstream.startsWith('octop-') ? ['LICENSE', 'README.md', 'pyproject.toml', 'src'] : [];
+    const selection = upstreamPaths[upstream];
+    if (!selection) throw new Error('请为上游来源登记发布文件范围：' + upstream);
     checkCommitted(directory, selection);
     copy(directory, prefix, files(directory, selection));
   }

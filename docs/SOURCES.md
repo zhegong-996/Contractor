@@ -25,3 +25,5 @@ Contractor 原创代码使用 [MIT](../LICENSE)。源码包、浏览器构建和
 `npm run audit:upstream` 检查源码提交、已保留的组件出处、npm 锁定及许可清单。 `npm run package:source` 以显式路径清单收集源码、锁文件、文档和必要上游版本。 `npm run package:runner` 生成执行端包。网页的第三方许可证可从 `/licenses/components` 和 `/licenses/browser-dependencies` 取得。
 
 源码包只包含选定的配置样例。运行数据、账号及凭据、私有证据和本机测试记录位于部署者的运行目录。Codex、Claude Code、外部模型服务和渠道 API 由使用方配置。自带这些工具或第三方服务的安装镜像需要核对其随包条款。
+
+Octop Gateway 和 Memory 的 Python 依赖由使用方在独立环境安装。Gateway 的 Telegram 依赖 `python-telegram-bot` 使用 LGPL-3.0-only。Python 环境和模型 CLI 由部署者单独安装。使用者若另外分发含这些依赖的环境，须保留相应许可证及分发要求。 [Gateway 清单](../upstream/octop-gateway/pyproject.toml)

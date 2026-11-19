@@ -26,10 +26,13 @@ for (const [name, source] of Object.entries(lock.sources)) {
   if (index.get(directory) !== source.commit) problems.push(`${directory} gitlink 与锁定提交不一致`);
   const remote = git('config', '-f', '.gitmodules', '--get', `submodule.${directory}.url`);
   if (remote.replace(/\.git$/, '') !== source.url) problems.push(`${directory} 来源地址不一致`);
-  if (!existsSync(path.join(root, directory, 'LICENSE'))) {
+  const license = directory + '/LICENSE';
+  if (!existsSync(path.join(root, license))) {
     problems.push(`${directory} 缺少 LICENSE，请初始化 submodule`);
     continue;
   }
+  if (source.license !== 'MIT' || !read(license).startsWith('MIT License'))
+    problems.push(`${directory} 的许可证与已核准来源不一致`);
   if (git('-C', directory, 'rev-parse', 'HEAD') !== source.commit)
     problems.push(`${directory} 检出提交与锁文件不一致`);
   if (git('-C', directory, 'status', '--porcelain'))
@@ -50,6 +53,12 @@ for (const [name, version] of Object.entries({ ...manifest.dependencies, ...mani
 for (const [name, dependency] of Object.entries(packages)) {
   if (name && (!dependency.integrity || !(permitted.has(dependency.license ?? '') || dependency.dev && dependency.license === 'MPL-2.0')))
     problems.push(`${name} 的完整性或分发许可需核对 (${dependency.license ?? '未声明'})`);
+}
+const exampleLock = 'integrations/github/store-small-screen/.github/contractor-store-small-screen/package-lock.json';
+const examples = JSON.parse(read(exampleLock)).packages as typeof packages;
+for (const [name, dependency] of Object.entries(examples)) {
+  if (name && (!dependency.integrity || !permitted.has(dependency.license ?? '')))
+    problems.push(`${exampleLock} 的 ${name} 完整性或许可需核对`);
 }
 for (const file of ['THIRD_PARTY_NOTICES.md', 'licenses/ant-design-icons-MIT.txt', 'licenses/is-mobile-MIT.txt', 'licenses/casbin-APACHE-2.0.txt',
   'licenses/backstage-APACHE-2.0.txt', 'licenses/backstage-NOTICE.txt', 'licenses/entire-MIT.txt',
