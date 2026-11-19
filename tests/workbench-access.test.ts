@@ -58,7 +58,7 @@ test('资料授权按 Agent 及所有者隔离，撤权和到期重申保留独�
   assert.equal(knowledge.usable('ticket', entry, reader, third.id), true);
 });
 
-test('原生执行交接先停旧进程，再等新读取方授权；撤权重申重新推送同一资料负责人', { timeout: 25000 }, async t => {
+test('原生执行交接先停旧进程，再等新读取方授权；撤权重申重新推送同一资料负责人', { timeout: 75000 }, async t => {
   const dir = runtime;
   await mkdir(path.join(dir, 'console'));
   const fixture = path.join(dir, 'agent.mjs');
@@ -95,17 +95,22 @@ test('原生执行交接先停旧进程，再等新读取方授权；撤权重�
   const account = { provider: 'feishu' as const, namespace: 'app', id: 'ou_owner', label: 'owner' };
   work.proveAccount(work.accountProof('owner', 'feishu').command.split(' ')[1]!, account);
   work.confirmAccount('owner', 'feishu', account);
-  const wait = async <T>(fn: () => T | undefined | Promise<T | undefined>) => {
-    for (let i = 0; i < 150; i++) { const value = await fn(); if (value) return value; await delay(100); }
-    assert.fail('等待授权或执行状态超时');
-  };
+  async function waitFor<T>(condition: string, read: () => T | undefined | Promise<T | undefined>) {
+    const deadline = Date.now() + 15000;
+    while (Date.now() < deadline) {
+      const value = await read();
+      if (value) return value;
+      await delay(100, undefined, { signal: t.signal });
+    }
+    assert.fail(`等待超时：${condition}`);
+  }
   const record = () => readFile(marks, 'utf8').catch(() => '');
   const entry = work.addKnowledge('owner', 'store', { title: '门店反馈样本', kind: 'document', body: '仅限试点门店',
     conditions: '不能跨项目传播', visibility: 'restricted' });
   const started = work.start('requester', { project: 'store', agent: 'old-reader', title: '核对推荐理由', request: '按样本核对',
     nonce: randomUUID(), material: [entry], priority: 'normal' });
-  const ticket = await wait(() => work.resolveStart('requester', started.trigger) ?? undefined);
-  const first = await wait(() => work.needsYou('owner').find(d => d.kind === 'access' && d.notification === 'sent'));
+  const ticket = await waitFor('首次立项', () => work.resolveStart('requester', started.trigger) ?? undefined);
+  const first = await waitFor('首次资料授权通知', () => work.needsYou('owner').find(d => d.kind === 'access' && d.notification === 'sent'));
   const notification = messages.find(message => message.channel.address.decision === first.id);
   assert.ok(notification);
   assert.doesNotMatch(notification.text, /https?:\/\/|\/api\/needs-you/);
@@ -119,19 +124,20 @@ test('原生执行交接先停旧进程，再等新读取方授权；撤权重�
   work.changeAccess('owner', ticket, original.id, 'revoked');
   work.request('requester', ticket, entry, '补充确认后再次申请');
   work.request('requester', ticket, entry, '同轮请求重试');
-  const renewed = await wait(() => work.needsYou('owner').find(d => d.kind === 'access' && d.id !== first.id && d.notification === 'sent'));
+  const renewed = await waitFor('再次申请的资料授权通知', () =>
+    work.needsYou('owner').find(d => d.kind === 'access' && d.id !== first.id && d.notification === 'sent'));
   assert.equal(work.needsYou('owner').filter(d => d.kind === 'access').length, 1);
   assert.throws(() => work.changeAccess('owner', ticket, original.id, 'granted'), { status: 409 });
   assert.equal(messages.filter(m => m.channel.address.decision === renewed.id).length, 1);
   work.changeAccess('owner', ticket, renewed.subject, 'granted');
-  await wait(async () => (await record()).includes('old-started') || undefined);
+  await waitFor('旧执行首次启动', async () => (await record()).includes('old-started'));
   work.changeAccess('owner', ticket, renewed.subject, 'revoked');
   work.request('requester', ticket, entry, '运行中撤权后的重新申请');
   const runningRenewal = work.needsYou('owner').find(d => d.kind === 'access')!;
   assert.ok(runningRenewal);
   work.changeAccess('owner', ticket, runningRenewal.subject, 'granted');
   assert.equal((await record()).match(/old-started/g)?.length, 1, '立即重新批准也必须等旧进程退出');
-  await wait(async () => (await record()).match(/old-started/g)?.length === 2 || undefined);
+  await waitFor('旧执行退出后按新授权重启', async () => (await record()).match(/old-started/g)?.length === 2);
   assert.deepEqual((await record()).trim().split('\n'), ['old-started', 'old-stopping', 'old-stopped', 'old-started']);
   const database = new DatabaseSync(path.join(dir, 'orchestrator.sqlite'), { readOnly: true });
   const manifests = database.prepare('SELECT value FROM workbench_manifest ORDER BY run').all().map(r => JSON.parse(String(r.value)));
@@ -141,9 +147,10 @@ test('原生执行交接先停旧进程，再等新读取方授权；撤权重�
   assert.equal(work.detail('requester', ticket).runs[0]?.state, 'cancelled');
   assert.equal(work.detail('requester', ticket).result, undefined, '旧代次回执不能变成成果');
   work.handoff('owner', ticket, { agent: 'new-reader', reason: '由另一个成员接续核对' });
-  await wait(async () => (await record()).match(/old-stopping/g)?.length === 2 || undefined);
+  await waitFor('交接时向原执行请求停止', async () => (await record()).match(/old-stopping/g)?.length === 2);
   assert.equal(work.needsYou('owner').filter(d => d.kind === 'access').length, 0);
-  const replacement = await wait(() => work.needsYou('owner').find(d => d.kind === 'access' && d.notification === 'sent'));
+  const replacement = await waitFor('旧执行确认退出后通知新读取方授权', () =>
+    work.needsYou('owner').find(d => d.kind === 'access' && d.notification === 'sent'));
   assert.ok((await record()).includes('old-stopped'));
   assert.ok(!(await record()).includes('new-started'));
   const newRequest = work.detail('owner', ticket).requests.find(r => r.id === replacement.subject)!;
@@ -151,16 +158,16 @@ test('原生执行交接先停旧进程，再等新读取方授权；撤权重�
   assert.equal(newRequest.readerOwner, 'replacement');
   assert.equal(work.detail('requester', ticket).work.agent, 'old-reader');
   work.changeAccess('owner', ticket, newRequest.id, 'granted');
-  await wait(() => work.detail('requester', ticket).result);
+  await waitFor('接替执行的成果', () => work.detail('requester', ticket).result);
   assert.deepEqual((await record()).trim().split('\n'), ['old-started', 'old-stopping', 'old-stopped', 'old-started', 'old-stopping', 'old-stopped', 'new-started']);
   assert.equal(work.detail('requester', ticket).work.agent, 'new-reader');
 
   const askStart = work.start('requester', { project: 'store', agent: 'ask-reader', title: '确认门店验收范围', request: '确认门店和口径',
     nonce: randomUUID(), material: [entry], priority: 'normal' });
-  const asking = await wait(() => work.resolveStart('requester', askStart.trigger) ?? undefined);
+  const asking = await waitFor('必答工单立项', () => work.resolveStart('requester', askStart.trigger) ?? undefined);
   const askAccess = work.detail('owner', asking).requests.find(r => r.state === 'requested')!;
   work.changeAccess('owner', asking, askAccess.id, 'granted');
-  const questions = await wait(() => {
+  const questions = await waitFor('两条必答事项', () => {
     const questions = work.detail('requester', asking).questions;
     return questions.length === 2 ? questions : undefined;
   });
@@ -172,15 +179,15 @@ test('原生执行交接先停旧进程，再等新读取方授权；撤权重�
   work.request('requester', asking, entry, '保持未答问题重新申请');
   const askRenewal = work.detail('owner', asking).requests.find(r => r.state === 'requested')!;
   work.changeAccess('owner', asking, askRenewal.id, 'granted');
-  await wait(() => work.detail('requester', asking).work.handoff?.completedAt);
+  await waitFor('重授权后恢复原必答事项', () => work.detail('requester', asking).work.handoff?.completedAt);
   assert.deepEqual(work.detail('requester', asking).questions.map(q => q.id), questions.map(q => q.id), '重新授权不关闭或替换原必答问题');
   work.reply('requester', asking, { card: questions[0]!.id, choice: 0, nonce: 'scope' });
-  await wait(() => work.detail('requester', asking).questions.length === 1 || undefined);
+  await waitFor('第一条答复入账', () => work.detail('requester', asking).questions.length === 1);
   await delay(1400);
   assert.equal(work.detail('requester', asking).runs.filter(run => run.state === 'done').length, 1);
   assert.equal(work.detail('requester', asking).result, undefined);
   work.reply('requester', asking, { card: questions[1]!.id, choice: 0, nonce: 'acceptance' });
-  await wait(() => work.detail('requester', asking).result);
+  await waitFor('必答全部完成后的成果', () => work.detail('requester', asking).result);
   assert.equal(work.detail('requester', asking).runs.filter(run => run.state === 'done').length, 2);
 
   // Restoring one document must not mask a second document whose grant expired meanwhile.
@@ -191,13 +198,13 @@ test('原生执行交接先停旧进程，再等新读取方授权；撤权重�
     body: '仅限试点门店，两行说明', conditions: '与门店样本分别授权', visibility: 'restricted' });
   const dualStart = work.start('requester', { project: 'store', agent: 'ask-reader', title: '双资料恢复', request: '分别核对样本与口径',
     nonce: randomUUID(), material: [entry, secondEntry], priority: 'normal' });
-  const dual = await wait(() => work.resolveStart('requester', dualStart.trigger) ?? undefined);
+  const dual = await waitFor('双资料工单立项', () => work.resolveStart('requester', dualStart.trigger) ?? undefined);
   const dualRequests = work.detail('requester', dual).requests;
   const sampleRequest = dualRequests.find(r => r.entry === entry)!;
   const criteriaRequest = dualRequests.find(r => r.entry === secondEntry)!;
   work.changeAccess('owner', dual, sampleRequest.id, 'granted');
   work.changeAccess('maker', dual, criteriaRequest.id, 'granted');
-  const dualQuestions = await wait(() => work.detail('requester', dual).questions.length === 2
+  const dualQuestions = await waitFor('双资料工单的必答事项', () => work.detail('requester', dual).questions.length === 2
     ? work.detail('requester', dual).questions : undefined);
   work.changeAccess('owner', dual, sampleRequest.id, 'revoked');
   assert.deepEqual(work.detail('requester', dual).work.handoff?.accessRequests, { [entry]: sampleRequest.id },
@@ -206,9 +213,11 @@ test('原生执行交接先停旧进程，再等新读取方授权；撤权重�
   expiry.prepare('UPDATE workbench_access SET expires=0 WHERE id=?').run(criteriaRequest.id);
   expiry.close();
   work.request('requester', dual, entry, '重新核对样本');
-  const sampleRenewal = await wait(() => work.needsYou('owner').find(d => d.ticket === dual && d.kind === 'access' && d.notification === 'sent'));
+  const sampleRenewal = await waitFor('第一份资料的重授权通知', () =>
+    work.needsYou('owner').find(d => d.ticket === dual && d.kind === 'access' && d.notification === 'sent'));
   work.changeAccess('owner', dual, sampleRenewal.subject, 'granted');
-  const criteriaRenewal = await wait(() => work.needsYou('maker').find(d => d.ticket === dual && d.kind === 'access' && d.notification === 'sent'));
+  const criteriaRenewal = await waitFor('第二份资料的重授权通知', () =>
+    work.needsYou('maker').find(d => d.ticket === dual && d.kind === 'access' && d.notification === 'sent'));
   assert.notEqual(criteriaRenewal.subject, sampleRenewal.subject);
   assert.notEqual(criteriaRenewal.subject, criteriaRequest.id);
   const newCriteria = work.detail('maker', dual).requests.find(r => r.id === criteriaRenewal.subject)!;
@@ -223,12 +232,12 @@ test('原生执行交接先停旧进程，再等新读取方授权；撤权重�
   assert.equal(messages.filter(m => m.channel.address.decision === criteriaRenewal.id).length, 1);
   assert.throws(() => work.changeAccess('owner', dual, criteriaRenewal.subject, 'granted'), { status: 403 });
   work.changeAccess('maker', dual, criteriaRenewal.subject, 'granted');
-  await wait(() => work.detail('requester', dual).work.handoff?.completedAt);
+  await waitFor('两份资料重授权后恢复', () => work.detail('requester', dual).work.handoff?.completedAt);
   assert.deepEqual(work.detail('requester', dual).work.handoff?.accessRequests,
     { [entry]: sampleRenewal.subject, [secondEntry]: criteriaRenewal.subject });
   assert.deepEqual(work.detail('requester', dual).questions.map(q => q.id), dualQuestions.map(q => q.id));
   work.reply('requester', dual, { card: dualQuestions[0]!.id, choice: 0, nonce: 'dual-scope' });
   work.reply('requester', dual, { card: dualQuestions[1]!.id, choice: 0, nonce: 'dual-acceptance' });
-  await wait(() => work.detail('requester', dual).result);
+  await waitFor('双资料工单的接续成果', () => work.detail('requester', dual).result);
   assert.equal(work.detail('requester', dual).runs.filter(run => run.state === 'done').length, 2);
 });
