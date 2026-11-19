@@ -4,7 +4,8 @@ permissions:
   contents: read
 jobs:
   checks:
-    runs-on: ubuntu-latest
+    # SRT requires capability-bearing user namespaces on the CI host.
+    runs-on: ubuntu-22.04
     env:
       TZ: Asia/Shanghai
     steps:
@@ -24,6 +25,8 @@ jobs:
           sudo apt-get install -y bubblewrap socat ripgrep
       - run: npm ci
       - run: npm run audit:upstream
+      - name: Verify Linux sandbox startup
+        run: node --import tsx --test tests/workbench-linux-sandbox.test.ts
       - run: npm test
       - name: Verify Contractor execution
         env:
