@@ -84,7 +84,7 @@ export CONTRACTOR_SANDBOX_ROOT="$sandbox_install/node_modules/@anthropic-ai/sand
 
 默认执行端包保留固定版本的 AutoLoop worker，用于连接既有工作台。独立后端使用 `executionRuntime: contractor` 时，可以用 `npm run package:runner -- --contractor-only` 构建不含 AutoLoop 源码的执行端包。配对记录携带运行协议，接单时校验协议一致。Codex 和 Claude Code 的新适配器读取 CLI 的实际回执。同一 Codex 会话接续时按启动基线计算本轮 Token 增量。
 
-在独立环境使用门店推荐理由测试资料验证过本机 Codex 的必答与重启恢复、macOS Codex 到 Debian Claude Code 的交接、旧执行停止证明和回执重放去重。已有环境的账本迁移和回退在切换前另行验证。 [AutoLoop 领取与回执协议](https://github.com/KKKKhazix/agent-autoloop/blob/ba8cf6d8cf24f9ce005958c15d88f2d9cff7f05d/docs/protocol.md) · [Claude Code CLI 参考](https://code.claude.com/docs/en/cli-reference) · [Ollama 连接 Claude Code](https://docs.ollama.com/integrations/claude-code)
+在独立环境使用门店推荐理由测试资料验证过本机 Codex 的必答与重启恢复、macOS Codex 到 Debian Claude Code 的交接、旧执行停止证明和回执重放去重。调度器往返测试与执行端协议切换条件见迁移手册。 [迁移和回滚](RUNTIME-MIGRATION.md) · [AutoLoop 领取与回执协议](https://github.com/KKKKhazix/agent-autoloop/blob/ba8cf6d8cf24f9ce005958c15d88f2d9cff7f05d/docs/protocol.md) · [Claude Code CLI 参考](https://code.claude.com/docs/en/cli-reference) · [Ollama 连接 Claude Code](https://docs.ollama.com/integrations/claude-code)
 
 ## 门店推荐理由联调
 

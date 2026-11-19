@@ -85,7 +85,7 @@ flowchart TB
 | 人工等待与定时接续 | 处理结构化的 `ask`、`notice`、`resolve`、`later` 和 `events` 回执。必答项都答完后再接续。停止旧端、换成员、续原单各自留痕。 |
 | 完成与补写 | 调度确认与业务结算分别记录。重复回执只返回已有确认，实际任务进度和知识依赖下一层的交付审查。 |
 
-默认兼容实例使用 `autoloop/hub.db`，独立 Contractor 实例使用 `dispatch/hub.sqlite`，项目和工单资料位于 `orchestrator.sqlite`。渠道入站及回传、运行快照、交付检查与凭据有各自的生命周期。现有实例切换调度器前要验证账本迁移和回退。Contractor 的执行能力围绕工作台协议实现，上游任意插件和配方的支持范围由部署者逐项核对。 [插件和运行方式](PLUGIN-ARCHITECTURE.md) · [执行端恢复](WORKBENCH-REMOTE-RUNNER.md)
+默认兼容实例使用 `autoloop/hub.db`，独立 Contractor 实例使用 `dispatch/hub.sqlite`，项目和工单资料位于 `orchestrator.sqlite`。渠道入站及回传、运行快照、交付检查与凭据有各自的生命周期。停机迁移可以复制业务账本及已结算的调度状态，再用 Contractor 的最新账本回滚。 [能力范围与切换条件](RUNTIME-MIGRATION.md) · [插件和运行方式](PLUGIN-ARCHITECTURE.md) · [执行端恢复](WORKBENCH-REMOTE-RUNNER.md)
 
 ## 部署与扩展
 

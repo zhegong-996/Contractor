@@ -41,7 +41,7 @@
 
 - 飞书在部署配置填写应用、机器人、已允许群组和补读身份。管理员为项目绑定来源，现有成员用同一账号绑定不同渠道身份。详见 [IM 登录](WORKBENCH-IM-LOGIN.md) 和 [多渠道适配](WORKBENCH-OCTOP.md)。
 - 仓库在项目 `resources[]` 登记。`attribution.checkouts` 为受托代码任务指向本地仓库。工作台记录受托提交，可以额外配置 `attribution.entireCommand` 核对会话检查点。交付配置记录贡献者、基准分支、精确可写路径、必需检查、可选部署和验收模板。详见 [交付配置](WORKBENCH-DELIVERY-TEMPLATE.md)。
-- 每套实例使用独立的 `COLLAB_STATE_DIR`，按 `executionRuntime` 选择一个调度器。远程设备从受信的团队 HTTPS 配对。已有实例需要按运行时备份和迁移。详见 [执行端连接](WORKBENCH-REMOTE-RUNNER.md)。
+- 每套实例使用独立的 `COLLAB_STATE_DIR`，按 `executionRuntime` 选择一个调度器。远程设备从受信的团队 HTTPS 配对。已有实例按迁移手册检查离线状态、配对及回滚。 [切换调度器](RUNTIME-MIGRATION.md) · [执行端连接](WORKBENCH-REMOTE-RUNNER.md)
 - `plugins.memory` 可以选择内置、加权词项或已配置的 Octop 索引。使用哪个检索插件都从核心授权后的候选开始。详见 [模块与插件](PLUGIN-ARCHITECTURE.md)。
 - 可输入提示词的位置包括部署配置中的 `agents[].skill`、工作台共享技能和专家说明。Agent 的执行路径、凭据、模型白名单、仓库和可写范围由可信部署配置和业务授权控制。
 

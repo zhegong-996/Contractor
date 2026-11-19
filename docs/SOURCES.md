@@ -7,7 +7,7 @@ Contractor 原创代码采用 [MIT](../LICENSE)。第三方代码仍采用其各
 | 来源 | 使用边界 | 随哪份制品分发 |
 | --- | --- | --- |
 | [Super-agent](https://github.com/deepseek-ai/dsh-superagent-prototype/tree/8c32a9dc5d72c033816c6a8110b37f40cf94fba4) | 工单和委托 Engine、Store、Effects，飞书来源及回传适配。项目关系、资料权限、路由和验收由 Contractor 实现。 | 源码子模块，MIT。其 Store 使用独立发布的 MIT Schemastery、Cosmokit。 |
-| [Agent AutoLoop](https://github.com/KKKKhazix/agent-autoloop/tree/ba8cf6d8cf24f9ce005958c15d88f2d9cff7f05d) | 既有运行目录使用的兼容调度器与 CLI worker。Contractor 自研调度器在独立工作台使用自己的账本。 | 源码子模块及兼容执行端包，MIT。Contractor 专用执行端包按单独清单打包。 |
+| [Agent AutoLoop](https://github.com/KKKKhazix/agent-autoloop/tree/ba8cf6d8cf24f9ce005958c15d88f2d9cff7f05d) | 既有运行目录使用的兼容调度器与 CLI worker。离线回滚复用固定版的事实日志写入接口。Contractor 自研调度器使用自己的账本。 | 源码子模块及兼容执行端包，MIT。Contractor 专用执行端包按单独清单打包。 |
 | [Octop Gateway](https://github.com/TencentCloud/octop-gateway/tree/224ed078ce20042fb5fa59240d6e3c7c34bcd67f) · [Octop Memory](https://github.com/TencentCloud/octop-memory/tree/37ef325d46f13181eba69591604465d04c95cb5f) | 选配的多平台传输和全文排序。统一入站、原会话回执、授权与知识账本由 Contractor 实现。 | 源码子模块，MIT。Python 安装环境由部署者准备。 |
 | [Octop](https://github.com/TencentCloud/Octop/tree/bf134dbd379036ce7545c7df1a1da7e381ece9ff) | 两个经适配的成员选择和消息署名组件，保留文件级来源。 | 源码包及浏览器产物，MIT。 |
 | [Ant Design](https://github.com/ant-design/ant-design/tree/6.7.1) 与 React | UI 组件，Contractor 自己组织页面、状态和权限。 | 从 npm 安装，浏览器产物包含实际打入的模块和许可。 |

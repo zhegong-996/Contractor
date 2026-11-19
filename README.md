@@ -55,7 +55,7 @@ npm start
 
 初始化时输入独立口令，按 Ctrl+D 提交。打开 [本机工作台](http://127.0.0.1:4280/) 后以 `product` 登录。这个样例提供示例项目，Agent 初始为停用。使用源码包时，从解包目录的 `npm ci` 开始。想实际完成一次领取、回传和验收，可用 Claude Code 只读接单样例。 [第一次接单](docs/QUICKSTART-RUNNER.md)
 
-既有工作台默认使用 AutoLoop。新建的独立实例可选 `executionRuntime: "contractor"` 使用自研调度器。同一实例只配置一种调度器，两者使用不同的执行账本。 [调度兼容和插件](docs/PLUGIN-ARCHITECTURE.md)
+既有工作台默认使用 AutoLoop。新建的独立实例可选 `executionRuntime: "contractor"` 使用自研调度器。同一实例只配置一种调度器，两者使用不同的执行账本。 [能力对照、迁移与回滚](docs/RUNTIME-MIGRATION.md) · [调度兼容和插件](docs/PLUGIN-ARCHITECTURE.md)
 
 ## 开发、验证与分发
 

@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
-import type { Card, ExecutionHub, Lease, Run } from './contract.ts';
+import { executionSource, type Card, type ExecutionHub, type Lease, type Run } from './contract.ts';
+import { formerName } from '../compatibility.ts';
 import { executionViews } from './views.ts';
 import { digestSchedule } from './cron.ts';
 import { parseEvent, parseResult, type EventInput, type Job, type Rejected, type Result, type Usage } from './protocol.ts';
@@ -84,7 +85,8 @@ export function openScheduler(file: string, initialRules: ExecutionRule[], clock
 
   function route(source: string, input: EventInput, targets: { name: string; lane: string; session?: string | null }[]) {
     const routed = targets.map(target => target.name);
-    const stored = one<{ id: number; routes: string }>('SELECT id,routes FROM events WHERE source=? AND event_key=?', [source, input.id]);
+    const stored = one<{ id: number; routes: string }>('SELECT id,routes FROM events WHERE source IN (?,?) AND event_key=? ORDER BY id LIMIT 1',
+      [source, source === executionSource ? formerName(source) : source, input.id]);
     if (stored) return { event: stored.id, routed: JSON.parse(stored.routes) as string[] };
     const event = Number(write('INSERT INTO events(source,event_key,body,received_at,routes) VALUES (?,?,?,?,?)',
       source, input.id, JSON.stringify(input), now(), JSON.stringify(routed)).lastInsertRowid);

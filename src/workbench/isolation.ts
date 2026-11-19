@@ -248,7 +248,8 @@ export async function isolateJob(agent: RunnerAgent, job: Job, authority: unknow
   const launch: Launch = { isolation, executable, workspace, home, input, temp, policy, sandboxRoot, baseline, canonical: code && 'canonical' in code ? code.canonical : undefined, paths: code?.paths ?? [],
     remoteBase: code && 'bundle' in code ? bundleHash(code.bundle) : undefined, placeholders };
   await privateFile(launchFile(job.run, job.attempt), launch);
-  return { isolation, job: { ...job, session: previous?.scope === isolation.scope ? job.session : null,
+  const resumableSession = previous?.scope === isolation.scope && await codexSessionFile(isolation, job.session ?? undefined);
+  return { isolation, job: { ...job, session: resumableSession ? job.session : null,
     agent: { ...job.agent, use: 'contractor-isolated', model: agent.model, effort,
       command: [launchFile(job.run, job.attempt)] }, rule: { ...job.rule, cwd: workspace } } };
 }
@@ -378,18 +379,22 @@ export async function readIsolation(run: number, attempt: number): Promise<Isola
   });
 }
 
-export async function codexSessionEvidence(isolation: Isolation | undefined, session?: string, includeUsage = false) {
-  if (isolation?.boundary !== 'os-sandbox' || !session || !/^[a-zA-Z0-9-]+$/.test(session)) return {};
+async function codexSessionFile(isolation: Isolation, session?: string) {
+  if (isolation.boundary !== 'os-sandbox' || !session || !/^[a-zA-Z0-9-]+$/.test(session)) return;
   const sessions = path.join(scopeRoot(isolation.scope), 'home', 'sessions');
   async function walk(folder: string): Promise<string | undefined> {
     for (const entry of await readdir(folder, { withFileTypes: true }).catch(() => [])) {
       if (entry.isSymbolicLink()) continue;
       const file = path.join(folder, entry.name);
       if (entry.isDirectory()) { const found = await walk(file); if (found) return found; }
-      else if (entry.name.endsWith('-' + session + '.jsonl')) return file;
+      else if (entry.isFile() && entry.name.endsWith('-' + session + '.jsonl')) return file;
     }
   }
-  const file = await walk(sessions);
+  return walk(sessions);
+}
+
+export async function codexSessionEvidence(isolation: Isolation | undefined, session?: string, includeUsage = false) {
+  const file = isolation && await codexSessionFile(isolation, session);
   if (!file) return {};
   let model: string | undefined, usage: Usage | undefined;
   for (const line of (await readFile(file, 'utf8')).split('\n')) {
