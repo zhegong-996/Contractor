@@ -33,7 +33,7 @@ printf '\n'
 export ANTHROPIC_AUTH_TOKEN
 export CONTRACTOR_RUNNER_HOME="$PWD/.runtime/first-run-device"
 npm run package:runner
-npm install --prefix .runtime/first-run-tools ./dist/runner/contractor-runner-0.1.0.tgz
+npm install --ignore-scripts --prefix .runtime/first-run-tools ./dist/runner/contractor-runner-0.1.0.tgz
 .runtime/first-run-tools/node_modules/.bin/contractor connect http://127.0.0.1:4282
 ```
 

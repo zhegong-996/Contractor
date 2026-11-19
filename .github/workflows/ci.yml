@@ -46,7 +46,7 @@ jobs:
       - run: npm run package:runner
       - name: Verify installed runner dependency
         run: |
-          npm install --prefix dist/runner-check ./dist/runner/contractor-runner-*.tgz
+          npm install --ignore-scripts --prefix dist/runner-check ./dist/runner/contractor-runner-*.tgz
           npm ls zod --all --prefix dist/runner-check
           node --input-type=module -e "
             import { createRequire } from 'node:module';
@@ -56,6 +56,7 @@ jobs:
             const sandbox = createRequire(runner.resolve('@anthropic-ai/sandbox-runtime/package.json'));
             if (sandbox('zod/package.json').version !== runner('zod/package.json').version) process.exit(1);
           "
+          CONTRACTOR_RUNNER_HOME="$RUNNER_TEMP/contractor-runner-check" dist/runner-check/node_modules/.bin/contractor stop http://127.0.0.1:4282
       - name: Package Contractor execution device
         run: |
           npm run package:runner -- dist/runner/contractor --contractor-only

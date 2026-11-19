@@ -23,7 +23,7 @@
 部署时在带固定子模块的源码目录运行 `npm run package:runner`，将 `dist/runner/contractor-runner-0.1.0.tgz` 提供给成员。执行机需要 Node.js 24，以及管理员为项目启用的执行引擎。安装包可单独安装到执行机，无需克隆工作台仓库。
 
 ```sh
-npm install -g ./contractor-runner-0.1.0.tgz
+npm install -g --ignore-scripts ./contractor-runner-0.1.0.tgz
 contractor connect https://collab.example.com
 ```
 
