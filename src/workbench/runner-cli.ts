@@ -113,6 +113,20 @@ async function enroll(folder: string, endpoint: string, browser: boolean, name: 
   throw new Error('连接请求已过期，请重新运行同一条命令');
 }
 
+function expiredCodexLogin(auth: string) {
+  try {
+    const data = JSON.parse(auth);
+    if (data.auth_mode && data.auth_mode !== 'chatgpt') return false;
+    const payload = data.tokens?.access_token?.split('.')[1];
+    if (!payload) return false;
+    // This only prevents passing a known expired login to a disposable CLI workspace.
+    const { exp } = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+    return Number.isSafeInteger(exp) && exp * 1000 <= Date.now();
+  } catch {
+    return false;
+  }
+}
+
 async function prepareModel(folder: string, profile: z.infer<typeof runnerAgentSchema>) {
   const cli = executable(profile.engine);
   if (!cli) throw new Error('请在此设备安装已授权的 ' + profile.engine + ' CLI');
@@ -121,19 +135,24 @@ async function prepareModel(folder: string, profile: z.infer<typeof runnerAgentS
     throw new Error('请安装 Linux 隔离依赖 bubblewrap、socat、ripgrep，再运行同一条连接命令');
   const base = path.join(folder, 'member-credentials', profile.owner);
   const target = path.join(base, profile.execution!.credential + '.json');
-  if (await file(target)) return;
+  const configured = await file(target);
+  if (configured && !expiredCodexLogin(configured)) return;
   const login = path.join(folder, 'codex-login');
   await mkdir(login, { recursive: true, mode: 0o700 });
   const loggedIn = path.join(login, 'auth.json');
-  if (!await file(loggedIn)) {
-    if (!process.stdin.isTTY) throw new Error('请在交互终端运行同一条连接命令，完成此执行端的 Codex 登录');
+  let auth = await file(loggedIn);
+  if (!auth || expiredCodexLogin(auth)) {
+    if (!process.stdin.isTTY) throw new Error(configured
+      ? '此执行端的 Codex 登录已过期，请在交互终端用同一条连接命令更新登录'
+      : '请在交互终端运行同一条连接命令，完成此执行端的 Codex 登录');
     console.log('请为这台执行端登录 Codex。');
     execFileSync(cli, ['login', '--device-auth'], { stdio: 'inherit', env: { ...process.env, CODEX_HOME: login } });
+    auth = await file(loggedIn);
   }
-  const auth = await file(loggedIn);
-  if (!auth) throw new Error('未取得此执行端的 Codex 登录凭据');
+  if (!auth || expiredCodexLogin(auth)) throw new Error('未取得此执行端有效的 Codex 登录凭据');
   await mkdir(base, { recursive: true, mode: 0o700 });
-  await writeFile(target, auth, { mode: 0o600, flag: 'wx' });
+  if (configured) await save(target, JSON.parse(auth));
+  else await writeFile(target, auth, { mode: 0o600, flag: 'wx' });
 }
 
 async function running(local: string, id: string) {

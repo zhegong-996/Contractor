@@ -35,7 +35,7 @@ Claude Code 的连接检查依据 Agent 登记的服务商。DeepSeek 读取执�
 
 浏览器验收通过项目仓库配置的 GitHub Actions 工作流执行。可以由该工作流指定团队的验证 runner。工作台显示验证运行及 runner 标签，并按本单版本核对证据。
 
-首次使用 Codex 时，若所选 Agent 的本机凭据槽位为空，交互终端会启动该槽位独立的 Codex 登录。Debian 执行机一次性安装隔离依赖 `sudo apt-get install bubblewrap socat ripgrep`。Claude Code 使用已登记的 Ollama 或 DeepSeek 配置。浏览器的项目授权和模型服务凭据分别生效。
+首次使用 Codex 时，若所选 Agent 的本机凭据槽位为空，交互终端会启动该槽位独立的 Codex 登录。检测到该槽位的 ChatGPT 登录过期时，在执行机的交互终端用原地址和原配置运行同一条 `contractor connect` 命令，更新模型登录后继续使用原设备配对。Debian 执行机一次性安装隔离依赖 `sudo apt-get install bubblewrap socat ripgrep`。Claude Code 使用已登记的 Ollama 或 DeepSeek 配置。浏览器的项目授权和模型服务凭据分别生效。
 
 ### 安装 Codex 隔离提供者
 

@@ -53,12 +53,14 @@ export function openTicketAcceptance(store: Pick<SuperAgentStore, 'atomic'>, hub
     if (body && !conditions.trim()) throw new WorkbenchError('请填写这条结论的适用条件。');
     const output = requireValue(readableOutput(id), '当前成果不可读取，请重新核对权限。', 409);
     if (ticket.ended?.outcome !== 'completed' || output.revision !== revision) throw new WorkbenchError('请验收当前已生成的版本。', 409);
-    if (work.accepted) {
-      const recorded = work.delivery?.deployed;
+    const verifyRepeat = (accepted: Work) => {
+      if (commit !== undefined && commit !== accepted.accepted?.commit)
+        throw new WorkbenchError('请求的提交与本版验收记录不一致。', 409);
+      const recorded = accepted.delivery?.deployed;
       if (deployment && (recorded?.id !== deployment.id || recorded.status?.id !== deployment.statusId))
         throw new WorkbenchError('请选择已验收的部署记录。', 409);
-      return;
-    }
+    };
+    if (work.accepted) return verifyRepeat(work);
     if (work.development && (!commit || !work.delivery)) throw new WorkbenchError('代码工单必须关联本单提交与 PR，并核对该提交的 CI 后验收。', 409);
     if (commit && !work.delivery) throw new WorkbenchError('请先关联交付版本。', 409);
     if (deployment && !work.delivery) throw new WorkbenchError('请先关联包含该部署的交付版本。', 409);
@@ -95,7 +97,7 @@ export function openTicketAcceptance(store: Pick<SuperAgentStore, 'atomic'>, hub
     const current = check.work;
     if (current.requester !== actor || !mayStart(check.project, actor))
       throw new WorkbenchError('当前工单由仍有协作权限的原发起人验收。', 403);
-    if (current.accepted?.revision === revision) return;
+    if (current.accepted?.revision === revision) return verifyRepeat(current);
     if (current.accepted || !delegationAuthority(current) || readableOutput(id)?.revision !== revision
       || digest(current.delivery ?? null) !== digest(work.delivery ?? null)
       || digest(current.deliveryTemplate ?? null) !== digest(work.deliveryTemplate ?? null))

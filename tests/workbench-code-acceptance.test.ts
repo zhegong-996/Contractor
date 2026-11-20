@@ -405,6 +405,7 @@ test('交付检查按版本冻结，失败只重核相应证据；独立审查�
   await save();
   await accept(sha, gate?.selection);
   await accept(sha, { id: 16, statusId: 28 });
+  await assert.rejects(accept(foreign, { id: 16, statusId: 28 }), { status: 409, message: /提交与本版验收记录/ });
   await assert.rejects(accept(sha, { id: 15, statusId: 26 }), /已验收的部署/);
   const accepted = work.detail('owner', id).work;
   assert.equal(accepted.accepted?.commit, sha);

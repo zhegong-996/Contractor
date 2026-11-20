@@ -1,11 +1,71 @@
 import assert from 'node:assert/strict';
-import { randomUUID } from 'node:crypto';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
+import { createHash, randomUUID } from 'node:crypto';
+import { once } from 'node:events';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { createServer } from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
+import { promisify } from 'node:util';
+
+test('Codex 登录过期时拦截领取，更新专用登录后沿用原配对', { timeout: 25000 }, async t => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'contractor-expired-runner-'));
+  const id = randomUUID();
+  const requests: string[] = [];
+  const listener = createServer((req, res) => {
+    requests.push(req.url!);
+    req.resume();
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify(req.url === '/api/runner/protocol' ? { id, held: false, driver: 'contractor' } : { job: null }));
+  });
+  listener.listen(0, '127.0.0.1');
+  await once(listener, 'listening');
+  const endpoint = 'http://127.0.0.1:' + (listener.address() as { port: number }).port;
+  const folder = path.join(root, createHash('sha256').update(endpoint).digest('hex').slice(0, 24), 'default');
+  const device = path.join(folder, 'devices', id);
+  const slot = path.join(folder, 'member-credentials', 'engineering');
+  const login = path.join(folder, 'codex-login');
+  const bin = path.join(root, 'bin');
+  const run = (action: 'connect' | 'stop') => promisify(execFile)(process.execPath,
+    ['--import', 'tsx', 'src/workbench/runner-cli.ts', action, endpoint, '--no-browser'], {
+      env: { ...process.env, CONTRACTOR_RUNNER_HOME: root, PATH: bin + path.delimiter + process.env.PATH },
+      timeout: 12000,
+    });
+  t.after(async () => {
+    await run('stop').catch(() => undefined);
+    listener.close();
+    await rm(root, { recursive: true, force: true });
+  });
+  await Promise.all([device, slot, login, bin].map(dir => mkdir(dir, { recursive: true, mode: 0o700 })));
+  for (const program of ['codex', 'bwrap', 'socat', 'rg'])
+    await writeFile(path.join(bin, program), '#!/bin/sh\nexit 88\n', { mode: 0o700 });
+  const auth = (exp: number) => ({ auth_mode: 'chatgpt',
+    tokens: { access_token: 'fixture.' + Buffer.from(JSON.stringify({ exp })).toString('base64url') + '.fixture' } });
+  const store = (name: string, content: unknown) => writeFile(name, JSON.stringify(content), { mode: 0o600 });
+  const connection = { driver: 'contractor', id, token: 'T'.repeat(43), endpoint, profile: {
+    id: 'code', owner: 'engineering', engine: 'codex', model: 'gpt-6.1-sol',
+    execution: { kind: 'remote', provider: 'openai', credential: 'test' },
+  } };
+  const connectionFile = path.join(device, 'connection.json');
+  const credentialFile = path.join(slot, 'test.json');
+  const expired = auth(Math.floor(Date.now() / 1000) - 600);
+  await Promise.all([store(path.join(folder, 'device.json'), { id }), store(connectionFile, connection),
+    store(credentialFile, expired), store(path.join(login, 'auth.json'), expired)]);
+  await assert.rejects(run('connect'), (error: Error & { stderr?: string }) => /登录已过期/.test(error.stderr ?? ''));
+  assert.equal(requests.length, 0);
+  assert.deepEqual(JSON.parse(await readFile(credentialFile, 'utf8')), expired);
+
+  const current = auth(Math.floor(Date.now() / 1000) + 3600);
+  await store(path.join(login, 'auth.json'), current);
+  assert.match((await run('connect')).stdout, new RegExp('已上线.*' + id));
+  assert.deepEqual(JSON.parse(await readFile(connectionFile, 'utf8')), connection);
+  assert.deepEqual(JSON.parse(await readFile(credentialFile, 'utf8')), current);
+  assert.ok(requests.includes('/api/runner/work'));
+  assert.ok(requests.every(url => !/pair|enroll/.test(url)));
+});
 
 test('远端重领沿用本轮租约，换端只在匹配的停机回执后派出', { timeout: 20000 }, async t => {
   const state = await mkdtemp(path.join(os.tmpdir(), 'contractor-remote-runner-'));
