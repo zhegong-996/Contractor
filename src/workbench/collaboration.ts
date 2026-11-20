@@ -1160,11 +1160,13 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     return consultTopic(actor, route.project, { topic: route.topic, ...question, nonce: id }, trigger, { address, account });
   }
 
-  async function consultTopic(actor: string, projectId: string, input: { topic: string; text: string; nonce: string; agents?: string[]; knowledge?: KnowledgeRef }, trigger?: Trigger,
+  async function consultTopic(actor: string, projectId: string, input: { topic: string; text: string; nonce: string; agents?: string[]; knowledge?: KnowledgeRef; device?: string }, trigger?: Trigger,
     im?: { address: OctopIMAddress; account: PlatformActor }, accepted?: (tickets: string[]) => void) {
     const plan = () => {
       const project = projectFor(projectId, actor);
       if (!mayStart(project, actor)) throw new WorkbenchError('当前账号没有主题咨询权限。', 403);
+      if (input.device && (trigger || input.agents?.length !== 1))
+        throw new WorkbenchError('请从工作台选择一位咨询 Agent 后再指定执行设备。', 409);
       const topicScope = conversationScope(project, actor, { topic: input.topic });
       if (input.knowledge && trigger) throw new WorkbenchError('受限知识只能从工作台发起咨询。', 403);
       const scope = input.knowledge ? privateConsultationScope(topicScope, actor) : topicScope;
@@ -1175,7 +1177,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       if (trigger && (!account || im && (!route || route.project !== projectId || route.topic !== input.topic
         || links.member(im.account) !== actor))) throw new WorkbenchError('当前渠道账号或会话无权在此主题发起咨询。', 403);
       const message = key('topic-consultation', projectId, scope, actor, trigger?.source ?? 'web', input.nonce);
-      const signature = digest({ text: input.text, agents: input.agents?.slice().sort(), knowledge: input.knowledge });
+      const signature = digest({ text: input.text, agents: input.agents?.slice().sort(), knowledge: input.knowledge, device: input.device });
       const prior = store.db.prepare('SELECT signature,tickets FROM workbench_topic_consultation WHERE message=?').get(message);
       if (prior) {
         if (trigger || prior.signature === signature) return { prior: { id: message, tickets: JSON.parse(String(prior.tickets)) as string[] } };
@@ -1238,7 +1240,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
         }
         const request = '先读取本轮提供的执行上下文。只回答与自己职责和指定资料有关的部分，其他部分由同主题 Agent 处理。若需要改代码，只说明建议与理由，交给人确认。' +
           '给出简短完整的结论，引用资料提供的 [记忆:条目@修订] 标记。\n\n咨询：' + input.text;
-        return requireValue(start(actor, { project: projectId, topic: input.topic, agent, material,
+        return requireValue(start(actor, { project: projectId, topic: input.topic, agent, material, device: input.device,
           title: ('主题咨询 · ' + service.title).slice(0, 100), request, priority: 'normal', nonce: key(message, agent) }, undefined, true,
         { message, name: service.title, feishu: channel, account, requiredKnowledge, ...(restricted && { private: true }),
           ...(im && { octopIM: im.address }) }).ticket, '咨询未获准。', 409);

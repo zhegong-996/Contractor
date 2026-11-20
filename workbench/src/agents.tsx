@@ -22,7 +22,7 @@ export function AgentsPage(props: PageProps) {
     <aside className="split-list" aria-label="项目 Agent 列表">
       <div className="list-header"><h1>Agent</h1><div className="actions">
         {workspace.octopEnabled && <a className="text-button" href={routeFor(project.id, 'agents', undefined, 'library')}><Layers size={15} />专家与技能</a>}
-        <a className="text-button" href={routeFor(project.id, 'agents', undefined, 'devices')}><Cpu size={15} />执行端</a>
+        <a className="text-button" href={routeFor(project.id, 'agents', undefined, 'devices')}><Cpu size={15} />执行设备</a>
         <a className="text-button" href={routeFor(project.id, 'agents', undefined, 'budgets')}><ReceiptText size={15} />额度管理</a>
       </div><Segments label="Agent 范围" items={[[ 'all', '项目 Agent' ], [ 'mine', '我的 Agent' ]]} value={scope} onChange={setScope} />
       <SearchBox label="搜索 Agent 或负责人" value={query} onChange={search} /></div>
@@ -72,8 +72,7 @@ function AgentDetail({ agent, project, workspace, route, openTask }: PageProps &
     <PageTabs label="Agent 详情" items={agentTabs} value={active} onChange={tab => go(project.id, 'agents', agent.id, tab)}>
       <TabsContent value="profile" className="detail-stack reading">
         <Section title="职责"><p>{agent.capability}</p>
-          <dl className="facts"><dt>项目职责</dt><dd>{role?.title ?? agent.function}</dd>
-            <dt>执行端</dt><dd><Cpu size={15} />{engineName(agent.engine)}</dd><dt>配置模型</dt><dd>{agent.model ?? '未配置'}</dd></dl>
+          <dl className="facts"><dt>项目职责</dt><dd>{role?.title ?? agent.function}</dd></dl>
           {duties.map(rule => <div className="record-row" key={(rule.topic ?? '') + rule.function}>
             <span>{project.topics.find(topic => topic.id === rule.topic)?.title ?? '项目默认牵头'}</span>
             {rule.decider && <small>决策人 {rule.decider}</small>}
@@ -82,6 +81,16 @@ function AgentDetail({ agent, project, workspace, route, openTask }: PageProps &
             onClick={() => void run(() => api('agent/' + agent.id, { active: !agent.active }), agent.active ? 'Agent 已停用' : 'Agent 已启用')}>
             <ShieldCheck />{agent.active ? '暂停接单' : '启用接单'}
           </Button>}
+        </Section>
+        <Section title="运行与模型">
+          <dl className="facts">
+            <dt>运行引擎</dt><dd>{engineName(agent.engine)}</dd>
+            <dt>默认模型</dt><dd>{agent.model ?? '未配置'}</dd>
+            <dt>执行位置</dt><dd>{agent.executionCapabilities.remote
+              ? <a className="text-button" href={routeFor(project.id, 'agents', undefined, 'devices')}>查看项目执行设备</a>
+              : agent.executionCapabilities.available ? '工作台运行时' : agent.executionCapabilities.reason}</dd>
+          </dl>
+          {project.maintain && <a className="text-button" href={routeFor(project.id, 'project', undefined, 'routing')}>配置本项目的职责、主备模型与设备</a>}
         </Section>
         {!!topics.length && <Section title="主题咨询">{topics.map(topic => <div className="record-row" key={topic.id}>
           <a className="text-button" href={routeFor(project.id, 'chat', topic.id) + '?agent=' + encodeURIComponent(agent.id)}><MessageSquare size={15} />{topic.title}</a>

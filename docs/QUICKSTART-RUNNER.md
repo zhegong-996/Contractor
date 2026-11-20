@@ -37,7 +37,7 @@ npm install --ignore-scripts --prefix .runtime/first-run-tools ./dist/runner/con
 .runtime/first-run-tools/node_modules/.bin/contractor connect http://127.0.0.1:4282
 ```
 
-打开命令打印的浏览器地址，用刚初始化的 `product` 账号登录，选择「示例协作项目 · 验收清单 Agent」并确认。看到「执行端已上线」后，在 [本机工作台](http://127.0.0.1:4280/) 的 **Agent → 执行端** 查看在线状态。
+打开命令打印的浏览器地址，用刚初始化的 `product` 账号登录，确认「示例协作项目 · 验收清单 Agent」。看到「执行端已上线」后，在 [本机工作台](http://127.0.0.1:4280/) 的 **Agent → 执行设备** 查看在线状态。
 
 ## 3. 发一张只读工单
 

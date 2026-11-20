@@ -1,13 +1,19 @@
 import { useEffect, useState } from 'react';
-import { ArrowRight, Check, Copy, MessageSquare } from 'lucide-react';
+import { ArrowRight, Check, Copy, ShieldCheck } from 'lucide-react';
 import { api, useData, type LoginPolicy, type Session } from './api.ts';
 import { Button } from './components/button.tsx';
 import { Failure, FormError, Loading, Pill, Section, useActions } from './ui.tsx';
 
 export const imNames = { feishu: '飞书', dingtalk: '钉钉', wecom: '企业微信', wechat: '微信' };
+const signInHints = {
+  feishu: '使用所在组织的飞书账号继续。',
+  dingtalk: '使用所在组织的钉钉账号继续。',
+  wecom: '在电脑上用企业微信扫码。在企业微信内打开时，可直接授权。',
+  wechat: '使用手机微信扫码继续。',
+} as const;
 const notices = {
-  pending: '开通申请已提交。管理员批准后，请再次用同一渠道登录。',
-  existing: '这个渠道身份已有工作台账号。请用原账号登录，在个人设置中绑定登录渠道。',
+  pending: '已验证你的身份。管理员开通后，用同一个账号授权即可进入工作台。',
+  existing: '这个渠道身份已关联一个工作台账号。请登录原账号，在「个人设置 → 登录安全」完成绑定。',
   linked: '已绑定，可以使用此渠道登录原账号。',
   conflict: '此渠道身份已经绑定其他账号，或原账号已有该渠道的登录身份。',
   denied: '开通申请未获批准，请联系平台管理员。',
@@ -24,7 +30,7 @@ export function useIMNotice() {
     return flag && Object.hasOwn(notices, flag) ? flag as keyof typeof notices : undefined;
   });
   useEffect(() => {
-    if (!status) return;
+    if (!status || status === 'pending') return;
     const current = new URL(location.href);
     current.searchParams.delete('im');
     history.replaceState(history.state, '', current);
@@ -32,12 +38,17 @@ export function useIMNotice() {
   return { status, text: status && notices[status] };
 }
 
-export function IMLoginButton({ login }: { login?: Session['imLogin'] }) {
+export function IMLoginEntry({ login, status }: { login?: Session['imLogin']; status?: keyof typeof notices }) {
   if (!login?.ready || !login.provider) return null;
   const next = new URLSearchParams({ next: location.hash });
-  return <Button href={'/api/auth/im/start?' + next} size="lg" block>
-    <MessageSquare size={18} />使用{imNames[login.provider]}登录 <ArrowRight size={17} />
-  </Button>;
+  return <div className="login-enterprise">
+    {status !== 'pending' && <p className="muted-text">{signInHints[login.provider]}</p>}
+    <Button href={'/api/auth/im/start?' + next} size="lg" block>
+      <span><ShieldCheck size={18} />{status === 'pending' ? '获批后使用' : '使用'}{imNames[login.provider]}登录</span>
+      <ArrowRight size={17} aria-hidden="true" />
+    </Button>
+    {!status && <p className="muted-text login-first-time">首次使用时，授权后会自动提交开通申请。</p>}
+  </div>;
 }
 
 export function MyIMLogin({ login }: { login: NonNullable<Session['imLogin']> }) {
@@ -87,12 +98,14 @@ function PolicyForm({ policy }: { policy: LoginPolicy }) {
     if (canSave) await run(() => api('admin/im-login', { primary, legacyPassword }), '登录渠道设置已保存');
   }}>
     <Section title="企业主登录渠道">
+      {!policy.primary && <p className="admin-impact">当前使用工作台账号登录。请先在部署配置中指定主渠道。</p>}
       <div className="admin-channel-grid" role="radiogroup" aria-label="企业主登录渠道">
         {policy.providers.map(row => <label className="admin-channel-option" key={row.provider} data-selected={primary === row.provider}
           data-disabled={!row.ready || !policy.primary}>
           <input name="primary" type="radio" checked={primary === row.provider} disabled={!row.ready || !policy.primary || busy}
             onChange={() => setPrimary(row.provider)} />
-          <span><strong>{imNames[row.provider]}</strong><small>{row.ready ? '可用' : row.configured ? '等待凭据或回调地址' : '未配置应用'}</small></span>
+          <span><strong>{imNames[row.provider]}</strong><small>{row.ready ? '可发起授权' : !row.configured ? '未配置应用'
+            : policy.callback ? '缺少应用凭据' : '缺少团队 HTTPS 地址'}</small></span>
           {policy.primary === row.provider && <Pill tone="blue">当前使用</Pill>}
         </label>)}
       </div>

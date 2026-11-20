@@ -257,12 +257,20 @@ async function serve(release: () => void) {
           const nonce = randomBytes(18).toString('base64');
           res.setHeader('content-security-policy', "default-src 'none'; style-src 'nonce-" + nonce + "'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'");
           res.writeHead(status, { 'content-type': 'text/html; charset=utf-8' }).end(runnerConnectPage(nonce, view, error, {
-            oauth, password: login.legacyPassword,
+            oauth, password: login.legacyPassword, workbench: publicWorkbench?.href ?? runnerOrigin.href,
+            expired: status === 404,
           }));
         };
         const signedIn = sessionFor(req)?.username;
         const actor = signedIn && auth.listAccounts().some(item => item.username === signedIn && !item.disabled) ? signedIn : undefined;
-        const enrollment = work.deviceEnrollment(actor, requestId);
+        let enrollment;
+        try {
+          enrollment = work.deviceEnrollment(actor, requestId);
+        } catch (error) {
+          if (!(error instanceof WorkbenchError) || error.status !== 404) throw error;
+          page(404, undefined, error.message);
+          return;
+        }
         if (req.method === 'GET') {
           const status = url.searchParams.get('im');
           const notice = status === 'pending' ? '已提交开通申请。获批后，请回到此链接重新授权登录。'
@@ -697,7 +705,8 @@ async function serve(release: () => void) {
         output = work.postConversation(actor, item, z.object({ nonce, text: prose, topic: id.optional(), ticket: id.optional(),
           feishu: z.boolean().optional() }).strict().parse(await body(req)));
       } else if (post && view === 'project' && action === 'consult') {
-        output = await work.consultTopic(actor, item, z.object({ nonce, text: prose, topic: id, agents: z.array(id).min(1).max(4), knowledge: knowledgeRef.optional() })
+        output = await work.consultTopic(actor, item, z.object({ nonce, text: prose, topic: id, agents: z.array(id).min(1).max(4),
+          knowledge: knowledgeRef.optional(), device: z.uuid().optional() })
           .strict().parse(await body(req)));
       } else if (post && view === 'project' && action === 'feishu-group') {
         work.bindFeishuGroup(actor, item, z.object({ chat: z.string().regex(/^oc_[a-zA-Z0-9_-]+$/), label: title, topic: id.optional() }).strict().parse(await body(req)));

@@ -404,6 +404,10 @@ input[type=checkbox] { width: 15px; height: 15px; accent-color: var(--accent); }
 .login-sheet .brand { padding: 0; min-height: 39px; margin-bottom: 18px; }
 .login-sheet h1 { margin-bottom: 16px; }
 .login-sheet [data-slot=button] { justify-content: space-between; }
+.login-enterprise { display: grid; gap: 10px; }
+.login-enterprise p { margin: 0; }
+.login-enterprise [data-slot=button] > span { display: inline-flex; align-items: center; gap: 8px; }
+.login-first-time { font-size: 13px; }
 .login-notice { color: var(--ink); background: var(--accent-soft); padding: 10px 12px; border-radius: 8px; margin-bottom: 16px; }
 .login-alternative { margin-top: 18px; }
 .login-alternative > summary { color: var(--muted); cursor: pointer; }
@@ -558,6 +562,8 @@ input[type=checkbox] { width: 15px; height: 15px; accent-color: var(--accent); }
 .execution-target > span > small { font-size: 11px; }
 .execution-target > .pill { flex: none; white-space: nowrap; font-size: 11px; }
 .execution-target-manage { margin-top: 5px; }
+.execution-environment { min-width: 0; }
+.execution-environment .execution-target-options { max-height: min(190px, 24vh); overflow-y: auto; }
 
 @media (max-width: 900px) {
   .run-history { grid-template-columns: minmax(0, 1fr); }
@@ -677,6 +683,10 @@ input[type=checkbox] { width: 15px; height: 15px; accent-color: var(--accent); }
   background: transparent; color: var(--accent-strong); font-size: 12px; }
 .connect-command { display: block; padding: 9px 11px; white-space: pre-wrap; overflow-wrap: anywhere;
   background: var(--muted-surface); border: 1px solid var(--line); border-radius: 7px; }
+.runner-connect-instructions { display: grid; gap: 8px; }
+.runner-connect-instructions p { margin: 0; }
+.runner-command-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.runner-command-row .connect-command { flex: 1 1 240px; }
 .chat-context-link > span:first-child { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; min-width: 0; }
 .chat-context-link > .pill { flex: none; }
 .conversation-composer .topic-members { max-height: 24vh; overflow: auto; }

@@ -8,6 +8,9 @@ import { Button } from './components/button.tsx';
 import { routeFor, type PageProps } from './navigation.ts';
 import { selectedRosterIds, TopicMemberPicker } from './octop/TopicMemberPicker.tsx';
 import { SignedTopicReply } from './octop/SignedTopicReply.tsx';
+import { ExecutionEnvironment, executionTargetState, useExecutionTargets } from './execution-target.tsx';
+
+type ConversationDraft = { text: string; nonce: string; consultants: string[]; device?: { agent: string; id: string } };
 
 export function Conversation({ project, workspace, openTask, ticket, topic, canReplyInFeishu, route, desk = false }: PageProps & {
   ticket?: string; topic?: string; canReplyInFeishu?: boolean; desk?: boolean;
@@ -16,7 +19,7 @@ export function Conversation({ project, workspace, openTask, ticket, topic, canR
   const filter = ticket ? '?ticket=' + encodeURIComponent(ticket) : topic ? '?topic=' + encodeURIComponent(topic) : '';
   const reply = !ticket && route.reply;
   const data = useMessages(base + filter + (reply ? (filter ? '&' : '?') + 'reply=' + encodeURIComponent(reply) : ''));
-  const [draft, setDraft] = useStored('conversation:' + base + filter, { text: '', nonce: uid(), consultants: [] as string[] });
+  const [draft, setDraft] = useStored<ConversationDraft>('conversation:' + base + filter, { text: '', nonce: uid(), consultants: [] });
   const [agent, setAgent] = useState('');
   const [feishu, setFeishu] = useState(false);
   const [source, setChannel] = useStored('conversation-source:' + base + filter + (reply ? ':' + reply : ''), '');
@@ -26,9 +29,15 @@ export function Conversation({ project, workspace, openTask, ticket, topic, canR
   const registered = project.topics.find(item => item.id === topic)?.consultants ?? [];
   const consultants = ticket ? [] : agents.filter(item => registered.includes(item.id));
   const selected = selectedRosterIds(draft.consultants ?? [], consultants);
+  const runnerAgent = selected.length === 1 ? consultants.find(item => item.id === selected[0])
+    : consultants.length === 0 ? agents.find(item => item.id === agent) : undefined;
+  const device = runnerAgent && draft.device?.agent === runnerAgent.id ? draft.device.id : '';
+  const targets = useExecutionTargets(!reply && project.mayStart && runnerAgent ? project.id : undefined);
+  const targetState = runnerAgent && executionTargetState(targets, runnerAgent, device);
+  const needsDevice = !!targetState && (device ? targetState.ready && !targetState.selected : targetState.needsChoice);
   const preferred = route.participant && consultants.some(item => item.id === route.participant) ? route.participant : undefined;
   useEffect(() => {
-    if (preferred) setDraft({ ...draft, consultants: [preferred] });
+    if (preferred) setDraft({ ...draft, consultants: [preferred], device: draft.device?.agent === preferred ? draft.device : undefined });
   }, [preferred]);
   const channels = [...new Set(data.rows?.map(item => item.channel) ?? [])];
   const channel = channels.includes(source) ? source : '';
@@ -62,10 +71,10 @@ export function Conversation({ project, workspace, openTask, ticket, topic, canR
     {!reply && project.mayStart && <form className={desk ? 'form conversation-composer' : 'form'} onSubmit={async event => {
       event.preventDefault();
       const text = draft.text.trim();
-      if (!text) return;
-      if (!consultants.length && agent) { openTask({ topic, parent: ticket, agent, request: text }); return; }
+      if (!text || needsDevice) return;
+      if (!consultants.length && agent) { openTask({ topic, parent: ticket, agent, device: device || undefined, request: text }); return; }
       if (await run(() => selected.length
-        ? api('project/' + project.id + '/consult', { text, nonce: draft.nonce, topic, agents: selected })
+        ? api('project/' + project.id + '/consult', { text, nonce: draft.nonce, topic, agents: selected, device: device || undefined })
         : api(base, { text, nonce: draft.nonce, ticket, topic, feishu: canReplyInFeishu && feishu }),
         selected.length ? '咨询已交给所选 Agent' : feishu ? '消息已记录，准备同步到飞书' : '消息已发送')) {
         setDraft({ text: '', nonce: uid(), consultants: [] });
@@ -79,17 +88,24 @@ export function Conversation({ project, workspace, openTask, ticket, topic, canR
         <input type="checkbox" checked={feishu} onChange={event => setFeishu(event.target.checked)} />同时回复飞书原话题
       </label>}
       {!!consultants.length && (!desk || showRoster) && <TopicMemberPicker agents={consultants} value={draft.consultants ?? []}
-        onChange={consultants => setDraft({ ...draft, consultants })} />}
+        onChange={consultants => setDraft({ ...draft, consultants,
+          device: consultants.length === 1 && draft.device?.agent === consultants[0] ? draft.device : undefined })} />}
+      {runnerAgent && <ExecutionEnvironment project={project.id} agent={runnerAgent} targets={targets} value={device}
+        connectUrl={runnerAgent.owner === workspace.actor && runnerAgent.executionCapabilities.remote ? workspace.runnerConnectUrl : undefined}
+        onChange={id => setDraft({ ...draft, device: id ? { id, agent: runnerAgent.id } : undefined })} />}
       <div className="form-actions">
         {desk && !!consultants.length && <Button size="sm" variant="ghost" className="consultant-picker" aria-expanded={showRoster} type="button"
           onClick={() => setShowRoster(!showRoster)}>
           <Bot />{showRoster ? '收起 Agent 列表' : selected.length ? '已选 ' + selected.length + ' 位 Agent' : '选择咨询 Agent'}
         </Button>}
-        {!consultants.length && !!agents.length && <select aria-label="委托 Agent" value={agent} onChange={event => setAgent(event.target.value)}>
+        {!consultants.length && !!agents.length && <select aria-label="委托 Agent" value={agent} onChange={event => {
+          setAgent(event.target.value);
+          if (draft.device) setDraft({ ...draft, device: undefined });
+        }}>
           <option value="">仅发消息</option>
           {agents.map(item => <option key={item.id} value={item.id}>交给 {item.title}</option>)}
         </select>}
-        <Button size="sm" type="submit" disabled={busy || !draft.text.trim()}>{desk && <Send />}
+        <Button size="sm" type="submit" disabled={busy || needsDevice || !draft.text.trim()}>{desk && <Send />}
           {selected.length ? '发起只读咨询' : agent ? '确认委托' : '发送'}</Button>
       </div>
     </form>}

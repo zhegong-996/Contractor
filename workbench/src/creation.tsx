@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { Bot, GitPullRequest, Plus } from 'lucide-react';
 import { api, readable, uid, useData, type Knowledge, type StartResult } from './api.ts';
-import { eligibleExecutionDevices, ExecutionTargetPicker, useExecutionTargets } from './execution-target.tsx';
+import { ExecutionEnvironment, executionTargetState, useExecutionTargets } from './execution-target.tsx';
 import { Field, Modal, SearchBox, Source, TopicOptions, useActions, useStored } from './ui.tsx';
 import { Button } from './components/button.tsx';
 import { Input, TextArea } from './components/input.tsx';
@@ -35,7 +35,7 @@ function initialDraft(preset: TaskPreset): Draft {
   return { title: preset.lesson ? preset.lesson.title.slice(0, 94) + ' · 复查' : preset.request?.split('\n')[0]?.slice(0, 100) ?? '', request: preset.request ?? '', topic: preset.topic ?? '',
     agent: preset.agent ?? '', target: '', material: preset.material ?? (preset.lesson ? [preset.lesson.id] : []), resources: [],
     priority: 'normal', nonce: uid(), metric: preset.lesson?.metric ?? '', unit: preset.lesson?.unit ?? '',
-    baseline: preset.lesson ? String(preset.lesson.baseline) : '', targetValue: '', recall: !!preset.personal, device: '' };
+    baseline: preset.lesson ? String(preset.lesson.baseline) : '', targetValue: '', recall: !!preset.personal, device: preset.device ?? '' };
 }
 
 export function Composer({ project, workspace, preset, close }: PageProps & { preset: TaskPreset; close: () => void }) {
@@ -49,7 +49,8 @@ export function Composer({ project, workspace, preset, close }: PageProps & { pr
     && (!preset.personal || a.kind === 'personal' && a.owner === workspace.actor));
   const chosenAgent = options.find(a => a.id === draft.agent);
   const targets = useExecutionTargets(chosenAgent ? project.id : undefined);
-  const selectedDevice = eligibleExecutionDevices(targets.devices.data, chosenAgent).find(device => device.id === draft.device);
+  const deviceState = chosenAgent && executionTargetState(targets, chosenAgent, draft.device);
+  const needsDevice = draft.device ? !deviceState?.selected : deviceState?.needsChoice;
   const codeTargets = project.deliveryTargets.filter(ref => ref.eligibleAgents.some(id => options.some(agent => agent.id === id)));
   const deliveryTarget = codeTargets.find(ref => ref.ref === draft.target);
   const agentOptions = deliveryTarget ? options.filter(agent => deliveryTarget.eligibleAgents.includes(agent.id)) : options;
@@ -60,6 +61,8 @@ export function Composer({ project, workspace, preset, close }: PageProps & { pr
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
     const outcome = await run(async () => {
+      if (needsDevice)
+        throw new Error('请先选择该 Agent 可以使用的执行设备。');
       if (draft.target && !deliveryTarget?.eligibleAgents.includes(draft.agent))
         throw new Error('请选择具有该仓库交付资格的 Agent。');
       if (topicRequired && !draft.topic)
@@ -110,10 +113,9 @@ export function Composer({ project, workspace, preset, close }: PageProps & { pr
           </select>
         </Field>
       </div>
-      {chosenAgent && <details className="form-disclosure">
-        <summary>执行端 · {selectedDevice?.name ?? (draft.device ? '所选设备不可用' : '按项目规则')}</summary>
-        <ExecutionTargetPicker project={project.id} agent={chosenAgent} targets={targets} value={draft.device} onChange={id => change('device', id)} />
-      </details>}
+      {chosenAgent && <ExecutionEnvironment project={project.id} agent={chosenAgent} targets={targets} value={draft.device}
+        connectUrl={chosenAgent.owner === workspace.actor && chosenAgent.executionCapabilities.remote ? workspace.runnerConnectUrl : undefined}
+        onChange={id => change('device', id)} />}
       {draft.agent && chosenAgent && <div className="inline-meta"><Bot size={16} />{chosenAgent.capability}</div>}
       <details open={preset.material?.length || preset.lesson ? true : undefined} className="form-disclosure">
         <summary>知识与资料{draft.material.length ? ' · ' + draft.material.length + ' 份' : ''}</summary>
@@ -159,7 +161,7 @@ export function Composer({ project, workspace, preset, close }: PageProps & { pr
           <Field label="目标"><Input type="number" step="any" value={draft.targetValue} onChange={e => change('targetValue', e.target.value)} /></Field>
         </div>
       </details>
-      <footer className="form-actions"><Button type="submit" disabled={busy || !!draft.device && !selectedDevice}><Plus />提交委托</Button></footer>
+      <footer className="form-actions"><Button type="submit" disabled={busy || needsDevice}><Plus />提交委托</Button></footer>
     </form>
   </Modal>;
 }

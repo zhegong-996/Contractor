@@ -356,4 +356,24 @@ test('主题咨询通过原生执行隔离来源，重放只派一次，且只�
   const withdrawn = work.conversation('engineer', 'store', { topic: input.topic })[0]?.consultations?.find(reply => reply.speaker.id === 'wrap-agent');
   assert.equal(withdrawn?.status, 'unavailable');
   assert.equal(withdrawn?.text, undefined);
+
+  const connect = (project: string, agent: string, owner: string, name: string) =>
+    work.pairDevice(work.issueDevicePair(owner, project, agent).code, name).id;
+  const laptop = connect('store', 'copy-agent', 'product', '笔记本');
+  const server = connect('store', 'copy-agent', 'product', '云执行机');
+  const otherProject = connect('private-pilot', 'copy-agent', 'product', '子项目设备');
+  const otherAgent = connect('store', 'wrap-agent', 'engineer', '小屏设备');
+  const pinned = { ...web, text: '单独确认文案口径', nonce: randomUUID(), device: server };
+  const beforeDevices = work.conversation('product', 'store', { topic: input.topic }).length;
+  await assert.rejects(work.consultTopic('product', 'store', { ...pinned, device: otherProject }), { status: 409 });
+  await assert.rejects(work.consultTopic('product', 'store', { ...pinned, device: otherAgent }), { status: 409 });
+  await assert.rejects(work.consultTopic('product', 'store', { ...pinned, agents: ['copy-agent', 'wrap-agent'] }), { status: 409 });
+  assert.equal(work.conversation('product', 'store', { topic: input.topic }).length, beforeDevices);
+  const pinnedBatch = await work.consultTopic('product', 'store', pinned);
+  assert.equal(work.detail('product', pinnedBatch.tickets[0]!).work.device, server);
+  assert.deepEqual(await work.consultTopic('product', 'store', pinned), pinnedBatch);
+  await assert.rejects(work.consultTopic('product', 'store', { ...pinned, device: laptop }), { status: 409 });
+  assert.equal(work.conversation('product', 'store', { topic: input.topic }).length, beforeDevices + 1);
+  work.transitionDevice('product', server, 'suspended');
+  await assert.rejects(work.consultTopic('product', 'store', { ...pinned, nonce: randomUUID() }), { status: 409 });
 });

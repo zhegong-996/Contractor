@@ -29,9 +29,15 @@ contractor connect https://collab.example.com
 
 浏览器里登录工作台并选定项目、自己的 Agent，确认后执行端启动接单。命令会打印链接，支持把无图形执行机的确认链接在自己的浏览器打开。默认后台运行。连接身份保存在执行用户的 `~/.contractor-runner`，保留该目录并在重启后重复相同的 `connect` 命令即可上线。若同一台机器要挂载多个 Agent，在命令末尾加 `--profile <名称>`，每个名称独立配对。`contractor stop <团队地址> [--profile <名称>]` 停止接单并保留本地身份及待回传记录。部署方可使用 `--foreground` 交由操作系统的服务管理器守护进程。
 
+成员可以从「Agent → 执行设备」或自己的远程 Agent 的「执行环境 → 连接新设备」复制连接命令。笔记本、团队服务器和云主机使用同一连接流程。浏览器列出当前账号在该设备上可用的项目与 Agent，只有一个选项时直接显示并等待确认。看到「连接已批准」后，回执行机等待上线。用连接命令给出的地址核对设备在工作台显示为在线。
+
 Claude Code 的连接检查依据 Agent 登记的服务商。DeepSeek 读取执行机的凭据和官方端点，Ollama 核对回环地址上的已安装模型。浏览器确认后若执行机缺少配置，补齐后运行同一条命令即可沿用设备登记。
 
 项目维护人在「项目 → 职责与路由 → 执行端路由」按 Agent 设置默认及备用执行端。主端在线时优先使用主端，只有获准的备用端在线时派给备用端。两台合资格的设备都离线时，新单等待主端。发起人仍可在同一 Agent 下指定执行端。已派出的任务沿原工单处理断线恢复，换端继续核对原执行停止、资料授权和额度。
+
+在主题会话只选一位咨询 Agent 时，输入区可选择本次的执行设备，设备范围由当前项目和该 Agent 决定。多人只读咨询各自用项目规则。发起工单时也可以按同样方式选设备。在线、离线和暂不接单来自 Runner 的状态更新。指定仍有授权的离线设备时，任务等待该设备恢复。设备选择和实际模型可以在工单的执行记录核对。
+
+连接指引和会话入口参考设备与 Agent 分离的交互。项目授权沿用 Contractor 的项目与设备登记。 [LobeHub 执行设备](https://landing-staging.lobehub.com/ja/docs/usage/agent/execution-devices) · [GitHub 自托管 Runner 访问范围](https://docs.github.com/en/actions/how-tos/manage-runners/self-hosted-runners/manage-access)
 
 浏览器验收通过项目仓库配置的 GitHub Actions 工作流执行。可以由该工作流指定团队的验证 runner。工作台显示验证运行及 runner 标签，并按本单版本核对证据。
 

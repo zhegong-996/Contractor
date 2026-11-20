@@ -13,7 +13,7 @@ import { go, routeFor, titles, useRoute, type PageProps, type TaskPreset } from 
 import { Composer } from './creation.tsx';
 import { forest, type Branch } from './hierarchy.ts';
 import { workbenchTheme } from './components/theme.ts';
-import { IMLoginButton, useIMNotice } from './im-login.tsx';
+import { IMLoginEntry, imNames, useIMNotice } from './im-login.tsx';
 import 'virtual:workbench-antd.css';
 import './style.css';
 
@@ -59,10 +59,10 @@ function Login({ session }: { session?: Session }) {
   return <div className="login-wrap">
     <div className="login-sheet">
       <div className="brand"><Logo /><span>Contractor</span></div>
-      <h1>登录工作台</h1>
+      <h1>{notice.status === 'pending' ? '等待开通' : '登录工作台'}</h1>
       {notice.text && <p className="login-notice" role={notice.status === 'pending' ? 'status' : 'alert'}>{notice.text}</p>}
-      <IMLoginButton login={imLogin} />
-      {imLogin?.provider && !imLogin.ready && <p className="login-notice" role="status">主登录渠道暂未就绪，请联系平台管理员。</p>}
+      <IMLoginEntry login={imLogin} status={notice.status} />
+      {imLogin?.provider && !imLogin.ready && <p className="login-notice" role="status">{imNames[imLogin.provider]}登录暂不可用，请联系平台管理员。</p>}
       {usePassword && (imLogin?.ready ? <details className="login-alternative" open={notice.status === 'existing' || undefined}>
         <summary>使用原账号口令</summary>{passwordForm}
       </details> : passwordForm)}

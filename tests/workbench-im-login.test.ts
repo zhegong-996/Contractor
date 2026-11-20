@@ -155,7 +155,10 @@ test('工作台回调、开通、原账号绑定、项目授权和停止口令�
   await writeFile(path.join(state, 'workbench.json'), JSON.stringify({
     port: address.port, workbenchPublicUrl: team, remoteRunnerPort: runnerAddress.port, runnerConnectUrl: runnerOrigin, imLogin: settings,
     projects: [{ id: 'store', title: '门店推荐理由', members: ['owner'], maintainers: ['owner'] }],
-    functions: [{ id: 'review', title: '核对' }], agents: [],
+    functions: [{ id: 'review', title: '核对' }],
+    agents: [{ id: 'review', title: '小屏核对 Agent', owner: 'owner', function: 'review', capability: '核对小屏规则', skill: '只读核对联调资料',
+      projects: ['store'], active: true, kind: 'specialist', engine: 'codex', model: 'fixture-model',
+      execution: { kind: 'remote', provider: 'openai', credential: 'codex', domains: ['api.openai.com'] } }],
   }));
   const preload = path.join(state, 'oauth-fixture.mjs');
   await writeFile(preload, `
@@ -188,9 +191,10 @@ test('工作台回调、开通、原账号绑定、项目授权和停止口令�
     await delay(70);
   }
   const request = (route: string, cookie?: string, body?: object, requestOrigin = team, site = team) => new Promise<Response>((resolve, reject) => {
+    const form = body instanceof URLSearchParams;
     const outgoing = httpRequest(origin + route, { method: body ? 'POST' : 'GET',
       headers: { Host: new URL(site).host, ...(cookie && { cookie }),
-        ...(body && { Origin: requestOrigin, 'Content-Type': 'application/json' }) } }, async incoming => {
+        ...(body && { Origin: requestOrigin, 'Content-Type': form ? 'application/x-www-form-urlencoded' : 'application/json' }) } }, async incoming => {
       try {
         const chunks: Buffer[] = [];
         for await (const chunk of incoming) chunks.push(chunk);
@@ -201,7 +205,7 @@ test('工作台回调、开通、原账号绑定、项目授权和停止口令�
       } catch (error) { reject(error); }
     });
     outgoing.on('error', reject);
-    outgoing.end(body && JSON.stringify(body));
+    outgoing.end(body && (form ? String(body) : JSON.stringify(body)));
   });
   const api = (route: string, cookie?: string, body?: object, requestOrigin = team) => request('/api/' + route, cookie, body, requestOrigin);
   const cookie = (response: Response, name: string) => response.headers.getSetCookie().find(value => value.startsWith(name + '='))?.split(';')[0];
@@ -309,10 +313,11 @@ test('工作台回调、开通、原账号绑定、项目授权和停止口令�
   const federatedOwner = cookie(await complete('ownerid', await begin()), 'contractor_console')!;
   assert.equal((await api('overview', federatedOwner).then(response => response.json())).actor, 'owner');
   const device = randomUUID();
-  const enrollment = await fetch('http://127.0.0.1:' + runnerAddress.port + '/api/runner/enroll', {
-    method: 'POST', headers: { authorization: 'Bearer ' + randomBytes(32).toString('base64url'), 'content-type': 'application/json' },
-    body: JSON.stringify({ id: device, name: '隔离配对', engines: ['codex'] }),
+  const secret = randomBytes(32).toString('base64url');
+  const runner = (action: string, body: object) => fetch('http://127.0.0.1:' + runnerAddress.port + '/api/runner/' + action, {
+    method: 'POST', headers: { authorization: 'Bearer ' + secret, 'content-type': 'application/json' }, body: JSON.stringify(body),
   });
+  const enrollment = await runner('enroll', { id: device, name: '隔离配对', engines: ['codex'] });
   assert.equal(enrollment.status, 200);
   const devicePage = '/runner/connect/' + device;
   const prompt = await request(devicePage, undefined, undefined, runnerOrigin, runnerOrigin).then(response => response.text());
@@ -321,8 +326,19 @@ test('工作台回调、开通、原账号绑定、项目授权和停止口令�
   assert.doesNotMatch(prompt, /name="password"/);
   const approvedBrowser = await complete('ownerid', await begin(devicePage));
   assert.equal(approvedBrowser.headers.get('location'), devicePage);
-  const signedInDevicePage = await request(devicePage, cookie(approvedBrowser, 'contractor_console')).then(response => response.text());
-  assert.match(signedInDevicePage, /当前账号没有可连接的项目 Agent/);
+  const deviceSession = cookie(approvedBrowser, 'contractor_console');
+  const signedInDevicePage = await request(devicePage, deviceSession).then(response => response.text());
+  assert.match(signedInDevicePage, /隔离配对[\s\S]*name="selection" value="store\/review"[\s\S]*小屏核对 Agent/);
+  assert.equal((await request(devicePage, deviceSession, new URLSearchParams({ action: 'approve', selection: 'store/wrong' }))).status, 403);
+  assert.equal((await request(devicePage, deviceSession, new URLSearchParams({ action: 'approve', selection: 'store/review' }))).status, 303);
+  assert.match(await request(devicePage, deviceSession).then(response => response.text()), /连接已批准/);
+  const registered = await runner('enroll-status', { id: device });
+  assert.equal(registered.status, 200);
+  const registration = await registered.json();
+  assert.deepEqual([registration.id, registration.profile.id], [device, 'review']);
+  const noLongerValid = await request('/runner/connect/' + randomUUID());
+  assert.equal(noLongerValid.status, 404);
+  assert.match(await noLongerValid.text(), /连接已过期[\s\S]*在执行机重新运行连接命令/);
   assert.equal((await api('admin/members/new-staff/status', federatedOwner, { enabled: false })).status, 200);
   assert.equal((await api('overview', staff)).status, 401);
   assert.match((await complete('newbie', await begin())).headers.get('location')!, /im=blocked/);

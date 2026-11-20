@@ -10,7 +10,7 @@ export type Route = { project: string; view: View; item?: string; tab?: string; 
   consultation?: { ticket: string; revision: string } };
 export type TaskPreset = {
   request?: string;
-  agent?: string; parent?: string; topic?: string; material?: string[];
+  agent?: string; device?: string; parent?: string; topic?: string; material?: string[];
   personal?: boolean;
   lesson?: { id: string; title: string; ticket: string; metric: string; unit: string; baseline: number };
 };

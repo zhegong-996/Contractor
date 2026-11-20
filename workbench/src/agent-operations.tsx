@@ -6,6 +6,7 @@ import { Button } from './components/button.tsx';
 import { Input } from './components/input.tsx';
 import { SettingsDrawer } from './components/settings-drawer.tsx';
 import { date, Empty, Failure, Field, Loading, Modal, Pill, Section, useActions } from './ui.tsx';
+import { RunnerConnectInstructions } from './execution-target.tsx';
 
 export function AgentOperations(props: PageProps & { page: 'devices' | 'budgets' }) {
   const { page, project } = props;
@@ -13,7 +14,7 @@ export function AgentOperations(props: PageProps & { page: 'devices' | 'budgets'
   return <div className="page-scroll"><div className="project-page">
     <header className="object-header">
       <div className="object-emblem"><Icon size={24} /></div>
-      <div><h1>{page === 'devices' ? '执行端' : '额度管理'}</h1><p className="muted-text">{project.title}</p></div>
+      <div><h1>{page === 'devices' ? '执行设备' : '额度管理'}</h1><p className="muted-text">{project.title}</p></div>
       <a className="text-button object-action" href={routeFor(project.id, 'agents')}><ArrowLeft size={16} />Agent</a>
     </header>
     <div className="detail-stack">{page === 'devices' ? <DevicePane {...props} />
@@ -24,19 +25,20 @@ export function AgentOperations(props: PageProps & { page: 'devices' | 'budgets'
 
 function DevicePane({ workspace, project }: PageProps) {
   const data = useData<DeviceRow[]>('project/' + project.id + '/devices', 2200);
-  const remote = workspace.runnerConnectUrl && project.mayStart && workspace.agents.some(agent => agent.owner === workspace.actor
-    && agent.active && agent.projects.includes(project.id) && agent.executionCapabilities.remote);
+  const remote = project.mayStart && workspace.agents.some(agent => agent.owner === workspace.actor
+    && agent.active && agent.projects.includes(project.id) && agent.executionCapabilities.remote) ? workspace.runnerConnectUrl : undefined;
   const canPair = project.mayStart && workspace.agents.some(agent => agent.owner === workspace.actor
     && agent.active && agent.projects.includes(project.id) && agent.executionCapabilities.local);
   const [pair, show] = useState(false);
   const [change, setChange] = useState<{ device: DeviceRow; state: 'lost' | 'retired' | 'active' }>();
   const { run, busy } = useActions();
-  return <Section title="项目执行端" action={(remote || canPair) && <Button size="sm" onClick={() => show(true)}><Plus />连接执行端</Button>}>
+  return <Section title="项目设备" action={(remote || canPair) && <Button size="sm" onClick={() => show(true)}><Plus />连接设备</Button>}>
     {data.error ? <Failure error={data.error} retry={() => void data.refetch()} /> : !data.data ? <Loading />
       : data.data.length ? data.data.map(device => <div className="resource-row" key={device.id}>
         <span className="heading-icon"><Cpu size={17} /></span>
         <div className="min-w-0"><strong>{device.name}</strong><p className="muted-text">
           {workspace.agents.find(agent => agent.id === device.agent)?.title ?? device.agent} · {device.owner}
+          {device.remote ? ' · 远程接入' : ' · 工作台主机'}
           {device.lastSeen && ' · ' + date(new Date(device.lastSeen).toISOString())}
         </p></div>
         <div className="actions">
@@ -54,7 +56,7 @@ function DevicePane({ workspace, project }: PageProps) {
             <Button size="sm" variant="ghost" onClick={() => setChange({ device, state: 'retired' })}>退役</Button>
           </>}
         </div>
-      </div>) : <Empty title="此项目尚无执行端" icon={<Cpu />} />}
+      </div>) : <Empty title="此项目尚无执行设备" icon={<Cpu />} />}
     {change && <Modal title={change.state === 'retired' ? '退役执行端' : change.state === 'lost' ? '标记执行端丢失' : '确认找回执行端'} close={() => setChange(undefined)}>
       <div className="form"><strong>{change.device.name}</strong>
         <p>{change.state === 'active' ? '确认设备仍由你控制后恢复接单。' : change.state === 'retired'
@@ -64,14 +66,9 @@ function DevicePane({ workspace, project }: PageProps) {
         }}>确认</Button></div>
       </div>
     </Modal>}
-    {pair && (remote ? <Modal title="连接执行端" close={() => show(false)}><div className="form">
-      <p>在已安装 Contractor Runner 的执行机终端运行这一条命令。</p>
-      <code className="connect-command">contractor connect {workspace.runnerConnectUrl}</code>
-      <Button type="button" variant="outline" onClick={() => void run(async () => {
-        await navigator.clipboard.writeText('contractor connect ' + workspace.runnerConnectUrl); return true;
-      }, '命令已复制')}>复制命令</Button>
-      <p className="muted-text">打开命令给出的浏览器链接，选择项目和你的 Agent。重启后重复运行同一命令即可连接。</p>
-    </div></Modal> : <DevicePair project={project} workspace={workspace} close={() => show(false)} />)}
+    {pair && (remote ? <Modal title="连接设备" close={() => show(false)}>
+      <RunnerConnectInstructions url={remote} />
+    </Modal> : <DevicePair project={project} workspace={workspace} close={() => show(false)} />)}
   </Section>;
 }
 
