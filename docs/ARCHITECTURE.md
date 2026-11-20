@@ -1,5 +1,7 @@
 # Contractor 架构
 
+[从业务流程读起](../README.md#一件工作怎样走完) · [各模块规则与入口](PRODUCT-CAPABILITY-MAP.md) · [核心界面](WORKBENCH-FRONTEND-WORKSPACE.md)
+
 ## 输入、处理与输出
 
 同一项目可以绑定多个资料来源和消息入口。已验证的渠道账号归到工作台成员，但原渠道的资源权限仍依各自平台。项目和子项目可独立授权，主题组织持续讨论，工单代表一项可交付的工作。相关项目和工单可相互关联。
@@ -28,7 +30,6 @@ flowchart TB
     Dispatch["统一执行接口"]
     Runtime[("单一调度器 · AutoLoop 或 Contractor")]
     Worker["本机 / 已登记远程 Worker"]
-    CLI["Codex、Claude Code 或只读专家"]
   end
   IM --> Ingress --> Filter --> Router
   GH --> Ingress
@@ -86,6 +87,13 @@ flowchart TB
 | 完成与补写 | 调度确认与业务结算分别记录。重复回执只返回已有确认，实际任务进度和知识依赖下一层的交付审查。 |
 
 默认兼容实例使用 `autoloop/hub.db`，独立 Contractor 实例使用 `dispatch/hub.sqlite`，项目和工单资料位于 `orchestrator.sqlite`。渠道入站及回传、运行快照、交付检查与凭据有各自的生命周期。停机迁移可以复制业务账本及已结算的调度状态，再用 Contractor 的最新账本回滚。 [能力范围与切换条件](RUNTIME-MIGRATION.md) · [插件和运行方式](PLUGIN-ARCHITECTURE.md) · [执行端恢复](WORKBENCH-REMOTE-RUNNER.md)
+
+| 数据 | 谁写入和读取 |
+| --- | --- |
+| 渠道消息、修订及回执 | 接入服务在处理前落盘。独立飞书入口可用 `feishu-ingress/inbox.sqlite`，业务核心再按原消息与引用处理和去重。 |
+| 项目、工单、验收、知识和积分 | 工作台在 `orchestrator.sqlite` 写入业务记录。Browser API 根据当前账号和项目授权读取。 |
+| 领取、租约、等待和尝试 | 当前调度器写入自己的运行账本。Worker 保有本机工作目录、未交回的回执和停止证明。 |
+| 已授权资料的检索结果 | 检索插件对工作台送来的候选做排序。原文、有效版本和来源权限仍来自业务核心或授权的源站。 |
 
 ## 部署与扩展
 

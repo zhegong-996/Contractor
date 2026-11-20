@@ -1,49 +1,54 @@
 # Contractor
 
-Contractor 是面向团队的自托管 Agent 协作工作台。飞书、钉钉、GitHub 和网页的讨论可以汇入同一项目。成员确认范围、资料和验收标准，Agent 在获准的机器上执行。工单保留讨论、每轮执行、交付版本和验收依据。
+Contractor 是一个自托管的团队 Agent 协作工作台。团队把 IM、GitHub、Figma 和文档接到项目，在会话里讨论，在工单里推进交付。Agent 负责整理反馈、查资料和执行已获准的任务。需要定范围、授予访问权或验收时，系统把决定交给对应的人。
 
-[快速开始](#快速开始) · [系统架构](docs/ARCHITECTURE.md) · [配置手册](docs/CONFIGURATION.md) · [执行端](docs/WORKBENCH-REMOTE-RUNNER.md) · [实现来源与分发](docs/SOURCES.md)
+[快速开始](#快速开始) · [功能与模块手册](docs/PRODUCT-CAPABILITY-MAP.md) · [截图与操作手册](docs/WORKBENCH-FRONTEND-WORKSPACE.md) · [系统架构](docs/ARCHITECTURE.md) · [实现来源与分发](docs/SOURCES.md)
 
-![Contractor 任务中心显示会话目录、项目主题和两张关联工单](docs/images/task-center.png)
+![Contractor 任务看板中，文案工单等待答复，小屏工单已完成验收](docs/images/workflow-board.png)
 
 ## 一件工作怎样走完
 
 ```mermaid
-flowchart LR
-    A["工作台 / IM / GitHub"] --> B["Gateway<br/>统一身份、消息修订和原会话"]
-    B --> C{"过滤与归属"}
-    C -->|"讨论与未点名反馈"| D["项目或主题记录"]
-    C -->|"续原单或确认新委托"| E["Router<br/>职责、Agent 和决定人"]
-    D -->|"定时归纳后确认"| E
-    E --> F["工单、授权、上下文与积分"]
-    F --> G["调度器和 Worker"]
-    G -->|"必答问题 / 请求交接"| H["对应成员的待办"]
+flowchart TD
+    A["飞书、GitHub、其他已接入 IM、工作台"] --> B["按身份、原消息与引用定位项目和主题"]
+    B --> C{"如何处理"}
+    C -->|"未点名反馈"| D["保留来源，按项目节奏归纳"]
+    C -->|"只读咨询"| E["Agent 带出处回原会话"]
+    C -->|"明确委托或引用"| F["续原单，或按项目职责开单"]
+    D -->|"归属拿不准"| H["应处理的人确认"]
     H --> F
-    G -->|"回复 / 交付证据"| I["原会话与工作台"]
-    I -->|"发起人验收对应版本"| J["知识候选与人工采用"]
-    J -->|"按当前授权检索"| F
+    F --> I["按本版委托和当前权限装配资料，核对额度"]
+    I --> J["调度器派给已授权的本机或远程 Worker"]
+    J -->|"需要必答、授权或交接"| K["待我处理"]
+    K --> I
+    J -->|"交成果"| L["工单内核对本版证据"]
+    L -->|"打回修改"| F
+    L -->|"人工验收"| M["知识候选，经负责人采用后供后续检索"]
+    M --> I
 ```
 
-以门店推荐理由为例。群里重复反馈可以合在同一个主题下归纳，每条原消息、发送人和修订仍可追踪。明确指向小屏工单的补充回到原单，独立的文案修改另开工单。研发 Agent 拿到经确认的要求和获准的文件后执行。发起人核对本版提交、CI 和验收项，再决定是否把可复用规则沉淀到项目知识。
+**以门店推荐理由为例**。门店在群里反馈「推荐理由看不懂」，相关反馈先归入项目主题。文案核对和小屏换行分别跟进，同一问题的引用回复续回对应工单。小屏工单由产品确认验收范围、研发接单，Agent 在允许的代码范围内工作。发起人核对本版提交、CI 和逐项检查，通过后由知识负责人采用可复用的三档视口规则。以后遇到类似问题，Agent 可以在当前授权下查到现行规则，并引用它通过验收的那一版。
 
 ## 产品功能
 
 | 能力 | 在哪里使用 |
 | --- | --- |
-| **统一渠道和身份** | 飞书可用原话题和卡片接续。可选网关提供钉钉、企业微信、Telegram、Discord、QQ 和微信连接，回传能力按渠道区分。GitHub Issue、评论和 PR 依据明确的引用归属。 [渠道与业务架构](docs/ARCHITECTURE.md) |
-| **任务中心和项目层级** | 「工作」查看项目任务、我的任务、看板和列表。「会话」搜索有权访问的项目、主题与工单讨论。项目、子项目、主题、父子工单可以互相跳转。 [工作台页面](docs/WORKBENCH-FRONTEND-WORKSPACE.md) |
-| **按职责派工** | 项目维护人配置主题牵头、解答人、主备模型和执行端。个人 Agent、只读专家与开发 Agent 按不同授权运行。范围冲突、必答问题和交接等交给对应成员。 [配置手册](docs/CONFIGURATION.md) |
-| **后台执行和恢复** | 本机或配对设备领取。等待人工决定时暂停执行，有答复后接续。断线重报按原尝试补写，旧执行确认停止后才能换人或换端。 [执行端手册](docs/WORKBENCH-REMOTE-RUNNER.md) |
-| **按版本交付和验收** | 绑定本工单的提交、PR、CI 尝试和可选部署。可以冻结交付模板并分阶段核对。发起人可验收或打回，历史证据保留在原版。 [交付模板](docs/WORKBENCH-DELIVERY-TEMPLATE.md) |
-| **回归评估与知识** | 从执行记录对照两版成果，也可把验收形成的候选采用为项目知识。正文、适用范围、来源版本、替代关系和 Agent 使用记录可追溯。 [回归评估](docs/WORKBENCH-DELIVERY-TEMPLATE.md#过程核对和回归评估) · [知识管理](docs/KNOWLEDGE-VERSIONS.md) |
-| **权限与积分** | 平台角色、项目身份、资料授权分层。按任务类型、项目和 Agent 约束执行，用 Token 和模型倍率结算积分。 [权限和积分配置](docs/CONFIGURATION.md) |
+| **身份、项目和资料** | 绑定经验证的渠道账号。在「项目」组织子项目、主题、参与成员、仓库、原型与资料。平台权限与源站访问分别判定。 [配置手册](docs/CONFIGURATION.md) |
+| **消息过滤和派工** | 飞书、GitHub 与已配置的 IM 使用统一入站记录。项目维护人设置职责和牵头人，引用冲突进入待办。 [渠道适配](docs/WORKBENCH-OCTOP.md) |
+| **任务中心和会话** | 「工作」用看板或列表跟进工单。「会话」搜索项目、主题与工单并续聊。「待我处理」聚合当前账号可以处理的决定。 [界面与操作](docs/WORKBENCH-FRONTEND-WORKSPACE.md) |
+| **个人 Agent、共享专家和执行端** | 查职责、挂载技能和连接设备。已确认的委托可以断线续跑，旧执行停止后可交接。 [执行端手册](docs/WORKBENCH-REMOTE-RUNNER.md) |
+| **版本交付和验收** | 查看每轮成果，核对本版提交、PR、CI 和可选部署。支持逐项检查、打回下一版和回归比较。 [交付模板](docs/WORKBENCH-DELIVERY-TEMPLATE.md) |
+| **知识与记忆** | 查看候选、现行版本、历史、来源和使用记录。知识负责人确认采用、替代和失效。 [知识管理](docs/KNOWLEDGE-VERSIONS.md) |
+| **平台管理与积分** | 管角色、主登录渠道、模型服务和系统状态。后台按 Token 与模型倍率结算，前台按积分池管理。 [配置手册](docs/CONFIGURATION.md) |
+
+**实现来源**。源码依赖包含 4 个固定提交的 MIT 子模块和 2 个适配自 Octop 的前端组件。Super-agent 提供工单和委托内核，AutoLoop 用于兼容运行与回滚，Octop Gateway 和 Memory 按部署选用。Contractor 实现业务路由、权限、上下文、验收与知识账本，并提供自研调度器。 [源码复用清单](docs/SOURCES.md)
 
 ## 快速开始
 
-需要 Git、Node.js 24.11+ 和 npm。将当前仓库「Code」中的 HTTPS 地址填到下列 `REPOSITORY_URL`。
+需要 Git、Node.js 24.11+ 和 npm。下载私有仓库时请使用已有仓库访问权限的 Git 账号。
 
 ```sh
-git clone --recurse-submodules REPOSITORY_URL contractor
+git clone --recurse-submodules https://github.com/zhegong-996/suitme-collab.git contractor
 cd contractor
 npm ci
 export COLLAB_STATE_DIR="$PWD/.runtime/workbench"

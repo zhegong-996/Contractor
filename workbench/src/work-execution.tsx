@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { Activity, ArrowRight, Bot, LockKeyhole } from 'lucide-react';
 import { useData, type Snapshot, type Ticket } from './api.ts';
 import { Markdown } from './markdown.tsx';
-import { deliveryVersionRoute, routeFor, runRoute, type PageProps } from './navigation.ts';
+import { deliveryVersionRoute, routeFor, runRoute, withConversationOrigin, type PageProps, type Route } from './navigation.ts';
 import { date, Empty, Ext, Failure, Loading, Pill, Section, short, Version } from './ui.tsx';
 
 const runStates: Record<string, [string, string]> = {
@@ -14,6 +14,7 @@ export function RunHistory({ ticket, workspace, project, route, actions }: PageP
   const runs = ticket.runs.slice().reverse();
   const selected = route.run ? runs.find(run => run.id === route.run) : runs[0];
   const attributions = new Map(workspace.agents.map(agent => [agent.id, agent.title]));
+  const origin = route.conversationOrigin;
   return <div className="detail-stack">
     {actions}
     {ticket.timers[0] && <div className="inline-meta">下次复查 <time dateTime={ticket.timers[0].at}>{date(ticket.timers[0].at, true)}</time></div>}
@@ -22,7 +23,7 @@ export function RunHistory({ ticket, workspace, project, route, actions }: PageP
         {runs.map(run => {
           const [label, tone] = run.stopping ? ['停止确认中', 'amber'] : runStates[run.state] ?? ['状态待同步', 'neutral'];
           const timestamp = run.finishedAt ?? run.startedAt;
-          return <a className="run-history-item" key={run.id} href={runRoute(project.id, ticket.id, run.id)}
+          return <a className="run-history-item" key={run.id} href={withConversationOrigin(runRoute(project.id, ticket.id, run.id), origin)}
             aria-current={selected?.id === run.id ? 'page' : undefined}>
             <span className="run-history-line"><strong>执行 #{run.id}</strong><Pill tone={tone}>{label}</Pill></span>
             <span className="run-history-line"><span>{run.version ? '第 ' + run.version + ' 版' : '待装配'}</span>
@@ -39,13 +40,14 @@ export function RunHistory({ ticket, workspace, project, route, actions }: PageP
             <dt>委托人</dt><dd>{selected.attribution.delegatedBy}</dd>
             <dt>Agent 所有者</dt><dd>{selected.attribution.owner}</dd>
           </dl>}
-          {selected.assembly ? <SnapshotBody ticket={ticket.id} id={selected.id} attempt={route.attempt} project={project.id} />
+          {selected.assembly ? <SnapshotBody ticket={ticket.id} id={selected.id} attempt={route.attempt} project={project.id} origin={origin} />
             : <p className="muted-text">此轮没有已保存的执行快照。</p>}
         </Section>
         <Section title="本轮成果">
           {ticket.versions.filter(version => version.run === selected.id).map(version => <div className="record-row" key={version.revision}>
             <Version version={version.version} />
-            {typeof version.text === 'string' ? <a className="text-button" href={deliveryVersionRoute(project.id, ticket.id, version.revision)}>查看交付与验收 <ArrowRight size={15} /></a>
+            {typeof version.text === 'string' ? <a className="text-button"
+              href={withConversationOrigin(deliveryVersionRoute(project.id, ticket.id, version.revision), origin)}>查看交付与验收 <ArrowRight size={15} /></a>
               : <Pill tone="neutral">成果受限</Pill>}
             <time dateTime={version.at}>{date(version.at, true)}</time>
           </div>)}
@@ -56,7 +58,9 @@ export function RunHistory({ ticket, workspace, project, route, actions }: PageP
   </div>;
 }
 
-function SnapshotBody({ id, attempt, ticket, project }: { id: number; attempt?: number; ticket: string; project: string }) {
+function SnapshotBody({ id, attempt, ticket, project, origin }: {
+  id: number; attempt?: number; ticket: string; project: string; origin?: Route['conversationOrigin'];
+}) {
   const data = useData<Snapshot>('ticket/' + ticket + '/runs/' + id + (attempt ? '?attempt=' + attempt : ''), 2300);
   if (data.error) return <Failure error={data.error} retry={() => void data.refetch()} />;
   if (!data.data) return <Loading />;
@@ -64,18 +68,20 @@ function SnapshotBody({ id, attempt, ticket, project }: { id: number; attempt?: 
   return <>
     <div className="run-attempt">
       {snap.attempts.length > 1 ? <label>执行尝试 <select value={snap.attempt} onChange={event => {
-        window.location.hash = runRoute(project, ticket, id, Number(event.target.value));
+        window.location.hash = withConversationOrigin(runRoute(project, ticket, id, Number(event.target.value)), origin);
       }}>{snap.attempts.map(number => <option key={number} value={number}>第 {number} 次</option>)}</select></label>
         : <span>第 {snap.attempt} 次尝试</span>}
       <a className="text-button" href={runRoute(project, ticket, id, snap.attempt)}>本次记录链接</a>
     </div>
     {!snap.readable ? <div className="info-callout"><LockKeyhole size={16} />此执行快照的资料正文当前不可读。</div>
-      : snap.contents ? <SnapshotContents snapshot={snap} project={project} ticket={ticket} />
+      : snap.contents ? <SnapshotContents snapshot={snap} project={project} ticket={ticket} origin={origin} />
         : <p className="muted-text">此轮没有已保存的装配内容。</p>}
   </>;
 }
 
-function SnapshotContents({ snapshot: snap, project, ticket }: { snapshot: Snapshot; project: string; ticket: string }) {
+function SnapshotContents({ snapshot: snap, project, ticket, origin }: {
+  snapshot: Snapshot; project: string; ticket: string; origin?: Route['conversationOrigin'];
+}) {
   const context = snap.contents!.context;
   const evidence = context.events.filter(event => ['knowledge.source', 'task.confirmation', 'project.reference'].includes(event.type));
   const review = snap.review;
@@ -92,7 +98,7 @@ function SnapshotContents({ snapshot: snap, project, ticket }: { snapshot: Snaps
         <dt>已确认事项</dt><dd>{review.confirmations} 项{review.topicBasis && ' · 已固定主题依据'}</dd>
         <dt>执行回执</dt><dd>{review.receipt ? runStates[review.receipt]?.[0] ?? review.receipt : '尚无回执'}</dd>
         <dt>实际模型</dt><dd>{review.model.reported ?? '执行端未报告'}{review.model.state === 'different' && <Pill tone="red">与选用模型不同</Pill>}</dd>
-        <dt>本次成果</dt><dd>{review.delivery ? <a href={deliveryVersionRoute(project, ticket, review.delivery.revision)}>
+        <dt>本次成果</dt><dd>{review.delivery ? <a href={withConversationOrigin(deliveryVersionRoute(project, ticket, review.delivery.revision), origin)}>
           {review.delivery.accepted ? '已验收 · 查看该版' : '查看交付版本'}
         </a> : '本次暂无已记录成果'}</dd>
       </dl>

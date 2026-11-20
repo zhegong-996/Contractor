@@ -4,8 +4,10 @@ import type { Overview, Project } from './api.ts';
 export const titles = { chat: '会话', inbox: '待我处理', work: '任务中心', knowledge: '知识与记忆', agents: 'Agent', project: '项目', accounts: '连接与账号' } as const;
 export type View = keyof typeof titles;
 export type GlobalView = 'platform' | 'account';
+type ConversationOrigin = { project: string; item?: string; tab?: string };
 export type Route = { project: string; view: View; item?: string; tab?: string; run?: number; attempt?: number; revision?: string;
-  reply?: string; participant?: string; global?: GlobalView; consultation?: { ticket: string; revision: string } };
+  reply?: string; participant?: string; global?: GlobalView; conversationOrigin?: ConversationOrigin;
+  consultation?: { ticket: string; revision: string } };
 export type TaskPreset = {
   request?: string;
   agent?: string; parent?: string; topic?: string; material?: string[];
@@ -22,6 +24,11 @@ export function routeFor(project: string, view: View, item?: string, tab?: strin
 }
 export function go(project: string, view: View, item?: string, tab?: string) {
   window.location.hash = routeFor(project, view, item, tab);
+}
+export function withConversationOrigin(href: string, origin?: ConversationOrigin) {
+  if (!origin) return href;
+  const conversation = routeFor(origin.project, 'chat', origin.item, origin.tab === 'project' ? 'project' : undefined);
+  return href + (href.includes('?') ? '&' : '?') + new URLSearchParams({ fromChat: conversation });
 }
 export function runRoute(project: string, ticket: string, run: number, attempt?: number) {
   return routeFor(project, 'work', ticket, 'execution') + '&run=' + run + (attempt === undefined ? '' : '&attempt=' + attempt);
@@ -41,6 +48,8 @@ export function useRoute(): Route {
       return { project: '', view: 'inbox', global: pathname, tab: new URLSearchParams(search).get('tab') ?? undefined };
     const [project = '', view = 'inbox', item] = (pathname ?? '').split('/').map(decodeURIComponent);
     const params = new URLSearchParams(search);
+    const originMatch = view === 'work' ? /^#\/([\w-]+)\/chat(?:\/([\w-]+))?(?:\?tab=(project))?$/.exec(params.get('fromChat') ?? '') : null;
+    const conversationOrigin = originMatch ? { project: originMatch[1]!, item: originMatch[2], tab: originMatch[3] } : undefined;
     const consultation = /^([a-z0-9-]{1,80})\.([a-f0-9]{64})$/.exec(params.get('consultation') ?? '');
     const positive = (key: string) => {
       const value = Number(params.get(key));
@@ -48,7 +57,7 @@ export function useRoute(): Route {
     };
     return { project, view: Object.hasOwn(titles, view) ? view as View : 'inbox', item, tab: params.get('tab') ?? undefined,
       run: positive('run'), attempt: positive('attempt'), revision: params.get('revision') ?? undefined,
-      reply: params.get('reply') ?? undefined, participant: params.get('agent') ?? undefined,
+      reply: params.get('reply') ?? undefined, participant: params.get('agent') ?? undefined, conversationOrigin,
       ...(consultation && { consultation: { ticket: consultation[1]!, revision: consultation[2]! } }) };
   } catch { return { project: '', view: 'inbox' }; }
 }

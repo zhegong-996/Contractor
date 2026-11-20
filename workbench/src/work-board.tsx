@@ -1,10 +1,10 @@
 import type { ReactNode } from 'react';
 import { ticketListState } from '../../src/workbench/ticket-list-state.ts';
-import { CircleAlert, CircleCheck, CircleDashed, CircleDot, CircleStop, ClipboardCheck, Hourglass, ListChecks } from 'lucide-react';
+import { CircleAlert, CircleCheck, CircleDashed, CircleDot, CircleStop, ClipboardCheck, Hourglass } from 'lucide-react';
 import type { TicketRow } from './api.ts';
 import { Button } from './components/button.tsx';
 import { routeFor, type PageProps } from './navigation.ts';
-import { Avatar, Empty, Pill, short, ticketStatus, topicName, useActions, useSessionScroll, useStored } from './ui.tsx';
+import { Avatar, Pill, short, ticketStatus, topicName, useActions, useSessionScroll, useStored } from './ui.tsx';
 
 export const workStates = [
   { id: 'queued', title: '待开始', tone: 'neutral', icon: CircleDashed },
@@ -73,7 +73,6 @@ export function WorkBoard({ tickets, workspace, project, mine, group, scrollKey 
   const scroll = useSessionScroll(scrollKey);
   const columns = group === 'status' ? workStates : priorityGroups;
   const homes = new Map(workspace.projects.map(home => [home.id, home]));
-  if (!tickets.length) return <Empty title="没有匹配的工单" icon={<ListChecks />} />;
   return <div className="work-board" data-group={group} aria-label="任务看板" role="region" tabIndex={0} {...scroll}>
     {columns.map(column => {
       const items = tickets.filter(row => (group === 'status' ? workState(row) : row.work.priority ?? 'normal') === column.id);

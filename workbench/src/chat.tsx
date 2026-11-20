@@ -2,7 +2,7 @@ import { ArrowLeft, BookOpen, Bot, ChevronRight, ListChecks, MessageSquare, Pane
 import { part, useData, useTickets, type TopicRule } from './api.ts';
 import { Conversation } from './conversation.tsx';
 import { ConversationDirectory } from './conversation-directory.tsx';
-import { routeFor, type PageProps } from './navigation.ts';
+import { routeFor, withConversationOrigin, type PageProps } from './navigation.ts';
 import { Button } from './components/button.tsx';
 import { Avatar, Empty, Failure, Pill, Source, TicketStatus, useStored } from './ui.tsx';
 
@@ -55,7 +55,8 @@ export function ChatPage(props: PageProps) {
               : <p className="muted-text">{selected ? '此主题暂无已授权的咨询 Agent' : '选择主题查看可咨询的 Agent'}</p>}
           </section>
           <section><h2><ListChecks size={16} />{selected ? '主题工单' : '近期工单'}</h2>
-            {tasks.slice(0, 8).map(item => <a className="chat-context-link" key={item.id} href={routeFor(project.id, 'work', item.id)}>
+            {tasks.slice(0, 8).map(item => <a className="chat-context-link" key={item.id}
+              href={withConversationOrigin(routeFor(project.id, 'work', item.id), route)}>
               <span>{item.title}</span><TicketStatus ticket={item} />
             </a>)}
             {!tasks.length && <p className="muted-text">暂无工单</p>}

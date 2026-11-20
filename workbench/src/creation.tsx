@@ -52,6 +52,9 @@ export function Composer({ project, workspace, preset, close }: PageProps & { pr
   const selectedDevice = eligibleExecutionDevices(targets.devices.data, chosenAgent).find(device => device.id === draft.device);
   const codeTargets = project.deliveryTargets.filter(ref => ref.eligibleAgents.some(id => options.some(agent => agent.id === id)));
   const deliveryTarget = codeTargets.find(ref => ref.ref === draft.target);
+  const agentOptions = deliveryTarget ? options.filter(agent => deliveryTarget.eligibleAgents.includes(agent.id)) : options;
+  const parent = preset.lesson?.ticket ?? preset.parent;
+  const topicRequired = !!deliveryTarget?.stages?.requireTopicBasis && !parent;
   const product = deliveryTarget?.product;
   const resources = project.resources.filter(ref => ref.state === 'bound');
   const handleSubmit = async (event: FormEvent) => {
@@ -59,7 +62,7 @@ export function Composer({ project, workspace, preset, close }: PageProps & { pr
     const outcome = await run(async () => {
       if (draft.target && !deliveryTarget?.eligibleAgents.includes(draft.agent))
         throw new Error('请选择具有该仓库交付资格的 Agent。');
-      if (deliveryTarget?.stages?.requireTopicBasis && !draft.topic && !preset.parent)
+      if (topicRequired && !draft.topic)
         throw new Error('请选择主题，立项后确认一条主题依据。');
       const hasMeasure = Boolean(draft.metric || draft.unit || draft.baseline || draft.targetValue);
       if (hasMeasure && (!draft.metric.trim() || !draft.unit.trim())) throw new Error('请填写观测指标和单位。');
@@ -71,7 +74,7 @@ export function Composer({ project, workspace, preset, close }: PageProps & { pr
         agent: draft.agent.startsWith('function:') ? undefined : draft.agent || 'auto',
         function: draft.agent.startsWith('function:') ? draft.agent.slice('function:'.length) : undefined,
         topic: draft.topic || undefined, target: draft.target || undefined, material: draft.material, resources: draft.resources,
-        priority: draft.priority, parent: preset.lesson?.ticket ?? preset.parent, measure, reusedLesson: preset.lesson?.id,
+        priority: draft.priority, parent, measure, reusedLesson: preset.lesson?.id,
         personal: preset.personal, recall: draft.recall, device: draft.device || undefined,
         productCases: draft.productCases, reuseAcceptance: draft.reuseAcceptance,
       });
@@ -95,14 +98,16 @@ export function Composer({ project, workspace, preset, close }: PageProps & { pr
       <Field label="要做什么"><TextArea rows={5} value={draft.request} onChange={e => change('request', e.target.value)} required maxLength={3500}
         placeholder="描述要解决的问题和验收条件" /></Field>
       <div className="form-grid">
-        <Field label="执行 Agent"><select value={draft.agent} required={preset.personal}
-          onChange={e => setDraft({ ...draft, agent: e.target.value, target: '', device: '' })}>
-          <option value="">{preset.personal ? '选择我的 Agent' : '按项目职责分派'}</option>
-          {options.map(agent => <option key={agent.id} value={agent.id}>{agent.title} · {agent.owner}</option>)}
-          {!preset.personal && workspace.functions.filter(fn => options.some(agent => agent.function === fn.id)).map(fn => <option key={fn.id} value={'function:' + fn.id}>职责 · {fn.title}</option>)}
+        <Field label="执行 Agent"><select value={draft.agent} required={!!preset.personal || !!deliveryTarget}
+          onChange={e => setDraft({ ...draft, agent: e.target.value, device: '' })}>
+          <option value="">{preset.personal ? '选择我的 Agent' : deliveryTarget ? '选择有仓库资格的 Agent' : '按项目职责分派'}</option>
+          {agentOptions.map(agent => <option key={agent.id} value={agent.id}>{agent.title} · {agent.owner}</option>)}
+          {!preset.personal && !deliveryTarget && workspace.functions.filter(fn => options.some(agent => agent.function === fn.id)).map(fn => <option key={fn.id} value={'function:' + fn.id}>职责 · {fn.title}</option>)}
         </select></Field>
-        <Field label="主题" hint={deliveryTarget?.stages?.requireTopicBasis ? '执行前需确认一条主题依据。' : undefined}>
-          <select value={draft.topic} onChange={e => change('topic', e.target.value)}><TopicOptions project={project} empty="未归入主题" /></select>
+        <Field label="主题" hint={deliveryTarget?.stages?.requireTopicBasis ? '委托提交后，在工单中确认一条主题依据。' : undefined}>
+          <select value={draft.topic} required={topicRequired} onChange={e => change('topic', e.target.value)}>
+            <TopicOptions project={project} empty={topicRequired ? '选择主题' : '未归入主题'} />
+          </select>
         </Field>
       </div>
       {chosenAgent && <details className="form-disclosure">
@@ -124,9 +129,14 @@ export function Composer({ project, workspace, preset, close }: PageProps & { pr
       </details>
       {!preset.personal && codeTargets.length > 0 && <details className="form-disclosure">
         <summary><GitPullRequest size={15} />代码交付</summary>
-        <Field label="交付仓库" hint="代码委托须由有仓库权限的研发确认。"><select value={draft.target} onChange={e => change('target', e.target.value)}>
+        <Field label="交付仓库" hint="代码委托须由有仓库权限的研发确认。"><select value={draft.target} onChange={e => {
+          const target = e.target.value;
+          const selected = codeTargets.find(ref => ref.ref === target);
+          const eligible = !selected || selected.eligibleAgents.includes(draft.agent);
+          setDraft({ ...draft, target, agent: eligible ? draft.agent : '', device: eligible ? draft.device : '' });
+        }}>
           <option value="">不涉及代码</option>
-          {codeTargets.map(ref => <option key={ref.ref} value={ref.ref} disabled={!!chosenAgent && !ref.eligibleAgents.includes(chosenAgent.id)}>{ref.label}</option>)}
+          {codeTargets.map(ref => <option key={ref.ref} value={ref.ref}>{ref.label}</option>)}
         </select></Field>
       </details>}
       {!preset.personal && <details className="form-disclosure">

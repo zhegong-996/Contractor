@@ -1,7 +1,7 @@
 import { Archive, ArchiveRestore, ListChecks, MessageSquare } from 'lucide-react';
 import { api, part, useConversations } from './api.ts';
 import { Button } from './components/button.tsx';
-import { routeFor, type PageProps } from './navigation.ts';
+import { routeFor, withConversationOrigin, type PageProps } from './navigation.ts';
 import { date, Empty, Failure, IconButton, Loading, SearchBox, Source, useActions, useSessionScroll, useStored } from './ui.tsx';
 
 export function ConversationDirectory({ workspace, project, route }: PageProps) {
@@ -26,7 +26,7 @@ export function ConversationDirectory({ workspace, project, route }: PageProps) 
       {conversations.error && <Failure error={conversations.error} retry={() => void conversations.refetch()} />}
       {conversations.isPending && <Loading />}
       {conversations.rows.map(row => {
-        const url = row.ticket ? routeFor(row.project, 'work', row.ticket, 'activity')
+        const url = row.ticket ? withConversationOrigin(routeFor(row.project, 'work', row.ticket, 'activity'), route)
           : routeFor(row.project, 'chat', row.topic ?? undefined, row.topic ? undefined : 'project');
         const current = !row.ticket && row.project === project.id && (row.topic ? route.item === row.topic : route.tab === 'project');
         return <div className="conversation-directory-row" key={row.project + ':' + row.scope}>

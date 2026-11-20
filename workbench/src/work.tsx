@@ -9,7 +9,7 @@ import { WorkBoard, workStates, type BoardGrouping } from './work-board.tsx';
 import { RunHistory } from './work-execution.tsx';
 import { eligibleExecutionDevices, ExecutionTargetPicker, useExecutionTargets } from './execution-target.tsx';
 import { CaseEditor, ProductChecks, ProductVerificationPanel } from './product-criteria.tsx';
-import { go, routeFor, runRoute, type PageProps } from './navigation.ts';
+import { go, routeFor, runRoute, withConversationOrigin, type PageProps } from './navigation.ts';
 import { Button } from './components/button.tsx';
 import { Input, TextArea } from './components/input.tsx';
 import { TicketPicker } from './components/ticket-picker.tsx';
@@ -32,7 +32,7 @@ const recoveryActions: Record<string, string> = {
   'wait-child-results': '等待必需的子任务结果齐全', 'wait-ci': '等待本版提交的 CI 完成',
   'wait-deployment': '等待本版部署核对', 'check-delivery': '核对本版交付证据',
   'review-current-version': '验收当前版本', 'request-or-check-material': '核对资料或重新申请授权',
-  'reconnect-original-runner': '连接原执行端，接续原工单', 'wait-native-retry': '等待 AutoLoop 自动重试',
+  'reconnect-original-runner': '连接原执行端，接续原工单', 'wait-native-retry': '等待调度器自动重试',
   'check-runner': '检查执行端、模型或成员凭据', 'review-mandate': '核对当前委托与权限',
   'fix-and-resume': '处理阻塞后接续原工单', 'wait-handoff': '等待交接完成',
   'confirm-topic-basis': '由发起人或项目维护人确认一条当前主题依据',
@@ -71,11 +71,16 @@ export function WorkPage(props: PageProps) {
   const [group, setGroup] = useStored<BoardGrouping>('work-board-group', 'status');
   const [origin] = useStored('board-origin:' + route.item, project.id);
   const boardProject = workspace.projects.some(item => item.id === origin) ? origin : project.id;
+  const fromChat = route.conversationOrigin;
+  const chatProject = workspace.projects.find(item => item.id === fromChat?.project);
+  const chatTopic = chatProject?.topics.find(topic => topic.id === fromChat?.item)?.id;
+  const backToChat = chatProject && routeFor(chatProject.id, 'chat', chatTopic, fromChat?.tab === 'project' ? 'project' : undefined);
   const status = ({ active: 'running', acceptance: 'review', accepted: 'done', answered: 'done', ended: 'closed' } as Record<string, string>)[filters.status] ?? filters.status;
   const listScroll = useSessionScroll(JSON.stringify(['work-list', project.id, scope, filters]), { visibleAt: route.item });
   const tickets = useTickets({ ...(scope === 'mine' ? { mine: true } : { project: project.id, topic: filters.topic }),
     q: filters.query.trim().slice(0, 240), state: workStates.find(item => item.id === status)?.id }, view === 'list' || !route.item, 4000);
   const shown = tickets.rows;
+  const empty = !shown.length && !tickets.isPending && !tickets.hasNextPage && !tickets.error;
   const listState = <>{tickets.error && <Failure error={tickets.error} retry={() => void tickets.refetch()} />}
     {tickets.isPending && <Loading />}
     {tickets.hasNextPage && <Button size="sm" variant="outline" disabled={tickets.isFetching} onClick={() => void tickets.fetchNextPage()}>
@@ -111,8 +116,9 @@ export function WorkPage(props: PageProps) {
         </div>
       </div>
     </header>
-    <WorkBoard tickets={shown} workspace={workspace} project={project} mine={scope === 'mine'} group={group}
-      scrollKey={JSON.stringify(['work-board', project.id, scope, group, filters])} />
+    {shown.length > 0 && <WorkBoard tickets={shown} workspace={workspace} project={project} mine={scope === 'mine'} group={group}
+      scrollKey={JSON.stringify(['work-board', project.id, scope, group, filters])} />}
+    {empty && <Empty title="没有匹配的工单" icon={<ListChecks />} />}
     {listState}
   </section>;
   return <div className="split" data-has-detail={!!route.item}>
@@ -129,13 +135,14 @@ export function WorkPage(props: PageProps) {
             {roots.map(branch => <TaskBranch key={branch.item.id} branch={branch} home={home} current={route.item} />)}
           </section>;
         })}
-        {!shown.length && !tickets.isPending && !tickets.hasNextPage && <Empty title="没有匹配的工单" icon={<ListChecks />} />}
+        {empty && <Empty title="没有匹配的工单" icon={<ListChecks />} />}
         {listState}
       </div>
     </aside>}
     <div className="split-detail" {...detailScroll}>
-      {route.item && <a className={view === 'board' ? 'work-back' : 'mobile-back'} href={routeFor(view === 'board' ? boardProject : project.id, 'work')}>
-        <ArrowLeft size={16} />{view === 'board' ? '返回看板' : '工单列表'}</a>}
+      {route.item && <a className={backToChat || view === 'board' ? 'work-back' : 'mobile-back'}
+        href={backToChat || routeFor(view === 'board' ? boardProject : project.id, 'work')}>
+        <ArrowLeft size={16} />{backToChat ? '返回会话' : view === 'board' ? '返回看板' : '工单列表'}</a>}
       {!route.item ? <div className="desk-overview"><h1>{scope === 'mine' ? '我的任务' : project.title}</h1>
         <div className="status-grid">{workStates.map(({ id, title }) => <button key={id} type="button" aria-pressed={status === id}
           onClick={() => setFilters({ ...filters, status: status === id ? 'all' : id })}>{title}</button>)}</div>
@@ -236,7 +243,9 @@ function TicketDetail(props: PageProps & { ticket: Ticket; tab: WorkTab }) {
             : ticket.device.claimsPaused ? ' · 暂不接单' : deviceWaiting ? ' · 离线' : ''}</span>}</div>
     </div>
     <div className="ticket-frame" data-inspector={side && inspectorAvailable}>
-      <PageTabs value={tab} onChange={value => go(project.id, 'work', ticket.id, value)} items={workTabs} label="工单详情">
+      <PageTabs value={tab} onChange={value => {
+        window.location.hash = withConversationOrigin(routeFor(project.id, 'work', ticket.id, value), route.conversationOrigin);
+      }} items={workTabs} label="工单详情">
         <TabsContent className="ticket-tab" value="activity">
           <TicketRecovery {...props} ticket={ticket} />
           {status && !ticket.recovery && <div className="info-callout"><History size={17} /><span>正在确认旧执行停止及接续权限。{ticket.report?.summary}</span></div>}
@@ -567,7 +576,7 @@ function Delivery(props: PageProps & { ticket: Ticket }) {
   </div>;
 }
 
-function DeliveryVersion({ ticket, project, revision }: PageProps & { ticket: Ticket; revision: string }) {
+function DeliveryVersion({ ticket, project, route, revision }: PageProps & { ticket: Ticket; revision: string }) {
   const version = ticket.versions.find(item => item.revision === revision);
   const stages = version?.reviews.findLast(review => review.stages)?.stages;
   const panel = useRef<HTMLDivElement>(null);
@@ -575,7 +584,8 @@ function DeliveryVersion({ ticket, project, revision }: PageProps & { ticket: Ti
     panel.current?.scrollIntoView({ block: 'start' });
     panel.current?.focus({ preventScroll: true });
   }, [revision]);
-  const back = <a className="text-button" href={routeFor(project.id, 'work', ticket.id, 'delivery')}><ArrowLeft size={15} />返回交付</a>;
+  const back = <a className="text-button" href={withConversationOrigin(routeFor(project.id, 'work', ticket.id, 'delivery'), route.conversationOrigin)}>
+    <ArrowLeft size={15} />返回交付</a>;
   return <div ref={panel} tabIndex={-1} className="detail-stack">
     {version ? <Section title={'第 ' + version.version + ' 版成果'} action={back}>
       <div className="inline-meta">成果修订 <code title={version.revision}>{short(version.revision, 12)}</code><time>{date(version.at)}</time></div>
