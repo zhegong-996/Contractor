@@ -1,9 +1,10 @@
-import { readFile, readdir, realpath, writeFile } from 'node:fs/promises';
+import { readFile, realpath, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { settingsSchema } from './config.ts';
 import { checkTransferBoundary, importAutoLoop, restoreAutoLoop } from './execution/ledger-transfer.ts';
 import { copyLedgerFile, destination, fileTarget, ledger, regular, staged, withStoppedState } from './ledger-backup.ts';
+import { stageDevelopmentWorktrees } from './development-migration.ts';
 
 const common = ['orchestrator.sqlite', 'console/accounts.json', 'secrets.json'];
 const optional = ['console/rbac_policy.csv', 'console/console-audit.jsonl', 'devices/host.key', 'feishu-ingress/inbox.sqlite'];
@@ -27,22 +28,14 @@ function assertBusinessIdle(file: string) {
   } finally { db.close(); }
 }
 
-async function checkWorktrees(source: string) {
-  const entries = await readdir(path.join(source, 'development')).catch(error => {
-    if (error.code !== 'ENOENT') throw error;
-    return [];
-  });
-  if (entries.length) throw new Error('当前存在 Git 工作树记录。请先单独核对并归档代码工作区，再演练迁移。');
-}
-
 /** Prepare a new, offline rehearsal directory. The original instance is never reconfigured. */
 export async function migrateRuntime(directory: string, output: string) {
   const source = await realpath(directory);
   const target = await destination(source, output);
   return withStoppedState(source, async () => {
     const raw = JSON.parse(await readFile((await regular(source, 'workbench.json'))!, 'utf8'));
-    const before = settingsSchema.parse(raw).executionRuntime;
-    const forward = before === 'autoloop';
+    const config = settingsSchema.parse(raw);
+    const forward = config.executionRuntime === 'autoloop';
     const after = forward ? 'contractor' : 'autoloop';
     if (!forward && !await regular(source, archive(autoLoop), false))
       throw new Error('没有原 AutoLoop 事实日志。请选择由迁移生成的 Contractor 目录。');
@@ -55,7 +48,6 @@ export async function migrateRuntime(directory: string, output: string) {
     if (await regular(source, opposite, false)) throw new Error('同一个目录存在两套调度账本。');
     const marker = await regular(source, 'execution-driver', !forward);
     if (forward ? marker : await readFile(marker!, 'utf8') !== 'contractor') throw new Error('调度器标记与运行配置不符。');
-    await checkWorktrees(source);
     const active = ledger(activeFile, key);
     try {
       checkTransferBoundary(active);
@@ -69,7 +61,10 @@ export async function migrateRuntime(directory: string, output: string) {
         for (const name of optional) await copy(name, name, false);
         // Presence belongs to the stopped instance. Keep device identities and routes.
         const business = new DatabaseSync(path.join(stage, 'orchestrator.sqlite'));
-        try { business.exec('UPDATE workbench_device SET seen=NULL'); }
+        try {
+          business.exec('UPDATE workbench_device SET seen=NULL');
+          await stageDevelopmentWorktrees(source, stage, config, business);
+        }
         finally { business.close(); }
 
         if (forward) {

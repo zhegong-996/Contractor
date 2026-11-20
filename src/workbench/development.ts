@@ -69,6 +69,9 @@ export async function developmentCheckout(config: Settings['attribution'], targe
   if (remoteSha !== saved.baseSha) {
     if (continuation?.baseSha !== remoteSha) throw new Error('代码基线已经变化，请研发确认新的基线提交后接续。');
     if ((await changedFiles(folder)).length) throw new Error('基线变化且有未提交改动，请研发先处理工作区。');
+    // A migrated checkout has its own object database. Import the approved commit from the trusted checkout.
+    if (!await git(folder, 'cat-file', '-e', remoteSha + '^{commit}').then(() => true, () => false))
+      await git(folder, '-c', 'protocol.file.allow=always', 'fetch', '--no-tags', '--no-write-fetch-head', checkout, remoteSha);
     try {
       // Only an explicit repository contributor can supply this exact new base SHA.
       await git(folder, 'rebase', '--onto', remoteSha, saved.baseSha, saved.branch);
@@ -85,7 +88,7 @@ export async function developmentCheckout(config: Settings['attribution'], targe
   return { ...saved, startSha: head };
 }
 
-async function changedFiles(folder: string) {
+export async function changedFiles(folder: string) {
   const [staged, unstaged, untracked] = await Promise.all([
     git(folder, 'diff', '--cached', '--name-only', '--no-renames', '-z'),
     git(folder, 'diff', '--name-only', '--no-renames', '-z'),

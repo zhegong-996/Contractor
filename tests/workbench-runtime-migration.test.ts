@@ -134,6 +134,8 @@ test('门店推荐理由离线切换两次，原工单必答、会话、历史�
   assert.ok(JSON.stringify(topicHistory).includes(topicMessage.text));
 
   const first = await next();
+  assert.deepEqual(await runner('protocol', { id: device.id }), { id: device.id, driver: 'autoloop', held: true });
+  await runner('protocol', { id: randomUUID() }, 403);
   const firstSession = randomUUID();
   await runner('started', { run: first.run, lease: first.token, value: { session: firstSession } });
   await stop();
@@ -175,6 +177,7 @@ test('门店推荐理由离线切换两次，原工单必答、会话、历史�
   assert.deepEqual(moved.runs.map(row => row.id), [first.run, retainedRun]);
   assert.equal((await needs()).find(row => row.card === secondQuestion.id)?.id, todo.id);
   assert.deepEqual(await messages(), topicHistory);
+  assert.deepEqual(await runner('protocol', { id: device.id }, 200, 'autoloop'), { id: device.id, driver: 'contractor', held: false });
   await runner('result', asked, 409, 'autoloop');
   assert.deepEqual(await runner('result', asked), { rejected: [] });
   await runner('result', { ...asked, value: { ...asked.value, summary: '改变原回执' } }, 403);
@@ -209,6 +212,7 @@ test('门店推荐理由离线切换两次，原工单必答、会话、历史�
   assert.equal((await detail()).questions[0]?.id, lastQuestion.id);
   assert.equal((await needs()).find(row => row.card === lastQuestion.id)?.id, nativeTodo.id);
   assert.deepEqual(await messages(), topicHistory);
+  assert.deepEqual(await runner('protocol', { id: device.id }, 200, 'contractor'), { id: device.id, driver: 'autoloop', held: false });
   await runner('result', nativeAsked, 409, 'contractor');
   assert.deepEqual(await runner('result', nativeAsked), { rejected: [] });
   const lastAnswer = answer(lastQuestion.id);

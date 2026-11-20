@@ -9,11 +9,13 @@ import { z } from 'zod';
 import { checkClaudeRunnerModel, remoteEngine, runnerAgentSchema } from './runner-profile.ts';
 import { runnerEndpoint, runnerRequestId, runnerSecret } from './runner-connection.ts';
 import { configuredEnv, formerName } from './compatibility.ts';
+import { assertRunnerSettled } from './remote-runner.ts';
 
 const connectionSchema = z.object({ driver: z.literal('contractor').optional(), id: runnerRequestId, token: runnerSecret, endpoint: runnerEndpoint,
   profile: runnerAgentSchema.refine(remoteEngine) }).strict();
 const pendingSchema = z.object({ id: runnerRequestId, secret: runnerSecret, expires: z.number() }).strict();
 const resultSchema = z.union([z.object({ pending: z.literal(true) }).strict(), connectionSchema.omit({ endpoint: true })]);
+const protocolSchema = z.object({ id: runnerRequestId, driver: z.enum(['autoloop', 'contractor']), held: z.boolean() }).strict();
 const workerFile = path.join(import.meta.dirname, 'device-client.ts');
 const loader = import.meta.resolve('tsx');
 const runnerProcesses = new AbortController();
@@ -139,8 +141,28 @@ async function running(local: string, id: string) {
   if (!Number.isSafeInteger(pid) || pid <= 1) return;
   try {
     const command = execFileSync('ps', ['-p', String(pid), '-ww', '-o', 'command='], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
-    if (command.includes(workerFile + ' connect ' + id)) return pid;
+    if (command.trimEnd().endsWith('device-client.ts connect ' + id)) return pid;
   } catch { /* The previous worker has exited. */ }
+}
+
+async function refreshProtocol(local: string, connection: z.infer<typeof connectionSchema>) {
+  const current = await call(connection.endpoint, 'protocol', connection.token, { id: connection.id }).catch(error => {
+    // Keep the stored protocol so the worker can wait for an older or temporarily unavailable server.
+    if (error instanceof RequestError && [404, 502, 503, 504].includes(error.status)
+      || error instanceof TypeError || error instanceof DOMException && error.name === 'TimeoutError') return;
+    throw error;
+  });
+  if (current === undefined) return;
+  const status = protocolSchema.parse(current);
+  if (status.id !== connection.id) throw new Error('目标工作台返回了不同的执行端编号');
+  if (status.driver === (connection.driver ?? 'autoloop')) return;
+  if (status.held) throw new Error('工作台仍有未结清的接单记录，不能切换调度协议');
+  await assertRunnerSettled(local);
+  if (status.driver === 'autoloop' && !await lstat(path.join(import.meta.dirname, 'legacy-device-worker.ts')).catch(() => undefined))
+    throw new Error('请使用兼容 AutoLoop 的执行端安装包，再用同一连接上线');
+  const driver = status.driver === 'contractor' ? 'contractor' : undefined;
+  await save(path.join(local, 'connection.json'), { ...connection, driver });
+  console.log('已按原设备授权切换调度协议（' + status.driver + '）。');
 }
 
 async function setupLock(folder: string) {
@@ -200,10 +222,12 @@ async function main() {
     }
     const connection = id ? connectionSchema.parse(JSON.parse(await file(path.join(folder, 'devices', id, 'connection.json')) ?? 'null'))
       : await enroll(folder, endpoint, !values['no-browser'], z.string().trim().min(1).max(100).parse(values.name ?? hostname()));
+    if (connection.endpoint !== endpoint || id && connection.id !== id) throw new Error('执行端配置与当前连接不一致');
     const local = path.join(folder, 'devices', connection.id);
     const existing = await running(local, connection.id);
     if (existing) return console.log('执行端已在运行（' + connection.id + '）');
     await prepareModel(folder, connection.profile);
+    if (id) await refreshProtocol(local, connection);
     const env = { ...process.env, COLLAB_STATE_DIR: folder };
     const args = ['--import', loader, workerFile, 'connect', connection.id];
     if (values.foreground) {

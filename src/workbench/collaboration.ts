@@ -5204,6 +5204,10 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
           acceptedSource: acceptedKnowledgeSource(entry) }));
     },
     authenticateDevice(token: string, remote = false) { connectedDevice(token, remote); },
+    deviceProtocol(token: string) {
+      const { id } = connectedDevice(token, true);
+      return { id, held: !!devices.held(id) };
+    },
     deviceOffline(token: string, remote = false) { devices.heartbeat(connectedDevice(token, remote).id, false); },
     setDevice(actor: string, id: string, active: boolean) { return transitionDevice(actor, id, active ? 'active' : 'suspended'); },
     transitionDevice,

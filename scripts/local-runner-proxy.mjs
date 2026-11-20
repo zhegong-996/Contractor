@@ -15,7 +15,7 @@ const [listen, workbench, runner] = ports;
 createServer((req, res) => {
   const url = req.url ?? '';
   const target = /^\/runner\/connect\/[a-f0-9-]+(?:\?[^#]*)?$/.test(url) ? workbench
-    : /^\/api\/runner\/(?:enroll|enroll-status|pair|work|started|result|offline)$/.test(url) ? runner : undefined;
+    : /^\/api\/runner\/(?:enroll|enroll-status|pair|work|started|result|offline|protocol)$/.test(url) ? runner : undefined;
   if (!target || req.headers.host !== base.host) {
     res.writeHead(404, { 'cache-control': 'no-store' }).end('未找到。');
     return;

@@ -23,6 +23,22 @@ export async function neverLaunched(home: string, lease: ReleasedLease) {
   return files.length === 0;
 }
 
+export async function assertRunnerSettled(local: string) {
+  const entries = (folder: string) => readdir(folder).catch(error => {
+    if (error.code !== 'ENOENT') throw error;
+    return [] as string[];
+  });
+  for (const driver of ['autoloop', 'dispatch']) {
+    const runs = path.join(local, driver, 'worker', 'runs');
+    for (const id of await entries(runs)) {
+      if (!/^\d+-\d+$/.test(id)) continue;
+      const files = await entries(path.join(runs, id));
+      if (files.some(name => !protocolMatches(name, 'contractor-settled')))
+        throw new Error('执行机仍有未结清的运行记录。请先用原调度器完成停止与回执。');
+    }
+  }
+}
+
 export async function prepareRemote(home: string, profile: RunnerAgent, job: DeviceJob): Promise<Job> {
   if (!remoteEngine(profile) || !/^[a-f0-9]{64}$/.test(job.remote?.authority ?? '') || job.agent.id !== profile.id
     || job.agent.use !== profile.engine || job.agent.model !== profile.model || (job.remote?.code ? profile.engine !== 'codex' || job.agent.access !== 'edit' : job.agent.access !== 'read')

@@ -166,10 +166,19 @@ async function serve(release: () => void) {
 
   async function runnerRequest(req: IncomingMessage, res: ServerResponse, action: string, remote = false) {
     if (!work) throw new WorkbenchError('工作台正在启动。', 503);
+    const token = req.headers.authorization?.match(/^Bearer ([A-Za-z0-9_-]{43})$/)?.[1];
+    if (action === 'protocol') {
+      if (!remote) throw new WorkbenchError('找不到执行端操作。', 404);
+      if (!token) throw new WorkbenchError('请使用已配对的执行端。', 401);
+      const { id } = z.object({ id: runnerRequestId }).strict().parse(await body(req, 4096));
+      const state = work.deviceProtocol(token);
+      if (id !== state.id) throw new WorkbenchError('执行端身份与配对记录不符。', 403);
+      json(res, 200, { ...state, driver: config.executionRuntime });
+      return;
+    }
     if (action !== 'pair' && (req.headers['x-contractor-execution'] ?? 'autoloop') !== config.executionRuntime)
       throw new WorkbenchError('执行端协议和工作台调度器不一致。', 409);
     const driver = config.executionRuntime === 'contractor' ? { driver: 'contractor' } : {};
-    const token = req.headers.authorization?.match(/^Bearer ([A-Za-z0-9_-]{43})$/)?.[1];
     if (action !== 'pair') {
       if (!token) throw new WorkbenchError('请使用已配对的执行端。', 401);
       work.authenticateDevice(token, remote);
@@ -206,7 +215,7 @@ async function serve(release: () => void) {
   const remoteServer = config.remoteRunnerPort && createServer(async (req, res) => {
     res.setHeader('cache-control', 'no-store');
     try {
-      const route = /^\/api\/runner\/(pair|work|started|result|offline|enroll|enroll-status)$/.exec(req.url ?? '');
+      const route = /^\/api\/runner\/(pair|work|started|result|offline|enroll|enroll-status|protocol)$/.exec(req.url ?? '');
       if (req.method !== 'POST' || !route) throw new WorkbenchError('未找到。', 404);
       if (req.headers.origin || req.headers.cookie) throw new WorkbenchError('请使用配对的执行端连接。', 403);
       if (!req.headers['content-type']?.startsWith('application/json')) throw new WorkbenchError('请求格式无效。', 415);

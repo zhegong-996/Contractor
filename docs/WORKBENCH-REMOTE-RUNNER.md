@@ -80,11 +80,17 @@ export CONTRACTOR_SANDBOX_ROOT="$sandbox_install/node_modules/@anthropic-ai/sand
 
 原消息、资料版本和授权在补写整理建议时复核。撤权后仍保留该次实际模型用量。恢复适用于已记录待补写数据的尝试。更早的记录需要有效的原始执行证据才能单独核对。
 
+## 更换工作台调度器
+
+迁移和回滚前，先由原调度器结清设备接单、停止证明和回执。确认原工作台和对应执行端停止。执行机保留原配对目录，升级到含两套协议的执行端包，并在目标工作台就绪后，以同一团队地址和 `--profile` 运行 `contractor connect`。
+
+连接时，执行端用原配对向 `/api/runner/protocol` 查询当前协议。工作台仍持有租约或本地仍有未结清的执行文件时，先恢复原调度器结清，再重新连接。切换成功后继续使用原设备编号。工作台隔离代理需把 `/api/runner/protocol` 和其他执行端接口一起转发。 [迁移与回滚](RUNTIME-MIGRATION.md) · [本机隔离代理](../scripts/local-runner-proxy.mjs)
+
 ## 源码复用
 
 默认执行端包保留固定版本的 AutoLoop worker，用于连接既有工作台。独立后端使用 `executionRuntime: contractor` 时，可以用 `npm run package:runner -- --contractor-only` 构建不含 AutoLoop 源码的执行端包。配对记录携带运行协议，接单时校验协议一致。Codex 和 Claude Code 的新适配器读取 CLI 的实际回执。同一 Codex 会话接续时按启动基线计算本轮 Token 增量。
 
-在独立环境使用门店推荐理由测试资料验证过本机 Codex 的必答与重启恢复、macOS Codex 到 Debian Claude Code 的交接、旧执行停止证明和回执重放去重。调度器往返测试与执行端协议切换条件见迁移手册。 [迁移和回滚](RUNTIME-MIGRATION.md) · [AutoLoop 领取与回执协议](https://github.com/KKKKhazix/agent-autoloop/blob/ba8cf6d8cf24f9ce005958c15d88f2d9cff7f05d/docs/protocol.md) · [Claude Code CLI 参考](https://code.claude.com/docs/en/cli-reference) · [Ollama 连接 Claude Code](https://docs.ollama.com/integrations/claude-code)
+在独立环境使用门店推荐理由测试资料验证过本机 Codex 的必答与重启恢复、macOS Codex 到 Debian Claude Code 的交接、旧执行停止证明和回执重放去重。另用一台 Debian 执行机实跑了同一配对的调度器往返，续原代码单、生成 PR 并按提交验收。 [远程代码单实跑](RUNTIME-MIGRATION.md#debian-远程-codex-代码单实跑) · [AutoLoop 领取与回执协议](https://github.com/KKKKhazix/agent-autoloop/blob/ba8cf6d8cf24f9ce005958c15d88f2d9cff7f05d/docs/protocol.md) · [Claude Code CLI 参考](https://code.claude.com/docs/en/cli-reference) · [Ollama 连接 Claude Code](https://docs.ollama.com/integrations/claude-code)
 
 ## 门店推荐理由联调
 
