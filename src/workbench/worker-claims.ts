@@ -19,8 +19,8 @@ export function workerClaims(hub: Pick<ExecutionHub, 'heartbeat' | 'cancels' | '
   devices: Devices, signal: AbortSignal, rules: ClaimRules, worker = workerName) {
   const readRun = (id: number) => hub.run(id);
   return function claim(request: Parameters<WorkerHub['work']>[0], device?: Device): { claimed: Job } | WorkResponse {
-    if (device) devices.heartbeat(device.id);
     const running = (request.running ?? []).filter(id => devices.leasedTo(id) === device?.id);
+    if (device) devices.heartbeat(device.id, true, request.capacity !== false || running.length > 0);
     if (!device?.remote) for (const id of running) trackWorkerProcesses(id, false, rules.homeForRun(id));
     hub.heartbeat(worker, running);
     for (const id of running) {
@@ -34,18 +34,18 @@ export function workerClaims(hub: Pick<ExecutionHub, 'heartbeat' | 'cancels' | '
     if (!device?.remote) for (const id of cancel) {
       if (!trackWorkerProcesses(id, true, rules.homeForRun(id))) console.error('Contractor 等待核对受托执行的进程谱系');
     }
-    if (signal.aborted || request.capacity === false || running.length) return { cancel };
+    if (signal.aborted || running.length) return { cancel };
     const held = device && devices.held(device.id);
     if (device && held) {
       const run = readRun(held.run);
       if (run?.state === 'claimed' || run?.state === 'unknown') {
         if (held.job && (device.remote || request.claim === held.claim) && device.active && run.state === 'claimed' && !run.cancel_at
-          && rules.mayRedeliver(run, device)) return { job: held.job };
+          && rules.mayRedeliver(run, device)) return request.capacity === false ? { cancel } : { job: held.job };
         return device.remote && held.lease ? { release: { run: held.run, attempt: held.attempt, lease: held.lease } } : { cancel };
       }
       devices.clear(device.id, held.run, held.attempt);
     }
-    if (device && !device.active || cancel.length) return { cancel };
+    if (request.capacity === false || device && !device.active || cancel.length) return { cancel };
     const unsettled = rules.pendingLanes();
     const job = hub.claimNext(worker, request.claim, run => !unsettled.has(run.lane) && rules.eligible(run, device));
     if (!job) return {};

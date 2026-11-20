@@ -68,7 +68,7 @@ npm run ledger -- backup  /absolute/path/workbench-state /absolute/path/new-back
 npm run ledger -- restore /absolute/path/new-backup /absolute/path/restored-state
 ```
 
-命令保存两份 SQLite 账本、存在时的飞书收件箱，以及重启所需的账号、配置和签名材料。恢复前校验文件摘要与 SQLite 完整性。备份目录由当前用户独享，归档本身未加密。模型凭据、执行机配置、Git 工作区和外部资料应分别保管。恢复保留原连接配置，启动演练副本前先改为隔离端口并关闭外部监听及定时任务。
+命令保存业务账本、当前调度器账本、已有的调度器回滚材料、飞书收件箱，以及重启所需的账号、配置和签名材料。Contractor 与 AutoLoop 各自保留调度历史，恢复前核对调度器、文件摘要和 SQLite 完整性。备份目录由当前用户独享，归档本身未加密。模型凭据、执行机配置、Git 工作区和外部资料应分别保管。恢复保留原连接配置，启动演练副本前先改为隔离端口并关闭外部监听及定时任务。
 
 ## 跨渠道测试入口
 

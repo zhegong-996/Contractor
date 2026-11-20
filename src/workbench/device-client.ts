@@ -10,6 +10,7 @@ import { checkClaudeRunnerModel, remoteEngine, runnerAgentSchema } from './runne
 import { deviceHome, type DeviceJob, type ReleasedLease } from './devices.ts';
 import { cleanAcknowledged, cleanRemoteCodex, neverLaunched, prepareRemote, remoteStop } from './remote-runner.ts';
 import { runnerEndpoint } from './runner-connection.ts';
+import { expiredCodexLogin, readPrivateRunnerFile } from './runner-credentials.ts';
 
 if (!process.env.COLLAB_STATE_DIR || !path.isAbsolute(process.env.COLLAB_STATE_DIR))
   throw new Error('请使用工作台的 COLLAB_STATE_DIR 绝对路径。');
@@ -90,13 +91,20 @@ if (argv[0] === 'pair' || argv[0] === 'pair-remote') {
       createWorker = legacy.createWorker;
     }
     const send = <T>(action: string, data: unknown) => request<T>(endpoint, action, data, connection.token, !!profile, connection.driver);
-    let announced = false;
+    const codex = profile?.engine === 'codex' && runtime('member-credentials', profile.owner, profile.execution!.credential + '.json');
+    let announced: string | undefined;
     const hub: WorkerHub = {
       async work(data) {
-        const answer = await send<{ job?: DeviceJob | null; cancel?: number[]; release?: ReleasedLease; deviceActive?: boolean }>('work', data);
-        if (!announced) {
-          await writeFile(ready, String(process.pid) + (answer.deviceActive === false ? ':paused' : ''), { mode: 0o600 });
-          announced = true;
+        const auth = codex ? await readPrivateRunnerFile(codex).catch(() => undefined) : undefined;
+        const unavailable = !!codex && (!auth || expiredCodexLogin(auth));
+        // Heartbeats, cancellation and receipt delivery continue with zero new-work capacity.
+        const answer = await send<{ job?: DeviceJob | null; cancel?: number[]; release?: ReleasedLease; deviceActive?: boolean }>(
+          'work', unavailable ? { ...data, capacity: false } : data);
+        const status = String(process.pid) + (answer.deviceActive === false || unavailable ? ':paused' : '');
+        if (status !== announced) {
+          await writeFile(ready, status, { mode: 0o600 });
+          if (unavailable) console.log('Codex 登录不可用，暂停接单。运行同一条连接命令更新登录。');
+          announced = status;
         }
         if (profile) {
           for (const run of answer.cancel ?? []) trackWorkerProcesses(run, true, home);
@@ -152,7 +160,8 @@ if (argv[0] === 'pair' || argv[0] === 'pair-remote') {
     }
     await send('offline', {}).catch(() => {});
   } finally {
-    if (await readFile(ready, 'utf8').catch(() => '') === String(process.pid)) await unlink(ready);
+    const status = await readFile(ready, 'utf8').catch(() => '');
+    if (status === String(process.pid) || status === process.pid + ':paused') await unlink(ready);
     if (await readFile(lock, 'utf8').catch(() => '') === String(process.pid)) await unlink(lock);
   }
 } else {

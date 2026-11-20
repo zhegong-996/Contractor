@@ -15,11 +15,18 @@ test('Codex 登录过期时拦截领取，更新专用登录后沿用原配对',
   const root = await mkdtemp(path.join(os.tmpdir(), 'contractor-expired-runner-'));
   const id = randomUUID();
   const requests: string[] = [];
-  const listener = createServer((req, res) => {
+  const workPolls: boolean[] = [];
+  const receipts: unknown[] = [];
+  const listener = createServer(async (req, res) => {
     requests.push(req.url!);
-    req.resume();
+    const data = [];
+    for await (const chunk of req) data.push(chunk);
+    const input = JSON.parse(Buffer.concat(data).toString());
+    if (req.url === '/api/runner/work') workPolls.push(input.capacity);
+    if (req.url === '/api/runner/result') receipts.push(input);
     res.writeHead(200, { 'content-type': 'application/json' });
-    res.end(JSON.stringify(req.url === '/api/runner/protocol' ? { id, held: false, driver: 'contractor' } : { job: null }));
+    res.end(JSON.stringify(req.url === '/api/runner/protocol' ? { id, held: false, driver: 'contractor' }
+      : req.url === '/api/runner/result' ? { rejected: [] } : { job: null }));
   });
   listener.listen(0, '127.0.0.1');
   await once(listener, 'listening');
@@ -64,6 +71,35 @@ test('Codex 登录过期时拦截领取，更新专用登录后沿用原配对',
   assert.deepEqual(JSON.parse(await readFile(connectionFile, 'utf8')), connection);
   assert.deepEqual(JSON.parse(await readFile(credentialFile, 'utf8')), current);
   assert.ok(requests.includes('/api/runner/work'));
+  assert.ok(requests.every(url => !/pair|enroll/.test(url)));
+
+  const waitFor = async (sample: () => boolean | Promise<boolean>) => {
+    for (let n = 0; n < 60; n++) {
+      if (await sample()) return;
+      await delay(50);
+    }
+    assert.fail('未在同一设备收到预期的心跳或回执');
+  };
+  await store(credentialFile, expired);
+  await waitFor(() => workPolls.at(-1) === false);
+  await store(credentialFile, current);
+  await waitFor(() => workPolls.at(-1) === true);
+  await run('stop');
+
+  await Promise.all([store(credentialFile, expired), store(path.join(login, 'auth.json'), expired)]);
+  const pending = path.join(device, 'dispatch', 'worker', 'runs', '41-1');
+  const launches = path.join(folder, 'isolation-launches');
+  await Promise.all([mkdir(pending, { recursive: true }), mkdir(launches)]);
+  const receipt = { outcome: 'cancelled', summary: '上一轮未启动' };
+  await Promise.all([store(path.join(launches, '41-1.json'), {}), store(path.join(pending, 'entry.json'), {
+    driver: 'contractor', run: 41, attempt: 1, token: 'fixture-lease', turn: 0, dir: pending, result: receipt,
+    job: { agent: { use: 'contractor-isolated' }, session: null },
+  })]);
+  const before = workPolls.length;
+  assert.match((await run('connect')).stdout, /当前暂停接单/);
+  await waitFor(async () => await readFile(path.join(pending, 'contractor-settled'), 'utf8').then(() => true, () => false));
+  assert.deepEqual(receipts, [{ run: 41, lease: 'fixture-lease', value: receipt, stop: { attempt: 1, state: 'not-launched' } }]);
+  assert.ok(workPolls.slice(before).length > 0 && workPolls.slice(before).every(capacity => !capacity));
   assert.ok(requests.every(url => !/pair|enroll/.test(url)));
 });
 
@@ -120,13 +156,19 @@ test('远端重领沿用本轮租约，换端只在匹配的停机回执后派�
   const other = work.pairDevice(issue(), '备用远程端', true);
   assert.throws(() => work.pairDevice(code, '重复配对', true), { status: 403 });
   const poll = (running: number[] = []) => ({ claim: randomUUID(), capacity: !running.length, wait: 0, running });
+  const pause = () => ({ ...poll(), capacity: false });
   await assert.rejects(work.deviceWork(remote.token, poll()), { status: 403 });
   await work.deviceWork(remote.token, poll(), true);
   work.setBudget('product', { kind: 'execution', subject: 'store' }, 'day', 2);
   const started = work.start('product', { project: 'store', title: '门店推荐理由', request: '核对穿着场景', agent: 'auto',
     nonce: randomUUID(), material: [], priority: 'normal' });
   const id = await wait(() => work.resolveStart('product', started.trigger) ?? undefined, '平台按规则建立工单');
+  assert.equal((await work.deviceWork(remote.token, pause(), true)).job, undefined);
+  const paused = work.projectDevices('engineering', 'store').find(d => d.id === remote.id);
+  assert.ok(paused?.claimsPaused && !paused.online && paused.eligible);
   const old = await wait(async () => (await work.deviceWork(remote.token, poll(), true)).job ?? undefined, '远端接单');
+  assert.equal(work.projectDevices('engineering', 'store').find(d => d.id === remote.id)?.claimsPaused, false);
+  assert.equal((await work.deviceWork(remote.token, pause(), true)).job, undefined, '凭据暂停时不重发还未启动的租约');
   assert.equal(old.agent.id, 'claude');
   assert.equal(old.agent.command, undefined);
   assert.equal(old.rule.cwd, '.');

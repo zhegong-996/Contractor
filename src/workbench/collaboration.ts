@@ -4139,8 +4139,10 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     if (ticket.ended) return;
     if (needed(id, work)) return recovery('source-changed', 'request-or-check-material', actors(work.requester));
     if (run?.state === 'unknown') return recovery('execution-disconnected', 'reconnect-original-runner', actors(device?.owner ?? assigned), run.id);
-    if (run?.state === 'queued' && work.device && (!device || !devices.online(device)))
+    if (run?.state === 'queued' && work.device && (!device || !devices.online(device))) {
+      if (device && devices.claimsPaused(device)) return recovery('device-not-ready', 'check-runner', actors(device.owner), run.id);
       return recovery('device-offline', 'reconnect-original-runner', actors(device?.owner ?? assigned), run.id);
+    }
     const block = work.executionBlock;
     if (block?.lane === lane) {
       const automatic = run?.id === block.run && run.state === 'queued' && run.attempts > 0;
@@ -4299,7 +4301,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
         recall: work.recall?.filter(visibleMaterial), continuation: visibleContinuation, consultation: !!consultation }, origin: opening.id, request: opening.text,
       createdAt: ticket.createdAt, history, report: report && { ...report, question: question[0]?.title ?? null }, children, related, actions, endReason: ticket.ended?.outcome,
       canReplyInFeishu: !!send && mayStart(project, actor) && !!feishuDiscussionThread(id, project),
-      device: selectedDevice && { id: selectedDevice.id, name: selectedDevice.name, online: devices.online(selectedDevice),
+      device: selectedDevice && { id: selectedDevice.id, name: selectedDevice.name, online: devices.online(selectedDevice), claimsPaused: devices.claimsPaused(selectedDevice),
         active: selectedDevice.active, state: selectedDevice.state },
       topicTitle: topicsFor(project).find(topic => topic.id === work.topic)?.title,
       mayLinkDelivery: !consultation && !work.accepted && deliveryTargets(project).some(ref => canAttach(project, ref, actor, work.requester)),
@@ -4697,7 +4699,8 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     const project = projectFor(id, actor);
     return devices.list().filter(device => device.projects.includes(id) && member(project, device.owner))
       .map(device => ({ id: device.id, name: device.name, owner: device.owner, agent: device.agent, active: device.active,
-        state: device.state, remote: !!device.remote, online: devices.online(device), lastSeen: device.lastSeen, eligible: deviceAllowed(device, project, device.agent),
+        state: device.state, remote: !!device.remote, online: devices.online(device), claimsPaused: devices.claimsPaused(device),
+        lastSeen: device.lastSeen, eligible: deviceAllowed(device, project, device.agent),
         mayManage: device.owner === actor }));
   }
 

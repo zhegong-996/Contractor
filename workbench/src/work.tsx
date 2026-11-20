@@ -232,14 +232,16 @@ function TicketDetail(props: PageProps & { ticket: Ticket; tab: WorkTab }) {
         </a>}
         <span>{versionAgent ? workspace.agents.find(item => item.id === versionAgent)?.title ?? versionAgent : agent?.title ?? ticket.work.agent}</span>
         {!viewedVersion && ticket.device && <span>{ticket.device.name}{ticket.device.state === 'retired' ? ' · 已退役'
-          : ticket.device.state === 'lost' ? ' · 已丢失' : ticket.device.state === 'suspended' ? ' · 已暂停' : deviceWaiting ? ' · 离线' : ''}</span>}</div>
+          : ticket.device.state === 'lost' ? ' · 已丢失' : ticket.device.state === 'suspended' ? ' · 已暂停'
+            : ticket.device.claimsPaused ? ' · 暂不接单' : deviceWaiting ? ' · 离线' : ''}</span>}</div>
     </div>
     <div className="ticket-frame" data-inspector={side && inspectorAvailable}>
       <PageTabs value={tab} onChange={value => go(project.id, 'work', ticket.id, value)} items={workTabs} label="工单详情">
         <TabsContent className="ticket-tab" value="activity">
           <TicketRecovery {...props} ticket={ticket} />
           {status && !ticket.recovery && <div className="info-callout"><History size={17} /><span>正在确认旧执行停止及接续权限。{ticket.report?.summary}</span></div>}
-          {deviceWaiting && !status && !ticket.recovery && <div className="info-callout"><Bot size={17} />{ticket.device?.name} 当前离线，等待连接或确认接续。</div>}
+          {deviceWaiting && !status && !ticket.recovery && <div className="info-callout"><Bot size={17} />{ticket.device?.name}
+            {ticket.device?.claimsPaused ? ' 暂不接单，请核对执行端。' : ' 当前离线，等待连接或确认接续。'}</div>}
           {decision && <section className="decision-box">
             <span className="decision-mark"><ShieldCheck size={18} /></span><div>
               <h2>{decision.title}</h2>{decision.detail && <p>{decision.detail}</p>}

@@ -37,6 +37,8 @@ Claude Code 的连接检查依据 Agent 登记的服务商。DeepSeek 读取执�
 
 首次使用 Codex 时，若所选 Agent 的本机凭据槽位为空，交互终端会启动该槽位独立的 Codex 登录。检测到该槽位的 ChatGPT 登录过期时，在执行机的交互终端用原地址和原配置运行同一条 `contractor connect` 命令，更新模型登录后继续使用原设备配对。Debian 执行机一次性安装隔离依赖 `sudo apt-get install bubblewrap socat ripgrep`。Claude Code 使用已登记的 Ollama 或 DeepSeek 配置。浏览器的项目授权和模型服务凭据分别生效。
 
+运行中的 Codex 登录过期时，执行端继续上报心跳、接收停止请求并回交原回执，工作台标记为「暂不接单」。更新同一个凭据槽后会恢复领取。无人值守重启时，已有未结清记录仍可走回执恢复。
+
 ### 安装 Codex 隔离提供者
 
 运行隔离 Codex 的工作台或设备需要一个独立安装的 SRT。下载与本版本一致的 [外置沙箱配置](../fixtures/sandbox-provider)，在可信安装目录放置其中的 `package.json` 和 `package-lock.json`。可以从源码目录复制。

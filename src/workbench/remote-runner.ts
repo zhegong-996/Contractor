@@ -23,7 +23,7 @@ export async function neverLaunched(home: string, lease: ReleasedLease) {
   return files.length === 0;
 }
 
-export async function assertRunnerSettled(local: string) {
+export async function hasUnsettledRuns(local: string) {
   const entries = (folder: string) => readdir(folder).catch(error => {
     if (error.code !== 'ENOENT') throw error;
     return [] as string[];
@@ -33,10 +33,14 @@ export async function assertRunnerSettled(local: string) {
     for (const id of await entries(runs)) {
       if (!/^\d+-\d+$/.test(id)) continue;
       const files = await entries(path.join(runs, id));
-      if (files.some(name => !protocolMatches(name, 'contractor-settled')))
-        throw new Error('执行机仍有未结清的运行记录。请先用原调度器完成停止与回执。');
+      if (files.some(name => !protocolMatches(name, 'contractor-settled'))) return true;
     }
   }
+  return false;
+}
+
+export async function assertRunnerSettled(local: string) {
+  if (await hasUnsettledRuns(local)) throw new Error('执行机仍有未结清的运行记录。请先用原调度器完成停止与回执。');
 }
 
 export async function prepareRemote(home: string, profile: RunnerAgent, job: DeviceJob): Promise<Job> {

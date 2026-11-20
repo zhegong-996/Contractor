@@ -42,7 +42,8 @@ function DevicePane({ workspace, project }: PageProps) {
         <div className="actions">
           <Pill tone={device.state === 'lost' ? 'amber' : device.online && device.eligible ? 'green' : 'neutral'}>
             {device.state === 'retired' ? '已退役' : device.state === 'lost' ? '已丢失'
-              : device.state === 'suspended' ? '已暂停' : !device.eligible ? '授权已变化' : device.online ? '在线' : '离线'}
+              : device.state === 'suspended' ? '已暂停' : !device.eligible ? '授权已变化' : device.online ? '在线'
+                : device.claimsPaused ? '暂不接单' : '离线'}
           </Pill>
           {device.mayManage && device.state !== 'retired' && <>
             {device.state === 'lost' ? device.eligible && <Button size="sm" variant="outline" onClick={() => setChange({ device, state: 'active' })}>确认找回</Button>

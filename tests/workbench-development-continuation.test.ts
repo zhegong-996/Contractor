@@ -104,6 +104,11 @@ test('迁移按原停止证明和提交重建脏工作树，回滚沿用新提�
   git(checkout, 'config', 'user.name', 'Contractor migration test');
   git(checkout, 'config', 'user.email', 'test@example.invalid');
   git(checkout, 'remote', 'add', 'origin', 'https://github.com/team/test.git');
+  await writeFile(path.join(checkout, 'old.txt'), '旧版内容，只在历史里\n');
+  git(checkout, 'add', '--', 'old.txt');
+  git(checkout, 'commit', '-m', 'initial');
+  const historicalObject = git(checkout, 'rev-parse', 'HEAD:old.txt');
+  git(checkout, 'rm', '--', 'old.txt');
   await writeFile(path.join(checkout, item), '<main>门店推荐理由</main>\n');
   git(checkout, 'add', '--', item);
   git(checkout, 'commit', '-m', 'baseline');
@@ -133,6 +138,14 @@ test('迁移按原停止证明和提交重建脏工作树，回滚沿用新提�
   await assert.rejects(stageDevelopmentWorktrees(source, stage, config, db), /授权范围外/);
   await rm(path.join(stage, 'development'), { recursive: true });
   await rm(path.join(workspace(source), 'foreign.txt'));
+  const objectFile = path.join(checkout, '.git', 'objects', historicalObject.slice(0, 2), historicalObject.slice(2));
+  const offlineObject = path.join(root, 'historical-object');
+  await rename(objectFile, offlineObject);
+  await assert.rejects(stageDevelopmentWorktrees(source, stage, config, db), /Git 历史有缺失对象/);
+  await rm(path.join(stage, 'development'), { recursive: true });
+  assert.equal(git(workspace(source), 'rev-parse', 'HEAD'), baseline);
+  assert.equal(await readFile(path.join(workspace(source), item), 'utf8'), draft);
+  await rename(offlineObject, objectFile);
   await stageDevelopmentWorktrees(source, stage, config, db);
   await rename(stage, migrated);
   assert.equal(git(workspace(migrated), 'rev-parse', 'HEAD'), baseline);

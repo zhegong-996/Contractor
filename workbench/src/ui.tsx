@@ -133,7 +133,7 @@ const recoveryLabels: Record<string, string> = {
   'receipt-pending': '回执待补写', 'old-execution-stop': '等待旧执行停止', access: '待授权', development: '待研发接单',
   answer: '等待答复', 'development-returned': '研发已退回', intake: '待确认子任务', 'child-result-missing': '子任务结果缺失',
   'child-results-pending': '等待子任务', acceptance: '待验收', 'source-changed': '资料访问已变化',
-  'execution-disconnected': '执行端已断线', 'device-offline': '执行端离线', 'execution-endpoint': '执行环境异常',
+  'execution-disconnected': '执行端已断线', 'device-offline': '执行端离线', 'device-not-ready': '执行端暂不接单', 'execution-endpoint': '执行环境异常',
   'model-unavailable': '模型暂不可用', 'model-authorization': '模型授权已变化', quota: '额度受限',
   worktree: '代码工作区待核对', 'result-incomplete': '执行结果待补齐', 'execution-failed': '执行失败',
   'execution-cancelled': '执行已取消', 'authority-changed': '委托权限已变化', resuming: '正在接续',

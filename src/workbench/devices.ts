@@ -11,7 +11,7 @@ import { enrollmentToken, type RunnerConnectInput } from './runner-connection.ts
 type Binding = { owner: string; agent: string; projects: string[]; remote?: RunnerAgent };
 type Enrollment = RunnerConnectInput & { expires: number; approved?: { actor: string; project: string; agent: string } };
 export type DeviceState = 'active' | 'suspended' | 'lost' | 'retired';
-export type Device = Binding & { id: string; name: string; active: boolean; state: DeviceState; lastSeen: number | null };
+export type Device = Binding & { id: string; name: string; active: boolean; state: DeviceState; lastSeen: number | null; accepting?: boolean };
 export type DeviceJob = Job & { remote?: { authority: string; code?: CodeBundle } };
 export type ReleasedLease = { run: number; attempt: number; lease: string };
 export type RemoteStop = { attempt: number; state: 'exited' | 'not-launched'; model?: string; code?: CodeDelta; usageCoverage?: 'partial' };
@@ -153,12 +153,21 @@ export class Devices {
     return this.db.prepare('SELECT value,seen FROM workbench_device ORDER BY rowid').all().map(row => this.decode(row));
   }
 
-  online(device: Device) {
+  private connected(device: Device) {
     return device.active && device.lastSeen !== null && this.now() - device.lastSeen < onlineWindow;
   }
 
-  heartbeat(id: string, online = true) {
-    this.db.prepare('UPDATE workbench_device SET seen=? WHERE id=?').run(online ? this.now() : null, id);
+  online(device: Device) {
+    return this.connected(device) && device.accepting !== false;
+  }
+
+  claimsPaused(device: Device) {
+    return this.connected(device) && device.accepting === false;
+  }
+
+  heartbeat(id: string, online = true, accepting = true) {
+    this.db.prepare("UPDATE workbench_device SET seen=?,value=json_set(value,'$.accepting',json(?)) WHERE id=?")
+      .run(online ? this.now() : null, JSON.stringify(accepting), id);
   }
 
   active(id: string, active: boolean) {

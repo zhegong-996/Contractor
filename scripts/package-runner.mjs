@@ -26,7 +26,7 @@ try {
     ...['claude-runner-adapter.ts', 'claude-runner-launch.mjs', 'code-bundle.ts', 'codex-catalog.ts', 'compatibility.ts', 'device-client.ts',
       'devices.ts', 'execution-capabilities.ts', 'isolation.ts', 'sandbox-provider.ts', 'remote-runner.ts', 'cursor.ts',
       'execution/cli.ts', 'execution/codex.ts', 'execution/protocol.ts', 'execution/worker.ts',
-      'runner-cli.ts', 'runner-connection.ts', 'runner-profile.ts', 'worker-process.ts'].map(file => 'src/workbench/' + file),
+      'runner-cli.ts', 'runner-connection.ts', 'runner-credentials.ts', 'runner-profile.ts', 'worker-process.ts'].map(file => 'src/workbench/' + file),
     ...(contractorOnly ? [] : ['src/workbench/isolated-adapter.ts', 'src/workbench/legacy-device-worker.ts',
       ...['LICENSE', 'host/home.ts', 'host/plugins.ts', 'kernel/errors.ts', 'plugins/claude/agent.ts', 'plugins/codex/agent.ts',
       'protocol/client.ts', 'protocol/job.ts', 'protocol/validate.ts',

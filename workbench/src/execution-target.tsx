@@ -30,7 +30,7 @@ export function ExecutionTargetPicker({ project, agent, targets, value, onChange
   const allowPlatform = mode !== 'start' && !!current && agent.executionCapabilities.local;
   const defaultTitle = preserve ? current?.name ?? '工作台运行时' : '按项目规则';
   const defaultDetail = preserve ? '沿用当前执行端' : implied
-    ? implied.name + (implied.online ? '' : ' · 离线等待') + (implied.id === policy?.fallback ? ' · 备用' : '')
+    ? implied.name + (implied.online ? '' : implied.claimsPaused ? ' · 暂不接单' : ' · 离线等待') + (implied.id === policy?.fallback ? ' · 备用' : '')
     : policy?.primary ? '当前主备执行端不可用'
       : agent.executionCapabilities.remote ? '请选一台已登记的设备'
         : agent.executionCapabilities.available ? '工作台运行时' : agent.executionCapabilities.reason ?? '执行环境暂不可用';
@@ -51,7 +51,7 @@ export function ExecutionTargetPicker({ project, agent, targets, value, onChange
           <input type="radio" name="execution-target" value={device.id} checked={device.id === value} onChange={() => onChange(device.id)} />
           <Laptop size={17} aria-hidden="true" /><span><strong>{device.name}</strong><small>{device.remote ? '远程设备' : '已登记设备'} · {device.owner}
             {device.id === policy?.primary ? ' · 主用' : device.id === policy?.fallback ? ' · 备用' : ''}</small></span>
-          <Pill tone={device.online ? 'green' : 'amber'}>{device.online ? '在线' : '离线等待'}</Pill>
+          <Pill tone={device.online ? 'green' : 'amber'}>{device.online ? '在线' : device.claimsPaused ? '暂不接单' : '离线等待'}</Pill>
         </label>)}
         {competing && !allowPlatform && !choices.some(device => device.id !== current?.id) && <p className="muted-text">暂无可切换的执行端</p>}
         {value && value !== 'workbench' && !choices.some(device => device.id === value) && <p role="alert" className="muted-text">所选设备已失去授权或停用，请重新选择。</p>}

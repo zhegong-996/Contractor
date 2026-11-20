@@ -7,10 +7,16 @@ import { z } from 'zod';
 import { credential, digest } from '../../upstream/autoloop/kernel/credentials.ts';
 import { acquireStateLease, stateLeasePath } from './state-lease.ts';
 
-const required = ['orchestrator.sqlite', 'autoloop/hub.db', 'autoloop/master.key', 'console/accounts.json',
-  'workbench.json', 'secrets.json'];
+const common = ['orchestrator.sqlite', 'console/accounts.json', 'workbench.json', 'secrets.json'];
 const optional = ['console/rbac_policy.csv', 'console/console-audit.jsonl', 'devices/host.key', 'feishu-ingress/inbox.sqlite'];
-const permitted = new Set([...required, ...optional]);
+const autoLoop = 'autoloop/hub.db';
+const autoLoopKey = 'autoloop/master.key';
+const contractor = 'dispatch/hub.sqlite';
+const marker = 'execution-driver';
+const archive = (name: string) => 'runtime-archive/' + name;
+const required = { autoloop: [autoLoop, autoLoopKey], contractor: [contractor, marker] };
+const archives = { autoloop: [archive(contractor)], contractor: [archive(autoLoop), archive(autoLoopKey)] };
+const permitted = new Set([...common, ...optional, ...Object.values(required).flat(), ...Object.values(archives).flat()]);
 const manifestSchema = z.object({
   version: z.literal(1), at: z.iso.datetime(),
   files: z.array(z.object({ file: z.string(), sha256: z.string().regex(/^[a-f0-9]{64}$/) }).strict()),
@@ -48,21 +54,39 @@ export function ledger(file: string, secret: string) {
   return db;
 }
 
+async function activeLedger(directory: string, entries: string[]) {
+  const { executionRuntime: driver = 'autoloop' }: { executionRuntime?: unknown } =
+    JSON.parse(await readFile(path.join(directory, 'workbench.json'), 'utf8'));
+  if (driver !== 'autoloop' && driver !== 'contractor') throw new Error('工作台的调度器配置无效。');
+  const preserved = archives[driver];
+  const allowed = new Set([...common, ...required[driver], ...optional, ...preserved]);
+  if (![...common, ...required[driver]].every(name => entries.includes(name))
+    || !entries.every(name => allowed.has(name))
+    || (preserved.some(name => entries.includes(name)) && !preserved.every(name => entries.includes(name))))
+    throw new Error('账本文件与当前调度器不匹配，或回滚材料缺失。');
+  if (driver === 'contractor' && await readFile(path.join(directory, marker), 'utf8') !== driver)
+    throw new Error('执行数据目录与调度器不一致。');
+  const keyFile = driver === 'autoloop' ? autoLoopKey : archive(autoLoopKey);
+  const key = entries.includes(keyFile) ? (await readFile(path.join(directory, keyFile), 'utf8')).trim() : '';
+  return { active: driver === 'autoloop' ? autoLoop : contractor, key };
+}
+
 async function verifyDatabases(directory: string, entries: string[], requireIdle = false) {
-  const key = (await readFile(path.join(directory, 'autoloop/master.key'), 'utf8')).trim();
+  const { active, key } = await activeLedger(directory, entries);
   for (const name of entries.filter(name => /\.(db|sqlite)$/.test(name))) {
     const db = ledger(path.join(directory, name), key);
     try {
       const checks = db.prepare('PRAGMA integrity_check').all();
       if (checks.length !== 1 || checks[0]?.integrity_check !== 'ok') throw new Error('账本完整性检查失败：' + name);
-      if (requireIdle && name === 'autoloop/hub.db' && db.prepare(
+      if (requireIdle && name === active && db.prepare(
         "SELECT 1 FROM runs WHERE state IN ('queued','claimed','unknown') LIMIT 1").get())
-        throw new Error('仍有排队、执行中或未确认停止的 AutoLoop 运行。');
+        throw new Error('仍有排队、执行中或未确认停止的运行。');
       if (requireIdle && name === 'orchestrator.sqlite' && db.prepare(
         'SELECT 1 FROM workbench_receipt_journal WHERE draft IS NOT NULL LIMIT 1').get())
         throw new Error('仍有尚未结算的执行回执。');
     } finally { db.close(); }
   }
+  return key;
 }
 
 export async function destination(source: string, requested: string) {
@@ -126,11 +150,10 @@ export async function backupLedger(directory: string, output: string) {
   const source = await realpath(directory);
   const target = await destination(source, output);
   return withStoppedState(source, async () => {
-    const entries = [...required];
-    for (const name of optional) if (await regular(source, name, false)) entries.push(name);
-    for (const name of required) await regular(source, name);
-    await verifyDatabases(source, entries, true);
-    const key = (await readFile(path.join(source, 'autoloop/master.key'), 'utf8')).trim();
+    const entries: string[] = [];
+    for (const name of permitted) if (await regular(source, name, false)) entries.push(name);
+    if (!common.every(name => entries.includes(name))) throw new Error('工作台的账户、配置或业务账本缺失。');
+    const key = await verifyDatabases(source, entries, true);
     return staged(target, async stage => {
       for (const name of entries) {
         const from = path.join(source, name), to = await fileTarget(stage, name);
@@ -149,7 +172,7 @@ export async function restoreLedger(directory: string, output: string) {
   const target = await destination(source, output);
   const manifest = manifestSchema.parse(JSON.parse(await readFile((await regular(source, 'manifest.json'))!, 'utf8')));
   const entries = manifest.files.map(row => row.file);
-  if (entries.length !== new Set(entries).size || !required.every(name => entries.includes(name)) || !entries.every(name => permitted.has(name)))
+  if (entries.length !== new Set(entries).size || !common.every(name => entries.includes(name)) || !entries.every(name => permitted.has(name)))
     throw new Error('备份清单中的文件范围无效。');
   return staged(target, async stage => {
     for (const row of manifest.files) {

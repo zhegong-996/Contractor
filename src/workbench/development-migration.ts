@@ -11,7 +11,8 @@ import { commitSha } from './github-delivery.ts';
 import { exportCodeBundle, importRemoteCode } from './isolation.ts';
 import type { Assembled, Work } from './work-types.ts';
 
-const git = async (cwd: string, ...args: string[]) => (await command('git', args, cwd)).trimEnd();
+const git = async (cwd: string, ...args: string[]) =>
+  (await command('env', ['GIT_NO_LAZY_FETCH=1', 'git', ...args], cwd)).trimEnd();
 
 const sameTarget = (a: DevelopmentTarget, b: DevelopmentTarget) => a.repository === b.repository && a.base === b.base
   && JSON.stringify(a.paths) === JSON.stringify(b.paths);
@@ -66,6 +67,9 @@ export async function stageDevelopmentWorktrees(source: string, stage: string, c
       || (await git(trusted, 'remote', 'get-url', 'origin')).toLowerCase() !== remote.toLowerCase()
       || (await git(folder, 'remote', 'get-url', 'origin')).toLowerCase() !== remote.toLowerCase())
       throw new Error('代码工作树与已授权仓库来源不同。');
+    const missingObjects = await git(folder, 'rev-list', '--objects', '--no-object-names', '--quiet', '--missing=print', head);
+    if (missingObjects) throw new Error('工单 ' + ticket + ' 的 Git 历史有缺失对象。请从已授权仓库补齐对象后再离线迁移（'
+      + missingObjects.split('\n')[0]!.slice(1) + '）。');
     await git(folder, 'merge-base', '--is-ancestor', base, head);
     for (const name of ['MERGE_HEAD', 'CHERRY_PICK_HEAD', 'REVERT_HEAD', 'rebase-merge', 'rebase-apply', 'sequencer']) {
       const state = path.resolve(folder, await git(folder, 'rev-parse', '--git-path', name));

@@ -9,7 +9,8 @@ import { z } from 'zod';
 import { checkClaudeRunnerModel, remoteEngine, runnerAgentSchema } from './runner-profile.ts';
 import { runnerEndpoint, runnerRequestId, runnerSecret } from './runner-connection.ts';
 import { configuredEnv, formerName } from './compatibility.ts';
-import { assertRunnerSettled } from './remote-runner.ts';
+import { assertRunnerSettled, hasUnsettledRuns } from './remote-runner.ts';
+import { expiredCodexLogin, readPrivateRunnerFile as file } from './runner-credentials.ts';
 
 const connectionSchema = z.object({ driver: z.literal('contractor').optional(), id: runnerRequestId, token: runnerSecret, endpoint: runnerEndpoint,
   profile: runnerAgentSchema.refine(remoteEngine) }).strict();
@@ -28,13 +29,6 @@ class RequestError extends Error {
 function executable(name: string) {
   try { return execFileSync('which', [name], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim(); }
   catch { return undefined; }
-}
-
-async function file(filename: string) {
-  const info = await lstat(filename).catch(error => { if (error.code !== 'ENOENT') throw error; });
-  if (!info) return;
-  if (!info.isFile() || info.nlink !== 1 || info.mode & 0o077) throw new Error('执行端凭据文件必须仅本人可读写');
-  return readFile(filename, 'utf8');
 }
 
 async function save(filename: string, value: unknown) {
@@ -113,21 +107,7 @@ async function enroll(folder: string, endpoint: string, browser: boolean, name: 
   throw new Error('连接请求已过期，请重新运行同一条命令');
 }
 
-function expiredCodexLogin(auth: string) {
-  try {
-    const data = JSON.parse(auth);
-    if (data.auth_mode && data.auth_mode !== 'chatgpt') return false;
-    const payload = data.tokens?.access_token?.split('.')[1];
-    if (!payload) return false;
-    // This only prevents passing a known expired login to a disposable CLI workspace.
-    const { exp } = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
-    return Number.isSafeInteger(exp) && exp * 1000 <= Date.now();
-  } catch {
-    return false;
-  }
-}
-
-async function prepareModel(folder: string, profile: z.infer<typeof runnerAgentSchema>) {
+async function prepareModel(folder: string, profile: z.infer<typeof runnerAgentSchema>, resumeReceipts = false) {
   const cli = executable(profile.engine);
   if (!cli) throw new Error('请在此设备安装已授权的 ' + profile.engine + ' CLI');
   if (profile.engine === 'claude') return checkClaudeRunnerModel(profile);
@@ -142,6 +122,7 @@ async function prepareModel(folder: string, profile: z.infer<typeof runnerAgentS
   const loggedIn = path.join(login, 'auth.json');
   let auth = await file(loggedIn);
   if (!auth || expiredCodexLogin(auth)) {
+    if (resumeReceipts && !process.stdin.isTTY) return;
     if (!process.stdin.isTTY) throw new Error(configured
       ? '此执行端的 Codex 登录已过期，请在交互终端用同一条连接命令更新登录'
       : '请在交互终端运行同一条连接命令，完成此执行端的 Codex 登录');
@@ -244,8 +225,11 @@ async function main() {
     if (connection.endpoint !== endpoint || id && connection.id !== id) throw new Error('执行端配置与当前连接不一致');
     const local = path.join(folder, 'devices', connection.id);
     const existing = await running(local, connection.id);
-    if (existing) return console.log('执行端已在运行（' + connection.id + '）');
-    await prepareModel(folder, connection.profile);
+    if (existing) {
+      if (connection.profile.engine === 'codex') await prepareModel(folder, connection.profile);
+      return console.log('执行端已在运行（' + connection.id + '）');
+    }
+    await prepareModel(folder, connection.profile, id !== undefined && await hasUnsettledRuns(local));
     if (id) await refreshProtocol(local, connection);
     const env = { ...process.env, COLLAB_STATE_DIR: folder };
     const args = ['--import', loader, workerFile, 'connect', connection.id];
