@@ -15,11 +15,12 @@ type AuthorityPorts = {
   member: (project: string, actor: string) => boolean;
   octopCurrent: (work: Work) => boolean;
   octopIMCurrent: (work: Work) => boolean;
+  workerHarnessCurrent: (work: Work, manifest?: Assembled) => boolean;
 };
 
 export function knowledgeAuthority(knowledge: Pick<ProjectKnowledge, 'get' | 'granted' | 'usable' | 'directory' | 'current'>, ports: AuthorityPorts) {
   const { workOf, connected, originOutput, accessReader, outputReader, manifestFor, childResultsUsable, topicContextUsable,
-    member, octopCurrent, octopIMCurrent } = ports;
+    member, octopCurrent, octopIMCurrent, workerHarnessCurrent } = ports;
 
   function entryEvidence(entry: KnowledgeEntry, visited = new Set<string>(), current = false): boolean {
     if (!connected(entry) || visited.has(entry.id) || current && entry.retirement) return false;
@@ -28,7 +29,7 @@ export function knowledgeAuthority(knowledge: Pick<ProjectKnowledge, 'get' | 'gr
     const origin = originOutput(entry);
     const manifest = origin && manifestFor(origin.run, origin.attempt);
     // A later review-only grant can reopen the output to its reviewer, never free the derived knowledge for reuse.
-    return !!origin && work?.project === entry.project && octopCurrent(work)
+    return !!origin && work?.project === entry.project && octopCurrent(work) && workerHarnessCurrent(work, manifest)
       && topicContextUsable(work, manifest) && childResultsUsable(manifest) && usable(entry.ticket, origin.sources,
         new Set([...visited, entry.id]), outputReader(origin, work), '', current);
   }
@@ -44,7 +45,8 @@ export function knowledgeAuthority(knowledge: Pick<ProjectKnowledge, 'get' | 'gr
   const outputUsable = (id: string, output: Output): boolean => {
     const current = workOf(id)!;
     const manifest = manifestFor(output.run, output.attempt);
-    if (!octopCurrent(current) || !octopIMCurrent(current) || !topicContextUsable(current, manifest) || !childResultsUsable(manifest)) return false;
+    if (!octopCurrent(current) || !octopIMCurrent(current) || !workerHarnessCurrent(current, manifest)
+      || !topicContextUsable(current, manifest) || !childResultsUsable(manifest)) return false;
     const reader = outputReader(output, current);
     const sources = output.sources.map(ref => {
       const entry = knowledge.get(ref.id, ref.revision);

@@ -143,7 +143,7 @@ test('门店推荐理由 HTTP 权限、交接、项目撤权和账本范围在�
   }
 
   await launch();
-  type Service = ReturnType<Collaboration['modelServices']>[number];
+  type Service = Awaited<ReturnType<Collaboration['modelServices']>>[number];
   type Routing = ReturnType<Collaboration['projectRouting']>;
   const available = await request<Service[]>('admin', 'admin/model-services', 200);
   assert.doesNotMatch(JSON.stringify(available), /credential|fixture-only|engineer/);
@@ -320,9 +320,12 @@ test('门店推荐理由 HTTP 权限、交接、项目撤权和账本范围在�
   assert.notEqual(savedPoints.revision, previousPoints.revision);
   await request('admin', 'budget/points-policy', 409, { ...previousPoints, tokensPerPoint: 500 });
   assert.deepEqual(await request<PointPolicy>('admin', 'budget/points-policy', 200), savedPoints);
-  await request('product', 'budget/points-limit', 200, { kind: 'project', subject: 'store', period: 'day', limit: 10 });
-  await request('retail', 'budget/points-limit', 403, { kind: 'project', subject: 'store', period: 'day', limit: null });
-  await request('admin', 'budget/points-limit', 404, { kind: 'project', subject: 'store', period: 'day', limit: null });
+  const pool = { kind: 'project', subject: 'store', period: 'day', revision: 0 };
+  await request('product', 'budget/points-limit', 200, { ...pool, limit: 10 });
+  await request('product', 'budget/points-limit', 409, { ...pool, limit: 99 });
+  assert.equal((await request<{ limit: number }>('product', 'budget/points-limit?kind=project&subject=store', 200)).limit, 10);
+  await request('retail', 'budget/points-limit', 403, { ...pool, limit: null });
+  await request('admin', 'budget/points-limit', 404, { ...pool, limit: null });
 
   const accessPolicy = (project: string) => 'project/' + project + '/knowledge-access';
   await request('retail', accessPolicy('store'), 403, { hours: 2 });

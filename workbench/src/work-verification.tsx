@@ -185,9 +185,20 @@ function CaseCapture({ ticket, revision, proof, check }: { ticket: string; revis
         type="button" onClick={() => setKind('recording')}>录像</Button>
       <Ext href={href}>{kind === 'screenshot' ? '打开原图' : '打开录像'}</Ext>
     </div>
-    {kind === 'screenshot' ? <img src={href} alt={check.title + '的实测截图'} loading="lazy" />
-      : <video key={href} src={href} controls preload="metadata" playsInline aria-label={check.title + '的实测录像'} />}
+    <CapturePreview key={href} href={href} title={check.title} kind={kind} />
   </div>;
+}
+
+function CapturePreview({ href, title, kind }: { href: string; title: string; kind: 'screenshot' | 'recording' }) {
+  const [failed, setFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+  const src = attempt ? href + '&retry=' + attempt : href;
+  if (failed) return <div role="status" className="record-row">
+    <span>{kind === 'screenshot' ? '截图' : '录像'}暂时无法读取。</span>
+    <Button type="button" size="sm" variant="outline" onClick={() => { setAttempt(attempt + 1); setFailed(false); }}>重试附件</Button>
+  </div>;
+  return kind === 'screenshot' ? <img src={src} alt={title + '的实测截图'} loading="lazy" onError={() => setFailed(true)} />
+    : <video src={src} controls preload="metadata" playsInline aria-label={title + '的实测录像'} onError={() => setFailed(true)} />;
 }
 
 function CheckHistory({ check, report, ticket, revision }: {

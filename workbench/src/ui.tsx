@@ -75,7 +75,7 @@ export function Modal({ title, children, close }: { title: string; children: Rea
   const { busy, clearError } = useActions();
   const dismiss = () => { if (!busy) { clearError(); close(); } };
   return <DesignModal className="contractor-dialog" open title={<h2>{title}</h2>} onCancel={dismiss}
-    width={620} footer={null} keyboard={!busy} closable={!busy} mask={{ closable: false }}>
+    getContainer="#app" width={620} footer={null} keyboard={!busy} closable={!busy} mask={{ closable: false }}>
     <div className="modal-body"><FormError />{children}</div>
   </DesignModal>;
 }
@@ -100,7 +100,7 @@ export function Source({ channel }: { channel: string }) {
 
 export function sourceName(channel: string) {
   return ({ feishu: '飞书', 'feishu-doc': '飞书文档', github: 'GitHub', web: '工作台', figma: 'Figma', document: '外部文档',
-    wecom: '企业微信', weixin: '微信', dingtalk: '钉钉', qq: 'QQ', telegram: 'Telegram', discord: 'Discord' } as Record<string, string>)[channel] ?? channel;
+    im: 'IM 会话', octop: 'IM 会话', wecom: '企业微信', weixin: '微信', dingtalk: '钉钉', qq: 'QQ', telegram: 'Telegram', discord: 'Discord' } as Record<string, string>)[channel] ?? channel;
 }
 
 const grantLabels = { requested: '待授权', granted: '已授权', revoked: '已撤回', expired: '已到期', 'source-unavailable': '访问失效 · 来源不可用' };

@@ -2,13 +2,13 @@ import type { DatabaseSync } from 'node:sqlite';
 import { digest } from './knowledge.ts';
 import { WorkbenchError } from './errors.ts';
 
-export type TopicContextSource = 'web' | 'feishu';
+export type TopicContextSource = 'web' | 'feishu' | 'im';
 export type TopicContextRef = { id: string; source: TopicContextSource; topic: string; revision: string };
 export type TopicMessage = TopicContextRef & { actor: string; at: string; text: string; url?: string };
 type Confirmation = { actor: string; at: string };
 
 export function openTopicContext(db: DatabaseSync, feishu: {
-  read(project: string, topic: string, id: string): TopicMessage | undefined;
+  read(project: string, topic: string, id: string, source: Exclude<TopicContextSource, 'web'>): TopicMessage | undefined;
   recent(project: string, topic: string): TopicMessage[];
 }, canUse: (project: string, actor: string, text: string) => boolean) {
   db.exec(`CREATE TABLE IF NOT EXISTS workbench_topic_basis (
@@ -18,11 +18,12 @@ export function openTopicContext(db: DatabaseSync, feishu: {
   );`);
   type Row = { id: string; actor: string; at: string; text: string };
   const webQuery = `SELECT id,actor,at,text FROM workbench_conversation_message m WHERE project=? AND scope=?
+    AND NOT EXISTS(SELECT 1 FROM workbench_conversation_source s WHERE s.message=m.id)
     AND NOT EXISTS(SELECT 1 FROM workbench_topic_consultation c WHERE c.message=m.id)`;
   const webMessage = (topic: string, row: Row): TopicMessage => ({ ...row, topic, source: 'web', revision: digest(row) });
   function read(project: string, ref: Pick<TopicContextRef, 'source' | 'id' | 'topic'>) {
     const row = ref.source === 'web' ? db.prepare(webQuery + ' AND m.id=?').get(project, 'topic:' + ref.topic, ref.id) as Row | undefined : undefined;
-    const value = ref.source === 'web' ? row && webMessage(ref.topic, row) : feishu.read(project, ref.topic, ref.id);
+    const value = ref.source === 'web' ? row && webMessage(ref.topic, row) : feishu.read(project, ref.topic, ref.id, ref.source);
     if (value && canUse(project, value.actor, value.text)) return value;
   }
   function confirmed(ticket: string, project: string, topic: string) {

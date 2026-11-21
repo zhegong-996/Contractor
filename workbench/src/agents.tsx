@@ -6,6 +6,7 @@ import { Button } from './components/button.tsx';
 import { Avatar, Empty, Failure, Loading, PageTabs, Pill, SearchBox, Section, Segments, TicketStatus, useActions, useStored } from './ui.tsx';
 import { AgentMemory, AgentOperations } from './agent-operations.tsx';
 import { AgentLibrary } from './agent-library.tsx';
+import { WorkerHarness } from './worker-harness.tsx';
 
 const agentTabs = [['profile', '职责与委托'], ['memory', '项目知识'], ['receipts', '执行与费用']] as const;
 export function AgentsPage(props: PageProps) {
@@ -108,6 +109,8 @@ function AgentDetail({ agent, project, workspace, route, openTask }: PageProps &
           </dl>
           {project.maintain && <a className="text-button" href={routeFor(project.id, 'project', undefined, 'routing')}>配置本项目的职责、主备模型与设备</a>}
         </Section>
+        {project.mayStart && (project.maintain || agent.owner === workspace.actor) && ['codex', 'claude'].includes(agent.engine)
+          && <WorkerHarness project={project.id} agent={agent.id} />}
         {!!topics.length && <Section title="主题咨询">{topics.map(topic => <div className="record-row" key={topic.id}>
           <a className="text-button" href={routeFor(project.id, 'chat', topic.id) + '?agent=' + encodeURIComponent(agent.id)}><MessageSquare size={15} />{topic.title}</a>
         </div>)}</Section>}

@@ -118,20 +118,25 @@ export function PointsPane({ project }: { project: string }) {
 
 export function PointPoolEditor({ pool, close }: { pool: PointPool; close: () => void }) {
   const { run } = useActions();
+  const [baseline, setBaseline] = useState(pool);
   const [limited, setLimited] = useState(pool.limit !== null);
   const [period, setPeriod] = useState(pool.period);
   const [limit, setLimit] = useState(String(pool.limit ?? ''));
   const nextLimit = limited ? Number(limit) : null;
-  const changed = pool.limit !== nextLimit || (limited && pool.period !== period);
+  const changed = baseline.limit !== nextLimit || (limited && baseline.period !== period);
   return <SettingsDrawer title={'调整额度 · ' + pool.label} close={close}
     submit={{ form: 'point-pool', label: '保存额度', disabled: !changed || (limited && limit === '') }}>
     <form className="form" id="point-pool" onSubmit={async event => {
       event.preventDefault();
       if (changed && await run(() => api('budget/points-limit', { kind: pool.kind, subject: pool.subject, period,
-        limit: nextLimit }), '积分池额度已更新')) close();
+        limit: nextLimit, revision: baseline.revision }), '积分池额度已更新')) close();
     }}>
       <div className="admin-drawer-details"><strong>当前周期</strong>
-        <p>已用 {pool.used.toLocaleString()} 分 · 预留 {pool.reserved.toLocaleString()} 分</p>
+        <p>上限 {baseline.limit ?? '不限'} · 已用 {baseline.used.toLocaleString()} 分 · 预留 {baseline.reserved.toLocaleString()} 分</p>
+        <Button type="button" variant="ghost" size="sm" onClick={async () => {
+          const current = await run(() => api<Omit<PointPool, 'label' | 'mayManage'>>('budget/points-limit?' + new URLSearchParams({ kind: pool.kind, subject: pool.subject })));
+          if (current) setBaseline({ ...pool, ...current });
+        }}>读取当前额度</Button>
       </div>
       <Field label="额度模式"><select value={limited ? 'limited' : 'unlimited'} onChange={event => setLimited(event.target.value === 'limited')}>
         <option value="unlimited">不限</option><option value="limited">设置上限</option>

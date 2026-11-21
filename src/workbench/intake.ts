@@ -12,7 +12,7 @@ import { readCardClick } from './feishu-cards.ts';
 import { watchFeishu } from './feishu-events.ts';
 import { openFeishuInbox, pullFeishuInbox } from './feishu-inbox.ts';
 import { channelInbox, drainChannelInbox, openChannelJournal } from './channel-journal.ts';
-import { feishuIngressCard, feishuIngressMessage } from './feishu-ingress-envelope.ts';
+import { feishuIngressCard, feishuIngressMessage, feishuIngressText } from './feishu-ingress-envelope.ts';
 import { githubReference, watchGithub, type GitHubConnection } from './github-intake.ts';
 import { startOctopIM } from './octop-im.ts';
 import { octopIMEvent, type OctopIMTransport } from './octop-im-contract.ts';
@@ -22,7 +22,7 @@ type ChannelIntake = Pick<Collaboration,
   | 'channelEventSeen' | 'githubRouteScope' | 'receiveChannel' | 'rememberDiscussion' | 'githubRepositories'
   | 'tracksPull' | 'githubCheckpoint' | 'refreshGithubEvidence' | 'githubProject' | 'channelTicket'
   | 'refreshDelivery' | 'refreshIssue' | 'receiveNote' | 'refreshFeishuHistory' | 'recoveredFeishuEvent'
-  | 'trackFeishuThread' | 'feishuProject' | 'feishuTopic' | 'receiveFeishuConsultation' | 'receiveFeishuReply'
+  | 'trackFeishuThread' | 'observeFeishuTopic' | 'feishuProject' | 'feishuTopic' | 'receiveFeishuConsultation' | 'receiveFeishuReply'
   | 'start' | 'isFeishuTopicRoot' | 'rootThread' | 'detail' | 'reply' | 'clickFeishuCard'>;
 type IdentityProofs = {
   verifyActivation?: (sender: PlatformActor) => Promise<string | undefined>;
@@ -164,23 +164,27 @@ export async function openIntake(config: Pick<Settings, 'feishu' | 'crossChannel
     if (feishu) {
       const receiveMessage = async (line: string) => {
         const event = JSON.parse(line);
-        if (event.sender_type !== 'user' || (event.message_type && event.message_type !== 'text')) return;
-        const content = typeof event.content === 'string' ? event.content : '';
-        if (content.length > 16000) return;
+        if (event.sender_type !== 'user' || typeof event.content !== 'string' || event.content.length > 16000) return;
+        const content = feishuIngressText(event.content, event.message_type);
+        if (!content?.trim()) return;
         const mentions: { id: string; key?: string; name?: string }[] = Array.isArray(event.mentions) ? event.mentions : [];
-        const normalized = { ...event, root_id: event.root_id || undefined, parent_id: event.parent_id || event.reply_to || undefined, content };
+        const normalized = { ...event, root_id: event.root_id || undefined, parent_id: event.parent_id || event.reply_to || undefined,
+          thread_id: event.thread_id || undefined, content };
         const trigger = feishuTrigger(normalized, feishu.botId, feishu.appId) as Trigger | undefined;
         if (!trigger?.human) return;
+        collaboration.observeFeishuTopic(trigger);
         if (collaboration.recoveredFeishuEvent(trigger.id)) return;
         collaboration.trackFeishuThread(trigger);
         const mention = mentions.find(m => m.id === feishu.botId || m.id === feishu.appId);
         const text = feishuCommandText(content, mention);
-        const input = discussionInput(trigger, feishu.appId);
+        const updatedAt = Number(event.update_time);
+        const input = { ...discussionInput(trigger, feishu.appId), ...(Number.isSafeInteger(updatedAt) && updatedAt > 0 && { updatedAt }) };
         const { sender, origin } = input;
         const chat = String(trigger.meta.chatId);
-        const root = trigger.meta.rootId ?? trigger.meta.messageId;
+        const root = trigger.meta.rootId ?? trigger.meta.threadId ?? trigger.meta.messageId;
         const project = collaboration.feishuProject(chat, root);
         const topic = project && collaboration.feishuTopic(project, chat, root);
+        if (trigger.channel && typeof root === 'string') trigger.channel.address.topicRoot = root;
         const question = feishuConsultation(text);
         if (question && project && !trigger.meta.direct) {
           await collaboration.receiveFeishuConsultation(project, trigger, question);
@@ -249,8 +253,8 @@ export async function openIntake(config: Pick<Settings, 'feishu' | 'crossChannel
           if (closing) return;
           try {
             const item = feishuIngressMessage(line);
-            if (item && (item.event.chat_type === 'p2p' || collaboration.feishuProject(item.event.chat_id,
-              item.event.root_id || item.event.message_id))) inbox.put(owner, 'message', item.lane, line, Date.now(), item.id);
+            if (item && (item.event.chat_type === 'p2p' || feishu.allowedGroups?.includes(item.event.chat_id) || collaboration.feishuProject(item.event.chat_id,
+              item.event.root_id || item.event.thread_id || item.event.message_id))) inbox.put(owner, 'message', item.lane, line, Date.now(), item.id);
             feishuIngress?.poll();
           } catch (error) { if (retryable(error)) log(error); }
         }, console.info, { onReady: pulse });

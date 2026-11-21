@@ -35,7 +35,7 @@ createServer((req, res) => {
   const post = req.method === 'POST';
   const machine = runner && post && machinePaths.test(url);
   const confirmation = runner && (get || post) && confirmationPath.test(pathname);
-  const file = get && (shellFiles.has(pathname) || /^\/assets\/[\w-]+\.(js|css)$/.test(pathname));
+  const file = get && (shellFiles.has(pathname) || /^\/assets\/[\w-]+\.(js|css|webp)$/.test(pathname));
   const web = (get || post) && /^\/api\/(?!runner(?:\/|$))[a-z][a-z0-9-]*(?:\/|$)/.test(pathname);
   if (!machine && !confirmation && !file && !web) return reject(res, 404);
   if (machine && (req.headers.cookie || req.headers.origin)) return reject(res, 403);

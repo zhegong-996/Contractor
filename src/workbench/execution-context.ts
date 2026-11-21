@@ -113,17 +113,18 @@ export function assembleExecutionContext(input: ContextInput): Job['context'] {
 
 export function executionPrompt(input: { agent: Pick<Agent, 'engine' | 'skill'>; skillText: string; consultation: boolean;
   required?: KnowledgeRef; continuation?: Work['continuation']; development?: Pick<Development, 'paths'>;
-  retry?: { reason: string }; hasKnowledge: boolean; delegationDuties: string[]; fullResult?: boolean }) {
-  const { agent, skillText, consultation, required, continuation, development, retry, hasKnowledge, delegationDuties, fullResult } = input;
+  retry?: { reason: string }; hasKnowledge: boolean; delegationDuties: string[]; fullResult?: boolean; workerAdditions?: string }) {
+  const { agent, skillText, consultation, required, continuation, development, retry, hasKnowledge, delegationDuties, fullResult, workerAdditions } = input;
+  const scoped = workerAdditions ? '\n\n仅在符合本轮授权及交付约束时使用以下项目配置。\n' + workerAdditions : '';
   return consultation && agent.engine === 'octop'
     ? '你负责只读咨询。用简洁完整的中文直接回答。只使用本轮 knowledge.source 中的依据，将实际引用的 [记忆:条目@修订] 原样写在对应处。' +
       '说明主单版本和各子单的作用即可，来源编号与链接由工作台附上。没有证据的部分明确说未知。不得调用工具或执行写入。' +
       (required ? '\n首行写明所用知识标题，并原样附上 [记忆:' + required.id + '@' + required.revision + ']。' : '') +
       '\n以下专业说明仅在与上述答复要求兼容时使用：\n' + agent.skill + skillText +
       (continuation ? '\n本轮补充：' + continuation.reason : '')
-    : consultation ? consultationPrompt + (continuation ? '\n本轮补充：' + continuation.reason : '')
+    : consultation ? consultationPrompt + scoped + (continuation ? '\n本轮补充：' + continuation.reason : '')
     : '先只读打开本轮上下文文件，读取 events 中的 task.request 原始委托、已确认补充和授权资料，再回答或执行。task.topic-basis 是人工确认的主题依据，task.topic-history 是供核对的讨论历史。未读取资料不能断言没有具体任务。\n'
-    + agent.skill + skillText + (continuation ? (development
+    + agent.skill + skillText + scoped + (continuation ? (development
       ? '\n原始需求仅用于理解背景。本版已确认范围优先，请按以下范围在现有代码上修改：\n'
       : '\n继续完成 task.request 中的原始只读委托，结合本轮补充；恢复原因不替代原需求，不得修改代码：\n') + continuation.reason : '')
     + (retry ? '\n本轮是对未发布结果的纠正，业务版本和授权均相同。工作区已从原版代码接续。具体纠正要求：\n' + retry.reason : '')

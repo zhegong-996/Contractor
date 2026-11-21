@@ -2,13 +2,15 @@ import { useEffect, useState } from 'react';
 import { ArrowRight, BookOpen, Clipboard, FolderKanban, GitBranch, Link2, MessageSquare, Plus, Plug2 } from 'lucide-react';
 import { ProjectPermissions } from './access-settings.tsx';
 import { roleLabel } from './platform-access.tsx';
-import { api, useData, useTickets, type Channels, type Discussion, type FigmaSourceStatus, type GitHubConnection, type Imported, type ProjectChannels, type Resource } from './api.ts';
+import { api, uid, useData, useTickets, type Channels, type Discussion, type FigmaSourceStatus, type GitHubConnection, type Imported, type ProjectChannels, type Resource } from './api.ts';
 import { TicketPicker } from './components/ticket-picker.tsx';
 import { go, projectWorkRoute, routeFor, type PageProps } from './navigation.ts';
 import { AgentOptions } from './creation.tsx';
 import { Receipts } from './agents.tsx';
 import { ProjectRoutingPanel } from './operations-settings.tsx';
 import { ProjectRegression } from './project-regression.tsx';
+import { FeishuTopics, IMTopics, TopicContactSettings } from './project-channels.tsx';
+import { DeliverySetup } from './project-delivery-setup.tsx';
 import { Button } from './components/button.tsx';
 import { Input } from './components/input.tsx';
 import { TabsContent } from './components/page-tabs.tsx';
@@ -47,7 +49,9 @@ export function ProjectPage(props: PageProps) {
 function Structure({ workspace, project, openTask }: PageProps) {
   const related = workspace.projects.filter(p => p.parent === project.id || project.relatedProjects.includes(p.id) || p.id === project.parent);
   const [open, show] = useState(false);
+  const [newTopicId, setNewTopicId] = useState('');
   const [agentForm, setAgentForm] = useState(false);
+  const [contactTopic, setContactTopic] = useState<string>();
   const own = workspace.ownAgents.filter(item => !item.projects.includes(project.id));
   const projectAgents = workspace.agents.filter(item => item.projects.includes(project.id));
   const { busy, run } = useActions();
@@ -56,11 +60,14 @@ function Structure({ workspace, project, openTask }: PageProps) {
     {!!related.length && <Section title="项目关系">{related.map(p => <a className="record-row" key={p.id} href={routeFor(p.id, 'project')}>
       <GitBranch size={16} /><strong>{p.title}</strong><span>{p.parent === project.id ? '子项目' : p.id === project.parent ? '上级项目' : '关联项目'}</span><ArrowRight size={15} />
     </a>)}</Section>}
-    <Section title="主题" action={project.maintain ? <Button variant="outline" size="sm" onClick={() => show(true)}><Plus />新建主题</Button> : undefined}>
+    <Section title="主题" action={project.maintain ? <Button variant="outline" size="sm" onClick={() => {
+      setNewTopicId('topic-' + uid().replaceAll('-', '').slice(0, 12)); show(true);
+    }}><Plus />新建主题</Button> : undefined}>
       {project.topics.length ? project.topics.map(topic => <div className="topic-row" key={topic.id} data-child={!!topic.parent}>
         <MessageSquare size={16} /><a href={routeFor(project.id, 'chat', topic.id)}><strong>{topic.title}</strong></a>{topic.parent && <small>{topicName(project, topic.parent)}</small>}
         <a className="text-button" href={projectWorkRoute(project.id, topic.id)}>查看工单<ArrowRight size={14} /></a>
         {project.mayStart && <Button size="sm" variant="ghost" onClick={() => openTask({ topic: topic.id })}>发起</Button>}
+        {project.maintain && <Button size="sm" variant="ghost" onClick={() => setContactTopic(topic.id)}>配置咨询</Button>}
       </div>) : <p className="muted-text">暂无主题。</p>}
     </Section>
     <Section title="项目工单" action={<a className="text-button" href={projectWorkRoute(project.id)}>全部工单 <ArrowRight size={15} /></a>}>
@@ -89,18 +96,20 @@ function Structure({ workspace, project, openTask }: PageProps) {
     </form></Modal>}
     {open && <Modal title="新建项目主题" close={() => show(false)}><form className="form" onSubmit={async e => {
       e.preventDefault(); const form = new FormData(e.currentTarget);
-      if (await run(() => api('project/' + project.id + '/topic', { id: 'topic-' + crypto.randomUUID().slice(0, 8),
+      if (await run(() => api('project/' + project.id + '/topic', { id: newTopicId,
         title: form.get('title'), parent: form.get('parent') || undefined }), '已新建主题')) show(false);
     }}><Field label="主题名称"><Input required name="title" maxLength={100} /></Field>
       {!!project.topics.length && <Field label="上级主题"><select name="parent"><TopicOptions project={project} empty="项目一级主题" /></select></Field>}
       <div className="form-actions"><Button type="submit" disabled={busy}>创建</Button></div>
     </form></Modal>}
+    {contactTopic && <TopicContactSettings project={project} topic={contactTopic} close={() => setContactTopic(undefined)} />}
   </>;
 }
 
 function Sources({ project, workspace }: PageProps) {
   const [adding, setAdding] = useState(false);
   const [group, setGroup] = useState(false);
+  const [shared, setShared] = useState(true);
   const { run, busy } = useActions();
   const github = useData<GitHubConnection[]>('project/' + project.id + '/github-connections', 5000);
   const channels = useData<ProjectChannels>('project/' + project.id + '/channels', 5000);
@@ -117,11 +126,6 @@ function Sources({ project, workspace }: PageProps) {
       feishu={ref.source === 'feishu' && ref.state === 'bound' && channels.data ? { online: channels.data.feishuReady,
         history: channels.data.feishuHistory.find(history => history.resource === ref.ref) } : undefined} />)
       : <Empty title="暂无项目来源" icon={<Link2 />} />}
-    {channels.data?.im.map(item => <div className="resource-row" key={item.connector}>
-      <MaterialIcon /><div><strong><Source channel={item.kind} /></strong><div className="inline-meta">{item.topics.map(topic =>
-        <a href={routeFor(project.id, 'chat', topic)} key={topic}>{topicName(project, topic)}</a>)}</div></div>
-      <Pill tone={item.ready ? 'green' : 'amber'}>{item.ready ? '在线' : '未就绪'}</Pill>
-    </div>)}
     {channels.error && <Failure error={channels.error} retry={() => void channels.refetch()} />}
     {project.importableSources.length > 0 && <a className="text-button mt-3" href={routeFor(project.id, 'knowledge')}><BookOpen size={16} />在知识库接入正文 <ArrowRight size={15} /></a>}
     {adding && <Modal title="关联项目资料" close={() => setAdding(false)}><form className="form" onSubmit={async e => {
@@ -138,14 +142,19 @@ function Sources({ project, workspace }: PageProps) {
     {group && <Modal title="绑定飞书群" close={() => setGroup(false)}><form className="form" onSubmit={async event => {
       event.preventDefault(); const form = new FormData(event.currentTarget);
       if (await run(() => api('project/' + project.id + '/feishu-group', {
-        chat: form.get('chat'), label: form.get('label'), topic: form.get('topic') || undefined,
+        chat: form.get('chat'), label: form.get('label'), topic: form.get('topic') || undefined, shared,
       }), '飞书群已绑定')) setGroup(false);
     }}><Field label="已获准接入的群"><select name="chat" required>{workspace.feishuGroups.map(chat => <option key={chat}>{chat}</option>)}</select></Field>
       <Field label="群名称"><Input name="label" required maxLength={100} /></Field>
-      {!!project.topics.length && <Field label="默认主题"><select name="topic"><TopicOptions project={project} empty="项目讨论" /></select></Field>}
+      <Field label="群消息归属"><select value={shared ? 'topics' : 'default'} onChange={e => setShared(e.target.value === 'topics')}>
+        <option value="topics">只接已关联的话题</option><option value="default">此项目接收未关联话题的群消息</option>
+      </select></Field>
+      {!shared && !!project.topics.length && <Field label="默认主题"><select name="topic"><TopicOptions project={project} empty="项目讨论" /></select></Field>}
       <div className="form-actions"><Button type="submit" disabled={busy}>绑定</Button></div>
     </form></Modal>}
-  </Section>{workspace.crossChannel && <ChannelArchive project={project} />}</>;
+  </Section>{channels.data && <><FeishuTopics project={project} channels={channels.data} /><IMTopics project={project} channels={channels.data} /></>}
+    <DeliverySetup project={project} />
+    {workspace.crossChannel && <ChannelArchive project={project} />}</>;
 }
 
 function ChannelArchive({ project }: { project: PageProps['project'] }) {

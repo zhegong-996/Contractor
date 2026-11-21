@@ -34,6 +34,25 @@ async def never_execute(_):
 
 
 class NativeOctopTransport(unittest.IsolatedAsyncioTestCase):
+    async def test_dingtalk_group_publication_checks_destination_and_provider_receipt(self):
+        transport = bridge['transport_only'](DingTalkChannel, lambda _: None)
+        channel = transport(never_execute, DingTalkConfig(app_key='fixture', app_secret='fixture', robot_code='test-robot'), channel_id='ding')
+        response = MagicMock(status=200)
+        response.json = AsyncMock(return_value={'processQueryKey': 'receipt'})
+        http = MagicMock()
+        http.post.return_value.__aenter__ = AsyncMock(return_value=response)
+        http.post.return_value.__aexit__ = AsyncMock(return_value=False)
+        with patch.object(channel, '_ensure_http', AsyncMock(return_value=http)), patch.object(channel, '_get_auth_headers', AsyncMock(return_value={})):
+            self.assertEqual(await channel.publish_group('ding-group', '[主题:mobile] 小屏验收'), 'markdown')
+            args, kwargs = http.post.call_args
+            self.assertEqual(args[0], 'https://api.dingtalk.com/v1.0/robot/groupMessages/send')
+            self.assertEqual(kwargs['json']['openConversationId'], 'ding-group')
+            self.assertEqual(kwargs['json']['robotCode'], 'test-robot')
+            self.assertFalse(kwargs['allow_redirects'])
+            response.json.return_value = {'requestId': 'only-request-id'}
+            with self.assertRaises(RuntimeError):
+                await channel.publish_group('ding-group', '门店验收')
+
     def test_provider_ack_is_durable_before_the_gateway_pipe_reply(self):
         with tempfile.TemporaryDirectory() as directory:
             file = Path(directory) / 'inbox.sqlite'

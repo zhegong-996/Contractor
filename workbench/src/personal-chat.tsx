@@ -5,8 +5,9 @@ import type { Collaboration } from '../../src/workbench/collaboration.ts';
 import { api, part, uid, useData, type Overview } from './api.ts';
 import { Button } from './components/button.tsx';
 import { TextArea } from './components/input.tsx';
+import { HarnessCallDetails } from './harness-settings.tsx';
 import { Markdown } from './markdown.tsx';
-import { personalChatRoute } from './navigation.ts';
+import { personalChatRoute, settingsRoute } from './navigation.ts';
 import { Avatar, date, Empty, Failure, Loading, useActions, useStored } from './ui.tsx';
 
 type Directory = ReturnType<Collaboration['personalConversations']>;
@@ -25,6 +26,7 @@ export function PersonalChatPage({ workspace, project, conversation }: { workspa
   const directory = useChatPages<Directory>('personal-chat', 8000);
   const entries = [...new Map(directory.data?.pages.flatMap(page => page.rows.map(row => [row.id, row] as const))).values()];
   const profile = useData<Profile>('account/personal-agent', 4500);
+  const configure = settingsRoute('account', 'agent', personalChatRoute(conversation, project), project);
   const [newChat, start] = useState(false);
   const showComposer = !!conversation || newChat;
   return <div className="split chat-split personal-chat" data-has-detail={showComposer}>
@@ -54,17 +56,17 @@ export function PersonalChatPage({ workspace, project, conversation }: { workspa
             <div className="inline-meta">{profile.data?.selection?.model && <span>{profile.data.selection.model}</span>}<span>仅本人可见</span></div>
           </div>
         </div>
-        <a className="text-button" href="#/account?tab=agent"><Settings2 size={16} />配置 Agent</a>
+        <a className="text-button" href={configure}><Settings2 size={16} />配置 Agent</a>
       </header>
       {profile.error && <Failure error={profile.error} retry={() => void profile.refetch()} />}
-      <PersonalChatThread key={conversation ?? 'new'} {...{ workspace, project, conversation }} profile={profile.data} loadingProfile={profile.isPending}
+      <PersonalChatThread key={conversation ?? 'new'} {...{ workspace, project, conversation, configure }} profile={profile.data} loadingProfile={profile.isPending}
         openNew={() => start(true)} />
     </div>
   </div>;
 }
 
-function PersonalChatThread({ workspace, project, conversation, profile, loadingProfile, openNew }: {
-  workspace: Overview; project?: string; conversation?: string; profile?: Profile; loadingProfile: boolean; openNew: () => void;
+function PersonalChatThread({ workspace, project, conversation, profile, loadingProfile, configure, openNew }: {
+  workspace: Overview; project?: string; conversation?: string; profile?: Profile; loadingProfile: boolean; configure: string; openNew: () => void;
 }) {
   const data = useChatPages<History>(conversation ? 'personal-chat/' + part(conversation) : '', 2000);
   const [initial] = useState(() => ({ text: '', nonce: uid() }));
@@ -75,6 +77,7 @@ function PersonalChatThread({ workspace, project, conversation, profile, loading
   const rounds = data.error ? [] : [...new Map(data.data?.pages.slice().reverse().flatMap(page => page.rows.map(row => [row.id, row] as const))).values()];
   const last = rounds.at(-1);
   const waiting = last?.state === 'pending';
+  const usesHistory = profile?.modules.find(module => module.id === 'conversation-history')?.enabled;
   useLayoutEffect(() => {
     if (stick.current && scroll.current) scroll.current.scrollTop = scroll.current.scrollHeight;
   }, [last?.id, last?.state]);
@@ -87,7 +90,7 @@ function PersonalChatThread({ workspace, project, conversation, profile, loading
       {conversation && data.error ? <Failure error={data.error} retry={() => void data.refetch()} />
         : conversation && data.isPending || !conversation && loadingProfile ? <Loading />
         : !rounds.length && <Empty title={profile?.enabled ? '与个人 Agent 对话' : '先为个人 Agent 配置模型'} icon={<Bot />}
-          action={!profile?.enabled && profile ? <a className="text-button" href="#/account?tab=agent">前往配置</a> : undefined} />}
+          action={!profile?.enabled && profile ? <a className="text-button" href={configure}>前往配置</a> : undefined} />}
       <div className="timeline" aria-label="聊天记录">
         {data.hasNextPage && <Button size="sm" variant="ghost" className="self-start" disabled={data.isFetchingNextPage}
           onClick={async () => {
@@ -97,20 +100,24 @@ function PersonalChatThread({ workspace, project, conversation, profile, loading
             await data.fetchNextPage();
             requestAnimationFrame(() => { if (scroll.current) scroll.current.scrollTop = top + scroll.current.scrollHeight - height; });
           }}>加载更早消息</Button>}
-        {rounds.map(turn => <div className="personal-chat-turn" key={turn.id}>
+        {rounds.map(turn => {
+          const agentTitle = turn.harness?.title ?? profile?.title ?? '个人 Agent';
+          return <div className="personal-chat-turn" key={turn.id}>
           <article className="timeline-entry member-message"><Avatar avatar={workspace.actorProfile?.avatar} value={author} />
             <div className="message"><div className="message-meta"><strong>{author}</strong><time>{date(turn.openedAt)}</time></div>
               <Markdown text={turn.question} /></div></article>
-          <article className="timeline-entry"><Avatar kind="agent" value={profile?.title ?? '个人 Agent'} />
-            <div className="message"><div className="message-meta"><strong>{profile?.title ?? '个人 Agent'}</strong>
+          <article className="timeline-entry"><Avatar kind="agent" value={agentTitle} />
+            <div className="message"><div className="message-meta"><strong>{agentTitle}</strong>
               {turn.model && <span>{turn.model}</span>}{turn.answeredAt && <time>{date(turn.answeredAt)}</time>}</div>
               {turn.state === 'answered' && turn.answer ? <Markdown text={turn.answer} /> : turn.state === 'pending'
                 ? <p className="muted-text" role="status">正在回复</p> : <div className="actions">
                   <p className="muted-text">{turn.error ?? '暂未收到回复'}</p>
                   {turn.id === last?.id && <Button size="sm" variant="outline" onClick={() => setDraft({ text: turn.question, nonce: uid() })}>再问一次</Button>}
                 </div>}
+              {turn.harness && <HarnessCallDetails stamp={turn.harness} />}
             </div></article>
-        </div>)}
+          </div>;
+        })}
       </div>
     </div>
     {(!conversation || !!data.data && !data.error) && <form className="form conversation-composer" onSubmit={async event => {
@@ -128,7 +135,7 @@ function PersonalChatThread({ workspace, project, conversation, profile, loading
     }}>
       <TextArea aria-label="发给我的 Agent" placeholder="输入消息…" rows={3} value={draft.text} maxLength={3000}
         disabled={!profile?.enabled} onChange={event => setDraft({ text: event.target.value, nonce: uid() })} />
-      <div className="form-actions"><span className="personal-context-note">续聊参考最近 8 轮，历史可向前翻阅</span>
+      <div className="form-actions"><span className="personal-context-note">{usesHistory ? '续聊参考最近 8 轮' : '会话历史仅供查看'}</span>
         <Button size="sm" type="submit" disabled={busy || waiting || !profile?.enabled || !draft.text.trim()}><Send />发送</Button></div>
     </form>}
   </div>;

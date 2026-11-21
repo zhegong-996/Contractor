@@ -3,6 +3,7 @@ import type { OctopIMAddress } from './octop-im-contract.ts';
 import type { Provider, PlatformActor } from './channel-links.ts';
 import type { ResourceView } from './project-resources.ts';
 import type { ExpertAuthority } from './octop-resources.ts';
+import type { WorkerHarnessStamp } from './worker-harness.ts';
 import type { Development, DevelopmentTarget } from './development.ts';
 import type { DeliveryTemplate } from './delivery-template.ts';
 import type { inspectBranch, inspectPull, GitHubIdentity, GitHubPush } from './github-delivery.ts';
@@ -18,6 +19,7 @@ export type ExecutionBlockKind = 'model-unavailable' | 'model-authorization' | '
 export type Work = {
   project: string;
   requester: string;
+  acceptanceAssignee?: { member: string; version: number; at: string };
   agent: string;
   agentVersion: string;
   function: string;
@@ -82,6 +84,7 @@ export type Assembled = { assignment: string; agentVersion: string; contextHash:
   stageBasis?: string;
   engine: string; model?: string; actor?: RunActor; resources?: ResourceView[]; development?: Development;
   octop?: ExpertAuthority;
+  workerHarness?: WorkerHarnessStamp;
   isolation?: Isolation; codeBundle?: string; consultationReply?: true; fullResult?: true;
   childResults?: string[];
   confirmations?: number[]; policyVersion?: string; assembly?: ReturnType<ExecutionEvidence['freeze']> };

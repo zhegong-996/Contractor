@@ -3,6 +3,7 @@ import { sensitiveFeishuText } from '../feishu-sources.ts';
 import type { SuperAgentStore } from '../superagent-ports.ts';
 import { WorkbenchError } from './errors.ts';
 import type { openPersonalAgents } from './personal-agent.ts';
+import type { AssistantHarnessStamp } from './assistant-harness.ts';
 
 type PersonalAgent = Pick<ReturnType<typeof openPersonalAgents>, 'answer' | 'view'>;
 type TurnInput = { conversation?: string; nonce: string; question: string };
@@ -10,6 +11,7 @@ type Turn = {
   id: string; question: string; openedAt: string; state: 'pending' | 'answered' | 'failed';
   answer: string | null; answeredAt: string | null; model: string | null; error: string | null;
 };
+type Run = AssistantHarnessStamp & { title: string };
 type Conversation = { id: string; title: string; updatedAt: string; latest: number };
 
 export function openPersonalConversations(store: Pick<SuperAgentStore, 'db' | 'atomic'>, agent: PersonalAgent) {
@@ -21,10 +23,12 @@ export function openPersonalConversations(store: Pick<SuperAgentStore, 'db' | 'a
     CREATE INDEX IF NOT EXISTS workbench_personal_conversation_index ON workbench_personal_conversation(owner,latest DESC);
     CREATE TABLE IF NOT EXISTS workbench_personal_turn (
       seq INTEGER PRIMARY KEY, id TEXT NOT NULL UNIQUE, conversation TEXT NOT NULL, question TEXT NOT NULL,
-      opened_at TEXT NOT NULL, state TEXT NOT NULL, answer TEXT, answered_at TEXT, model TEXT, error TEXT
+      opened_at TEXT NOT NULL, state TEXT NOT NULL, answer TEXT, answered_at TEXT, model TEXT, error TEXT, harness TEXT
     );
     CREATE INDEX IF NOT EXISTS workbench_personal_turn_index ON workbench_personal_turn(conversation,seq DESC);
   `);
+  if (!db.prepare("SELECT name FROM pragma_table_info('workbench_personal_turn') WHERE name='harness'").get())
+    db.exec('ALTER TABLE workbench_personal_turn ADD COLUMN harness TEXT');
   db.prepare("UPDATE workbench_personal_turn SET state='failed', error=? WHERE state='pending'")
     .run('工作台重启，未收到这次回复。可再问一次。');
   const running = new Set<Promise<void>>();
@@ -42,10 +46,11 @@ export function openPersonalConversations(store: Pick<SuperAgentStore, 'db' | 'a
   }
   function history(owner: string, id: string, before?: number) {
     const conversation = requireConversation(owner, id);
-    const rows = db.prepare(`SELECT seq,id,question,opened_at AS openedAt,state,answer,answered_at AS answeredAt,model,error FROM workbench_personal_turn
+    const rows = db.prepare(`SELECT seq,id,question,opened_at AS openedAt,state,answer,answered_at AS answeredAt,model,error,harness FROM workbench_personal_turn
       WHERE conversation=? ${before === undefined ? '' : 'AND seq<?'} ORDER BY seq DESC LIMIT 31`)
-      .all(id, ...(before === undefined ? [] : [before])) as (Turn & { seq: number })[];
-    return { conversation, rows: rows.slice(0, 30).reverse(), next: rows.length > 30 ? rows[29]!.seq : undefined };
+      .all(id, ...(before === undefined ? [] : [before])) as (Turn & { seq: number; harness: string | null })[];
+    return { conversation, rows: rows.slice(0, 30).reverse().map(({ harness, ...turn }) =>
+      ({ ...turn, harness: harness ? JSON.parse(harness) as Run : null })), next: rows.length > 30 ? rows[29]!.seq : undefined };
   }
   async function respond(owner: string, conversation: string, id: string, question: string) {
     try {
@@ -55,8 +60,9 @@ export function openPersonalConversations(store: Pick<SuperAgentStore, 'db' | 'a
         { role: 'user', content: turn.question.slice(0, 1500) },
         { role: 'assistant', content: turn.answer.slice(0, 1500) },
       ]));
-      db.prepare(`UPDATE workbench_personal_turn SET state='answered',answer=?,answered_at=?,model=?
-        WHERE id=? AND state='pending'`).run(result.value.answer, new Date().toISOString(), result.model.model, id);
+      db.prepare(`UPDATE workbench_personal_turn SET state='answered',answer=?,answered_at=?,model=?,harness=?
+        WHERE id=? AND state='pending'`).run(result.value.answer, new Date().toISOString(), result.model.model,
+        JSON.stringify({ ...result.harness, title: result.agentTitle }), id);
     } catch (error) {
       db.prepare("UPDATE workbench_personal_turn SET state='failed',error=? WHERE id=? AND state='pending'")
         .run(error instanceof WorkbenchError ? error.message : '个人 Agent 暂未回复，可再问一次。', id);

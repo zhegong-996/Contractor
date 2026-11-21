@@ -3,16 +3,18 @@ import { z } from 'zod';
 export const octopIMKind = z.enum(['telegram', 'discord', 'wecom', 'qq', 'dingtalk', 'weixin']);
 export const octopIMNativeId = z.string().regex(/^[^\x00-\x20\x7f]{1,180}$/);
 const connectorId = z.string().regex(/^[a-z][a-z0-9-]{0,47}$/);
+export const imTopicTag = z.string().regex(/^[a-z][a-z0-9-]{0,31}$/);
+const destination = { chat: octopIMNativeId, thread: octopIMNativeId.optional() };
 export const octopIMConnector = z.object({
   id: connectorId, kind: octopIMKind, credential: connectorId, allowAccountBinding: z.boolean().optional(),
-  routes: z.array(z.object({ chat: octopIMNativeId, thread: octopIMNativeId.optional(),
-    project: connectorId, topic: connectorId }).strict()).min(1).max(64),
+  routes: z.array(z.object({ ...destination, project: connectorId, topic: connectorId }).strict()).max(64).default([]),
+  allowedConversations: z.array(z.object({ ...destination, label: z.string().min(1).max(100), direct: z.boolean().optional() }).strict()).max(64).optional(),
 }).strict();
 export type OctopIMConnector = z.infer<typeof octopIMConnector>;
 
 export const octopIMAddress = z.object({ connector: connectorId, kind: octopIMKind,
   chat: octopIMNativeId, thread: octopIMNativeId.optional(), message: octopIMNativeId,
-  sender: octopIMNativeId, direct: z.boolean(),
+  sender: octopIMNativeId, direct: z.boolean(), tag: imTopicTag.optional(),
   // QQ routes channel, C2C and group traffic through distinct native APIs.
   qqRoute: z.enum(['channel', 'group', 'c2c', 'direct']).optional(),
 }).strict();
@@ -24,10 +26,10 @@ export const octopIMDeliveryForm = z.enum(['card', 'markdown']);
 export type OctopIMDeliveryForm = z.infer<typeof octopIMDeliveryForm>;
 export type OctopIMTransport = {
   ready(address: OctopIMAddress): boolean;
-  send(address: OctopIMAddress, text: string, card?: OctopConsultationCard, delivery?: string): Promise<OctopIMDeliveryForm | void>;
+  send(address: OctopIMAddress, text: string, card?: OctopConsultationCard, delivery?: string, proactive?: boolean): Promise<OctopIMDeliveryForm | void>;
 };
 
-export function octopIMRoute(connectors: OctopIMConnector[] | undefined, address: OctopIMAddress) {
+export function octopIMRoute(connectors: OctopIMConnector[] | undefined, address: Pick<OctopIMAddress, 'connector' | 'kind' | 'chat' | 'thread'>) {
   const connector = connectors?.find(row => row.id === address.connector && row.kind === address.kind);
   return connector?.routes.find(row => row.chat === address.chat && row.thread === address.thread);
 }

@@ -38,10 +38,10 @@ Backstage 资料引用和 Casbin 角色判定已由 [资料引用](../src/workbe
 
 | 设计参考 | 本项目中的实现 |
 | --- | --- |
-| DeepSeek Harness 的生命周期和能力分层 | 启动时组装插件与业务核心。Super-agent 源码与 npm 的 DeepSeek 通用包另外按上表登记。 [插件模块](PLUGIN-ARCHITECTURE.md) |
+| DeepSeek Harness 的生命周期和能力分层 | 启动时组装插件与业务核心。Router 和个人 Agent 通过注册的模型、技能与上下文组件组装调用。Super-agent 源码与 npm 的 DeepSeek 通用包另外按上表登记。 [插件模块](PLUGIN-ARCHITECTURE.md) |
 | LobeHub、Paperclip、Co-Sight 的任务和会话组织 | 自建工作台的会话目录、看板、角色入口、工单和执行记录。 [工作台源码](../workbench/src) |
 | Acceptance、LoopForge 的逐项检查和回归 | 自研产品检查、按版验收、GitHub 工作流证据和回归对照。 [验收模块](WORKBENCH-DELIVERY-TEMPLATE.md) |
-| Octop 的专家共享、技能与记忆组织 | Contractor 实现专家共享、技能版本及只读模型适配。执行侧使用本项目的 [只读模型入口](../src/workbench/deepseek_readonly.py)，源码复用集中在上表的 Gateway、Memory 和两处界面组件。 |
+| Octop 的专家共享、技能与记忆组织 | Contractor 实现专家共享、技能版本及只读模型适配。借鉴 Octop 的专家配置和 Co-Sight 的控制资产设计，独立实现 Router 与个人 Agent 配置。执行侧使用本项目的 [只读模型入口](../src/workbench/deepseek_readonly.py)，源码复用集中在上表的 Gateway、Memory 和两处界面组件。 |
 
 ## 许可检查与制品
 

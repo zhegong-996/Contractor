@@ -1,12 +1,10 @@
 import { ArrowLeft, BookOpen, Bot, ChevronRight, ListChecks, MessageSquare, PanelRight, Plus, Radio } from 'lucide-react';
-import { part, useData, useTickets, type TopicRule } from './api.ts';
+import { part, useData, useTickets, type ProjectChannels, type TopicRule } from './api.ts';
 import { Conversation } from './conversation.tsx';
 import { ConversationDirectory } from './conversation-directory.tsx';
 import { projectWorkRoute, routeFor, withConversationOrigin, type PageProps } from './navigation.ts';
 import { Button } from './components/button.tsx';
-import { Avatar, Empty, Failure, Pill, short, Source, TicketStatus, useStored } from './ui.tsx';
-
-type Channels = { feishuReady: boolean; im: { connector: string; kind: string; topics: string[]; ready: boolean }[] };
+import { Avatar, Empty, Ext, Failure, Pill, short, Source, TicketStatus, useStored } from './ui.tsx';
 
 export function ChatPage(props: PageProps) {
   const { project, workspace, route, openTask } = props;
@@ -15,7 +13,7 @@ export function ChatPage(props: PageProps) {
   const people = workspace.agents.filter(agent => selected?.consultants.includes(agent.id) && agent.active);
   const [showDetails, setDetails] = useStored('chat-context:' + project.id, window.matchMedia('(min-width: 1280px)').matches);
   const tasks = useTickets({ project: project.id, topic: selected?.id, purpose: 'work', limit: 8 }, hasDetail && showDetails, 5000).rows;
-  const connected = useData<Channels>(hasDetail && showDetails ? 'project/' + project.id + '/channels' : '', 5000);
+  const connected = useData<ProjectChannels>(hasDetail && showDetails ? 'project/' + project.id + '/channels' : '', 5000);
   const rules = useData<TopicRule[]>(selected ? 'project/' + part(project.id) + '/topic-rules/' + part(selected.id) : '', 8000);
   const feishu = project.resources.some(resource => resource.source === 'feishu' && resource.state === 'bound');
   const github = project.resources.some(resource => resource.source === 'github' && resource.state === 'bound' && resource.purpose !== 'reference');
@@ -43,6 +41,8 @@ export function ChatPage(props: PageProps) {
           <section><h2><Radio size={16} />来源</h2>
             <div className="record-row"><Source channel="web" /></div>
             {feishu && <div className="record-row"><Source channel="feishu" />{connected.data && <Pill tone={connected.data.feishuReady ? 'green' : 'amber'}>{connected.data.feishuReady ? '入口在线' : '入口未就绪'}</Pill>}</div>}
+            {connected.data?.feishuTopics.mappings.filter(row => row.topic === selected?.id).map(row =>
+              <div className="record-row" key={row.chat + row.root}><Ext href={row.url}>飞书原话题</Ext></div>)}
             {github && <div className="record-row"><Source channel="github" /><a href={routeFor(project.id, 'project', undefined, 'sources')}>仓库连接</a></div>}
             {im?.map(item => <div className="record-row" key={item.connector}><Source channel={item.kind} />
               <Pill tone={item.ready ? 'green' : 'amber'}>{item.ready ? '在线' : '未就绪'}</Pill></div>)}

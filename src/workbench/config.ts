@@ -114,7 +114,8 @@ export const settingsSchema = z.object({
   const connectors = value.octop?.channels ?? [];
   if (new Set(connectors.map(row => row.id)).size !== connectors.length) flag('Octop IM 连接标识重复');
   for (const connector of connectors) {
-    if (new Set(connector.routes.map(row => JSON.stringify([row.chat, row.thread]))).size !== connector.routes.length)
+    const routes = [...connector.routes, ...connector.allowedConversations ?? []];
+    if (new Set(routes.map(row => JSON.stringify([row.chat, row.thread]))).size !== routes.length)
       flag('同一 Octop IM 会话或话题只能绑定一个项目主题');
     for (const route of connector.routes) if (!projectById.get(route.project)?.consultations?.some(row => row.topic === route.topic))
       flag('Octop IM 会话须绑定已开启咨询的项目主题');

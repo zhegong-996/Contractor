@@ -7,7 +7,8 @@ import { memoryProviders } from './memory-providers.ts';
 import { FigmaSources } from './figma-source.ts';
 import { octopCall, octopReportedModel, prepareOctop } from './octop-bridge.ts';
 import { readSkillManifest } from './skill-manifest.ts';
-import { textAssistant } from './platform-assistant.ts';
+import { textAssistant } from './plugins/assistant-model.ts';
+import { assistantContext } from './plugins/assistant-context.ts';
 import type { Settings } from './config.ts';
 
 export function platformPlugins({ octop, plugins }: Settings, profile: PluginProfile = {}) {
@@ -16,6 +17,7 @@ export function platformPlugins({ octop, plugins }: Settings, profile: PluginPro
   const memory = memoryProviders[plugins?.memory ?? (octop ? 'octop' : 'native')](octop);
   return connectCapabilities({
     assistant: { id: 'text-completions', api: 1, service: textAssistant() },
+    assistantHarness: { id: 'scoped-assistant-context', api: 1, service: assistantContext },
     delivery: { id: 'github-actions', api: 1,
       service: { inspectPull, inspectBranch, inspectIssue, inspectCommitChecks, inspectProductVerification } },
     sources: { id: 'project-sources', api: 1,

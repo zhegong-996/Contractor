@@ -30,12 +30,16 @@ export function ModelServices() {
         <dl>
           <div><dt>执行配置</dt><dd>{row.configured ? '已配置' : '待配置'}</dd></div>
           <div><dt>模型范围</dt><dd>{row.models.length ? '限定 ' + row.models.length + ' 个模型' : '沿用 Agent 授权'}</dd></div>
+          <div><dt>在线可接单 Worker</dt><dd>{row.runtime.onlineWorkers} 台</dd></div>
+          {!!row.runtime.localProfiles && <div><dt>本机凭据文件</dt><dd>{row.runtime.localCredentialsReady} / {row.runtime.localProfiles} 可读取</dd></div>}
         </dl>
+        <p className="muted-text">运行条件核对于 {date(row.runtime.checkedAt, true)}。具体模型和额度在派工前另核对。</p>
         <div className="admin-model-tags" aria-label="平台许可模型">
           {row.models.slice(0, 3).map(model => <code key={model} title={model}>{model}</code>)}
           {row.models.length > 3 && <span>另有 {row.models.length - 3} 个</span>}
         </div>
-        <footer><Button size="sm" variant="outline" onClick={() => setEditing(row)} aria-label={'配置 ' + provider.name}>配置模型</Button></footer>
+        <footer><Button size="sm" variant="outline" onClick={() => setEditing(row)} aria-label={'配置 ' + provider.name}>配置模型</Button>
+          <Button size="sm" variant="ghost" onClick={() => void data.refetch()}>刷新运行状态</Button></footer>
       </article>;
     })}</div>}
     {editing && <ModelServiceDialog key={editing.provider + ':' + editing.revision} service={editing}
@@ -103,23 +107,26 @@ type ServiceStatusView = {
   plugins?: CapabilityProvider[];
   im?: { id: string; ready: boolean; inbox: { pending: number; overdue: number } }[];
   github?: { repository: string; state: string }[];
+  storage?: { state: string }; executor?: 'autoloop' | 'contractor';
 };
 const states: Record<string, string> = { ready: '就绪', connecting: '连接中', reconnecting: '重连中',
   unavailable: '异常', disabled: '未启用', stopped: '已停止' };
 const pluginTitles: Record<CapabilityProvider['capability'], string> = {
   delivery: '交付证据', sources: '资料读取', memory: '知识检索', expert: '只读专家', gateway: '渠道标准化', assistant: '模型整理',
+  assistantHarness: 'Agent 上下文与技能',
 };
 const providerTitles: Record<string, string> = {
   'github-actions': 'GitHub Actions', 'project-sources': 'GitHub、飞书、Figma',
   'octop-index': 'Octop Memory', 'native-search': 'Contractor 内置检索',
   'deepseek-readonly': 'DeepSeek 只读适配器', 'octop-feishu': 'Octop Gateway', 'native-feishu': '飞书原生入口',
+  'scoped-assistant-context': 'Contractor Agent Harness', 'text-completions': '模型接口',
 };
 
 export function ServiceStatus() {
   const status = useData<ServiceStatusView>('admin/service-status', 5000);
   if (status.error) return <Failure error={status.error} retry={() => void status.refetch()} />;
   if (!status.data) return <Loading />;
-  const { feishu, cards, knowledge, inbox, pendingReceipts, notificationsPaused, plugins, im, github } = status.data;
+  const { feishu, cards, knowledge, inbox, pendingReceipts, notificationsPaused, plugins, im, github, executor, storage } = status.data;
   return <>
     <div className="admin-provider-grid">
     {([['飞书消息', feishu], ['飞书卡片回调', cards], ['知识索引', knowledge.state]] as const).map(([label, state]) =>
@@ -136,7 +143,9 @@ export function ServiceStatus() {
         {!!channel.inbox.overdue && <Pill tone="amber">{channel.inbox.overdue} 条滞留</Pill>}</div>)}
       {github?.map(repository => <div className="record-row" key={repository.repository}><strong>{repository.repository}</strong>
         <Pill tone={repository.state === 'ready' ? 'green' : 'amber'}>{states[repository.state] ?? repository.state}</Pill></div>)}
-      <div className="record-row"><strong>AutoLoop 回执待补写</strong><span>{pendingReceipts} 条</span></div>
+      <div className="record-row"><strong>{executor === 'autoloop' ? 'AutoLoop' : 'Contractor'} 执行回执待补写</strong><span>{pendingReceipts} 条</span></div>
+      {storage && <div className="record-row"><strong>运行数据</strong><Pill tone={storage.state === 'temporary' ? 'amber' : 'neutral'}>
+        {storage.state === 'temporary' ? '位于临时目录，需迁至持久存储' : '使用独立运行目录'}</Pill></div>}
       <div className="record-row"><strong>通知外发</strong><Pill tone={notificationsPaused ? 'amber' : 'green'}>{notificationsPaused ? '已暂停' : '可发送'}</Pill></div>
     </Section>
     {!!plugins?.length && <Section title="当前插件">

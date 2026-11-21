@@ -5,6 +5,9 @@ export const imProviderNames = {
 
 export type IMProvider = keyof typeof imProviderNames;
 
+export const feishuScanOrigin = 'https://passport.feishu.cn';
+export const feishuScanAuthorizePath = '/suite/passport/oauth/authorize';
+
 export const imAuthorizationHints: Record<IMProvider, string> = {
   feishu: '打开飞书授权页，用所在组织的账号继续。',
   dingtalk: '打开钉钉授权页，用所在组织的账号继续。',

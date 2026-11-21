@@ -7,9 +7,11 @@ import type { FigmaSources } from './figma-source.ts';
 import type { octopReportedModel, prepareOctop } from './octop-bridge.ts';
 import type { readSkillManifest } from './skill-manifest.ts';
 import type { AssistantService } from './platform-assistant.ts';
+import type { AssistantHarnessProvider } from './assistant-harness.ts';
 
 export interface Capabilities {
   assistant: AssistantService;
+  assistantHarness: AssistantHarnessProvider;
   delivery: {
     inspectPull: typeof inspectPull;
     inspectBranch: typeof inspectBranch;

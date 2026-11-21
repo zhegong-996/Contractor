@@ -34,9 +34,9 @@ flowchart TD
 | 能力 | 在哪里使用 |
 | --- | --- |
 | **身份、项目和资料** | 绑定经验证的渠道账号。在「项目」组织子项目、主题、参与成员、仓库、原型与资料。平台权限与源站访问分别判定。 [配置手册](docs/CONFIGURATION.md) |
-| **消息过滤和派工** | 飞书、GitHub 与已配置的 IM 使用统一入站记录。项目维护人设置职责和牵头人，引用冲突进入待办。 [渠道适配](docs/WORKBENCH-OCTOP.md) |
+| **消息过滤和派工** | 飞书、GitHub 与已配置的 IM 使用统一入站记录。项目主题可关联多个渠道会话，项目维护人设置职责和牵头人，引用冲突进入待办。 [项目与 IM 映射](docs/WORKBENCH-IM-PROJECTS.md) |
 | **任务中心和会话** | 「工作」用看板或列表跟进工单。「会话」搜索项目、主题与工单并续聊。「待我处理」聚合当前账号可以处理的决定。 [界面与操作](docs/WORKBENCH-FRONTEND-WORKSPACE.md) |
-| **个人 Agent、共享专家和执行端** | 查职责、挂载技能和连接设备。已确认的委托可以断线续跑，旧执行停止后可交接。 [执行端手册](docs/WORKBENCH-REMOTE-RUNNER.md) |
+| **Router、个人 Agent 和执行端** | 配置路由建议与知识提炼的提示词，编辑个人 Agent 的名称、模型、经验及技能，登记 Worker 的执行设备。已确认的委托可以断线续跑，旧执行停止后可交接。 [Agent 配置](docs/PLUGIN-ARCHITECTURE.md#agent-配置和运行) · [执行端手册](docs/WORKBENCH-REMOTE-RUNNER.md) |
 | **版本交付和验收** | 查看每轮成果，核对本版提交、PR、CI 和可选部署。支持逐项检查、打回下一版和回归比较。 [交付模板](docs/WORKBENCH-DELIVERY-TEMPLATE.md) |
 | **知识与记忆** | 查看候选、现行版本、历史、来源和使用记录。知识负责人确认采用、替代和失效。 [知识管理](docs/KNOWLEDGE-VERSIONS.md) |
 | **平台管理与积分** | 管角色、主登录渠道、模型服务和系统状态。后台按 Token 与模型倍率结算，前台按积分池管理。 [配置手册](docs/CONFIGURATION.md) |

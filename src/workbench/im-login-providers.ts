@@ -4,7 +4,7 @@ import { configuredEnv, isConfigSecretName } from './compatibility.ts';
 import type { PlatformActor } from './channel-links.ts';
 import { WorkbenchError } from './errors.ts';
 import { octopIMNativeId } from './octop-im-contract.ts';
-import { imProviderNames, type IMProvider } from './im-login-channels.ts';
+import { feishuScanAuthorizePath, feishuScanOrigin, imProviderNames, type IMProvider } from './im-login-channels.ts';
 
 export { imProviderNames, type IMProvider } from './im-login-channels.ts';
 export const imProvider = z.enum(Object.keys(imProviderNames) as IMProvider[]);
@@ -30,7 +30,7 @@ export type IMLoginSettings = z.infer<typeof imLoginSettings>;
 export type ExternalIdentity = { authority: string; subject: string };
 export type VerifiedIdentity = ExternalIdentity & { label: string; channel?: PlatformActor;
   profile?: { provider: IMProvider; name?: string; avatar?: string } };
-type OAuthRequest = { redirect: string; state: string; verifier: string; inWeCom?: boolean };
+type OAuthRequest = { redirect: string; state: string; verifier: string; inWeCom?: boolean; embeddedQr?: true };
 type ProviderConnection = {
   provider: IMProvider;
   authority: string;
@@ -61,8 +61,9 @@ function verifiedAvatar(provider: IMProvider, value: unknown) {
 }
 
 const tokenResponse = z.object({ access_token: token });
-const feishuProfile = z.object({ code: z.literal(0), data: z.object({ tenant_key: appId, open_id: octopIMNativeId, name: label,
-  avatar_thumb: z.unknown().optional(), avatar_url: z.unknown().optional() }) });
+const feishuMember = z.object({ tenant_key: appId, open_id: octopIMNativeId, name: label,
+  avatar_thumb: z.unknown().optional(), avatar_url: z.unknown().optional(), picture: z.unknown().optional() });
+const feishuProfile = z.object({ code: z.literal(0), data: feishuMember });
 const dingProfile = z.object({ unionId: octopIMNativeId, nick: label, avatarUrl: z.unknown().optional() });
 const dingMember = z.object({ errcode: z.literal(0),
   result: z.object({ contact_type: z.literal(0), userid: octopIMNativeId }) });
@@ -146,18 +147,23 @@ export function imConnections(settings: IMLoginSettings | undefined, feishuBotAp
   }
   if (configs.feishu) {
     const { appId: client, tenantKey, secretEnv } = configs.feishu;
-    add('feishu', [tenantKey, client], secretEnv, ({ redirect, state, verifier }) =>
-      url('https://accounts.feishu.cn/open-apis/authen/v1/authorize', {
+    add('feishu', [tenantKey, client], secretEnv, ({ redirect, state, verifier, embeddedQr }) =>
+      url(embeddedQr ? feishuScanOrigin + feishuScanAuthorizePath : 'https://accounts.feishu.cn/open-apis/authen/v1/authorize', {
         client_id: client, redirect_uri: redirect, response_type: 'code', state, target_tenant: tenantKey,
         ...pkce(verifier),
-      }), async (code, { redirect, verifier }, appSecret) => {
-      const data = await api(tokenResponse, 'https://open.feishu.cn/open-apis/authen/v2/oauth/token', json({
+      }), async (code, { redirect, verifier, embeddedQr }, appSecret) => {
+      const fields = {
         grant_type: 'authorization_code', client_id: client, client_secret: appSecret,
         code, redirect_uri: redirect, code_verifier: verifier,
-      }));
-      const { data: profile } = await api(feishuProfile, 'https://open.feishu.cn/open-apis/authen/v1/user_info', bearer(data.access_token));
+      };
+      const { access_token: access } = embeddedQr
+        ? await api(tokenResponse, feishuScanOrigin + '/suite/passport/oauth/token', tokenForm(fields))
+        : await api(tokenResponse, 'https://open.feishu.cn/open-apis/authen/v2/oauth/token', json(fields));
+      const profile = embeddedQr
+        ? await api(feishuMember, feishuScanOrigin + '/suite/passport/oauth/userinfo', bearer(access))
+        : (await api(feishuProfile, 'https://open.feishu.cn/open-apis/authen/v1/user_info', bearer(access))).data;
       if (profile.tenant_key !== tenantKey) throw invalidMember();
-      return { id: profile.open_id, name: profile.name, avatars: [profile.avatar_thumb, profile.avatar_url], ...(client === feishuBotApp && {
+      return { id: profile.open_id, name: profile.name, avatars: [profile.avatar_thumb, profile.avatar_url, profile.picture], ...(client === feishuBotApp && {
         channel: { provider: 'feishu', namespace: client, id: profile.open_id, label: '' },
       }) };
     });

@@ -1,8 +1,9 @@
 import { codeDeltaSchema } from './code-bundle.ts';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { readFileSync } from 'node:fs';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { z } from 'zod';
 import { root, runtime } from '../config.ts';
@@ -15,15 +16,16 @@ import { WorkbenchError } from './errors.ts';
 import { measureSchema, observationSchema } from './learning.ts';
 import type { PlatformActor } from './channel-links.ts';
 import { commitSha, deploymentSelectionSchema } from './github-delivery.ts';
-import { referenceSchema, resourceSource, topicInputSchema } from './project-resources.ts';
+import { githubRepository, referenceSchema, resourceSource, topicInputSchema } from './project-resources.ts';
+import { feishuTopicTransport } from './feishu-topics.ts';
 import { feishuCardTransport } from './feishu-cards.ts';
 import { openIntake } from './intake.ts';
 import { watchFigmaKnowledge } from './knowledge-sources.ts';
 import { localDeviceKey } from './devices.ts';
 import { runnerConnectInput, runnerRequestId, runnerSecret } from './runner-connection.ts';
 import { runnerConnectPage } from './runner-connect-page.ts';
-import { pointLimitInput, pointPolicyUpdate } from './token-points.ts';
-import { octopIMNativeId } from './octop-im-contract.ts';
+import { pointLimitInput, pointPolicyUpdate, pointScopeInput } from './token-points.ts';
+import { imTopicTag, octopIMNativeId } from './octop-im-contract.ts';
 import { acquireStateLease } from './state-lease.ts';
 import { notificationGuard } from './notification-guard.ts';
 import { permissionAdmin } from './permission-admin.ts';
@@ -31,8 +33,11 @@ import { AccountRecovery } from './account-recovery.ts';
 import { feishuActivationName } from './account-activation.ts';
 import { modelProvider, modelServiceUpdate, projectRoutingUpdate } from './operations-settings.ts';
 import { assistantUpdate } from './platform-assistant.ts';
+import { assistantSkillChange } from './assistant-harness.ts';
 import { personalAgentInput } from './personal-agent.ts';
-import { imLoginCookie, imReturnPath, withIMStatus } from './im-login.ts';
+import { imLoginCookie, imQrCookie, imReturnPath, withIMStatus } from './im-login.ts';
+import { feishuScanOrigin } from './im-login-channels.ts';
+import { workerHarnessUpdate } from './worker-harness.ts';
 import { imAvatarOrigins, imProvider, imProviderNames } from './im-login-providers.ts';
 import { profileUpdate } from './member-profile.ts';
 import { captureFormats, humanCheckInput, manualCasesInput, productCaptureInput } from './product-verification.ts';
@@ -48,6 +53,9 @@ if (!stateDir || !path.isAbsolute(stateDir)) throw new Error('请提供独立工
 
 const auth = new ConsoleAuth();
 await mkdir(runtime(), { recursive: true, mode: 0o700 });
+const statePath = await realpath(runtime());
+const temporaryRoots = await Promise.all([tmpdir(), '/tmp'].map(dir => realpath(dir).catch(() => dir)));
+const storage = { state: temporaryRoots.some(dir => statePath === dir || statePath.startsWith(dir + path.sep)) ? 'temporary' : 'persistent-directory' };
 async function prepareAuth() {
   await mkdir(runtime('console'), { recursive: true, mode: 0o700 });
   await writeFile(runtime('secrets.json'), JSON.stringify({ jwtSecret: randomBytes(32).toString('hex') }),
@@ -347,9 +355,10 @@ async function serve(release: () => void) {
         return;
       }
       if (req.method === 'GET' && url.pathname === '/favicon.ico') { res.writeHead(204).end(); return; }
-      const bundled = /^\/assets\/([\w-]+\.(js|css))$/.exec(url.pathname);
+      const bundled = /^\/assets\/([\w-]+\.(js|css|webp))$/.exec(url.pathname);
       const file = req.method === 'GET' && (assets.get(url.pathname) ?? (bundled
-        ? [path.join(staticRoot, 'assets', bundled[1]!), bundled[2] === 'js' ? 'text/javascript' : 'text/css'] : undefined));
+        ? [path.join(staticRoot, 'assets', bundled[1]!), bundled[2] === 'webp' ? 'image/webp'
+          : bundled[2] === 'js' ? 'text/javascript' : 'text/css'] : undefined));
       if (file) {
         const bytes = await readFile(file[0]!).catch(error => {
           if (error.code !== 'ENOENT') throw error;
@@ -358,10 +367,11 @@ async function serve(release: () => void) {
         if (url.pathname === '/') {
           const nonce = randomBytes(18).toString('base64');
           // Allow Ant Design's per-component theme variables only for this document.
-          res.setHeader('content-security-policy', `default-src 'self'; script-src 'self'; style-src 'self' 'nonce-${nonce}'; img-src 'self' blob: ${imAvatarOrigins.join(' ')}; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`);
+          const scanFrame = work?.imLogin.browser(publicWorkbench?.origin ?? '').embeddedQr ? feishuScanOrigin : "'none'";
+          res.setHeader('content-security-policy', `default-src 'self'; script-src 'self'; style-src 'self' 'nonce-${nonce}'; img-src 'self' blob: ${imAvatarOrigins.join(' ')}; frame-src ${scanFrame}; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`);
           res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
             .end(bytes.toString('utf8').replace('content="WORKBENCH_STYLE_NONCE"', `content="${nonce}"`));
-        } else res.writeHead(200, { 'content-type': file[1] + '; charset=utf-8' }).end(bytes);
+        } else res.writeHead(200, { 'content-type': file[1] === 'image/webp' ? file[1] : file[1] + '; charset=utf-8' }).end(bytes);
         return;
       }
       if (!url.pathname.startsWith('/api/')) throw new WorkbenchError('未找到。', 404);
@@ -378,6 +388,20 @@ async function serve(release: () => void) {
       const [view, item = '', action, reference] = parts;
       const post = req.method === 'POST';
       const get = req.method === 'GET';
+      if (post && view === 'auth' && item === 'im' && action === 'qr' && !reference) {
+        if (browserOrigin !== publicWorkbench?.origin || req.headers.origin !== browserOrigin)
+          throw new WorkbenchError('请从团队工作台获取登录二维码。', 403);
+        const { next } = z.object({ next: z.string().max(750).optional() }).strict().parse(await body(req));
+        res.setHeader('cache-control', 'no-store');
+        if (sessionFor(req)) {
+          json(res, 200, { signedIn: true, to: imReturnPath(next ?? null) });
+          return;
+        }
+        const { frame, location, state, proof, maxAge } = work.imLogin.beginQr(next ?? null);
+        res.setHeader('set-cookie', browserCookie(imQrCookie(state) + '=' + proof, browserOrigin, '/api/auth/im/callback') + '; Max-Age=' + maxAge);
+        json(res, 200, { signedIn: false, frame, location, maxAge });
+        return;
+      }
       if (get && view === 'auth' && item === 'im' && action === 'start' && !reference) {
         const login = work.imLogin.browser(browserOrigin);
         const next = url.searchParams.get('next');
@@ -400,10 +424,13 @@ async function serve(release: () => void) {
       if (get && view === 'auth' && item === 'im' && action === 'callback' && !reference) {
         if (!publicWorkbench || browserOrigin !== publicWorkbench.origin) throw new WorkbenchError('请使用企业登录配置的回调地址。', 403);
         const origin = publicWorkbench.origin;
-        const result = await work.imLogin.finish(url.searchParams, cookieValue(req, imLoginCookie) ?? cookieValue(req, formerName(imLoginCookie)), link =>
+        const qrCookie = imQrCookie(url.searchParams.get('state'));
+        const qrProof = qrCookie && cookieValue(req, qrCookie);
+        const result = await work.imLogin.finish(url.searchParams, qrProof ?? cookieValue(req, imLoginCookie) ?? cookieValue(req, formerName(imLoginCookie)), link =>
           sessionFor(req)?.username === link.member && auth.sessionBinding(req.headers.cookie) === link.fingerprint
         ).catch(() => ({ status: 'expired', to: '/' }) as const);
-        const cookies = [browserCookie(imLoginCookie + '=', origin, '/api/auth/im/callback') + '; Max-Age=0'];
+        const usedCookie = qrProof ? qrCookie : 'status' in result && result.status === 'expired' ? undefined : imLoginCookie;
+        const cookies = usedCookie ? [browserCookie(usedCookie + '=', origin, '/api/auth/im/callback') + '; Max-Age=0'] : [];
         let status: string;
         if ('status' in result) status = result.status;
         else {
@@ -514,6 +541,8 @@ async function serve(release: () => void) {
       else if (get && view === 'account' && item === 'personal-agent' && !action) output = work.personalAgent(actor);
       else if (post && view === 'account' && item === 'personal-agent' && !action)
         output = work.setPersonalAgent(actor, personalAgentInput.parse(await body(req)));
+      else if ((get || post) && view === 'account' && item === 'personal-agent' && action === 'skills' && !reference)
+        output = get ? work.assistantSkills(actor, 'personal') : work.changeAssistantSkill(actor, 'personal', assistantSkillChange.parse(await body(req)));
       else if (post && view === 'account' && item === 'personal-agent' && action === 'ask')
         output = await work.askPersonalAgent(actor, z.object({ question: z.string().trim().min(1).max(3000) }).strict().parse(await body(req)).question);
       else if (get && view === 'personal-chat' && !action) {
@@ -548,10 +577,12 @@ async function serve(release: () => void) {
       } else if (get && view === 'admin' && item === 'members' && !action) output = accessAdmin!.list(actor);
       else if (get && view === 'admin' && item === 'access-audit' && !action) output = accessAdmin!.changes(actor);
       else if (get && view === 'admin' && item === 'point-budgets' && !action) output = work.platformPointBudgets(actor);
-      else if (get && view === 'admin' && item === 'model-services' && !action) output = work.modelServices(actor);
+      else if (get && view === 'admin' && item === 'model-services' && !action) output = await work.modelServices(actor);
       else if (get && view === 'admin' && item === 'platform-assistant' && !action) output = work.platformAssistant(actor);
       else if (post && view === 'admin' && item === 'platform-assistant' && !action)
         output = work.setPlatformAssistant(actor, assistantUpdate.parse(await body(req)));
+      else if ((get || post) && view === 'admin' && item === 'platform-assistant' && action === 'skills' && !reference)
+        output = get ? work.assistantSkills(actor, 'team') : work.changeAssistantSkill(actor, 'team', assistantSkillChange.parse(await body(req)));
       else if (post && view === 'admin' && item === 'model-services' && action && !reference)
         output = work.setModelService(actor, modelProvider.parse(action), modelServiceUpdate.parse(await body(req)));
       else if (get && view === 'admin' && item === 'service-status' && !action) {
@@ -561,7 +592,7 @@ async function serve(release: () => void) {
         output = { feishu: feishu ? messages && 'busHealth' in messages && messages.busHealth === 'unavailable' ? 'unavailable' : messages?.state ?? 'connecting' : 'disabled',
           cards: feishu?.decisionCards ? cards && 'busHealth' in cards && cards.busHealth === 'unavailable' ? 'unavailable' : cards?.state ?? 'connecting' : 'disabled',
           inbox: intake?.backlog(), knowledge: await checkKnowledge(), pendingReceipts: work.pendingExecutionReceipts(),
-          plugins: work.loadedPlugins(), im: intake?.imStatus() ?? [], github: intake?.github() ?? [],
+          plugins: work.loadedPlugins(), im: intake?.imStatus() ?? [], github: intake?.github() ?? [], storage, executor: config.executionRuntime,
           notificationsPaused: outbound.paused };
       }
       else if (post && view === 'admin' && item === 'activation' && action && !reference) {
@@ -632,7 +663,8 @@ async function serve(release: () => void) {
         output = work.executionSnapshot(actor, item, z.coerce.number().int().positive().parse(reference),
           url.searchParams.has('attempt') ? z.coerce.number().int().positive().parse(url.searchParams.get('attempt')) : undefined);
       else if (get && view === 'ticket' && item && action === 'product-capture' && !reference) {
-        const input = productCaptureInput.parse(Object.fromEntries(url.searchParams));
+        const { retry: _retry, ...proof } = Object.fromEntries(url.searchParams);
+        const input = productCaptureInput.parse(proof);
         const bytes = work.productCapture(actor, item, input);
         captureResponse(res, captureFormats[input.kind].type, bytes, req.headers.range);
         return;
@@ -668,9 +700,14 @@ async function serve(release: () => void) {
         const im = work.projectChannels(actor, item).map(channel => ({ ...channel, ready: !!intake?.octopConnected(channel.connector) }));
         const feishuStatus = intake?.messages();
         output = { im, feishuReady: feishuStatus?.state === 'ready' && feishuStatus.busHealth !== 'unavailable',
-          feishuHistory: work.feishuSourceStatus(actor, item) };
+          feishuHistory: work.feishuSourceStatus(actor, item), feishuTopics: work.projectFeishuTopics(actor, item), imTopics: work.projectIMTopics(actor, item),
+          feishuReply: work.canReplyToFeishuTopic(actor, item, url.searchParams.get('topic') ?? undefined) };
       }
       else if (get && view === 'project' && item && action === 'routing' && !reference) output = work.projectRouting(actor, item);
+      else if (get && view === 'project' && item && action === 'worker-harness' && reference)
+        output = work.workerHarness(actor, item, id.parse(reference));
+      else if (post && view === 'project' && item && action === 'worker-harness' && reference)
+        output = work.setWorkerHarness(actor, item, id.parse(reference), workerHarnessUpdate.parse(await body(req)));
       else if (get && view === 'project' && item && action === 'topic-rules' && reference) output = work.topicRules(actor, item, reference);
       else if (post && view === 'project' && item && action === 'routing' && !reference)
         output = work.setProjectRouting(actor, item, projectRoutingUpdate.parse(await body(req)));
@@ -678,6 +715,14 @@ async function serve(release: () => void) {
         const repositories = work.projectGitHubRepositories(actor, item);
         output = intake?.github(repositories) ?? [];
       }
+      else if (get && view === 'project' && item && action === 'delivery-setup' && !reference) output = await work.projectDeliverySetup(actor, item);
+      else if (post && view === 'project' && item && action === 'delivery-setup' && !reference)
+        output = work.attachDeliveryProfile(actor, item, z.object({ source: id, repository: z.string().regex(githubRepository),
+          contributors: z.array(username).min(1).max(50) }).strict().parse(await body(req)));
+      else if (get && view === 'project' && item && action === 'dispatch-readiness' && !reference)
+        output = await work.dispatchReadiness(actor, item, z.object({ topic: id.optional(), agent: id.optional(), function: id.optional(),
+          target: z.string().max(180).optional(), device: z.uuid().optional(), personal: z.literal('1').transform(() => true).optional() })
+          .strict().parse(Object.fromEntries(url.searchParams)));
       else if (get && view === 'project' && item && action === 'point-budgets') output = work.projectPointBudgets(actor, item);
       else if (get && view === 'project' && item && action === 'memory')
         output = work.memoryHome(actor, item, url.searchParams.has('agent') ? id.parse(url.searchParams.get('agent')) : undefined);
@@ -711,6 +756,7 @@ async function serve(release: () => void) {
         output = work.setPointPolicy(actor, policy, revision);
       }
       else if (post && view === 'budget' && item === 'points-limit') output = work.setPointLimit(actor, pointLimitInput.parse(await body(req)));
+      else if (get && view === 'budget' && item === 'points-limit') output = work.pointLimit(actor, pointScopeInput.parse(Object.fromEntries(url.searchParams)));
       else if (post && view === 'budget') {
         const input = budgetLimit.extend({ kind: z.enum(['platform', 'personal', 'execution']), subject: id }).strict().parse(await body(req));
         work.setBudget(actor, { kind: input.kind, subject: input.subject }, input.period, input.limit, input.maxMinutes);
@@ -725,7 +771,7 @@ async function serve(release: () => void) {
         work.transitionDevice(actor, z.uuid().parse(item), 'state' in input ? input.state : input.active ? 'active' : 'suspended');
       }
       else if (post && view === 'project' && !item) {
-        output = work.createProject(actor, z.object({ nonce, title, parent: id.optional() }).strict().parse(await body(req)));
+        output = work.createProject(actor, z.object({ nonce, title, parent: id.optional(), firstTopic: title.optional() }).strict().parse(await body(req)));
       } else if (get && view === 'project' && item && action === 'access' && !reference) {
         output = work.projectAccess(actor, item);
       } else if (get && view === 'project' && item && action === 'knowledge-access' && !reference) {
@@ -756,14 +802,27 @@ async function serve(release: () => void) {
           ? work.conversationPage(actor, item, target, page) : work.conversation(actor, item, target);
       } else if (post && view === 'project' && action === 'messages') {
         output = work.postConversation(actor, item, z.object({ nonce, text: prose, topic: id.optional(), ticket: id.optional(),
-          feishu: z.boolean().optional() }).strict().parse(await body(req)));
+          feishu: z.boolean().optional(), im: id.optional() }).strict().parse(await body(req)));
       } else if (post && view === 'project' && action === 'consult') {
         output = await work.consultTopic(actor, item, z.object({ nonce, text: prose, topic: id, agents: z.array(id).min(1).max(4),
           knowledge: knowledgeRef.optional(), device: z.uuid().optional(),
           devices: z.array(z.object({ agent: id, device: z.uuid() }).strict()).min(1).max(4).optional() })
           .strict().parse(await body(req)));
       } else if (post && view === 'project' && action === 'feishu-group') {
-        work.bindFeishuGroup(actor, item, z.object({ chat: z.string().regex(/^oc_[a-zA-Z0-9_-]+$/), label: title, topic: id.optional() }).strict().parse(await body(req)));
+        work.bindFeishuGroup(actor, item, z.object({ chat: z.string().regex(/^oc_[a-zA-Z0-9_-]{1,128}$/), label: title, topic: id.optional(),
+          shared: z.boolean().optional() }).strict().parse(await body(req)));
+      } else if (post && view === 'project' && item && action === 'feishu-topic' && !reference) {
+        const scope = { chat: z.string().regex(/^oc_[a-zA-Z0-9_-]{1,128}$/), topic: id };
+        output = await work.setFeishuTopic(actor, item, z.union([z.object({ ...scope, source: z.string().trim().min(1).max(600) }).strict(),
+          z.object({ ...scope, label: title }).strict()]).parse(await body(req)));
+      } else if (post && view === 'project' && item && action === 'im-topic' && !reference) {
+        work.setIMTopic(actor, item, z.object({ connector: id, chat: octopIMNativeId, thread: octopIMNativeId.optional(), topic: id,
+          tag: imTopicTag.optional() }).strict().parse(await body(req)));
+      } else if (get && view === 'project' && item && action === 'topic-contacts' && reference) {
+        output = work.topicContacts(actor, item, reference);
+      } else if (post && view === 'project' && item && action === 'topic-contacts' && reference) {
+        work.setTopicContacts(actor, item, reference, z.object({ agents: z.array(id).max(4)
+          .refine(ids => new Set(ids).size === ids.length) }).strict().parse(await body(req)).agents);
       } else if (post && view === 'project' && item && action === 'bind') {
         const value = z.object({ source: resourceSource, externalId: z.string().min(1).max(200) }).parse(await body(req));
         work.bindResource(actor, item, value.source, value.externalId);
@@ -776,6 +835,10 @@ async function serve(release: () => void) {
         work.createTopic(actor, item, topicInputSchema.parse(await body(req)));
       } else if (post && view === 'agent' && item) work.setAgent(actor, item, z.object({ active: z.boolean() }).parse(await body(req)).active);
       else if (post && view === 'ticket' && !item) output = work.start(actor, settingsRoutes.start.parse(await body(req)));
+      else if (post && view === 'ticket' && item && action === 'publish-feishu' && !reference)
+        output = await work.publishFeishuWork(actor, item, z.object({ chat: z.string().regex(/^oc_[a-zA-Z0-9_-]{1,128}$/) }).strict().parse(await body(req)).chat);
+      else if (post && view === 'ticket' && item && action === 'publish-im' && !reference)
+        output = work.publishIMWork(actor, item, z.object({ destination: id }).strict().parse(await body(req)).destination);
       else if (post && view === 'ticket' && action === 'answer') work.reply(actor, item, settingsRoutes.answer.parse(await body(req)));
       else if (post && view === 'ticket' && action === 'stop') work.stop(actor, item);
       else if (post && view === 'ticket' && action === 'handoff')
@@ -799,7 +862,7 @@ async function serve(release: () => void) {
         output = work.reofferDevelopment(actor, item, z.object({ offer: id, agent: id, reason: prose }).strict().parse(await body(req)));
       else if (post && view === 'ticket' && action === 'topic') work.setTopic(actor, item, z.object({ topic: id.optional() }).parse(await body(req)).topic);
       else if (post && view === 'ticket' && action === 'topic-context' && !reference)
-        output = work.setTicketTopicBasis(actor, item, z.object({ id, source: z.enum(['web', 'feishu']), revision: id,
+        output = work.setTicketTopicBasis(actor, item, z.object({ id, source: z.enum(['web', 'feishu', 'im']), revision: id,
           confirmed: z.boolean() }).strict().parse(await body(req)));
       else if (post && view === 'ticket' && action === 'related') work.relateWork(actor, item, z.object({ ticket: id }).parse(await body(req)).ticket);
       else if (post && view === 'ticket' && action === 'branch') {
@@ -813,6 +876,8 @@ async function serve(release: () => void) {
         output = await work.recheckDelivery(actor, item, z.object({ revision: knowledgeRevision, head: commitSha }).strict().parse(await body(req)));
       } else if (post && view === 'ticket' && item && action === 'product-check' && !reference) {
         output = work.recordProductCheck(actor, item, humanCheckInput.parse(await body(req)));
+      } else if (post && view === 'ticket' && item && action === 'acceptance-owner' && !reference) {
+        output = work.transferAcceptance(actor, item, z.object({ member: username, previous: username, revision: knowledgeRevision, reason: prose }).strict().parse(await body(req)));
       } else if (post && view === 'ticket' && action === 'accept') {
         const value = settingsRoutes.accept.parse(await body(req));
         if (value.body && !value.conditions) throw new WorkbenchError('请填写这条结论的适用条件。');
@@ -862,6 +927,7 @@ async function serve(release: () => void) {
     });
     await prepareAuth();
     const cards = feishu?.decisionCards ? feishuCardTransport(feishu.profile) : undefined;
+    const topicChannel = feishu && feishuTopicTransport(feishu.profile);
     const collaboration = await openCollaboration(config, auth, feishu && (message => outbound.deliver(async () => {
       const lark = (args: string[]) => command('lark-cli', ['--profile', feishu.profile, ...args, '--as', 'bot']);
       const userId = message.channel.address.userId;
@@ -876,11 +942,14 @@ async function serve(release: () => void) {
       return !outbound.paused && status?.state === 'ready' && status.busHealth !== 'unavailable';
     } } : undefined, config.octop?.channels?.length ? {
       ready: address => outbound.permits(address) && intake?.octopReady(address) === true,
-      send: (address, text, card, delivery) => outbound.deliver(async () => {
+      send: (address, text, card, delivery, proactive) => outbound.deliver(async () => {
         if (!intake) throw new Error('消息接入模块未就绪');
-        return intake.sendOctop(address, text, card, delivery);
+        return intake.sendOctop(address, text, card, delivery, proactive);
       }, address),
-    } : undefined, capabilities);
+    } : undefined, capabilities, topicChannel && { resolve: topicChannel.resolve,
+      publish: (...args) => outbound.deliver(() => topicChannel.publish(...args)),
+      reply: (...args) => outbound.deliver(() => topicChannel.reply(...args)),
+    });
     accessAdmin = permissionAdmin(auth, collaboration, verifyActivation);
     work = collaboration;
     intake = await plugins.mount('channel-ingress', async () => {

@@ -31,6 +31,15 @@ class ReadonlyExpert(unittest.TestCase):
         self.assertEqual(reply["usage"], {"input": 14, "output": 6, "cached": 4})
         self.assertEqual(reply["stopReason"], "end_turn")
 
+    def test_read_only_ticket_leaves_output_budget_available_for_its_result(self):
+        self.request.pop("consultation")
+
+        def transport(payload, _key):
+            self.assertEqual(payload["thinking"], {"type": "disabled"})
+            return self.response
+
+        self.assertEqual(execute(self.request, transport)["text"], "核对 280px")
+
     def test_unknown_amount_and_truncation_remain_explicit(self):
         self.response["usage"] = {"input_tokens": 18}
         self.response["stop_reason"] = "max_tokens"

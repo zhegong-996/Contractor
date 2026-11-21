@@ -4,7 +4,7 @@ import { WorkbenchError, requireValue } from './errors.ts';
 import { openWorkRecords, privateConsultationVisible } from './work-records.ts';
 import { ticketQueries } from './ticket-queries.ts';
 import { openTopicContext, type TopicContextRef, type TopicMessage } from './topic-context.ts';
-import { openTicketAcceptance } from './ticket-acceptance.ts';
+import { acceptanceAssignee, openTicketAcceptance } from './ticket-acceptance.ts';
 import { openTicketRevisions } from './ticket-revisions.ts';
 import { handingOff, openHandoffs } from './handoffs.ts';
 import { ModelRouteError, openModelRouting, workModelPurpose } from './model-routing.ts';
@@ -48,7 +48,7 @@ import { deliveryStatus, openDeliveryEvidence } from './delivery-evidence.ts';
 import { DeliveryChangedError, deploymentState, referencesTicket,
   type GitHubIdentity, type GitHubIssue, type PullCheck } from './github-delivery.ts';
 import { checkpointAgent, entireCheckpoint } from './entire.ts';
-import { checkoutFor, commitDevelopment, developmentCheckout, developmentFolder, developmentChanges, type DevelopmentTarget } from './development.ts';
+import { checkoutFor, commitDevelopment, developmentCheckout, developmentFolder, developmentChanges, developmentSourceStatus, type DevelopmentTarget } from './development.ts';
 import { Iterations } from './iterations.ts';
 import { ExecutionEvidence, type ModelSelection } from './execution-evidence.ts';
 import { processReview } from './process-review.ts';
@@ -58,11 +58,14 @@ import { assembleExecutionContext, executionPrompt, workResultType } from './exe
 import { workerClaims } from './worker-claims.ts';
 import { loadOperationsSettings, operationsSettings } from './operations-settings.ts';
 import { openPlatformAssistant } from './platform-assistant.ts';
+import { openAssistantHarness } from './assistant-harness.ts';
+import { openWorkerHarness, type workerHarnessUpdate } from './worker-harness.ts';
 import { openPersonalAgents } from './personal-agent.ts';
 import { openPersonalConversations } from './personal-conversations.ts';
 import { executionReceipts } from './execution-receipts.ts';
 import { TokenPoints, type PointLimit, type PointPolicy, type PointScope } from './token-points.ts';
-import { octopIMCanReply, octopIMRoute, type OctopIMAddress, type OctopIMEvent, type OctopIMTransport } from './octop-im-contract.ts';
+import { octopIMCanReply, type OctopConsultationCard, type OctopIMAddress, type OctopIMEvent, type OctopIMTransport } from './octop-im-contract.ts';
+import { imTopicText, openIMTopics, readIMTopicTag, type IMTopicInput } from './im-topics.ts';
 import { channelDeliveryJournal } from './channel-delivery-journal.ts';
 import { openChannelJournal } from './channel-journal.ts';
 import { deliveryRequirements, deliveryTemplates, templateChecks, templateReview, verifyDeliveryTopic } from './delivery-template.ts';
@@ -71,10 +74,11 @@ import { browserCheck, browserPlan, openProductVerification, type BrowserReceipt
 import { openDeviceRouting, routedDevice, type deviceRouteInput } from './device-routing.ts';
 import type { z } from 'zod';
 import { OctopResources, type Expert, type ExpertSpec, type ExpertAuthority, type SkillRef } from './octop-resources.ts';
-import { isolateJob, exportCodeBundle, importRemoteCode, importIsolatedChanges, discardIsolation, cleanIsolationTemp, modelReceipt, type Isolation } from './isolation.ts';
+import { isolateJob, exportCodeBundle, importRemoteCode, importIsolatedChanges, discardIsolation, cleanIsolationTemp, modelReceipt, codexCredentialReady, type Isolation } from './isolation.ts';
 import { SandboxProviderError } from './sandbox-provider.ts';
 import { sensitiveFeishuText, withFeishuReads } from '../feishu-sources.ts';
 import { feishuChatLink, feishuTriggerId } from '../upstream.ts';
+import { feishuTopicInput, feishuTopicUrl, openFeishuTopics, type FeishuTopicAddress, type FeishuTopicTransport } from './feishu-topics.ts';
 import { tokenize } from '../memory-projections.ts';
 import { Discussions, digestAgentId, digestProposals, discussionLookback, discussionRule, githubObjectPath, observation, observationVersion, previewLength,
   type Destination, type DigestScope, type Observation, type Proposal } from './discussion.ts';
@@ -93,7 +97,7 @@ import { Devices, deviceHome, isRemoteDevice, type Device, type DeviceState, typ
 export { WorkbenchError } from './errors.ts';
 
 export async function openCollaboration(config: Settings, auth: ConsoleAuth, send?: (message: import('../../upstream/superagent/src/core/index.ts').OutboundMessage) => Promise<'sent' | 'gone'>, cardTransport?: CardTransport,
-  octopTransport?: OctopIMTransport, plugins = platformPlugins(config)) {
+  octopTransport?: OctopIMTransport, plugins = platformPlugins(config), feishuTopicsTransport?: FeishuTopicTransport) {
   const { inspectPull, inspectBranch, inspectCommitChecks, inspectIssue, inspectProductVerification } = plugins.use('delivery');
   const { feishu: reader, figma, read: readSourceVersion } = plugins.use('sources');
   const { prepare: prepareExpert, modelReceipt: expertModelReceipt, readSkill } = plugins.use('expert');
@@ -107,6 +111,21 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       id TEXT PRIMARY KEY, project TEXT NOT NULL, scope TEXT NOT NULL, actor TEXT NOT NULL, text TEXT NOT NULL, at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS workbench_conversation_scope ON workbench_conversation_message(project,scope);
+    CREATE TABLE IF NOT EXISTS workbench_conversation_source (
+      message TEXT PRIMARY KEY, channel TEXT NOT NULL, url TEXT NOT NULL, chat TEXT NOT NULL, root TEXT NOT NULL, stamp INTEGER NOT NULL DEFAULT 0,
+      FOREIGN KEY(message) REFERENCES workbench_conversation_message(id)
+    );
+    CREATE TABLE IF NOT EXISTS workbench_conversation_source_revision (
+      message TEXT NOT NULL, stamp INTEGER NOT NULL, text TEXT NOT NULL, PRIMARY KEY(message,stamp)
+    );
+    CREATE TABLE IF NOT EXISTS workbench_project_delivery_profile (
+      project TEXT NOT NULL, repository TEXT NOT NULL COLLATE NOCASE, source TEXT NOT NULL, contributors TEXT NOT NULL,
+      PRIMARY KEY(project,repository)
+    );
+    CREATE TABLE IF NOT EXISTS workbench_conversation_mirror (message TEXT PRIMARY KEY, kind TEXT NOT NULL, delivery TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS workbench_topic_contact (
+      project TEXT NOT NULL, topic TEXT NOT NULL, agents TEXT NOT NULL, PRIMARY KEY(project,topic)
+    );
     CREATE TABLE IF NOT EXISTS workbench_topic_consultation (
       message TEXT PRIMARY KEY REFERENCES workbench_conversation_message(id), signature TEXT NOT NULL, tickets TEXT NOT NULL
     );
@@ -117,6 +136,8 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       run INTEGER NOT NULL, attempt INTEGER NOT NULL, body TEXT NOT NULL, PRIMARY KEY(run,attempt)
     );
   `);
+  if (!store.db.prepare('PRAGMA table_info(workbench_conversation_source)').all().some(row => row.name === 'stamp'))
+    store.db.exec('ALTER TABLE workbench_conversation_source ADD COLUMN stamp INTEGER NOT NULL DEFAULT 0');
   const loaded = loadProjectDirectory(store, config);
   config = loaded.config;
   const { projects, configuredAgentProjects } = loaded;
@@ -134,6 +155,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
   const budgets = new AgentBudgets(store.db);
   const points = new TokenPoints(store.db);
   const octop = new OctopResources(store.db);
+  const workHarness = openWorkerHarness(store.db, octop);
   const channelDb = (config.feishu || config.octop?.channels?.length) ? openChannelJournal() : undefined;
   const channelDelivery = channelDb && channelDeliveryJournal(channelDb, 'channel_delivery');
   const oldChannelDelivery = config.octop?.channels?.length ? channelDeliveryJournal(store.db) : undefined;
@@ -163,15 +185,19 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
   const devices = new Devices(store.db);
   const deviceRouting = openDeviceRouting(store.db);
   const links = new ChannelLinks(store.db);
+  const feishuTopics = openFeishuTopics(store.db);
+  const imTopics = openIMTopics(store.db, config.octop?.channels);
+  const topicSends = new Set<string>();
   const activation = new AccountActivation(store.db);
   const imLogin = openIMLogin(store.db, config.imLogin, config.workbenchPublicUrl && new URL(config.workbenchPublicUrl).origin, config.feishu?.appId);
   const decisions = new HumanDecisions(store.db);
   const feishuCards = new FeishuDecisionCards(store.db);
   const discussions = new Discussions(store);
   const topicContext = openTopicContext(store.db, {
-    read: readFeishuTopicContext,
-    recent: (id, topic) => discussions.recentTopic(id, topic).flatMap(idOfMessage => {
-      const message = readFeishuTopicContext(id, topic, idOfMessage);
+    read: readChannelTopicContext,
+    recent: (id, topic) => [...discussions.recentTopic(id, topic).map(id => ({ id, source: 'feishu' as const })),
+      ...mappedDiscussionIds(id, topic)].flatMap(row => {
+      const message = readChannelTopicContext(id, topic, row.id, row.source);
       return message ? [message] : [];
     }),
   }, (id, actor, text) => member(projectById.get(id), actor) && !sensitiveFeishuText.test(text));
@@ -451,12 +477,22 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     const next = rows.length > limit ? rows[limit - 1]!.seq : undefined;
     const messages = rows.slice(0, limit).reverse().map(({ seq: _seq, ...row }) => {
       const batch = target.topic && !target.ticket && store.db.prepare('SELECT tickets FROM workbench_topic_consultation WHERE message=?').get(row.id);
-      const feishuDelivery = target.ticket ? store.replyStatus(key('conversation-reply', row.id)) : undefined;
-      const message = { ...row, ...(feishuDelivery && { feishuDelivery }) };
-      if (!batch) return { ...message, channel: 'web', consultations: undefined };
+      const feishuDelivery = store.replyStatus(key('conversation-reply', row.id));
+      const mirror = store.db.prepare('SELECT kind,delivery FROM workbench_conversation_mirror WHERE message=?').get(row.id);
+      const mirrorState = mirror && store.replyStatus(String(mirror.delivery));
+      const message = { ...row, ...(feishuDelivery && { feishuDelivery }), ...(mirrorState && { mirrorDelivery: { state: mirrorState, channel: String(mirror.kind) } }) };
+      const imported = store.db.prepare('SELECT channel,url,chat,root FROM workbench_conversation_source WHERE message=?').get(row.id);
+      if (imported) {
+        const route = imported.channel === 'feishu' ? feishuScope(String(imported.chat), imported.root).mapping : imTopics.route(JSON.parse(String(imported.root)));
+        if (!row.text || route?.project !== id || route.topic !== target.topic) return;
+      }
+      if (!batch) return { ...message, channel: imported ? String(imported.channel) : 'web',
+        sourceUrl: imported?.url ? String(imported.url) : undefined, sourceRevisions: imported?.channel === 'feishu' ? mappedFeishuRevisions(row.id) : undefined, consultations: undefined };
       const ids = JSON.parse(String(batch.tickets)) as string[];
       const origin = workOf(ids[0] ?? '')?.consultation;
-      return { ...message, channel: origin?.octopIM?.kind ?? (origin?.feishu ? 'feishu' : 'web'), consultations: ids.flatMap(id => {
+      return { ...message, sourceUrl: origin?.feishu?.address.messageId && origin.feishu.address.chatId
+        ? feishuTopicUrl({ chat: origin.feishu.address.chatId, root: origin.feishu.address.messageId }) : undefined,
+        channel: origin?.octopIM?.kind ?? (origin?.feishu ? 'feishu' : 'web'), consultations: ids.flatMap(id => {
         if (target.reply && id !== target.reply) return [];
         const work = workOf(id), ticket = store.tickets.get(id);
         if (!work?.consultation || !ticket || work.project !== project.id || work.topic !== target.topic
@@ -484,7 +520,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
           recovery: recovery?.kind,
           ...(evidence && result && { text: result.text, at: result.at, revision: result.revision, evidence, retrievedEvidence }) }];
       }) };
-    });
+    }).filter(row => row !== undefined);
     return { rows: messages, next };
   }
 
@@ -492,26 +528,38 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     return conversationPage(actor, id, target, { limit: 100 }).rows;
   }
 
-  function postConversation(actor: string, id: string, input: { topic?: string; ticket?: string; text: string; nonce: string; feishu?: boolean }) {
+  function postConversation(actor: string, id: string, input: { topic?: string; ticket?: string; text: string; nonce: string; feishu?: boolean; im?: string }) {
     const project = projectFor(id, actor);
     if (!mayStart(project, actor)) throw new WorkbenchError('当前账号没有发言权限。', 403);
     const scope = conversationScope(project, actor, input);
     if (sensitiveFeishuText.test(input.text)) throw new WorkbenchError('请移除敏感凭据后再发到项目讨论。', 400);
     const message = key('conversation', id, scope, actor, input.nonce);
     const receipt = key('conversation-reply', message);
+    const mirror = input.im && key('conversation-im-reply', message, input.im);
+    if (input.feishu && input.im) throw new WorkbenchError('每次公开回复请选择一个渠道。');
     const prior = store.db.prepare('SELECT text FROM workbench_conversation_message WHERE id=?').get(message);
     if (prior) {
-      if (prior.text !== input.text || !!store.replyStatus(receipt) !== !!input.feishu)
+      const saved = store.db.prepare('SELECT delivery FROM workbench_conversation_mirror WHERE message=?').get(message);
+      if (prior.text !== input.text || !!store.replyStatus(receipt) !== !!input.feishu || (saved?.delivery ?? undefined) !== (mirror || undefined))
         throw new WorkbenchError('这条发送请求已使用，请重新编辑后发送。', 409);
       return { id: message };
     }
-    const thread = input.feishu && input.ticket && feishuDiscussionThread(input.ticket, project);
-    if (input.feishu && (!thread || !send)) throw new WorkbenchError('这张工单目前不能向飞书公开回复。', 409);
+    const thread = input.feishu && (input.ticket ? feishuDiscussionThread(input.ticket, project) : mappedFeishuThread(project, input.topic));
+    if (input.feishu && (!thread || !send)) throw new WorkbenchError('当前会话没有唯一可公开回复的飞书原话题。', 409);
+    const work = input.ticket ? workOf(input.ticket) : undefined;
+    const topic = work?.topic ?? input.topic;
+    const destination = input.im && imPublicationDestination(project, topic, input.im);
+    if (input.im && (!destination || work && !publishableWork(work))) throw new WorkbenchError('当前会话不能向所选 IM 公开回复。', 409);
     store.atomic(() => {
       const inserted = store.db.prepare('INSERT OR IGNORE INTO workbench_conversation_message VALUES (?,?,?,?,?,?)')
         .run(message, id, scope, actor, input.text, new Date().toISOString());
       if (inserted.changes && thread) queueReply({ id: receipt, ticketId: input.ticket, kind: 'reply',
-        channel: { ...thread, address: { ...thread.address, conversationAuthor: actor } }, text: '**' + actor + '**\n' + input.text });
+        channel: { ...thread, address: { ...thread.address, conversationAuthor: actor,
+          ...(!input.ticket && { conversationProject: id, conversationTopic: input.topic! }) } }, text: '**' + actor + '**\n' + input.text });
+      if (inserted.changes && destination && mirror) {
+        store.db.prepare('INSERT INTO workbench_conversation_mirror VALUES (?,?,?)').run(message, destination.kind, mirror);
+        enqueueIMPublication(mirror, actor, project, destination.id, topic!, profiles.view(account(actor)).displayName + '\n' + input.text, input.ticket);
+      }
     });
     return { id: message };
   }
@@ -524,6 +572,21 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
   };
   const sameResource = (a: ProjectResource, b: ProjectResource) => a.source === b.source
     && canonicalResourceId(a.source, a.externalId) === canonicalResourceId(b.source, b.externalId);
+  function deliveryProfile(project: Project | undefined, repository: string) {
+    return project?.resources.find(ref => ref.source === 'github' && ref.state === 'bound' && resourcePurpose(ref) === 'delivery'
+      && ref.externalId.toLowerCase() === repository.toLowerCase() && ref.execution && ref.contributors?.length);
+  }
+  function projectDeliveryProfiles(project: Project): ProjectResource[] {
+    return store.db.prepare('SELECT * FROM workbench_project_delivery_profile WHERE project=? ORDER BY rowid').all(project.id).flatMap(row => {
+      const source = projectById.get(String(row.source));
+      const profile = deliveryProfile(source, String(row.repository));
+      if (!profile || !source) return [];
+      const contributors = (JSON.parse(String(row.contributors)) as string[]).filter(person =>
+        profile.contributors!.includes(person) && mayStart(source, person) && mayStart(project, person));
+      return [{ ...profile, contributors, route: false, topic: undefined, knowledge: undefined, shareNotes: undefined,
+        url: 'https://github.com/' + profile.externalId }];
+    });
+  }
   const availableRefs = (p: Project) => {
     const refs = p.resources.map(ref => {
       if (!routesEvents(ref)) return ref;
@@ -535,15 +598,55 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     });
     const extra = store.db.prepare('SELECT value FROM workbench_project_resource WHERE project=? ORDER BY rowid')
       .all(p.id).map(row => JSON.parse(String(row.value)) as ProjectResource)
-      .filter(ref => ref.source !== 'feishu' || !routesEvents(ref) || config.feishu?.allowedGroups?.includes(ref.externalId));
+      .filter(ref => ref.source !== 'feishu' || config.feishu?.allowedGroups?.includes(ref.externalId));
+    const profiles = projectDeliveryProfiles(p).filter(ref => !refs.some(item => sameResource(item, ref)) && !extra.some(item => sameResource(item, ref)));
     return [...refs.filter(ref => ref.knowledge || !extra.some(item => sameResource(item, ref))),
-      ...extra.filter(ref => !refs.some(item => item.knowledge && sameResource(item, ref)))];
+      ...extra.filter(ref => !refs.some(item => item.knowledge && sameResource(item, ref))), ...profiles];
   };
   const views = (project: Project) => availableRefs(project).map(ref => resourceView(project.id, ref));
   const canAttach = (project: Project, ref: ProjectResource, actor: string, requester: string) => mayStart(project, actor)
     && (ref.contributors ? ref.contributors.includes(actor) : actor === requester);
   const deliveryTargets = (project: Project) => availableRefs(project).filter(ref =>
     ref.source === 'github' && ref.state === 'bound' && resourcePurpose(ref) === 'delivery');
+
+  async function projectDeliverySetup(actor: string, id: string) {
+    const project = projectFor(id, actor);
+    const manager = maintain(project, actor);
+    const options = manager ? projects.flatMap(source => source.id === id || !maintain(source, actor) ? [] : source.resources.flatMap(ref => {
+      const profile = ref.source === 'github' && deliveryProfile(source, ref.externalId);
+      if (!profile || availableRefs(project).some(item => sameResource(item, ref))) return [];
+      const contributors = profile.contributors!.filter(person => mayStart(source, person) && mayStart(project, person));
+      if (!contributors.length) return [];
+      return [{ source: source.id, project: source.title, repository: ref.externalId, contributors }];
+    })) : [];
+    const targets = await Promise.all(deliveryTargets(project).map(async ref => ({ ...resourceView(id, ref),
+      contributors: ref.contributors?.filter(person => mayStart(project, person)) ?? [], base: ref.execution?.base,
+      paths: ref.execution?.paths ?? [], template: ref.execution?.deliveryTemplate?.version,
+      checks: ref.execution?.requiredChecks?.map(check => check.name) ?? [], deployment: ref.execution?.requiredDeployment?.environment,
+      checkout: ref.execution ? await developmentSourceStatus(config.attribution, { repository: ref.externalId, ...ref.execution }) : { state: 'unconfigured' as const },
+    })));
+    projectFor(id, actor);
+    return { manager: manager && maintain(project, actor), targets, options: maintain(project, actor) ? options : [] };
+  }
+
+  function attachDeliveryProfile(actor: string, id: string, input: { source: string; repository: string; contributors: string[] }) {
+    const project = projectFor(id, actor), source = projectFor(input.source, actor);
+    if (!maintain(project, actor) || !maintain(source, actor)) throw new WorkbenchError('由同时维护两个项目的成员接入交付配置。', 403);
+    const profile = deliveryProfile(source, input.repository);
+    if (!profile || !input.contributors.length || input.contributors.some(person =>
+      !profile.contributors!.includes(person) || !mayStart(source, person) || !mayStart(project, person)))
+      throw new WorkbenchError('请选择已授权的交付配置和两边均有资格的研发。', 409);
+    if (!checkoutFor(config.attribution, profile.externalId)) throw new WorkbenchError('请先由部署者登记该仓库的执行工作区。', 409);
+    return store.atomic(() => {
+      const existing = store.db.prepare('SELECT source,contributors FROM workbench_project_delivery_profile WHERE project=? AND repository=?').get(id, profile.externalId);
+      const contributors = JSON.stringify([...new Set(input.contributors)].sort());
+      if (existing?.source === input.source && existing.contributors === contributors) return { repository: profile.externalId };
+      if (availableRefs(project).some(ref => sameResource(ref, profile))) throw new WorkbenchError('此仓库已经关联到项目。', 409);
+      store.db.prepare('INSERT INTO workbench_project_delivery_profile VALUES (?,?,?,?)').run(id, profile.externalId, input.source, contributors);
+      audit(id, 'resource.delivery-profile-linked', { actor, ...input });
+      return { repository: profile.externalId };
+    });
+  }
   const canRecheckDelivery = (project: Project, actor: string, work: Work, repository: string) =>
     mayStart(project, actor) && deliveryTargets(project).some(ref => ref.externalId.toLowerCase() === repository.toLowerCase()
       && (actor === work.requester || canAttach(project, ref, actor, work.requester)));
@@ -567,16 +670,29 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
   function feishuScope(chat: string, root?: unknown) {
     const home = boundProject('feishu', chat);
     const resource = home && feishuResource(home, chat);
-    const entry = typeof root === 'string' && root.startsWith('om_') ? resource?.feishuSubprojectRoots?.[root] : undefined;
-    return { project: entry ? projectById.get(entry.project) : home, entry, resource };
+    const entry = typeof root === 'string' ? resource?.feishuSubprojectRoots?.[root] : undefined;
+    const mapping = config.feishu?.allowedGroups?.includes(chat) ? feishuTopics.get(config.feishu.appId, chat, root) : undefined;
+    return { project: entry ? projectById.get(entry.project) : mapping ? projectById.get(mapping.project) : home, entry, resource, mapping };
   }
   function feishuTopic(project: Project, chat: string, root?: unknown) {
-    const { project: target, entry, resource } = feishuScope(chat, root);
+    const { project: target, entry, resource, mapping } = feishuScope(chat, root);
     if (target?.id !== project.id) return;
-    return entry?.topic ?? Object.entries(resource?.feishuTopicRoots ?? {}).find(([, id]) => id === root)?.[0] ?? resource?.topic;
+    return entry?.topic ?? mapping?.topic ?? Object.entries(resource?.feishuTopicRoots ?? {}).find(([, id]) => id === root)?.[0] ?? resource?.topic;
   }
 
-  function readFeishuTopicContext(projectId: string, topic: string, id: string): TopicMessage | undefined {
+  function readChannelTopicContext(projectId: string, topic: string, id: string, channel: 'feishu' | 'im'): TopicMessage | undefined {
+    const imported = store.db.prepare(`SELECT m.actor,m.at,m.text,s.channel,s.url,s.root,s.chat,
+      COALESCE((SELECT MAX(r.stamp) FROM workbench_conversation_source_revision r WHERE r.message=m.id),s.stamp) AS stamp
+      FROM workbench_conversation_message m JOIN workbench_conversation_source s ON s.message=m.id
+      WHERE m.id=? AND m.project=? AND m.scope=?`).get(id, projectId, 'topic:' + topic);
+    if (imported) {
+      if ((imported.channel === 'feishu' ? 'feishu' : 'im') !== channel) return;
+      const mapping = channel === 'feishu' ? feishuScope(String(imported.chat), imported.root).mapping : imTopics.route(JSON.parse(String(imported.root)));
+      if (mapping?.project !== projectId || mapping.topic !== topic || !imported.text) return;
+      return { id, topic, source: channel, revision: digest({ id, stamp: imported.stamp }), actor: String(imported.actor),
+        at: String(imported.at), text: String(imported.text), url: imported.url ? String(imported.url) : undefined };
+    }
+    if (channel !== 'feishu') return;
     const source = discussions.source(id);
     const project = projectById.get(projectId);
     if (!source || !project || source.project !== projectId || source.topic !== topic || source.channel || !source.member
@@ -595,19 +711,123 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
 
   function isFeishuTopicRoot(project: Project, chat: string, root: unknown) {
     if (typeof root !== 'string') return false;
-    const { project: target, entry, resource } = feishuScope(chat, root);
-    return target?.id === project.id && (!!entry || Object.values(resource?.feishuTopicRoots ?? {}).includes(root));
+    const { project: target, entry, resource, mapping } = feishuScope(chat, root);
+    return target?.id === project.id && (!!mapping || !!entry || Object.values(resource?.feishuTopicRoots ?? {}).includes(root));
   }
 
   function routeFeishuInput(project: Project, input: DiscussionInput): DiscussionInput {
     const { trigger } = input;
-    return isFeishuTopicRoot(project, String(trigger.meta.chatId), trigger.meta.rootId ?? trigger.meta.messageId)
+    return isFeishuTopicRoot(project, String(trigger.meta.chatId), trigger.meta.rootId ?? trigger.meta.threadId ?? trigger.meta.messageId)
       ? { ...input, origin: messageRef(trigger.id, trigger.url ?? input.origin.url) }
       : input;
   }
 
+  function mappedFeishuThread(project: Project, topic?: string): Trigger['channel'] {
+    if (!topic) return;
+    const matches = feishuTopicMappings(project).filter(row => row.topic === topic);
+    if (matches.length !== 1) return;
+    const [address] = matches;
+    return { source: 'feishu', thread: 'feishu:' + address!.root,
+      address: { chatId: address!.chat, messageId: address!.root, topicRoot: address!.root } };
+  }
+
+  function recordMappedFeishuDiscussion(input: DiscussionInput) {
+    const { trigger, sender } = input;
+    if (!trigger.human || trigger.meta.direct || sender.namespace !== config.feishu?.appId) return;
+    const chat = String(trigger.meta.chatId);
+    const { project, mapping } = feishuScope(chat, trigger.meta.rootId ?? trigger.meta.threadId ?? trigger.meta.messageId);
+    const actor = links.member(sender, trigger.at);
+    const message = trigger.meta.messageId;
+    if (!mapping || !project || !actor || links.member(sender) !== actor || !mayStart(project, actor) || links.seen(trigger.id)
+      || typeof message !== 'string' || !/^om_[\w-]+$/.test(message)) return;
+    const id = key('feishu-conversation', sender.namespace, trigger.id);
+    const text = trigger.text.trim();
+    const value = text.length <= 3500 && !text.startsWith('/') && !trigger.addressed && !sensitiveFeishuText.test(text) ? text : '';
+    const stamp = input.updatedAt ?? Date.parse(trigger.at);
+    if (!Number.isSafeInteger(stamp) || stamp <= 0) return;
+    store.atomic(() => {
+      const prior = store.db.prepare(`SELECT s.stamp,m.text FROM workbench_conversation_source s JOIN workbench_conversation_message m ON m.id=s.message
+        WHERE s.message=? AND m.project=? AND m.scope=? AND m.actor=? AND s.root=? AND s.chat=?`)
+        .get(id, project.id, 'topic:' + mapping.topic, actor, mapping.root, chat);
+      if (prior) {
+        if (stamp <= Number(prior.stamp)) return;
+        store.db.prepare('UPDATE workbench_conversation_source SET stamp=? WHERE message=?').run(stamp, id);
+        if (prior.text === value) return;
+        store.db.prepare('UPDATE workbench_conversation_message SET text=? WHERE id=?').run(value, id);
+        store.db.prepare('INSERT INTO workbench_conversation_source_revision VALUES (?,?,?)').run(id, stamp, value);
+        return;
+      }
+      if (!value) return;
+      const url = feishuTopicUrl({ chat, root: message });
+      const inserted = store.db.prepare('INSERT OR IGNORE INTO workbench_conversation_message VALUES (?,?,?,?,?,?)')
+        .run(id, project.id, 'topic:' + mapping.topic, actor, value, trigger.at);
+      if (inserted.changes) {
+        store.db.prepare('INSERT INTO workbench_conversation_source VALUES (?,?,?,?,?,?)').run(id, 'feishu', url, chat, mapping.root, stamp);
+        store.db.prepare('INSERT INTO workbench_conversation_source_revision VALUES (?,?,?)').run(id, stamp, value);
+      }
+    });
+  }
+
+  function mappedFeishuRevisions(id: string) {
+    return store.db.prepare('SELECT stamp,text FROM workbench_conversation_source_revision WHERE message=? ORDER BY stamp').all(id)
+      .map(row => ({ at: new Date(Number(row.stamp)).toISOString(), revision: digest({ id, stamp: row.stamp }), text: String(row.text) || null }));
+  }
+
+  function mappedDiscussionIds(project: string, topic: string) {
+    return store.db.prepare(`SELECT m.id,s.channel FROM workbench_conversation_message m JOIN workbench_conversation_source s ON s.message=m.id
+      WHERE m.project=? AND m.scope=? AND m.text!='' ORDER BY m.rowid DESC LIMIT 16`)
+      .all(project, 'topic:' + topic).map(row => ({ id: String(row.id), source: row.channel === 'feishu' ? 'feishu' as const : 'im' as const }));
+  }
+
+  function projectIMTopics(actor: string, id: string) {
+    const project = projectFor(id, actor);
+    const settings = maintain(project, actor) && canManageServices(actor);
+    return imTopics.catalog(id, settings);
+  }
+
+  function setIMTopic(actor: string, id: string, input: IMTopicInput) {
+    const project = projectFor(id, actor);
+    if (!maintain(project, actor) || !canManageServices(actor)) throw new WorkbenchError('由具备渠道管理权限的项目维护人绑定会话。', 403);
+    if (!topicsFor(project).some(row => row.id === input.topic)) throw new WorkbenchError('未找到项目主题。', 404);
+    return store.atomic(() => {
+      if (imTopics.bind(id, input)) audit(id, 'resource.im-topic-linked', { actor, ...input });
+    });
+  }
+
+  function imPublicationDestination(project: Project, topic: string | undefined, destination: string) {
+    return octopTransport && topic ? imTopics.catalog(project.id, false).find(row => row.id === destination && row.topic === topic && row.canPublish) : undefined;
+  }
+
+  function publishableWork(work: Work) {
+    return !work.personal && !work.consultation && work.material.every(id => knowledge.get(id)?.visibility === 'project');
+  }
+
+  function enqueueIMPublication(receipt: string, actor: string, project: Project, destination: string, topic: string, text: string, ticket?: string) {
+    queueReply({ id: receipt, kind: ticket ? 'notice' : 'reply', ticketId: ticket, text,
+      channel: { source: 'octop', thread: destination, address: { imPublication: destination, project: project.id, topic, author: actor } } });
+  }
+
+  function publishIMWork(actor: string, id: string, destination: string) {
+    const { project, work } = ticketFor(id, actor);
+    if (!mayStart(project, actor) || work.requester !== actor && !maintain(project, actor))
+      throw new WorkbenchError('由工单发起人或维护人同步入口。', 403);
+    const target = imPublicationDestination(project, work.topic, destination);
+    if (!target || !publishableWork(work) || !config.workbenchPublicUrl) throw new WorkbenchError('此工单当前不能同步到所选会话。', 409);
+    const receipt = key('ticket-im-publish', id, destination);
+    const url = config.workbenchPublicUrl + '/#/' + encodeURIComponent(project.id) + '/work/' + encodeURIComponent(id);
+    store.atomic(() => {
+      if (store.replyStatus(receipt)) return;
+      enqueueIMPublication(receipt, actor, project, destination, work.topic!, '有一项协作工单\n' + url, id);
+      audit(id, 'channel.work-publish-queued', { actor, destination, channel: target.kind });
+    });
+    return { state: store.replyStatus(receipt) };
+  }
+
   function feishuTopicDestination(project: Project, topic: string | undefined, channel: NonNullable<Trigger['channel']>) {
-    const home = boundProject('feishu', channel.address.chatId ?? '');
+    const chat = channel.address.chatId ?? '';
+    const origin = channel.address.topicRoot;
+    if (origin && feishuScope(chat, origin).mapping?.project === project.id && feishuTopic(project, chat, origin) === topic) return channel;
+    const home = boundProject('feishu', chat);
     if (home && home.id !== project.id) return;
     const source = feishuResource(project, channel.address.chatId ?? '');
     if (!source?.feishuTopicRoots) return channel;
@@ -617,22 +837,135 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     return root ? { ...channel, address: { ...channel.address, messageId: root } } : undefined;
   }
 
-  function bindFeishuGroup(actor: string, id: string, input: { chat: string; label: string; topic?: string }) {
+  function bindFeishuGroup(actor: string, id: string, input: { chat: string; label: string; topic?: string; shared?: boolean }) {
     const project = projectFor(id, actor);
     if (!maintain(project, actor) || account(actor)?.role !== 'owner' || !config.feishu?.allowedGroups?.includes(input.chat))
       throw new WorkbenchError('由工作台所有者绑定已获准接入的飞书群。', 403);
     if (input.topic && !topicsFor(project).some(topic => topic.id === input.topic)) throw new WorkbenchError('请选择当前项目的主题。');
     const previous = boundProject('feishu', input.chat);
-    if (previous && previous.id !== id) throw new WorkbenchError('飞书群已绑定另一项目。', 409);
+    if (!input.shared && previous && previous.id !== id) throw new WorkbenchError('该群已有默认项目。请选择按话题关联。', 409);
     if (project.resources.some(ref => ref.source === 'feishu' && ref.externalId === input.chat))
       throw new WorkbenchError('这个飞书群由项目配置管理。', 409);
     const ref: ProjectResource = { source: 'feishu', externalId: input.chat, label: input.label, purpose: 'discussion',
-      state: 'bound', topic: input.topic, url: 'https://applink.feishu.cn/client/chat/open?openChatId=' + encodeURIComponent(input.chat) };
+      state: 'bound', topic: input.shared ? undefined : input.topic, route: input.shared ? false : undefined,
+      url: feishuChatLink('feishu', input.chat) };
     store.atomic(() => {
       store.db.prepare('INSERT OR REPLACE INTO workbench_project_resource VALUES (?,?,?)')
         .run(id, resourceView(id, ref).ref, JSON.stringify(ref));
       audit(id, 'resource.feishu-bound', { actor, chat: input.chat, topic: input.topic });
     });
+  }
+
+  const feishuTopicMappings = (project: Project) => (config.feishu ? feishuTopics.list(config.feishu.appId, project.id) : [])
+    .filter(row => config.feishu?.allowedGroups?.includes(row.chat));
+
+  function projectFeishuTopics(actor: string, id: string) {
+    const project = projectFor(id, actor);
+    const configured = config.projects.flatMap(owner => availableRefs(owner).flatMap(ref => {
+      if (ref.source !== 'feishu' || ref.state !== 'bound' || !routesEvents(ref)) return [];
+      return [...(owner.id === id ? Object.entries(ref.feishuTopicRoots ?? {}).map(([topic, root]) => ({ topic, root })) : []),
+        ...Object.entries(ref.feishuSubprojectRoots ?? {}).filter(([, value]) => value.project === id)
+          .map(([root, value]) => ({ topic: value.topic, root, thread: value.recovery?.thread }))]
+        .map(row => ({ ...row, chat: ref.externalId, project: id }));
+    }));
+    const mappings = [...feishuTopicMappings(project), ...configured].map(row => ({ ...row, url: feishuTopicUrl(row) }));
+    const groups = maintain(project, actor) ? (config.feishu?.allowedGroups ?? []).filter(chat => account(actor)?.role === 'owner'
+      || availableRefs(project).some(ref => ref.source === 'feishu' && ref.externalId === chat && ref.state === 'bound')) : [];
+    return { groups, mappings, enabled: !!config.feishu && !!feishuTopicsTransport,
+      publishAvailable: !!config.workbenchPublicUrl && !!feishuTopicsTransport };
+  }
+
+  function mayMapFeishu(actor: string, id: string, topic: string, chat: string) {
+    const project = projectFor(id, actor);
+    if (!maintain(project, actor) || !projectFeishuTopics(actor, id).groups.includes(chat))
+      throw new WorkbenchError('由项目维护人选择已获准的飞书群。', 403);
+    if (!topicsFor(project).some(row => row.id === topic)) throw new WorkbenchError('请选择本项目的主题。', 404);
+    if (!config.feishu || !feishuTopicsTransport) throw new WorkbenchError('飞书话题连接未配置。', 409);
+    return { app: config.feishu.appId, transport: feishuTopicsTransport };
+  }
+
+  function observeFeishuTopic(trigger: Trigger) {
+    const { chatId, rootId, threadId, messageId } = trigger.meta;
+    const root = rootId ?? messageId;
+    if (!config.feishu || trigger.source !== 'feishu' || !trigger.human || trigger.meta.direct || typeof chatId !== 'string'
+      || !config.feishu.allowedGroups?.includes(chatId) || typeof root !== 'string' || !rootId && !threadId) return;
+    feishuTopics.observe(config.feishu.appId, { chat: chatId, root, thread: typeof threadId === 'string' ? threadId : undefined }, Date.now());
+  }
+
+  async function setFeishuTopic(actor: string, id: string, input: { topic: string; chat: string; source?: string; label?: string }) {
+    const { topic, chat, source, label } = input;
+    const { app, transport } = mayMapFeishu(actor, id, topic, chat);
+    const sendId = key('publish-feishu-topic', app, chat, id, topic);
+    const previous = projectFeishuTopics(actor, id).mappings.find(row => row.chat === chat && row.topic === topic);
+    if (previous && !source) return previous;
+    if (topicSends.has(sendId)) throw new WorkbenchError('此话题正在核对，稍后刷新即可。', 409);
+    topicSends.add(sendId);
+    try {
+      let address: FeishuTopicAddress;
+      if (source) {
+        const ref = feishuTopicInput(chat, source);
+        if (!ref) throw new WorkbenchError('请粘贴所选群的话题链接或根消息 ID。', 400);
+        address = await transport.resolve(chat, ref).catch(() => {
+          const observed = feishuTopics.observed(app, chat, ref);
+          if (observed) return observed;
+          throw new WorkbenchError('飞书无法核对原话题。请检查链接和机器人权限，或在原话题 @机器人后再关联。', 409);
+        });
+      } else {
+        if (!label || sensitiveFeishuText.test(label) || !config.workbenchPublicUrl)
+          throw new WorkbenchError('请填写可在群公开的标题并配置工作台访问地址。', 409);
+        const result = feishuTopics.begin(sendId, digest({ label }), Date.now());
+        address = result ? JSON.parse(result) : await transport.publish(chat, sendId, label,
+          config.workbenchPublicUrl + '/#/' + encodeURIComponent(id) + '/project/' + encodeURIComponent(topic) + '?tab=chat')
+          .catch(() => { throw new WorkbenchError('飞书发布尚无回执，请核对群里的话题或重试。', 503); });
+        if (address.chat !== chat) throw new WorkbenchError('飞书返回了其他群的回执。', 409);
+        feishuTopics.finish(sendId, JSON.stringify(address));
+      }
+      mayMapFeishu(actor, id, topic, chat);
+      if (address.chat !== chat) throw new WorkbenchError('原话题不属于所选飞书群。', 409);
+      return store.atomic(() => {
+        const { entry, resource, project } = feishuScope(chat, address.root);
+        const existingTopic = entry?.topic ?? Object.entries(resource?.feishuTopicRoots ?? {}).find(([, root]) => root === address.root)?.[0];
+        if (existingTopic) {
+          if (project?.id !== id || existingTopic !== topic) throw new WorkbenchError('原话题已关联，请核对其现有归属。', 409);
+          return { ...address, project: id, topic, url: feishuTopicUrl(address) };
+        }
+        if (previous && previous.root !== address.root) throw new WorkbenchError('这个项目主题已在该群关联另一个话题。', 409);
+        if (!previous && (links.ticket(messageRef(feishuTriggerId(address.root))) || links.event(feishuTriggerId(address.root))))
+          throw new WorkbenchError('此消息已经作为工单来源或归档，请选另一条话题根消息。', 409);
+        feishuTopics.bind(app, address, id, topic);
+        if (!previous) audit(id, 'resource.feishu-topic-linked', { actor, topic, ...address });
+        return { ...address, project: id, topic, url: feishuTopicUrl(address) };
+      });
+    } finally { topicSends.delete(sendId); }
+  }
+
+  async function publishFeishuWork(actor: string, id: string, chat: string) {
+    const { project, work } = ticketFor(id, actor);
+    if (!mayStart(project, actor) || actor !== work.requester && !maintain(project, actor))
+      throw new WorkbenchError('由工单发起人或维护人同步入口。', 403);
+    if (work.personal || work.consultation || work.material.some(ref => knowledge.get(ref)?.visibility !== 'project')
+      || !config.workbenchPublicUrl || !config.feishu || !feishuTopicsTransport)
+      throw new WorkbenchError('此工单当前不能同步到飞书群。', 409);
+    const address = projectFeishuTopics(actor, project.id).mappings.find(row => row.topic === work.topic && row.chat === chat);
+    if (!address || feishuScope(chat, address.root).project?.id !== project.id)
+      throw new WorkbenchError('请先在项目资料页关联工单所在主题的飞书话题。', 409);
+    const keyId = key('publish-feishu-work', config.feishu.appId, chat, id);
+    if (topicSends.has(keyId)) throw new WorkbenchError('工单入口正在同步。', 409);
+    topicSends.add(keyId);
+    try {
+      const receipt = feishuTopics.begin(keyId, digest({ root: address.root }), Date.now());
+      const sent = receipt ? JSON.parse(receipt) as { chat: string; message: string } : await feishuTopicsTransport.reply(address, keyId,
+        config.workbenchPublicUrl + '/#/' + encodeURIComponent(project.id) + '/work/' + encodeURIComponent(id))
+        .catch(() => { throw new WorkbenchError('飞书同步暂时没有回执，请核对原话题后重试。', 503); });
+      if (sent.chat !== chat) throw new WorkbenchError('飞书返回了其他群的回执。', 409);
+      const url = feishuTopicUrl({ chat, root: sent.message });
+      return store.atomic(() => {
+        feishuTopics.finish(keyId, JSON.stringify(sent));
+        linkOrigin(messageRef(feishuTriggerId(sent.message), url), id);
+        if (!receipt) audit(id, 'channel.work-published', { actor, chat, root: address.root, message: sent.message });
+        return { url };
+      });
+    } finally { topicSends.delete(keyId); }
   }
   const isActive = (agent: Agent | undefined, project: Project): agent is Agent =>
     agents.available(agent, project, mayStart);
@@ -688,6 +1021,85 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
   const platformPool = { kind: 'platform', subject: 'platform' } as const;
   const { modelRouteCurrent, selectExecutionModel } = openModelRouting(id => agentById.get(id), operationPolicies.modelAllowed);
   const canManageServices = (actor: string) => platformRight(actor, 'services-control');
+
+  function workerHarnessOwner(actor: string, id: string, agentId: string) {
+    const project = projectFor(id, actor);
+    const agent = agentById.get(agentId);
+    if (!agent?.projects.includes(id) || !['codex', 'claude'].includes(agent.engine))
+      throw new WorkbenchError('找不到本项目的 Worker Agent。', 404);
+    if (!mayStart(project, actor) || !mayStart(project, agent.owner) || actor !== agent.owner && !maintain(project, actor))
+      throw new WorkbenchError('由 Agent 所有者或项目维护人配置。', 403);
+    return agent.owner;
+  }
+
+  function assembleWorkerHarness(project: Project, agent: Agent, requester: string) {
+    if (agent.engine === 'codex' || agent.engine === 'claude')
+      return workHarness.assemble(project.id, agent.id, agent.owner, requester);
+  }
+
+  async function dispatchReadiness(actor: string, id: string, selection: Pick<Start, 'topic' | 'agent' | 'function' | 'target' | 'device' | 'personal'>) {
+    const project = projectFor(id, actor);
+    if (!mayStart(project, actor)) throw new WorkbenchError('当前角色没有项目委托权限。', 403);
+    if (selection.topic && !topicsFor(project).some(topic => topic.id === selection.topic)) throw new WorkbenchError('未找到项目主题。', 404);
+    const agent = selectAgent(project, selection.topic, selection.agent, selection.function);
+    const checkedAt = new Date().toISOString();
+    if (!agent) return { checkedAt, state: selection.agent && selection.agent !== 'auto' ? 'blocked' as const : 'waiting' as const,
+      issues: [{ kind: 'routing', reason: '暂无唯一的在岗牵头 Agent，委托可交项目维护人确认。' }] };
+    if (selection.personal && (agent.kind !== 'personal' || agent.owner !== actor || selection.target))
+      throw new WorkbenchError('个人代办请选择本人的只读 Agent。', 403);
+    const provider = agent.execution?.provider;
+    const issues: { kind: string; reason: string }[] = [];
+    let device: Device | undefined;
+    try {
+      const selected = selectDevice(project, agent, selection.device, !!selection.target);
+      if (selected) device = devices.get(selected);
+    } catch (error) {
+      if (!(error instanceof WorkbenchError)) throw error;
+      issues.push({ kind: 'device', reason: error.message });
+    }
+    if (device && !deviceReady(device, agent.id)) issues.push({ kind: 'device', reason: '选定设备离线、暂停接单或对应引擎未就绪。' });
+    const capability = executionCapabilities(agent);
+    if (capability.reason) issues.push({ kind: 'agent', reason: capability.reason });
+    try { assembleWorkerHarness(project, agent, actor); }
+    catch (error) {
+      if (!(error instanceof WorkbenchError)) throw error;
+      issues.push({ kind: 'agent', reason: error.message });
+    }
+    if (selection.target) {
+      const ref = deliveryTargets(project).find(ref => resourceView(id, ref).ref === selection.target);
+      const target = ref?.execution && { repository: ref.externalId, base: ref.execution.base, paths: ref.execution.paths };
+      if (!target || !authorizesDevelopment(project, target, agent.owner)) issues.push({ kind: 'delivery', reason: '此 Agent 没有选定仓库的代码交付资格。' });
+      else if ((await developmentSourceStatus(config.attribution, target)).state !== 'ready')
+        issues.push({ kind: 'delivery', reason: '部署者需要核对该仓库的本地工作区和 Git 基线。' });
+    }
+    const pool: BudgetPool = selection.personal ? { kind: 'personal', subject: actor } : { kind: 'execution', subject: id };
+    const agentPool = agentBudgetPool(id, agent.id);
+    const scopes = pointScopes(id, pool, agent.id);
+    const budgetIssue = points.admit(scopes) ?? poolBlock(pool) ?? poolBlock(agentPool);
+    if (budgetIssue) issues.push({ kind: 'quota', reason: budgetIssue });
+    let model = agent.model;
+    let modelCatalogAt: string | undefined;
+    if (!issues.length) {
+      try {
+        const route = await selectExecutionModel(project, agent, workModelPurpose(selection));
+        model = route?.selected ?? model;
+        modelCatalogAt = route?.checkedAt;
+        if (!device && !route && await codexCredentialReady(agent) === false)
+          issues.push({ kind: 'model', reason: '工作台运行时缺少可用的成员 Codex 凭据，请由 Agent 所有者检查。' });
+      } catch (error) {
+        if (!(error instanceof ModelRouteError)) throw error;
+        issues.push({ kind: 'model', reason: error.message });
+      }
+    }
+    const quote = points.quote(provider, model);
+    const pointIssue = !budgetIssue && points.admit(scopes, quote, true);
+    if (pointIssue) issues.push({ kind: 'quota', reason: pointIssue });
+    if (!mayStart(projectFor(id, actor), actor)) throw new WorkbenchError('项目权限已变化。', 403);
+    return { checkedAt, state: issues.length ? 'blocked' as const : 'ready' as const, issues,
+      agent: { id: agent.id, name: agent.title, owner: agent.owner }, model, modelCatalogAt, provider,
+      device: device ? { id: device.id, name: device.name } : capability.available ? { name: '工作台运行时' } : undefined,
+      estimate: points.estimate(quote) };
+  }
 
   function selectAgent(project: Project, topic?: string, explicit?: string, role?: string) {
     return selectProjectAgent(project.dispatch, { topic, explicit, function: role,
@@ -861,7 +1273,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     if (!ticket || !work) return false;
     if (decision.kind === 'acceptance') {
       const output = readableOutput(ticket.id);
-      if (work.requester !== actor || work.accepted || ticket.ended?.outcome !== 'completed' || !output) return false;
+      if (acceptanceAssignee(work) !== actor || work.accepted || ticket.ended?.outcome !== 'completed' || !output) return false;
       if (delegations.pending(ticket.id, work.version ?? 1) || missingRequiredDelegation(ticket.id, work)
         || !delegationResultsCurrent(ticket.id, work)) return false;
       if (work.development) return decision.subject === codeAcceptanceSubject(ticket.id, output)
@@ -1004,7 +1416,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     const opening = store.triggers.get(ticket.origin.triggerId);
     const address = opening?.channel?.source === 'feishu' ? opening.channel.address : undefined;
     const feishu = address?.chatId && address.messageId && !address.direct
-      && boundProject('feishu', address.chatId)?.id === project
+      && feishuScope(address.chatId, opening?.meta.rootId ?? address.topicRoot ?? address.messageId).project?.id === project
       ? { message: address.messageId, chatUrl: feishuChatLink('feishu', address.chatId) } : undefined;
     const delivery = review.delivery as DeliveryEvidence | undefined;
     const children = acceptedChildSources(ticket, output, project, includeRestricted);
@@ -1045,10 +1457,14 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
   const topicRunCurrent = (id: string, work: Work, manifest: Assembled) =>
     (manifest.topicContext?.every(ref => ref.topic === work.topic) ?? true) && topicContextUsable(work, manifest)
     && stageBasisCurrent(id, work, manifest);
+  const workerHarnessCurrent = (work: Work, manifest?: Assembled) => !manifest?.workerHarness || !!manifest.actor
+    && workHarness.current(work.project, manifest.actor.owner, work.requester, manifest.workerHarness);
+  const workerHarnessReadable = (actor: string, work: Work, manifest?: Assembled) => !manifest?.workerHarness
+    || workerHarnessCurrent(work, manifest) && workHarness.readable(work.project, actor, manifest.workerHarness);
   const { entryEvidence, sourceAllowed, usable, outputUsable, canDiscoverEntry, canReadEntry, selectMaterials, currentProjectMemory } =
     knowledgeAuthority(knowledge, {
       workOf, connected, originOutput, accessReader, outputReader, manifestFor, childResultsUsable, topicContextUsable,
-      member: (id, actor) => member(projectById.get(id), actor), octopCurrent, octopIMCurrent: work => octopIMCurrent(work),
+      member: (id, actor) => member(projectById.get(id), actor), octopCurrent, octopIMCurrent: work => octopIMCurrent(work), workerHarnessCurrent,
     });
 
   function consultationSource(entry: KnowledgeEntry, project: Project, seen = new Set<string>()): boolean {
@@ -1091,8 +1507,36 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     const evidence = consultationContextEvidence(project, sources, work);
     return evidence && citedConsultationEvidence(evidence, cited);
   }
+
+  function consultationScopeConfig(project: Project, topic: string) {
+    const row = store.db.prepare('SELECT agents FROM workbench_topic_contact WHERE project=? AND topic=?').get(project.id, topic);
+    if (!row) return project.consultations?.find(item => item.topic === topic);
+    const ids = JSON.parse(String(row.agents)) as string[];
+    return { topic, feishu: true, agents: ids.map(agent => ({ agent, material: [] as string[] })), sharedExperts: false };
+  }
+
+  function topicContacts(actor: string, id: string, topic: string) {
+    const project = projectFor(id, actor);
+    if (!maintain(project, actor)) throw new WorkbenchError('由项目维护人配置主题的只读咨询。', 403);
+    if (!topicsFor(project).some(row => row.id === topic)) throw new WorkbenchError('未找到项目主题。', 404);
+    const provisioned = !!project.consultations?.some(item => item.topic === topic);
+    const agents = config.agents.filter(agent => isActive(agent, project) && executionCapabilities(agent).read && agent.engine !== 'octop')
+      .map(agent => ({ id: agent.id, title: agent.title, owner: agent.owner }));
+    return { provisioned, agents, chosen: consultationScopeConfig(project, topic)?.agents.map(row => row.agent) ?? [] };
+  }
+
+  function setTopicContacts(actor: string, id: string, topic: string, agents: string[]) {
+    const current = topicContacts(actor, id, topic);
+    if (current.provisioned || agents.some(agent => !current.agents.some(row => row.id === agent)))
+      throw new WorkbenchError('请选择当前主题可以使用的在岗项目 Agent。部署配置的主题由部署者维护。', 409);
+    store.atomic(() => {
+      store.db.prepare('INSERT OR REPLACE INTO workbench_topic_contact VALUES (?,?,?)').run(id, topic, JSON.stringify(agents));
+      audit(id, 'topic.consultation-changed', { actor, topic, agents });
+    });
+  }
+
   function consultationAgents(project: Project, topic: string, actor?: string) {
-    const scope = project.consultations?.find(item => item.topic === topic);
+    const scope = consultationScopeConfig(project, topic);
     const configured = (scope?.agents ?? []).filter(row => {
       const agent = agentById.get(row.agent);
       return isActive(agent, project) && executionCapabilities(agent!).read && row.material.every(id => {
@@ -1107,9 +1551,9 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
   function feishuConsultationAccount(project: Project, topic: string, actor: string, trigger: Trigger) {
     const channel = trigger.channel;
     if (!config.feishu || !send || !trigger.human || channel?.source !== 'feishu' || channel.address.direct || !channel.address.messageId
-      || !project.consultations?.some(item => item.topic === topic && item.feishu)
-      || feishuTopic(project, channel.address.chatId!, trigger.meta.rootId ?? trigger.meta.messageId) !== topic
-      || boundProject('feishu', channel.address.chatId!)?.id !== project.id) return;
+      || !consultationScopeConfig(project, topic)?.feishu
+      || feishuTopic(project, channel.address.chatId!, trigger.meta.rootId ?? trigger.meta.threadId ?? trigger.meta.messageId) !== topic
+      || feishuScope(channel.address.chatId!, trigger.meta.rootId ?? trigger.meta.threadId ?? trigger.meta.messageId).project?.id !== project.id) return;
     const account = { provider: 'feishu' as const, namespace: config.feishu.appId, id: trigger.actor.id, label: actor };
     if (links.member(account, trigger.at) === actor && links.member(account) === actor) return account;
   }
@@ -1145,7 +1589,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     recovered?: { sender: PlatformActor; source: ProjectResource }) {
     const app = config.feishu?.appId;
     const original = trigger;
-    const topic = feishuTopic(project, String(trigger.meta.chatId), trigger.meta.rootId ?? trigger.meta.messageId);
+    const topic = feishuTopic(project, String(trigger.meta.chatId), trigger.meta.rootId ?? trigger.meta.threadId ?? trigger.meta.messageId);
     if (!app || !topic || trigger.meta.direct || sensitiveFeishuText.test(question.text)
       || links.seen(trigger.id) || store.triggers.get(trigger.id)
       || feishuCards.get(key('feishu-consultation-card', project.id, trigger.id))) return;
@@ -1175,21 +1619,39 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     showFeishuConsultation(actor, project.id, topic, question.text, trigger);
   }
 
-  function receiveOctopIM({ address, text, at }: OctopIMEvent) {
+  function receiveOctopIM({ address: origin, text: content, at }: OctopIMEvent) {
+    const parsed = readIMTopicTag(content.trim());
+    if (!parsed) return;
+    const { tag, text } = parsed;
+    const address = { ...origin, tag };
     const connector = config.octop?.channels?.find(row => row.id === address.connector && row.kind === address.kind);
     if (!connector) return;
     const account: PlatformActor = { provider: 'octop', namespace: connector.id, id: address.sender, label: connector.kind + ' ' + address.sender };
     const action = channelCommand(text);
     if (action?.kind === 'proof' && address.direct && connector.allowAccountBinding) return links.prove(action.code, account);
-    const route = octopIMRoute(config.octop?.channels, address);
+    const route = imTopics.route(address);
     const question = feishuConsultation(text.replace(/^\/consult\s+/, '/咨询 '));
     const actor = links.member(account, at);
-    if (!route || !question || !actor || links.member(account) !== actor) return;
+    const project = route && projectById.get(route.project);
+    if (!route || !project || !actor || links.member(account) !== actor) return;
     const id = key('octop-im', connector.id, connector.kind, address.chat, address.thread ?? '', address.message);
-    if (links.seen(id)) return;
+    if (links.seen(id) || store.db.prepare('SELECT 1 FROM workbench_conversation_source WHERE message=?').get(id)) return;
     const trigger: Trigger = { id, source: 'octop', threads: [{ source: 'octop', id: key(connector.id, address.chat, address.thread ?? '') }],
       actor: { source: 'octop', id: address.sender }, human: true, addressed: address.direct ? 'direct' : 'mention', at, text, meta: {} };
-    return consultTopic(actor, route.project, { topic: route.topic, ...question, nonce: id }, trigger, { address, account });
+    if (question) return consultTopic(actor, route.project, { topic: route.topic, ...question, nonce: id }, trigger, { address, account });
+    if (action?.kind === 'work' && mayStart(project, actor)) {
+      const reference = action.reference ? /^[0-9a-f]{32}$/.test(action.reference) ? action.reference : null : undefined;
+      receiveChannel({ trigger, sender: account, project: route.project, topic: route.topic,
+        request: action.request, agent: action.agent, origin: messageRef(id) }, reference);
+    } else if (!text.startsWith('/') && !sensitiveFeishuText.test(text) && mayStart(project, actor)) {
+      const anchor = JSON.stringify({ connector: address.connector, kind: address.kind, chat: address.chat, thread: address.thread, tag });
+      store.atomic(() => {
+        const inserted = store.db.prepare('INSERT OR IGNORE INTO workbench_conversation_message VALUES (?,?,?,?,?,?)')
+          .run(id, project.id, 'topic:' + route.topic, actor, text, at);
+        if (inserted.changes) store.db.prepare('INSERT INTO workbench_conversation_source VALUES (?,?,?,?,?,?)')
+          .run(id, address.kind, '', address.chat, anchor, Date.parse(at));
+      });
+    }
   }
 
   async function consultTopic(actor: string, projectId: string, input: {
@@ -1212,7 +1674,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       if (sensitiveFeishuText.test(input.text)) throw new WorkbenchError('请移除敏感凭据后再咨询。');
       const channel = trigger?.channel;
       const account = im?.account ?? (trigger && feishuConsultationAccount(project, input.topic, actor, trigger));
-      const route = im && octopIMRoute(config.octop?.channels, im.address);
+      const route = im && imTopics.route(im.address);
       if (trigger && (!account || im && (!route || route.project !== projectId || route.topic !== input.topic
         || links.member(im.account) !== actor))) throw new WorkbenchError('当前渠道账号或会话无权在此主题发起咨询。', 403);
       const message = key('topic-consultation', projectId, scope, actor, trigger?.source ?? 'web', input.nonce);
@@ -1228,7 +1690,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       const restricted = input.knowledge && privateConsultationKnowledge(project, actor, input.knowledge);
       if (input.knowledge && !restricted) throw new WorkbenchError('请选择本人有权使用的现行受限知识。', 403);
       const candidates = consultationAgents(project, input.topic, actor);
-      const defaults = project.consultations?.find(item => item.topic === input.topic)?.agents.map(item => item.agent) ?? [];
+      const defaults = consultationScopeConfig(project, input.topic)?.agents.map(item => item.agent) ?? [];
       const requested = input.agents ?? (defaults.length || candidates.length !== 1 ? defaults : [candidates[0]!.agent]);
       if (!requested.length || new Set(requested).size !== requested.length || requested.some(id => !candidates.some(row => row.agent === id)))
         throw new WorkbenchError('请选择本主题已授权、资料可用的咨询 Agent。', 409);
@@ -1301,8 +1763,36 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     const address = work.consultation?.octopIM;
     if (!address) return true;
     const sender = work.consultation?.account;
-    const route = octopIMRoute(config.octop?.channels, address);
+    const route = imTopics.route(address);
     return route?.project === work.project && route.topic === work.topic && !!sender && links.member(sender) === work.requester;
+  }
+
+  async function deliverOctop(message: import('../../upstream/superagent/src/core/index.ts').OutboundMessage,
+    address: OctopIMAddress, text: string, card?: OctopConsultationCard, proactive = false) {
+    const { id } = message;
+    if (!channelDelivery || !octopTransport) { store.receipts.withdraw(id); return; }
+    const finalize = (recovered: boolean) => store.atomic(() => {
+      const recorded = channelReceipt(id, address.connector);
+      const subject = message.ticketId ?? message.channel.address.project ?? id;
+      if (recorded?.state === 'sent') {
+        store.receipts.settle(message, 'sent');
+        audit(subject, 'octop.im-returned', { connector: address.connector, form: recorded.form, recovered });
+      } else if (recorded?.state === 'in-flight') {
+        throw new Error('等待核对 Gateway 回传回执');
+      } else {
+        channelDelivery.unknown(id);
+        store.receipts.settle(message, 'channelGone');
+        audit(subject, 'octop.im-return-uncertain', { connector: address.connector });
+      }
+    });
+    if (channelReceipt(id, address.connector)) { finalize(true); return; }
+    if (!octopTransport.ready(address)) throw new Error('等待 Octop IM 连接恢复');
+    if (!channelDelivery.begin(id, address.connector)) throw new Error('等待核对现有回传记录');
+    let form;
+    try { form = await octopTransport.send(address, imTopicText(address.tag, text), card, id, proactive); }
+    catch { finalize(true); return; }
+    channelDelivery.acknowledge(id, address.connector, form);
+    finalize(false);
   }
   function pinnedMemory(project: Project) {
     const entries = store.db.prepare('SELECT entry FROM workbench_memory_pin WHERE project=? ORDER BY at').all(project.id);
@@ -1583,9 +2073,10 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     }
     const author = message.channel.address.conversationAuthor;
     if (author) {
-      const work = message.ticketId && workOf(message.ticketId);
-      const project = work && projectById.get(work.project);
-      const thread = project && feishuDiscussionThread(message.ticketId!, project);
+      const work = message.ticketId ? workOf(message.ticketId) : undefined;
+      const project = projectById.get(work?.project ?? message.channel.address.conversationProject ?? '');
+      const thread = project && (message.ticketId ? feishuDiscussionThread(message.ticketId, project)
+        : mappedFeishuThread(project, message.channel.address.conversationTopic));
       if (!project || !mayStart(project, author) || !thread || thread.address.messageId !== message.channel.address.messageId
         || thread.address.chatId !== message.channel.address.chatId) {
         store.receipts.settle(message, 'channelGone');
@@ -1595,6 +2086,20 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     const decisionId = message.channel.address.decision;
     let outgoing = message;
     if (message.channel.source === 'octop') {
+      const route = message.channel.address;
+      if (route.imPublication) {
+        const project = projectById.get(route.project ?? '');
+        const work = message.ticketId ? workOf(message.ticketId) : undefined;
+        const target = project && imPublicationDestination(project, route.topic, route.imPublication);
+        if (!project || !route.author || !mayStart(project, route.author) || !target || sensitiveFeishuText.test(message.text)
+          || message.ticketId && (!work || work.project !== project.id || work.topic !== route.topic || !publishableWork(work))) {
+          store.receipts.withdraw(id);
+          return;
+        }
+        const { connector, kind, chat, thread, tag } = target;
+        await deliverOctop(message, { connector, kind, chat, thread, tag, direct: false, sender: 'contractor', message: id }, message.text, undefined, true);
+        return;
+      }
       const ticket = message.ticketId;
       const work = ticket && workOf(ticket);
       const project = work && projectById.get(work.project);
@@ -1605,36 +2110,9 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
         store.receipts.withdraw(id);
         return;
       }
-      const finalize = (recovered: boolean) => store.atomic(() => {
-        const recorded = channelReceipt(id, address.connector);
-        if (recorded?.state === 'sent') {
-          store.receipts.settle(message, 'sent');
-          audit(ticket, 'octop.im-returned', { connector: address.connector, form: recorded.form, recovered });
-        } else if (recorded?.state === 'in-flight') {
-          throw new Error('等待核对 Gateway 回传回执');
-        } else {
-          channelDelivery.unknown(id);
-          store.receipts.settle(message, 'channelGone');
-          audit(ticket, 'octop.im-return-uncertain', { connector: address.connector });
-        }
-      });
-      if (channelReceipt(id, address.connector)) {
-        finalize(true);
-        return;
-      }
-      if (!octopTransport?.ready(address)) throw new Error('等待 Octop IM 连接恢复');
-      if (!channelDelivery.begin(id, address.connector)) throw new Error('等待核对现有回传记录');
       const link = consultationLink(project.id, work.topic, ticket);
-      let form;
-      try {
-        const card = address.kind === 'dingtalk' && address.direct && link ? { delivery: id, url: link } : undefined;
-        form = await octopTransport.send(address, ['咨询已处理。', link ?? '请在 Contractor查看处理结果。'].join('\n'), card, id);
-      } catch {
-        finalize(true);
-        return;
-      }
-      channelDelivery.acknowledge(id, address.connector, form);
-      finalize(false);
+      const card = address.kind === 'dingtalk' && address.direct && link ? { delivery: id, url: link } : undefined;
+      await deliverOctop(message, address, ['咨询已处理。', link ?? '请在 Contractor 查看处理结果。'].join('\n'), card);
       return;
     }
     if (message.channel.address.topicConsultation && message.ticketId) {
@@ -1645,9 +2123,9 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       const address = work?.consultation?.feishu?.address;
       if (!work || !project || !result || !outputUsable(message.ticketId, result) || !evidence || !address || !mayStart(project, work.requester)
         || !work.consultation?.account || links.member(work.consultation.account) !== work.requester
-        || !project.consultations?.some(item => item.topic === work.topic && item.feishu)
+        || !work.topic || !consultationScopeConfig(project, work.topic)?.feishu
         || !consultationAgents(project, work.topic!, work.requester).some(row => row.agent === work.agent)
-        || boundProject('feishu', address.chatId!)?.id !== project.id
+        || feishuScope(address.chatId!, address.topicRoot ?? address.messageId).project?.id !== project.id
         || sensitiveFeishuText.test(result.text)) {
         store.receipts.withdraw(id);
         return;
@@ -1883,7 +2361,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     const decision = card && decisions.get(card.decision);
     const binding = decision && dmAccount(decision.member);
     if (!config.feishu || !card || !decision || (!(card.ref === event.ref && card.chat === event.chat) && !(binding && matchesFeishuInbox(binding.id, event)))
-      || card.group && boundProject('feishu', event.chat)?.id !== decision.project
+      || card.group && !card.reviewUrl && boundProject('feishu', event.chat)?.id !== decision.project
       || card.reviewUrl && delegationReviewThread(decision)?.address.chatId !== event.chat
       || !member(projectById.get(decision.project), decision.member)) throw new WorkbenchError('你不能处理这张卡片。', 403);
     if (binding?.id !== event.operator) {
@@ -1928,9 +2406,11 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
   function feishuDiscussionThread(id: string, project: Project) {
     const work = workOf(id);
     if (work?.material.some(material => knowledge.get(material)?.visibility !== 'project')) return;
-    const origin = store.tickets.get(id)?.channels.find(channel => channel.source === 'feishu' && !channel.address.direct
-      && channel.address.messageId && boundProject('feishu', channel.address.chatId ?? '')?.id === project.id);
-    return origin;
+    const ticket = store.tickets.get(id);
+    const opening = ticket && store.triggers.get(ticket.origin.triggerId);
+    const origin = ticket?.channels.find(channel => channel.source === 'feishu' && !channel.address.direct && channel.address.messageId
+      && feishuScope(channel.address.chatId ?? '', channel.address.topicRoot ?? opening?.meta.rootId ?? channel.address.messageId).project?.id === project.id);
+    return origin ?? (work && !work.personal && !work.consultation ? mappedFeishuThread(project, work.topic) : undefined);
   }
 
   function delegationReviewThread(decision: HumanDecision) {
@@ -2001,7 +2481,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
         : run.summary?.trim();
     store.atomic(() => {
       closeAnsweredCards(ticket.id);
-      if (!usable(ticket.id, manifest.sources)) {
+      if (!usable(ticket.id, manifest.sources) || !workerHarnessCurrent(work, manifest)) {
         reportBlocked(ticket.id, work, '资料授权已变化，执行结果已隔离', 'source-changed');
         return;
       }
@@ -2061,7 +2541,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
         if (work.development) notifyCodeDelivery(finished, work);
         else {
           const acceptance = askHuman(projectById.get(work.project)!, { kind: 'acceptance', subject: acceptanceSubject(ticket.id),
-            title: '第 ' + (work.version ?? 1) + ' 版交付待验收', ticket: ticket.id }, work.requester);
+            title: '第 ' + (work.version ?? 1) + ' 版交付待验收', ticket: ticket.id }, acceptanceAssignee(work));
           if (ticket.channels.length && !acceptance?.originalThread)
             engine.reply({ purpose: 'result', ticketId: ticket.id, text: '专业意见已准备好。请在 Contractor 核对当前版本。' });
         }
@@ -2258,7 +2738,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     const project = work && projectById.get(work.project);
     const manifest = manifestFor(run, attempt);
     return !!work && !!project && mayRun(store.tickets.get(ticket), work) && lane === activeLane(ticket)
-      && !!manifest && topicRunCurrent(ticket, work, manifest) && usable(ticket, manifest.sources)
+      && !!manifest && topicRunCurrent(ticket, work, manifest) && usable(ticket, manifest.sources) && workerHarnessCurrent(work, manifest)
       && modelRouteCurrent(project, work.agent, workModelPurpose(work), manifest.actor?.modelRoute);
   }
   const receipts = executionReceipts(receiptJournal, hub, applyReceipt, receiptAuthorityCurrent);
@@ -2277,7 +2757,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       const manifest = manifestFor(run.id);
       return !!device && (!device.active || !manifest || !project || !deviceAllowed(device, project, work!.agent))
         || !mayRun(store.tickets.get(id), work) || run.lane !== activeLane(id)
-        || !!manifest && (!usable(id, manifest.sources) || !project || !work || !stageBasisCurrent(id, work, manifest)
+        || !!manifest && (!usable(id, manifest.sources) || !project || !work || !stageBasisCurrent(id, work, manifest) || !workerHarnessCurrent(work, manifest)
           || !modelRouteCurrent(project, work.agent, workModelPurpose(work), manifest.actor?.modelRoute));
     },
     cancelUnknown(run, id, device) {
@@ -2287,7 +2767,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       const project = work && projectById.get(work.project);
       return handingOff(work) || !!device && isRemoteDevice(device) && (!device.active || !mayRun(store.tickets.get(ticket), work)
         || !project || !deviceAllowed(device, project, work!.agent)
-        || !!work && !!manifest && !stageBasisCurrent(ticket, work, manifest) || !usable(ticket, manifest?.sources ?? []));
+        || !!work && !!manifest && (!stageBasisCurrent(ticket, work, manifest) || !workerHarnessCurrent(work, manifest)) || !usable(ticket, manifest?.sources ?? []));
     },
     mayRedeliver(run, device) {
       const id = ticketOfLane(run.lane);
@@ -2295,7 +2775,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       const work = workOf(id);
       const project = work && projectById.get(work.project);
       return !!work && !!project && !!manifest && mayRun(store.tickets.get(id), work) && usable(id, manifest.sources)
-        && stageBasisCurrent(id, work, manifest)
+        && stageBasisCurrent(id, work, manifest) && workerHarnessCurrent(work, manifest)
         && deviceAllowed(device, project, work.agent)
         && modelRouteCurrent(project, work.agent, workModelPurpose(work), manifest.actor?.modelRoute);
     },
@@ -2332,13 +2812,22 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
 
       const project = projectById.get(work.project)!;
       const agent = agentById.get(work.agent)!;
+      let workerContext: ReturnType<typeof assembleWorkerHarness>;
+      try { workerContext = assembleWorkerHarness(project, agent, work.requester); }
+      catch (error) {
+        if (!(error instanceof WorkbenchError)) throw error;
+        cancelUnstarted(job, ticket.id, error.message);
+        reportBlocked(ticket.id, work, error.message, 'authority-changed');
+        return {};
+      }
       const pool = workPool(work);
       const agentPool = agentBudgetPool(project.id, agent.id);
       const pointPools = pointScopes(project.id, pool, agent.id);
       const prior = job.session ? hub.runs(run.lane).findLast(item => item.id !== job.run && item.session === job.session) : undefined;
       let previous = manifestFor(job.run) ?? (prior && manifestFor(prior.id));
       let session = job.session;
-      if (previous && !topicContextUsable(work, previous)) {
+      if (previous && (!topicContextUsable(work, previous) || !workerHarnessCurrent(work, previous)
+        || workerContext && previous.workerHarness?.revision !== workerContext.stamp.revision)) {
         previous = undefined;
         session = null;
       }
@@ -2431,7 +2920,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       // Rebuild from native answered cards across assignments, never from another CLI's private transcript.
       const confirmed = hub.confirmed(ticket.id).filter(card => {
           const previous = manifestFor(card.run_id);
-          return !!previous && (!work.continuation?.recheck || previous.version === work.version)
+          return !!previous && workerHarnessReadable(agent.owner, work, previous) && (!work.continuation?.recheck || previous.version === work.version)
             && mounted(previous.sources) && topicContextUsable(work, previous);
         });
       const changes = development ? await developmentChanges(ticket.id, development).catch(() => undefined) : undefined;
@@ -2445,7 +2934,8 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
         return {};
       }
       const priorOutput = work.continuation?.previous && outputByRevision(ticket.id, work.continuation.previous);
-      const priorAllowed = !work.consultation && !work.continuation?.recheck && priorOutput && mounted(priorOutput.sources) && outputUsable(ticket.id, priorOutput);
+      const priorAllowed = !work.consultation && !work.continuation?.recheck && priorOutput && mounted(priorOutput.sources)
+        && workerHarnessReadable(agent.owner, work, manifestFor(priorOutput.run, priorOutput.attempt)) && outputUsable(ticket.id, priorOutput);
       const privatePrior = priorOutput && !priorAllowed && priorOutput.sources.some(ref =>
         knowledge.get(ref.id, ref.revision)?.visibility !== 'project');
       const continuation = privatePrior && work.continuation
@@ -2504,6 +2994,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       const fullResult = !work.consultation && !development && (agent.engine === 'codex' || agent.engine === 'claude');
       const prompt = executionPrompt({ agent, skillText, consultation: !!work.consultation,
         required: work.consultation?.requiredKnowledge, continuation, development, retry, hasKnowledge: entries.length > 0, fullResult,
+        workerAdditions: workerContext?.text,
         delegationDuties: project.delegations.filter(rule => rule.from === agent.id).map(rule => rule.to) });
       let prepared: DeviceJob = { ...job, session, agent: { ...job.agent, access: development ? 'edit' : 'read',
         timeout: budgets.boundTimeout(agentPool, budgets.boundTimeout(pool, job.agent.timeout)) },
@@ -2544,6 +3035,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       if (!mayRun(store.tickets.get(ticket.id), workOf(ticket.id)) || run.lane !== activeLane(ticket.id) || !usable(ticket.id, sources)
         || workOf(ticket.id)?.topic !== work.topic || !topicContext.valid(project.id, topicRefs)
         || requiresStageBasis(work) && (!stageBasis || stageBasis !== currentStageBasis(ticket.id, work))
+        || workerContext && !workHarness.current(project.id, agent.owner, work.requester, workerContext.stamp)
         || device && (!currentDevice?.active || !deviceAllowed(currentDevice, project, agent.id))) {
         await discardIsolation(isolation);
         if (isolation.boundary === 'os-sandbox') await cleanIsolationTemp(job.run, job.attempt);
@@ -2561,6 +3053,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       const manifest = {
         assignment: a.id, version: work.version ?? 1, agentVersion: work.agentVersion, skillHash: digest(prompt), contextHash: digest(context),
         ...(work.octop && { octop: work.octop }),
+        ...(workerContext && { workerHarness: workerContext.stamp }),
         ...(work.consultation && { consultationReply: true }),
         ...(fullResult && { fullResult: true as const }),
         ...(childResults.some(row => row.sources.some(ref => ref.access)) && { childResults: childResults.map(row => row.id) }),
@@ -2635,7 +3128,8 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
         const work = workOf(ticketId);
         const remote = remoteStop && devices.get(devices.leasedTo(id, attempt)!);
         return manifest && !hub.run(id)?.cancel_at && mayRun(store.tickets.get(ticketId), work) && run.lane === activeLane(ticketId)
-          && !!work && topicRunCurrent(ticketId, work, manifest) && modelAllowed(work) && usable(ticketId, manifest.sources) && (!remoteStop || remote?.active && work?.device === remote.id
+          && !!work && topicRunCurrent(ticketId, work, manifest) && modelAllowed(work) && usable(ticketId, manifest.sources)
+          && workerHarnessCurrent(work, manifest) && (!remoteStop || remote?.active && work?.device === remote.id
             && deviceAllowed(remote, projectById.get(work.project)!, work.agent));
       };
       let outcome: ReturnType<typeof parseResult> = ok() ? result : { outcome: 'cancelled', summary: handingOff(workOf(ticketId))
@@ -2653,7 +3147,8 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       const canTransfer = () => {
         const work = workOf(ticketId);
         return !!manifest && !!work && topicRunCurrent(ticketId, work, manifest) && modelMatches && (!manifest.actor?.modelRoute || hasModelReceipt) && modelAllowed(work)
-          && usable(ticketId, manifest.sources) && (ok() || (handingOff(work) && work?.handoff?.cause !== 'access'));
+          && usable(ticketId, manifest.sources) && workerHarnessCurrent(work, manifest)
+          && (ok() || (handingOff(work) && work?.handoff?.cause !== 'access'));
       };
       if (manifest?.isolation?.boundary === 'remote' && manifest.development && remoteStop?.state === 'exited') {
         const held = devices.held(devices.leasedTo(id, attempt)!);
@@ -3100,7 +3595,8 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
   function receiveFeishuReply(input: DiscussionInput, projectId: string, historyActor?: string) {
     if (!input.trigger.human || input.trigger.meta.direct) return false;
     const { chatId, rootId, messageId } = input.trigger.meta;
-    if (feishuScope(String(chatId), rootId ?? messageId).project?.id !== projectId) return false;
+    const scope = feishuScope(String(chatId), rootId ?? input.trigger.meta.threadId ?? messageId);
+    if (scope.project?.id !== projectId) return false;
     const actor = historyActor ?? links.member(input.sender, input.trigger.at);
     const project = projectById.get(projectId);
     if (!actor || !project || !mayStart(project, actor)) return false;
@@ -3118,6 +3614,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     })];
     const matched = routingMatch(project, actor, targets);
     if (!matched.ticket || matched.reason || workOf(matched.ticket)?.project !== project.id) return false;
+    if (scope.mapping && workOf(matched.ticket)?.topic !== scope.mapping.topic) return false;
     const text = input.trigger.text.trim();
     if (!text || text.length > 3500 || sensitiveFeishuText.test(text)) return false;
     store.atomic(() => {
@@ -3196,7 +3693,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
   function trackFeishuThread(trigger: Trigger) {
     if (trigger.meta.direct) return;
     const chat = String(trigger.meta.chatId);
-    const project = feishuScope(chat, trigger.meta.rootId ?? trigger.meta.messageId).project;
+    const project = feishuScope(chat, trigger.meta.rootId ?? trigger.meta.threadId ?? trigger.meta.messageId).project;
     const thread = discussionThread(trigger.meta, Date.parse(trigger.at));
     if (thread && project && [...discussionSources(project), ...historySources(project)].some(ref => ref.externalId === chat))
       discussions.trackThread(project.id, chat, thread);
@@ -3205,7 +3702,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
   function recoveredEvent(project: Project, source: ProjectResource, input: DiscussionInput, prior?: ChannelRequest): ChannelRequest | undefined {
     const { trigger, sender, origin } = routeFeishuInput(project, input);
     if (!input.history || !trigger.human || trigger.meta.direct || sensitiveFeishuText.test(trigger.text)) return;
-    if (feishuScope(String(trigger.meta.chatId), trigger.meta.rootId ?? trigger.meta.messageId).project?.id !== project.id) return;
+    if (feishuScope(String(trigger.meta.chatId), trigger.meta.rootId ?? trigger.meta.threadId ?? trigger.meta.messageId).project?.id !== project.id) return;
     const member = links.member(sender, trigger.at);
     if (!member || !mayStart(project, member)) return;
     const root = typeof trigger.meta.rootId === 'string' ? trigger.meta.rootId : undefined;
@@ -3295,12 +3792,13 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
   function rememberDiscussion(input: DiscussionInput) {
     const { trigger, sender } = input;
     if (!trigger.human || trigger.meta.direct) return;
+    recordMappedFeishuDiscussion(input);
     const chat = String(trigger.meta.chatId);
-    const project = feishuScope(chat, trigger.meta.rootId ?? trigger.meta.messageId).project;
+    const project = feishuScope(chat, trigger.meta.rootId ?? trigger.meta.threadId ?? trigger.meta.messageId).project;
     const source = project && discussionSources(project).find(ref => ref.externalId === chat);
     if (!project || !source) return;
     input = routeFeishuInput(project, input);
-    const topic = feishuTopic(project, chat, trigger.meta.rootId ?? trigger.meta.messageId);
+    const topic = feishuTopic(project, chat, trigger.meta.rootId ?? trigger.meta.threadId ?? trigger.meta.messageId);
     discussions.track(project.id, chat, Date.now());
     const channel = links.event(trigger.id);
     if (channel && channel.request.project !== project.id) return;
@@ -3406,7 +3904,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
           if (!allowed()) return false;
           if (removedIds.has(input.trigger.id)) continue;
           const { rootId, messageId } = input.trigger.meta;
-          if (feishuScope(chat, rootId ?? messageId).project?.id !== project.id) continue;
+          if (feishuScope(chat, rootId ?? input.trigger.meta.threadId ?? messageId).project?.id !== project.id) continue;
           trackFeishuThread(input.trigger);
           if (input.trigger.url) links.addFeishuPermalink(input.trigger.id, project.id, input.trigger.url);
           if (rootId) {
@@ -3994,8 +4492,11 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     const project = projectById.get(work.project)!;
     const title = '第 ' + (work.version ?? 1) + ' 版';
     if (status.state === 'ready' && readableOutput(ticket.id) && stagedProductReady(ticket.id, work, output)) {
-      askHuman(project, { kind: 'acceptance', subject: codeAcceptanceSubject(ticket.id, output), ticket: ticket.id,
-        title: title + '交付已核对，请验收' }, work.requester);
+      const subject = codeAcceptanceSubject(ticket.id, output);
+      const recipient = acceptanceAssignee(work);
+      if (!decisions.subject('acceptance', subject).some(item => item.member === recipient))
+        askHuman(project, { kind: 'acceptance', subject, ticket: ticket.id, title: title + '交付已核对，请验收' }, recipient,
+          work.acceptanceAssignee?.member === recipient ? key('acceptance-owner', ticket.id, work.acceptanceAssignee.at) : undefined);
     } else if (issue) {
       const owner = deliveryOwner(work, output);
       if (owner) askHuman(project, { kind: 'delivery', subject: deliverySubject(ticket.id, output, issue), ticket: ticket.id,
@@ -4105,8 +4606,33 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
   const acceptedRevision = (id: string, revision: string) => workOf(id)?.accepted?.revision === revision || !!iterations.get(id, revision, 'accepted');
   const knowledgeId = (id: string, output: Output) => (output.version ?? 1) === 1 ? id : key('version-knowledge', id, output.revision);
   function closeAcceptance(id: string) {
-    for (const decision of decisions.pending(workOf(id)!.requester))
-      if (decision.kind === 'acceptance' && decision.ticket === id) closeDecision('acceptance', decision.subject);
+    for (const decision of decisions.forTicket(id))
+      if (decision.kind === 'acceptance') closeDecision('acceptance', decision.subject);
+  }
+
+  function transferAcceptance(actor: string, id: string, input: { member: string; revision: string; previous: string; reason: string }) {
+    return store.atomic(() => {
+      const { project, work, ticket } = ticketFor(id, actor);
+      if (!maintain(project, actor)) throw new WorkbenchError('由项目维护人交接当前版本的验收。', 403);
+      const output = readableOutput(id);
+      if (!output || output.revision !== input.revision || work.accepted || work.consultation || work.personal || ticket.ended?.outcome !== 'completed')
+        throw new WorkbenchError('请选择当前待验收的交付版本。', 409);
+      if (!mayStart(project, input.member) || !currentOutputView(input.member, id, work).output)
+        throw new WorkbenchError('请选择能读取本版成果并有协作权限的成员。', 409);
+      const previous = acceptanceAssignee(work);
+      if (previous === input.member) return { member: previous };
+      if (previous !== input.previous) throw new WorkbenchError('验收人已更新，请刷新后重新确认。', 409);
+      const at = new Date().toISOString();
+      const version = work.version ?? 1;
+      const next: Work = { ...work, acceptanceAssignee: { member: input.member, at, version } };
+      closeAcceptance(id);
+      saveWork(id, next);
+      audit(id, 'acceptance.assignee-changed', { actor, previous, member: input.member, revision: input.revision, version, reason: input.reason });
+      if (work.development) notifyCodeDelivery(ticket, next);
+      else askHuman(project, { kind: 'acceptance', subject: acceptanceSubject(id), ticket: id, title: '第 ' + version + ' 版交付待验收' },
+        input.member, key('acceptance-owner', id, at, previous));
+      return { member: input.member };
+    });
   }
 
   function lessonEvidence(entry: KnowledgeEntry) {
@@ -4206,7 +4732,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       : delivery.state === 'deployment-pending' ? 'wait-deployment' : 'check-delivery',
       actors(deliveryOwner(work, delivery.output)), delivery.output.run, undefined, pending.filter(item => item.kind === 'delivery'));
     if (delivery?.state === 'ready' && !stagedProductReady(id, work, delivery.output))
-      return recovery('stage-verification', 'complete-product-checks', actors(work.requester), delivery.output.run);
+      return recovery('stage-verification', 'complete-product-checks', actors(acceptanceAssignee(work)), delivery.output.run);
     const acceptance = human('acceptance', 'review-current-version');
     if (acceptance) return acceptance;
     if (ticket.ended) return;
@@ -4231,7 +4757,8 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
 
   function currentOutputView(actor: string, id: string, work: Work) {
     const stored = outputFor(id);
-    const permitted = !!stored && (work.requester === actor || agentById.get(work.agent)?.owner === actor
+    const permitted = !!stored && workerHarnessReadable(actor, work, manifestFor(stored.run, stored.attempt))
+      && (work.requester === actor || agentById.get(work.agent)?.owner === actor
       || !work.octop && stored.sources.every(ref => knowledge.get(ref.id)?.visibility === 'project'));
     const output = permitted && outputUsable(id, stored) ? stored : undefined;
     return { stored, output, materialHidden: permitted && !output };
@@ -4244,10 +4771,11 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     const outputs = store.db.prepare('SELECT value FROM workbench_output WHERE ticket=? ORDER BY run').all(id)
       .map(row => JSON.parse(String(row.value)) as Output);
     const readableRevisions = new Set(outputs.filter(prior => {
-      const priorActor = manifestFor(prior.run, prior.attempt)?.actor;
+      const manifest = manifestFor(prior.run, prior.attempt);
+      const priorActor = manifest?.actor;
       const visible = actor === work.requester || actor === priorActor?.owner
         || !work.octop && prior.sources.every(ref => knowledge.get(ref.id)?.visibility === 'project');
-      return visible && outputUsable(id, prior);
+      return visible && workerHarnessReadable(actor, work, manifest) && outputUsable(id, prior);
     }).map(prior => prior.revision));
     const reviews = iterations.list(id);
     const protectedReasons = new Set(reviews.filter(review => review.kind !== 'accepted' && !readableRevisions.has(review.revision))
@@ -4342,7 +4870,17 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       ?? product.state(id, output.revision, work, work.development ? work.delivery : undefined));
     const reusedRule = reusedAcceptance && knowledge.get(reusedAcceptance.id, reusedAcceptance.revision);
     const selectedDevice = work.device ? devices.get(work.device) : undefined;
+    const localCommit = output && work.development && manifestFor(output.run, output.attempt)?.development;
+    const follow = followedPull(id, work);
+    const branchVerified = localCommit && work.branches?.some(branch => branch.name === localCommit.branch && branch.sha === localCommit.commit);
+    const publishStatus = localCommit && localCommit.commit && !work.accepted && (!work.delivery || work.delivery.headSha !== localCommit.commit) ? {
+      owner: deliveryOwner(work, output!), branch: localCommit.branch, commit: localCommit.commit,
+      state: follow ? 'update-pr' as const : branchVerified ? 'need-pr' as const : 'check-push' as const,
+      branchUrl: 'https://github.com/' + localCommit.repository + '/tree/' + localCommit.branch.split('/').map(encodeURIComponent).join('/'),
+      ...(follow && { pull: follow.url }),
+    } : undefined;
     const requester = work.requester === actor;
+    const reviewer = acceptanceAssignee(work) === actor;
     const maintainer = maintain(project, actor);
     const owner = agentById.get(work.agent)?.owner === actor;
     const im = work.consultation?.octopIM;
@@ -4368,13 +4906,16 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       baseline: !!work.development && authorizesDevelopment(project, work.development, actor),
       retryUnpublished: requester && mayStart(project, actor) && !!unpublishedCodeScope(ticket, work, output),
       revise: !consultation && requester && mayStart(project, actor) && ticket.ended?.outcome === 'completed' && !!output,
-      accept: !consultation && requester && mayStart(project, actor) && ticket.ended?.outcome === 'completed' && !work.accepted && !!output
+      accept: !consultation && reviewer && mayStart(project, actor) && ticket.ended?.outcome === 'completed' && !work.accepted && !!output
         && (!work.development || delivery?.state === 'ready') && (!deploymentGate || !!deploymentGate.selection)
         && productVerification?.ready !== false,
     };
     return { id, title: ticket.title, project: project.id, work: { ...visibleWork, material: work.material.filter(visibleMaterial),
         recall: work.recall?.filter(visibleMaterial), continuation: visibleContinuation, consultation: !!consultation }, origin: opening.id, request: opening.text,
       createdAt: ticket.createdAt, history, report: report && { ...report, question: question[0]?.title ?? null }, children, related, actions, endReason: ticket.ended?.outcome,
+      acceptanceOwner: acceptanceAssignee(work), acceptanceChoices: maintainer && !work.accepted && !work.consultation && !work.personal
+        && ticket.ended?.outcome === 'completed' ? project.members.filter(person => person !== acceptanceAssignee(work) && mayStart(project, person)
+          && !!currentOutputView(person, id, work).output) : [],
       canReplyInFeishu: !!send && mayStart(project, actor) && !!feishuDiscussionThread(id, project),
       device: selectedDevice && { id: selectedDevice.id, name: selectedDevice.name, online: devices.online(selectedDevice), claimsPaused: devices.claimsPaused(selectedDevice),
         active: selectedDevice.active, state: selectedDevice.state },
@@ -4389,13 +4930,15 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       stage: ticketStage(ticket), result, materialHidden, channelReturn, decision: decision && { at: decision.at, scope: ticket.mandate.scope }, questions: question, requests, runs, timers,
       currentRun: currentRun && { id: currentRun.id, state: currentRun.state },
       stages: readDeliveryStages(ticket, work, output, productVerification, delivery, materialHidden),
-      productVerification: productVerification && { ...productVerification, mayRecord: requester && mayStart(project, actor)
+      productVerification: productVerification && { ...productVerification, mayRecord: reviewer && mayStart(project, actor)
         && !work.accepted && ticket.ended?.outcome === 'completed' && (!work.development || !!work.delivery) },
       productCases: !stored || output ? work.productCases ?? [] : [],
       reusedAcceptance: reusedRule && currentProjectMemory(reusedRule, project) && canReadEntry(reusedRule, actor)
         ? { id: reusedRule.id, revision: reusedRule.revision, title: reusedRule.title, source: acceptedKnowledgeSource(reusedRule) } : undefined,
       recovery: ticketRecovery(actor, ticket, work, project, nativeRuns, delivery),
       deliveryStatus: delivery && { state: delivery.state, detail: delivery.detail, version: delivery.output.version ?? 1 },
+      publishStatus, imPublications: publishableWork(work) ? imTopics.catalog(project.id, false).filter(row => row.canPublish && row.topic === work.topic)
+        .map(({ id: destination, kind, label, tag }) => ({ destination, kind, label, tag, state: store.replyStatus(key('ticket-im-publish', id, destination)) })) : [],
       deliveryVerification: work.deliveryTemplate && work.delivery && output && matchesCodeDelivery(ticket, work, output, work.delivery) ? {
         template: work.deliveryTemplate.id, version: work.deliveryTemplate.version, head: work.delivery.headSha,
         checks: templateChecks(work.deliveryTemplate, work.delivery), review: independentReview(work, output, work.delivery),
@@ -4420,7 +4963,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
   }
 
   function canReadAssembly(actor: string, id: string, work: Work, manifest: Assembled) {
-    if (!privateConsultationVisible(work, actor) || !topicContextUsable(work, manifest)) return false;
+    if (!privateConsultationVisible(work, actor) || !topicContextUsable(work, manifest) || !workerHarnessReadable(actor, work, manifest)) return false;
     const reader = manifest.actor && { agent: manifest.actor.agent, owner: manifest.actor.owner };
     if (manifest.octop) {
       if (!octopCurrent(work, manifest.octop)) return false;
@@ -4461,6 +5004,8 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       isolation: allowed && (actor === work.requester || actor === manifest.actor?.owner) ? manifest.isolation : undefined,
       assembly: manifest.assembly, recorded: !!manifest.assembly, readable: allowed,
       ...(allowed && manifest.assembly ? { contents: executionEvidence.unpack(manifest.assembly),
+        workerHarness: manifest.workerHarness && { revision: manifest.workerHarness.revision,
+          skills: manifest.workerHarness.skills.map(({ id, revision, title }) => ({ id, revision, title })) },
         review: executionReview(id, run, currentAttempt, manifest),
         ...(manifest.octop && { octopSkills: manifest.octop.skills.map(({ id, revision }) => ({ id, revision })) }),
         materials: manifest.sources.map(({ id, revision, recalled }) => {
@@ -4669,7 +5214,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     ];
   }
 
-  function setPointLimit(actor: string, input: PointLimit) {
+  function pointLimit(actor: string, input: PointScope) {
     const { kind, subject } = input;
     let permitted = false;
     if (kind === 'project' || kind === 'execution') permitted = maintain(projectFor(subject, actor), actor);
@@ -4681,11 +5226,20 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       permitted = maintain(project, actor) && !!agent?.projects.includes(projectId) && member(project, agent.owner);
     } else permitted = canManagePointPolicy(actor) && (kind === 'platform' ? subject === platformPool.subject : !!account(subject));
     if (!permitted) throw new WorkbenchError('没有调整此积分额度的权限。', 403);
+    return points.view({ kind, subject });
+  }
+
+  function setPointLimit(actor: string, input: PointLimit) {
+    const { kind, subject, revision, limit, period } = input;
     store.atomic(() => {
+      const current = pointLimit(actor, { kind, subject });
+      if (revision !== undefined && revision !== current.revision)
+        throw new WorkbenchError('积分额度已被更新，请读取当前上限后再确认保存。', 409);
+      if (current.limit === limit && (limit === null || current.period === period)) return;
       points.setLimit(input);
       audit(subject, 'points.limit-changed', { actor, ...input });
     });
-    return points.view(input);
+    return points.view({ kind, subject });
   }
 
   function pointPolicy(actor: string) {
@@ -4791,23 +5345,28 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
 
   function myWorkers(actor: string) {
     const projects = config.projects.filter(project => mayStart(project, actor)).map(({ id, title }) => ({ id, title }));
+    const scopeProjects = (device: Device) => projects.filter(({ id }) => device.projects.includes(id) || device.worker
+      || device.remote && deviceAllowed({ ...device, projects: [id] }, projectById.get(id)!, device.agent)).map(({ id }) => id);
     return { projects, connectUrl: config.runnerConnectUrl, devices: devices.list().filter(device => device.owner === actor)
       .map(device => ({ id: device.id, name: device.name, agent: device.agent, engines: device.worker?.engines ?? [],
         readyEngines: devices.online(device) ? device.readyEngines ?? [] : [],
-        independent: !!device.worker, state: device.state, online: devices.online(device), claimsPaused: devices.claimsPaused(device),
+        independent: !!device.worker, scopeEditable: !!device.worker || !!device.remote,
+        scopeProjects: scopeProjects(device),
+        state: device.state, online: devices.online(device), claimsPaused: devices.claimsPaused(device),
         projects: device.projects.filter(id => projects.some(project => project.id === id)), revision: digest(device.projects) })) };
   }
 
   function setWorkerProjects(actor: string, id: string, input: { projects: string[]; revision: string }) {
     const device = devices.get(id);
-    if (!device?.worker || device.owner !== actor || !account(actor)) throw new WorkbenchError('找不到可管理的执行设备。', 404);
+    if (!device || !(device.worker || device.remote) || device.owner !== actor || !account(actor))
+      throw new WorkbenchError('找不到可管理的执行设备。', 404);
     if (device.state === 'retired') throw new WorkbenchError('已退役执行端不能调整项目。', 409);
     if (digest(device.projects) !== input.revision) throw new WorkbenchError('设备授权已变化，请刷新。', 409);
     const projects = [...new Set(input.projects)];
     if (projects.some(id => {
       const project = projectById.get(id);
-      return !project || !mayStart(project, actor);
-    })) throw new WorkbenchError('只能授权给本人可参与的项目。', 403);
+      return !project || !mayStart(project, actor) || !device.worker && !deviceAllowed({ ...device, projects }, project, device.agent);
+    })) throw new WorkbenchError('只能授权给本人和该执行 Agent 可参与的项目。', 403);
     store.atomic(() => {
       devices.setProjects(id, projects);
       audit(id, 'device.projects-changed', { actor, projects });
@@ -5130,7 +5689,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     const { project: projectId, agent, requester, topic, parent, priority, source, version, personal, accepted, handoff } = work;
     return { id, title, updatedAt, stage: ticketStage(ticket), attention: pending.has(id) || needsObservation
       || recovery?.kind === 'stage-scope' && (actor === work.requester || maintain(project, actor))
-      || recovery?.kind === 'stage-verification' && actor === work.requester,
+      || recovery?.kind === 'stage-verification' && actor === acceptanceAssignee(work),
       work: { project: projectId, agent, requester, topic, parent, priority, source, version, personal,
         accepted: accepted && { revision: accepted.revision }, handoff: handoff && { completedAt: handoff.completedAt, cancelledAt: handoff.cancelledAt },
         consultation: !!work.consultation, development: !!work.development, developmentResponse: !!work.developmentResponse,
@@ -5170,7 +5729,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       octopEnabled: !!config.octop,
       imAccountBinding: !!config.octop?.channels?.some(connector => connector.allowAccountBinding),
       runnerConnectUrl: config.runnerConnectUrl, executionRuntime: config.executionRuntime,
-      feishuGroups: account(actor)?.role === 'owner' ? (config.feishu?.allowedGroups ?? []).filter(chat => !boundProject('feishu', chat)) : [],
+      feishuGroups: account(actor)?.role === 'owner' ? config.feishu?.allowedGroups ?? [] : [],
       ownAgents: config.agents.filter(agent => agent.owner === actor).map(({ id, title, projects }) => ({ id, title, projects: projects.filter(id => ids.has(id)) })),
       projects: projects.map(p => ({ id: p.id, title: p.title, parent: p.parent && ids.has(p.parent) ? p.parent : undefined,
         relatedProjects: projects.filter(target => target.id !== p.id && relatedProjects(target, p)
@@ -5230,13 +5789,35 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     verifyCodeDelivery, inspectPull, review: independentReview, product: product.state,
     storeDeliveryVersion, recordCheckAttempts, saveWork, closeAcceptance, closeDeliveryIssues, manifestFor, knowledgeId, audit,
     stages: (ticket, work, output, verification) => readDeliveryStages(ticket, { ...work,
-      accepted: { actor: work.requester, revision: output.revision, at: new Date().toISOString() } }, output, verification),
+      accepted: { actor: acceptanceAssignee(work), revision: output.revision, at: new Date().toISOString() } }, output, verification),
   });
   const settings = operationsSettings(store, config, operationPolicies, { canManageServices, projectFor, maintain, mayStart, topicsFor, audit });
-  const assistant = openPlatformAssistant(store, config.platformAssistant ?? [], plugins.use('assistant'), {
-    admin: canManageServices, allowed: operationPolicies.modelAllowed, audit, budgets, points,
+  async function modelServices(actor: string) {
+    const services = settings.modelServices(actor);
+    const checkedAt = new Date().toISOString();
+    const result = await Promise.all(services.map(async row => {
+      const candidates = config.agents.filter(agent => agent.active && agent.execution?.provider === row.provider
+        && executionCapabilities(agent).available && agent.projects.some(id => {
+          const project = projectById.get(id);
+          return !!project && isActive(agent, project);
+        }));
+      const local = candidates.filter(agent => agent.execution?.kind === 'sandbox');
+      const credentials = await Promise.all(local.map(agent => codexCredentialReady(agent)));
+      const connected = devices.list().filter(device => device.active && candidates.some(agent => deviceReady(device, agent.id)
+        && agent.projects.some(id => !!projectById.get(id) && deviceAllowed(device, projectById.get(id)!, agent.id))));
+      return { ...row, runtime: { checkedAt, activeAgents: candidates.length, onlineWorkers: connected.length,
+        localProfiles: local.length, localCredentialsReady: credentials.filter(Boolean).length } };
+    }));
+    settings.assertServices(actor);
+    return result;
+  }
+  const harness = openAssistantHarness(store, octop, plugins.use('assistantHarness'), {
+    admin: canManageServices, active: actor => !!account(actor), readSkill, audit,
   });
-  const personalAgents = openPersonalAgents(store, assistant, actor => !!account(actor));
+  const assistant = openPlatformAssistant(store, config.platformAssistant ?? [], plugins.use('assistant'), {
+    admin: canManageServices, allowed: operationPolicies.modelAllowed, audit, budgets, points, harness,
+  });
+  const personalAgents = openPersonalAgents(store, assistant, harness, actor => !!account(actor));
   const personalConversations = openPersonalConversations(store, personalAgents);
   function routingDraftInput(actor: string, id: string) {
     const row = store.db.prepare('SELECT value,actor FROM workbench_intake WHERE id=? AND (resolved IS NULL OR resolved=0)').get(id);
@@ -5271,8 +5852,11 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
   }
   const api = {
     ...settings,
+    modelServices,
     platformAssistant: assistant.view,
     setPlatformAssistant: assistant.update,
+    assistantSkills: harness.catalog,
+    changeAssistantSkill: harness.change,
     async draftIntake(actor: string, id: string) {
       const input = routingDraftInput(actor, id);
       if (!input.agents.length || sensitiveFeishuText.test(input.title + '\n' + input.request))
@@ -5324,7 +5908,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       return historySources(project).map(ref => ({ resource: resourceView(id, ref).ref,
         ...historyStatus.get(key('discussion-history', id, ref.externalId)) }));
     },
-    start, reply, resume, revise, retryUnpublishedCode, approveDevelopment, respondDevelopment, reofferDevelopment, overview, ticketPage, detail, executionSnapshot, boundProject, recordObservation,
+    start, dispatchReadiness, projectDeliverySetup, attachDeliveryProfile, reply, resume, revise, retryUnpublishedCode, approveDevelopment, respondDevelopment, reofferDevelopment, overview, ticketPage, detail, executionSnapshot, boundProject, recordObservation,
     regressionList: (actor: string, id: string) => regression.list(actor, regressionProject(actor, id)),
     createRegressionCase: (actor: string, id: string, input: z.infer<typeof regressionCaseInput>) =>
       regression.create(actor, regressionProject(actor, id, true), input),
@@ -5354,11 +5938,13 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     },
     clickFeishuCard, conversation, conversationPage, conversationIndex: conversations.list, archiveConversation: conversations.archive,
     postConversation, consultTopic, showFeishuConsultation, receiveFeishuConsultation, receiveFeishuReply, receiveOctopIM, bindFeishuGroup, feishuTopic, isFeishuTopicRoot,
+    projectFeishuTopics, setFeishuTopic, observeFeishuTopic, publishFeishuWork, projectIMTopics, setIMTopic, publishIMWork, topicContacts, setTopicContacts,
+    canReplyToFeishuTopic: (actor: string, id: string, topic?: string) => { const project = projectFor(id, actor); return !!send && mayStart(project, actor) && !!mappedFeishuThread(project, topic); },
     feishuProject: (chat: string, root: unknown) => feishuScope(chat, root).project,
     receiveChannel, receiveNote, resolveChannel, resolveChannelFromHttp, channelView, confirmAccount, refreshDelivery, refreshIssue,
     rememberDiscussion, trackFeishuThread, refreshFeishuHistory, discussionView, discussionRevisions, resolveDiscussion, needsYou, answerDecision, resolveIntake, handoff,
     memoryHome, memoryUses, projectKnowledgeGraph, setMemoryPin, budgetPools, agentBudgets, setBudget, setAgentBudget,
-    projectUsage, projectPointBudgets, setPointLimit, setPointPolicy, pointPolicy, pointControl: () => points.status(),
+    projectUsage, projectPointBudgets, pointLimit, setPointLimit, setPointPolicy, pointPolicy, pointControl: () => points.status(),
     octopCatalog, publishOctopSkill, shareOctop, mountOctop, createOctop, publishOctopTemplate, normalizeOctopFeishu,
     cloneOctop(actor: string, id: string, input: { title: string; nonce: string; agent: string; revision: string }) {
       const { title, nonce, agent, revision } = input;
@@ -5372,6 +5958,17 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
         acceptedSource: acceptedKnowledgeSource(entry) }));
     },
     issueDevicePair, pairDevice, projectDevices, projectDeviceRoutes, setProjectDeviceRoute, myWorkers, setWorkerProjects,
+    workerHarness(actor: string, project: string, agent: string) {
+      return workHarness.view(project, agent, workerHarnessOwner(actor, project, agent), actor);
+    },
+    setWorkerHarness(actor: string, project: string, agent: string, value: z.infer<typeof workerHarnessUpdate>) {
+      const owner = workerHarnessOwner(actor, project, agent);
+      return store.atomic(() => {
+        const settings = workHarness.save(project, agent, owner, actor, value);
+        if (settings.revision !== value.revision) audit(project, 'worker.harness-configured', { actor, agent, revision: settings.revision });
+        return settings;
+      });
+    },
     deviceWork, deviceStarted, deviceResult,
     beginDeviceEnrollment, deviceEnrollment, approveDeviceEnrollment, finishDeviceEnrollment,
     async recallMemory(actor: string, id: string, query: string) {
@@ -5505,8 +6102,9 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     projectChannels(actor: string, id: string) {
       const project = projectFor(id, actor);
       return (config.octop?.channels ?? []).flatMap(({ id: connector, kind, routes }) => {
-        const topics = [...new Set(routes.filter(route => route.project === id)
-          .map(route => route.topic).filter(topic => topicsFor(project).some(row => row.id === topic)))];
+        const dynamic = imTopics.catalog(id, false).filter(row => row.connector === connector && row.topic).map(row => row.topic);
+        const topics = [...new Set([...routes.filter(route => route.project === id).map(route => route.topic), ...dynamic]
+          .filter(topic => topicsFor(project).some(row => row.id === topic)))];
         return topics.length ? [{ connector, kind, topics }] : [];
       });
     },
@@ -5637,7 +6235,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
         audit(id, 'branch.linked', { actor, repoId: branch.repoId, ref: branch.name, head: branch.sha, url: 'https://github.com/' + branch.repository + '/tree/' + urlPath });
       });
     },
-    accept,
+    accept, transferAcceptance,
     productCapture(actor: string, id: string, input: z.infer<typeof productCaptureInput>) {
       const view = detail(actor, id);
       const previous = view.versions.find(row => row.revision === input.revision && row.text !== undefined);
@@ -5651,7 +6249,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     recordProductCheck(actor: string, id: string, input: z.infer<typeof humanCheckInput>) {
       return store.atomic(() => {
         const { ticket, work, project } = ticketFor(id, actor);
-        if (work.requester !== actor || !mayStart(project, actor)) throw new WorkbenchError('由发起人记录人工核对。', 403);
+        if (acceptanceAssignee(work) !== actor || !mayStart(project, actor)) throw new WorkbenchError('由本版验收人记录人工核对。', 403);
         const result = readableOutput(id);
         if (work.accepted || work.consultation || ticket.ended?.outcome !== 'completed' || !result || result.revision !== input.revision
           || !product.manualCases(work).some(item => item.id === input.case))
@@ -5820,7 +6418,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
           else if (state === 'granted' && readableOutput(id)) {
             closeAcceptance(id);
             askHuman(projectById.get(work.project)!, { kind: 'acceptance', subject: acceptanceSubject(id) + ':' + request.id,
-              title: '资料已重新授权，请验收本版成果', ticket: id }, work.requester);
+              title: '资料已重新授权，请验收本版成果', ticket: id }, acceptanceAssignee(work));
           }
           return;
         }

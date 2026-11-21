@@ -65,7 +65,7 @@ export function openChannelWorkflow(store: Pick<SuperAgentStore, 'atomic'>, link
       if (!event.trigger.human || !mayStart(project, actor)) return { status: 'denied' as const };
       if (event.sender.provider === 'feishu') {
         const chat = String(event.trigger.meta.chatId);
-        const root = event.trigger.meta.rootId ?? event.trigger.meta.messageId;
+        const root = event.trigger.meta.rootId ?? event.trigger.meta.threadId ?? event.trigger.meta.messageId;
         const target = feishuScope(chat, root).project;
         if (!event.trigger.meta.direct && target && target.id !== project.id) return { status: 'denied' as const };
         const origin = routeFeishuInput(project, event).origin;
@@ -91,6 +91,8 @@ export function openChannelWorkflow(store: Pick<SuperAgentStore, 'atomic'>, link
       const message = messageRef(event.trigger.id, event.trigger.url ?? event.origin.url);
       if (existing) {
         const target = workOf(existing)!;
+        if (target.project === project.id && event.topic && target.topic && event.topic !== target.topic)
+          return pending('来源话题和工单所在主题不同，请核对这条消息的归属。');
         linkOrigin(target.project === project.id ? message : messageRef(event.trigger.id), existing);
         if (target.project === project.id) {
           for (const ref of refs) if (!ref.project || ref.project === project.id) linkOrigin(ref, existing);

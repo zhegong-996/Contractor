@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react';
-import { ArrowRight, Check, Copy, ShieldCheck } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { ArrowRight, Check, Copy, QrCode } from 'lucide-react';
 import { api, useData, type LoginPolicy, type Session } from './api.ts';
 import { Button } from './components/button.tsx';
 import { Failure, FormError, Loading, Pill, Section, useActions } from './ui.tsx';
-import { imAuthorizationHints, imProviderNames as imNames } from '../../src/workbench/im-login-channels.ts';
+import { feishuScanAuthorizePath, feishuScanOrigin, imAuthorizationHints, imProviderNames as imNames } from '../../src/workbench/im-login-channels.ts';
 
 export { imNames };
 const notices = {
@@ -32,13 +32,68 @@ export function useIMNotice() {
   return { status, text: status && notices[status] };
 }
 
-export function IMLoginEntry({ login, status }: { login?: Session['imLogin']; status?: keyof typeof notices }) {
+type LoginQr = { signedIn: false; frame: string; location: string; maxAge: number } | { signedIn: true; to: string };
+
+function FeishuLoginQr({ next }: { next: string }) {
+  const iframe = useRef<HTMLIFrameElement>(null);
+  const [code, setCode] = useState<Extract<LoginQr, { signedIn: false }>>();
+  const [error, setError] = useState<Error>();
+  const [refresh, setRefresh] = useState(0);
+  const retry = () => setRefresh(count => count + 1);
+
+  useEffect(() => {
+    let discarded = false;
+    let expires: number | undefined;
+    setCode(undefined);
+    setError(undefined);
+    void api<LoginQr>('auth/im/qr', { next }).then(result => {
+      if (discarded) return;
+      if (result.signedIn) { window.location.replace(result.to); return; }
+      setCode(result);
+      expires = window.setTimeout(() => setRefresh(count => count + 1), result.maxAge * 1000);
+    }).catch(reason => {
+      if (!discarded) setError(reason instanceof Error ? reason : new Error('暂时无法生成登录二维码。'));
+    });
+    return () => { discarded = true; window.clearTimeout(expires); };
+  }, [next, refresh]);
+
+  useEffect(() => {
+    if (!code) return;
+    const destination = code.location;
+    function scanned(event: MessageEvent) {
+      if (event.origin !== feishuScanOrigin || event.source !== iframe.current?.contentWindow) return;
+      const { source, tmp_code: temporary } = event.data ?? {};
+      if (source !== 'qrcode' || typeof temporary !== 'string' || !/^[^\x00-\x20\x7f]{1,512}$/.test(temporary)) return;
+      const authorize = new URL(destination);
+      if (authorize.origin !== feishuScanOrigin || authorize.pathname !== feishuScanAuthorizePath) return;
+      window.removeEventListener('message', scanned);
+      authorize.searchParams.set('tmp_code', temporary);
+      window.location.replace(authorize.href);
+    }
+    window.addEventListener('message', scanned);
+    return () => window.removeEventListener('message', scanned);
+  }, [code]);
+
+  return <div className="login-qr">
+    {error ? <Failure error={error} retry={retry} /> : <>
+      <div className="login-qr-frame">
+        {code ? <iframe ref={iframe} title="飞书登录二维码" src={code.frame} sandbox="allow-scripts allow-same-origin" referrerPolicy="origin" />
+          : <Loading />}
+      </div>
+      <p>请使用飞书扫码登录</p>
+    </>}
+  </div>;
+}
+
+export function IMLoginEntry({ login, status, active }: { login?: Session['imLogin']; status?: keyof typeof notices; active: boolean }) {
   if (!login?.ready || !login.provider) return null;
+  if (login.embeddedQr && login.onTeamAddress) return active ? <FeishuLoginQr next={location.hash} /> : null;
   const next = new URLSearchParams({ next: location.hash });
+  const start = (login.onTeamAddress ? '' : login.origin ?? '') + '/api/auth/im/start?' + next;
   return <div className="login-enterprise">
-    {status !== 'pending' && <p className="muted-text">{imAuthorizationHints[login.provider]}</p>}
-    <Button href={'/api/auth/im/start?' + next} size="lg" block>
-      <span><ShieldCheck size={18} />{status === 'pending' ? '获批后使用' : '使用'}{imNames[login.provider]}登录</span>
+    {status !== 'pending' && <p className="login-hint">{imAuthorizationHints[login.provider]}</p>}
+    <Button className="login-primary" href={start} size="lg" block>
+      <span><QrCode size={19} aria-hidden="true" />{status === 'pending' ? '重新检查开通状态' : '使用' + imNames[login.provider] + '登录'}</span>
       <ArrowRight size={17} aria-hidden="true" />
     </Button>
     {!status && <p className="muted-text login-first-time">首次使用时，授权后会自动提交开通申请。</p>}

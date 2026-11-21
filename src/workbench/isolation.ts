@@ -120,6 +120,10 @@ async function codexExecutable() {
 }
 
 const catalogCache = new Map<string, { expires: number; result: Promise<{ models: Set<string>; checkedAt: string }> }>();
+export async function codexCredentialReady(agent: RunnerAgent) {
+  if (agent.engine !== 'codex' || agent.execution?.kind !== 'sandbox') return;
+  return credential(agent).then(() => true, () => false);
+}
 export async function codexModelCatalog(agent: RunnerAgent) {
   if (agent.engine !== 'codex' || agent.execution?.kind !== 'sandbox' || agent.execution.provider !== 'openai' || !agent.model)
     throw new Error('当前执行端没有经授权的模型目录适配');

@@ -79,24 +79,27 @@ export function projectDirectory(store: SuperAgentStore, loaded: ReturnType<type
   const isProjectReader = (project: string, person: string) => projectReaders.has(projectReaderKey(project, person));
   const mayStart = (p: Project, actor: string) =>
     member(p, actor) && !projectReaders.has(projectReaderKey(p.id, actor)) && rbacEnforce('user:' + actor, 'task-control');
-  function createProject(actor: string, input: { nonce: string; title: string; parent?: string }) {
+  function createProject(actor: string, input: { nonce: string; title: string; parent?: string; firstTopic?: string }) {
     if (input.parent && !maintain(projectFor(input.parent, actor), actor)) throw new WorkbenchError('由上级项目维护人建立子项目。', 403);
     if (!input.parent && !platformRight(actor, 'project-create')) throw new WorkbenchError('当前账号没有创建独立项目的权限。', 403);
     const id = 'project-' + key('project-create', actor, input.nonce);
+    const first = input.firstTopic ? { id: 'topic-' + key('first-topic', id).slice(0, 12), title: input.firstTopic } : undefined;
     const prior = projectById.get(id);
     if (prior) {
-      if (prior.title !== input.title || prior.parent !== input.parent) throw new WorkbenchError('这次项目创建请求已被使用。', 409);
-      return { id };
+      if (prior.title !== input.title || prior.parent !== input.parent || prior.topics[0]?.title !== input.firstTopic)
+        throw new WorkbenchError('这次项目创建请求已被使用。', 409);
+      return { id, topic: first?.id };
     }
     const project: Project = { id, title: input.title, parent: input.parent, members: [actor], maintainers: [actor],
-      relatedProjects: [], delegations: [], dispatch: [], responsibilities: [], topics: [], resources: [] };
+      relatedProjects: [], delegations: [], dispatch: [], responsibilities: [], topics: first ? [first] : [], resources: [] };
     store.atomic(() => {
       store.db.prepare('INSERT INTO workbench_created_project VALUES (?,?)').run(id, JSON.stringify(project));
       audit(id, 'project.created', { actor, parent: input.parent });
+      if (first) audit(id, 'topic.created', { actor, topic: first.id });
     });
     projectById.set(id, project);
     config.projects.push(project);
-    return { id };
+    return { id, topic: first?.id };
   }
 
   function addProjectMember(actor: string, id: string, person: string, role: 'collaborator' | 'reader' = 'collaborator') {
@@ -240,7 +243,9 @@ export function projectDirectory(store: SuperAgentStore, loaded: ReturnType<type
     if (!maintain(project, actor)) throw new WorkbenchError('由项目维护人建立主题。', 403);
     store.atomic(() => {
       const topics = topicsFor(project);
-      if (topics.some(topic => topic.id === input.id)) throw new WorkbenchError('该主题标识已使用。', 409);
+      const prior = topics.find(topic => topic.id === input.id);
+      if (prior?.title === input.title && prior.parent === input.parent) return;
+      if (prior) throw new WorkbenchError('该主题标识已使用。', 409);
       if (input.parent && !topics.some(topic => topic.id === input.parent && !topic.parent))
         throw new WorkbenchError('请选择当前项目的一级主题。', 400);
       store.db.prepare('INSERT INTO workbench_project_topic VALUES (?,?,?,?)').run(id, input.id, input.title, input.parent ?? null);

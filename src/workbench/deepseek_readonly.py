@@ -45,11 +45,10 @@ def execute(data, transport=request_message):
         raise ValueError("invalid provisioned model")
     payload = {
         "model": model, "max_tokens": 4096, "stream": False,
+        "thinking": {"type": "disabled"},
         "system": data["prompt"],
         "messages": [{"role": "user", "content": data["context"]}],
     }
-    if data.get("consultation"):
-        payload["thinking"] = {"type": "disabled"}
     message = transport(payload, data["key"])
     if message.get("type") != "message" or message.get("role") != "assistant":
         raise ValueError("invalid model response")

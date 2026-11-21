@@ -1,8 +1,8 @@
 import { useState, type FormEvent } from 'react';
 import { Bot, GitPullRequest, Plus } from 'lucide-react';
-import { api, readable, uid, useData, type Knowledge, type StartResult } from './api.ts';
+import { api, readable, uid, useData, type DispatchReadiness, type Knowledge, type StartResult } from './api.ts';
 import { ExecutionEnvironment, executionTargetState, useExecutionTargets } from './execution-target.tsx';
-import { Field, Modal, SearchBox, Source, TopicOptions, useActions, useStored } from './ui.tsx';
+import { Failure, Field, Modal, Pill, SearchBox, Source, TopicOptions, useActions, useStored } from './ui.tsx';
 import { Button } from './components/button.tsx';
 import { Input, TextArea } from './components/input.tsx';
 import { go, routeFor, withConversationOrigin, type PageProps, type TaskPreset } from './navigation.ts';
@@ -58,8 +58,14 @@ export function Composer({ project, workspace, route, preset, close }: PageProps
   const topicRequired = !!deliveryTarget?.stages?.requireTopicBasis && !parent;
   const product = deliveryTarget?.product;
   const resources = project.resources.filter(ref => ref.state === 'bound');
+  const routeAgent: Record<string, string> = draft.agent.startsWith('function:') ? { function: draft.agent.slice('function:'.length) } : { agent: draft.agent || 'auto' };
+  const selection = new URLSearchParams({ ...routeAgent, ...(draft.topic && { topic: draft.topic }), ...(draft.target && { target: draft.target }),
+    ...(draft.device && { device: draft.device }), ...(preset.personal && { personal: '1' }) });
+  const readiness = useData<DispatchReadiness>(preset.personal && !draft.agent ? '' : 'project/' + project.id + '/dispatch-readiness?' + selection);
+  const blocked = readiness.data?.state === 'blocked';
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
+    if (blocked || readiness.error || readiness.isFetching) return;
     const outcome = await run(async () => {
       if (needsDevice)
         throw new Error('请先选择该 Agent 可以使用的执行设备。');
@@ -131,9 +137,9 @@ export function Composer({ project, workspace, route, preset, close }: PageProps
             <span>{ref.label}</span><Source channel={ref.source} /></label>)}
         </fieldset>}
       </details>
-      {!preset.personal && codeTargets.length > 0 && <details className="form-disclosure">
+      {!preset.personal && <details className="form-disclosure">
         <summary><GitPullRequest size={15} />代码交付</summary>
-        <Field label="交付仓库" hint="代码委托须由有仓库权限的研发确认。"><select value={draft.target} onChange={e => {
+        {codeTargets.length ? <Field label="交付仓库" hint="代码委托须由有仓库权限的研发确认。"><select value={draft.target} onChange={e => {
           const target = e.target.value;
           const selected = codeTargets.find(ref => ref.ref === target);
           const eligible = !selected || selected.eligibleAgents.includes(draft.agent);
@@ -141,7 +147,7 @@ export function Composer({ project, workspace, route, preset, close }: PageProps
         }}>
           <option value="">不涉及代码</option>
           {codeTargets.map(ref => <option key={ref.ref} value={ref.ref}>{ref.label}</option>)}
-        </select></Field>
+        </select></Field> : <p className="muted-text">暂无可用于代码执行的仓库与 Agent。<a href={routeFor(project.id, 'project', undefined, 'sources')} onClick={close}>查看交付配置</a></p>}
       </details>}
       {!preset.personal && <details className="form-disclosure">
         <summary>需求验收{(product?.cases.length ?? 0) + (draft.productCases?.length ?? 0)
@@ -163,7 +169,22 @@ export function Composer({ project, workspace, route, preset, close }: PageProps
           <Field label="目标"><Input type="number" step="any" value={draft.targetValue} onChange={e => change('targetValue', e.target.value)} /></Field>
         </div>
       </details>
-      <footer className="form-actions"><Button type="submit" disabled={busy || needsDevice}><Plus />提交委托</Button></footer>
+      {readiness.error && <Failure error={readiness.error} retry={() => void readiness.refetch()} />}
+      {readiness.data && <div className="revision-note">
+        <div className="inline-meta"><Pill tone={blocked ? 'amber' : readiness.data.state === 'ready' ? 'green' : 'neutral'}>
+          {readiness.data.state === 'ready' ? '派工条件已核对' : blocked ? '当前无法派工' : '待维护人确认派工'}</Pill>
+          {'agent' in readiness.data && <><span>{readiness.data.agent?.name}</span><span>{readiness.data.model ?? '默认模型'}</span>
+            {readiness.data.device && <span>{readiness.data.device.name}</span>}
+            {readiness.data.estimate !== undefined && <span>预计预留 {readiness.data.estimate} 积分</span>}</>}
+        </div>
+        {readiness.data.issues.map(issue => <div key={issue.reason} className="record-row">
+          <span>{issue.reason}</span>{issue.kind === 'quota' && <a href={routeFor(project.id, 'project', undefined, 'usage')} onClick={close}>查看用量</a>}
+          {issue.kind === 'delivery' && <a href={routeFor(project.id, 'project', undefined, 'sources')} onClick={close}>交付配置</a>}
+          {issue.kind === 'routing' && project.maintain && <a href={routeFor(project.id, 'project', undefined, 'routing')} onClick={close}>职责与路由</a>}
+        </div>)}
+        {blocked && <Button type="button" size="sm" variant="ghost" onClick={() => void readiness.refetch()}>重新核对</Button>}
+      </div>}
+      <footer className="form-actions"><Button type="submit" disabled={busy || needsDevice || blocked || !!readiness.error || readiness.isFetching}><Plus />提交委托</Button></footer>
     </form>
   </Modal>;
 }

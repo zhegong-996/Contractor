@@ -2,7 +2,7 @@ import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { Activity, ArrowLeft, Coins, Cpu, KeyRound, ListChecks, Plus, Route, ShieldCheck, UsersRound } from 'lucide-react';
 import { api, part, useData, type Overview, type PlatformAudit, type ProjectAccess, type Session } from './api.ts';
 import { PointsPane } from './agent-operations.tsx';
-import { routeFor, type GlobalView } from './navigation.ts';
+import { routeFor, settingsRoute, type GlobalView } from './navigation.ts';
 import { Button } from './components/button.tsx';
 import { Input } from './components/input.tsx';
 import { Avatar, date, Empty, Failure, Field, Loading, Modal, Pill, SearchBox, Section, useActions, useSessionScroll, useStored } from './ui.tsx';
@@ -175,33 +175,35 @@ function PersonalLogin({ workspace }: { workspace: Overview }) {
   </Section>;
 }
 
-export function GlobalSettings({ view, tab, fromProject, workspace, logout, connections }: {
-  view: GlobalView; tab?: string; fromProject?: string; workspace: Overview; logout: () => void; connections?: ReactNode;
+export function GlobalSettings({ view, tab, fromProject, returnTo, status, workspace, logout, connections }: {
+  view: GlobalView; tab?: string; fromProject?: string; returnTo?: string; status?: ReactNode;
+  workspace: Overview; logout: () => void; connections?: ReactNode;
 }) {
   const origin = workspace.projects.find(project => project.id === fromProject);
-  const back = origin ? routeFor(origin.id, 'agents') : workspace.projects[0] ? routeFor(workspace.projects[0].id, 'inbox') : '#/';
+  const back = returnTo && (returnTo.startsWith('#/personal-chat') || workspace.projects.some(p => returnTo.startsWith('#/' + p.id + '/'))) ? returnTo
+    : origin ? routeFor(origin.id, 'agents') : workspace.projects[0] ? routeFor(workspace.projects[0].id, 'inbox') : '#/';
   const header = <header className="toolbar settings-toolbar">
-    <a className="text-button" href={back}><ArrowLeft size={16} />{origin ? '返回项目 Agent' : '返回工作台'}</a>
+    <a className="text-button" href={back}><ArrowLeft size={16} />返回工作台</a>
     <span className="settings-location">{view === 'platform' ? '平台管理' : '个人设置'}</span>
-    {view === 'platform' && <a className="text-button ml-auto" href="#/account">个人设置</a>}
+    {view === 'platform' && <a className="text-button ml-auto" href={settingsRoute('account', undefined, returnTo, origin?.id)}>个人设置</a>}
     <Button variant="ghost" size="sm" onClick={logout}>退出登录</Button>
   </header>;
-  if (view === 'account') return <div className="global-settings page-scroll">{header}
+  if (view === 'account') return <div className="global-settings page-scroll">{header}{status}
     <main className="project-page personal-settings">
       <header className="object-header"><div className="object-emblem"><ShieldCheck size={24} /></div><div><h1>个人设置</h1></div></header>
       <nav className="actions account-settings-nav" aria-label="个人设置">
         {([['profile', '资料与登录'], ['agent', '个人 Agent'], ['workers', '我的 Worker']] as const).map(([key, label]) =>
-          <a className="text-button" key={key} href={'#/account?' + new URLSearchParams({ tab: key, ...(origin && { project: origin.id }) })}
+          <a className="text-button" key={key} href={settingsRoute('account', key, returnTo, origin?.id)}
             aria-current={(tab ?? 'profile') === key ? 'page' : undefined}>{label}</a>)}
       </nav>
       <div className="detail-stack">{tab === 'agent' ? <PersonalAgentSettings project={origin?.id} /> : tab === 'workers' ? <MyWorkers workspace={workspace} />
         : <><PersonalProfileSettings /><PersonalLogin workspace={workspace} />{connections}</>}</div>
     </main>
   </div>;
-  return <div className="platform-shell">{header}<PlatformDesk workspace={workspace} tab={tab} /></div>;
+  return <div className="platform-shell">{header}{status}<PlatformDesk workspace={workspace} tab={tab} returnTo={returnTo} project={origin?.id} /></div>;
 }
 
-function PlatformDesk({ workspace, tab }: { workspace: Overview; tab?: string }) {
+function PlatformDesk({ workspace, tab, returnTo, project }: { workspace: Overview; tab?: string; returnTo?: string; project?: string }) {
   const groups = [
     { title: '访问控制', items: [
       { key: 'members', title: '成员与角色', caption: '管理平台账号、审批开通申请和调整角色。', icon: UsersRound, allowed: workspace.canManageAccounts },
@@ -210,7 +212,7 @@ function PlatformDesk({ workspace, tab }: { workspace: Overview; tab?: string })
       { key: 'audit', title: '权限记录', caption: '追溯账号、角色和登录设置的变更。', icon: ListChecks, allowed: workspace.canManageAccounts },
     ] },
     { title: 'Agent 运行', items: [
-      { key: 'router', title: '平台 Router 与知识提炼', caption: '设置平台整理模型、调用上限与用量。', icon: Route, allowed: workspace.canManageServices },
+      { key: 'router', title: '平台 Router', caption: '为路由建议和知识提炼分别配置提示词与技能。', icon: Route, allowed: workspace.canManageServices },
       { key: 'models', title: '模型服务', caption: '管理各供应商的可用模型和平台执行策略。', icon: Cpu, allowed: workspace.canManageServices },
       { key: 'quota', title: '积分与额度', caption: '设置各模型如何折算积分，以及平台和个人的用量上限。', icon: Coins, allowed: workspace.canManagePointPolicy },
       { key: 'services', title: '服务状态', caption: '查看入站、检索和执行回执的运行情况。', icon: Activity, allowed: workspace.canManageServices },
@@ -232,7 +234,7 @@ function PlatformDesk({ workspace, tab }: { workspace: Overview; tab?: string })
         const pages = group.items.filter(item => item.allowed);
         if (!pages.length) return null;
         return <section key={group.title}><h2>{group.title}</h2>
-          {pages.map(item => <a key={item.key} href={'#/platform?tab=' + item.key} ref={active?.key === item.key ? currentLink : undefined}
+          {pages.map(item => <a key={item.key} href={settingsRoute('platform', item.key, returnTo, project)} ref={active?.key === item.key ? currentLink : undefined}
             aria-current={active?.key === item.key ? 'page' : undefined}>
             <item.icon size={17} aria-hidden="true" /><span>{item.title}</span>
           </a>)}

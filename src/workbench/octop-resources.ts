@@ -93,8 +93,9 @@ export class OctopResources {
     else this.db.prepare('DELETE FROM workbench_octop_mount WHERE agent=? AND skill=? AND revision=?').run(agent, ref.id, ref.revision);
   }
 
-  skillVersions(project: string): Skill[] {
-    return this.db.prepare('SELECT value FROM workbench_octop_skill WHERE project=? ORDER BY rowid DESC').all(project)
+  skillVersions(project: string, owner?: string): Skill[] {
+    return this.db.prepare('SELECT value FROM workbench_octop_skill WHERE project=?'
+      + (owner === undefined ? '' : ' AND owner=?') + ' ORDER BY rowid DESC').all(project, ...(owner === undefined ? [] : [owner]))
       .map(row => JSON.parse(String(row.value)));
   }
 

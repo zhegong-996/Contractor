@@ -24,6 +24,8 @@ export type Channels = ReturnType<Collaboration['channelView']>;
 export type Discussion = ReturnType<Collaboration['discussionView']>;
 export type Imported = Awaited<ReturnType<Collaboration['importKnowledge']>>;
 export type StartResult = ReturnType<Collaboration['start']>;
+export type DispatchReadiness = Awaited<ReturnType<Collaboration['dispatchReadiness']>>;
+export type ProjectDeliverySetup = Awaited<ReturnType<Collaboration['projectDeliverySetup']>>;
 export type Resource = Project['resources'][number];
 export type DeviceRow = ReturnType<Collaboration['projectDevices']>[number];
 export type DeviceRoute = ReturnType<Collaboration['projectDeviceRoutes']>[number];
@@ -33,11 +35,13 @@ export type PointPool = ReturnType<Collaboration['projectPointBudgets']>[number]
 export type PointPolicy = ReturnType<Collaboration['pointPolicy']>;
 export type ProjectAccess = ReturnType<Collaboration['projectAccess']>;
 export type ProjectRouting = ReturnType<Collaboration['projectRouting']>;
-export type ModelService = ReturnType<Collaboration['modelServices']>[number];
+export type ModelService = Awaited<ReturnType<Collaboration['modelServices']>>[number];
 export type FigmaSourceStatus = ReturnType<Collaboration['figmaSourceStatus']>[number];
 export type ProjectChannels = { feishuReady: boolean;
   im: (ReturnType<Collaboration['projectChannels']>[number] & { ready: boolean })[];
-  feishuHistory: ReturnType<Collaboration['feishuSourceStatus']> };
+  feishuHistory: ReturnType<Collaboration['feishuSourceStatus']>;
+  feishuTopics: ReturnType<Collaboration['projectFeishuTopics']>; feishuReply: boolean; imTopics: ReturnType<Collaboration['projectIMTopics']> };
+export type TopicContacts = ReturnType<Collaboration['topicContacts']>;
 export type ProjectKnowledgeAccess = ReturnType<Collaboration['projectKnowledgeAccess']>;
 export type PlatformMembers = ReturnType<ReturnType<typeof permissionAdmin>['list']>;
 export type PlatformAudit = ReturnType<ReturnType<typeof permissionAdmin>['changes']>;
@@ -49,9 +53,11 @@ export type MemoryRow = ReturnType<Collaboration['memoryHome']>[number];
 export type MemoryUse = ReturnType<Collaboration['memoryUses']>[number];
 export type RecallHit = Awaited<ReturnType<Collaboration['recallMemory']>>[number];
 
-class ApiError extends Error {
+export class ApiError extends Error {
   constructor(message: string, readonly status: number) { super(message); }
 }
+
+export const mayKeepStale = (error: Error | null) => error instanceof ApiError ? error.status >= 500 : error instanceof TypeError;
 
 export async function api<T = { ok: boolean }>(route: string, data?: unknown, signal?: AbortSignal): Promise<T> {
   const response = await fetch('/api/' + route, {

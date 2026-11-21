@@ -19,7 +19,7 @@ const publicPaths = [
   'docs/ARCHITECTURE.md', 'docs/CONFIGURATION.md', 'docs/KNOWLEDGE-VERSIONS.md', 'docs/MEMBER-EXECUTION-ISOLATION.md',
   'docs/PLUGIN-ARCHITECTURE.md', 'docs/PRODUCT-CAPABILITY-MAP.md', 'docs/QUICKSTART-RUNNER.md', 'docs/RUNTIME-MIGRATION.md', 'docs/SOURCES.md',
   'docs/WORKBENCH-OCTOP.md',
-  'docs/WORKBENCH-IM-LOGIN.md', 'docs/WORKBENCH-PROJECT-ARCHITECTURE.md',
+  'docs/WORKBENCH-IM-LOGIN.md', 'docs/WORKBENCH-IM-PROJECTS.md', 'docs/WORKBENCH-PROJECT-ARCHITECTURE.md',
   'docs/WORKBENCH-DELIVERY-TEMPLATE.md', 'docs/WORKBENCH-FRONTEND-WORKSPACE.md', 'docs/WORKBENCH-REMOTE-RUNNER.md',
   'docs/images/task-center.png', 'docs/images/regression-review.png',
   ...['inbox', 'board', 'conversation', 'delivery', 'knowledge', 'agents', 'platform', 'mobile']

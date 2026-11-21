@@ -7,7 +7,7 @@ export type GlobalView = 'platform' | 'account';
 type ConversationOrigin = { project: string; item?: string; tab?: string; reply?: string };
 export type Route = { project: string; view: View; item?: string; tab?: string; run?: number; attempt?: number; revision?: string;
   reply?: string; participant?: string; global?: GlobalView; conversationOrigin?: ConversationOrigin;
-  personalChat?: true; workTopic?: string; projectWork?: boolean; inboxOrigin?: string; decision?: string; reviewRevision?: string;
+  personalChat?: true; workTopic?: string; projectWork?: boolean; inboxOrigin?: string; decision?: string; reviewRevision?: string; returnTo?: string;
   consultation?: { ticket: string; revision: string } };
 export type TaskPreset = {
   request?: string;
@@ -31,7 +31,15 @@ export function personalChatRoute(conversation?: string, project?: string) {
     + (project ? '?' + new URLSearchParams({ project }) : '');
 }
 export function agentSettingsRoute(tab: 'agent' | 'workers' | 'router', project: string) {
-  return (tab === 'router' ? '#/platform?' : '#/account?') + new URLSearchParams({ tab, project });
+  return settingsRoute(tab === 'router' ? 'platform' : 'account', tab, workspaceReturn(window.location.hash), project);
+}
+export function workspaceReturn(hash: string | null) {
+  if (hash && hash.length <= 1000 && /^#\/(?:[\w-]+\/(?:inbox|work|knowledge|agents|project|accounts|chat)(?:\/[\w-]+)?|personal-chat(?:\/[a-f0-9]{32})?)(?:\?[^\s#]*)?$/.test(hash)) return hash;
+}
+export function settingsRoute(view: GlobalView, tab?: string, from?: string, project?: string) {
+  const returnTo = workspaceReturn(from ?? null);
+  const params = new URLSearchParams({ ...(tab && { tab }), ...(project && { project }), ...(returnTo && { returnTo }) });
+  return '#/' + view + (params.size ? '?' + params : '');
 }
 export function projectWorkRoute(project: string, topic?: string) {
   return routeFor(project, 'work') + '?' + new URLSearchParams({ scope: 'project', ...(topic && { topic }) });
@@ -67,7 +75,8 @@ export function useRoute(): Route {
     const personal = /^personal-chat(?:\/([a-f0-9]{32}))?$/.exec(pathname ?? '');
     if (personal) return { project: params.get('project') ?? '', view: 'chat', personalChat: true, item: personal[1] };
     if (pathname === 'platform' || pathname === 'account')
-      return { project: params.get('project') ?? '', view: 'inbox', global: pathname, tab: params.get('tab') ?? undefined };
+      return { project: params.get('project') ?? '', view: 'inbox', global: pathname, tab: params.get('tab') ?? undefined,
+        returnTo: workspaceReturn(params.get('returnTo')) };
     const [project = '', view = 'inbox', item] = (pathname ?? '').split('/').map(decodeURIComponent);
     const tab = params.get('tab') ?? undefined;
     const projectDiscussion = view === 'project' && tab === 'chat';

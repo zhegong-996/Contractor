@@ -1,15 +1,15 @@
-import { lazy, Suspense, useEffect, useRef, useState, type FormEvent } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query';
-import { Breadcrumb, ConfigProvider, Drawer, Layout, Menu as NavigationMenu, type ConfigProviderProps } from 'antd';
+import { Breadcrumb, ConfigProvider, Drawer, Layout, Menu as NavigationMenu, Tabs, type ConfigProviderProps } from 'antd';
 import zhCN from 'antd/es/locale/zh_CN.js';
 import { ArrowRight, BookOpen, Bot, ChevronDown, ChevronRight, CircleCheck, FolderKanban, Inbox, ListChecks, LogOut, Menu, MessageSquare, PanelLeftClose, PanelLeftOpen, Plus, ShieldCheck, UserRound } from 'lucide-react';
-import { api, uid, useData, type Overview, type Session } from './api.ts';
+import { api, mayKeepStale, uid, useData, type Overview, type Session } from './api.ts';
 import { ActionContext, Avatar, Failure, Field, IconButton, Loading, Logo, Modal, useActions, useStored } from './ui.tsx';
 import { Button } from './components/button.tsx';
 import { Input } from './components/input.tsx';
 import { preference, WorkspaceSidebar } from './components/workspace-sidebar.tsx';
-import { go, personalChatRoute, routeFor, titles, useRoute, type PageProps, type TaskPreset } from './navigation.ts';
+import { go, personalChatRoute, routeFor, settingsRoute, titles, useRoute, type PageProps, type TaskPreset } from './navigation.ts';
 import { Composer } from './creation.tsx';
 import { forest, type Branch } from './hierarchy.ts';
 import { workbenchTheme } from './components/theme.ts';
@@ -39,8 +39,11 @@ function Login({ session }: { session?: Session }) {
   const [recovering, setRecovering] = useState(false);
   const notice = useIMNotice();
   const { recoveryUrl, imLogin } = session ?? {};
+  const [method, setMethod] = useState(imLogin?.ready ? 'enterprise' : 'account');
   const usePassword = imLogin?.legacyPassword !== false;
-  const passwordForm = <form className="form" onSubmit={async (event: FormEvent<HTMLFormElement>) => {
+  const pending = notice.status === 'pending';
+  const passwordAllowed = usePassword && !['pending', 'denied', 'blocked', 'conflict'].includes(notice.status ?? '');
+  const passwordForm = <form className="form login-password" aria-label="口令登录" onSubmit={async event => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     await run(async () => {
@@ -49,28 +52,28 @@ function Login({ session }: { session?: Session }) {
       return true;
     });
   }}>
-    <Field label="账号"><Input name="username" autoComplete="username" required /></Field>
-    <Field label="口令"><Input name="password" autoComplete="current-password" type="password" required /></Field>
+    <Field label="工作台账号"><Input name="username" autoComplete="username" autoCapitalize="none" spellCheck={false} required maxLength={32} /></Field>
+    <Field label="口令"><Input name="password" autoComplete="current-password" type="password" required maxLength={300} /></Field>
     {error && <Failure error={new Error(error)} />}
-    <Button type="submit" disabled={busy}>登录 <ArrowRight /></Button>
+    <Button type="submit" loading={busy}>登录 <ArrowRight size={17} aria-hidden="true" /></Button>
     {recoveryUrl && <div className="actions">
       <Button type="button" variant="ghost" size="sm" onClick={() => setRecovering(true)}>找回口令</Button>
     </div>}
   </form>;
-  return <div className="login-wrap">
-    <div className="login-sheet">
-      <div className="brand"><Logo /><span>Contractor</span></div>
-      <h1>{notice.status === 'pending' ? '等待开通' : '登录工作台'}</h1>
-      {notice.text && <p className="login-notice" role={notice.status === 'pending' ? 'status' : 'alert'}>{notice.text}</p>}
-      <IMLoginEntry login={imLogin} status={notice.status} />
-      {imLogin?.provider && !imLogin.ready && <p className="login-notice" role="status">{imNames[imLogin.provider]}登录暂不可用，请联系平台管理员。</p>}
-      {session && !imLogin?.provider && <p className="muted-text">新成员请联系管理员启用团队授权登录。</p>}
-      {usePassword && !['pending', 'denied', 'blocked', 'conflict'].includes(notice.status ?? '') && <details className="login-alternative">
-        <summary>已有账号使用口令</summary>{passwordForm}
-      </details>}
-    </div>
+  const enterprise = imLogin?.provider && (imLogin.ready ? <IMLoginEntry login={imLogin} status={notice.status} active={!passwordAllowed || method === 'enterprise'} />
+    : <p className="login-notice" role="status">{imNames[imLogin.provider]}登录暂不可用，请联系平台管理员。</p>);
+  return <main className="login-wrap">
+    <section className="login-sheet" aria-labelledby="login-title">
+      <div className="login-brand"><Logo /><span>Contractor</span></div>
+      <h1 id="login-title">{pending ? '等待开通' : '登录工作台'}</h1>
+      {notice.text && <p className="login-notice" role={pending ? 'status' : 'alert'}>{notice.text}</p>}
+      {enterprise && passwordAllowed ? <Tabs className="login-modes" aria-label="登录方式" activeKey={method} onChange={setMethod} items={[
+        { key: 'enterprise', label: imLogin?.embeddedQr && imLogin.onTeamAddress ? '二维码登录' : '企业授权', children: enterprise },
+        { key: 'account', label: '账号登录', children: passwordForm },
+      ]} /> : enterprise || (passwordAllowed && passwordForm)}
+    </section>
     {recoveryUrl && recovering && <RecoveryDialog url={recoveryUrl} close={() => setRecovering(false)} />}
-  </div>;
+  </main>;
 }
 
 function RecoveryDialog({ url, close }: { url: string; close: () => void }) {
@@ -149,8 +152,8 @@ function Navigation({ workspace, project, route, close, newProject }: PageProps 
     </div>
     <div className="sidebar-footer">
       {(workspace.canManageAccounts || workspace.canManagePointPolicy || workspace.canManageServices) &&
-        <a className="nav-row" href="#/platform" onClick={close}><ShieldCheck size={17} /><span>平台管理</span></a>}
-      <a className="nav-row" href="#/account" onClick={close}><UserRound size={17} /><span>个人设置</span></a>
+        <a className="nav-row" href={settingsRoute('platform', undefined, window.location.hash, project.id)} onClick={close}><ShieldCheck size={17} /><span>平台管理</span></a>}
+      <a className="nav-row" href={settingsRoute('account', undefined, window.location.hash, project.id)} onClick={close}><UserRound size={17} /><span>个人设置</span></a>
       {profile && <div className="profile-menu">
         <Button variant="ghost" type="button" onClick={signOut}><LogOut />退出登录</Button>
       </div>}
@@ -199,10 +202,12 @@ function NewProject({ workspace, close }: { workspace: Overview; close: () => vo
     const form = new FormData(event.currentTarget);
     const result = await run(() => api<{ id: string }>('project', {
       nonce, title: String(form.get('title')).trim(), parent: form.get('parent') || undefined,
+      firstTopic: String(form.get('firstTopic')).trim() || undefined,
     }), '项目已创建');
     if (result) { go(result.id, 'project', undefined, 'structure'); close(); }
   }}>
     <Field label="项目名称"><Input name="title" autoFocus maxLength={100} required /></Field>
+    <Field label="首个主题（选填）"><Input name="firstTopic" maxLength={100} /></Field>
     {!!parents.length && <Field label="上级项目"><select name="parent" required={!workspace.canCreateRootProject}>
       {workspace.canCreateRootProject && <option value="">独立项目</option>}
       {parents.map(project => <option value={project.id} key={project.id}>{project.title}</option>)}
@@ -224,10 +229,13 @@ function Workspace() {
   const { error, clearError } = useActions();
   useEffect(() => { clearError(); }, [requested.project, requested.view, requested.item, requested.global, requested.tab]);
   const workspace = overview.data;
-  if (overview.error) return <div className="app-placeholder"><Failure error={overview.error} retry={() => void overview.refetch()} /></div>;
+  if (overview.error && (!workspace || !mayKeepStale(overview.error)))
+    return <div className="app-placeholder"><Failure error={overview.error} retry={() => void overview.refetch()} /></div>;
   if (!workspace) return <Loading />;
+  const reconnect = overview.error && <div className="toolbar-error"><Failure error={new Error('工作台暂时无法刷新，编辑内容已保留。')}
+    retry={() => void overview.refetch()} /></div>;
   if (requested.global) return <Suspense fallback={<Loading />}>
-    <GlobalSettings view={requested.global} tab={requested.tab} fromProject={requested.project} workspace={workspace} logout={signOut}
+    <GlobalSettings view={requested.global} tab={requested.tab} fromProject={requested.project} returnTo={requested.returnTo} status={reconnect} workspace={workspace} logout={signOut}
       connections={requested.global === 'account' ? <AccountsPage workspace={workspace} embedded /> : undefined} />
   </Suspense>;
   const targetProject = workspace.projects.find(p => p.id === requested.project);
@@ -276,6 +284,7 @@ function Workspace() {
         {project.mayStart && !route.personalChat && !(chat && (route.item || route.tab === 'project')) && !(route.view === 'work' && !route.item) &&
           <Button size="sm" type="button" className="create-button" onClick={() => props.openTask()}><Plus />发起协作</Button>}
       </Layout.Header>
+      {reconnect}
       {error && !composer && <div className="toolbar-error"><Failure error={new Error(error)} retry={clearError} /></div>}
       <Layout.Content className={'main-view' + (chat ? ' task-center' : '')} id="main-content">
         {chat && <nav className="task-center-tabs" aria-label="会话范围">

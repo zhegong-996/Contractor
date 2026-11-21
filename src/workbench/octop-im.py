@@ -67,9 +67,9 @@ def normalize(message):
     if not message.content or any(not isinstance(part, TextContent) for part in message.content):
         return None
     text = message.text.strip()
-    if kind == "wecom" and not direct:
-        text = re.sub(r"^(?:@[\S]+[\s\u2005]+)+(?=/(?:咨询|consult)\s)", "", text)
-    if not text.startswith(("/咨询 ", "/consult ", "/绑定协作 ")) or len(text) > 4000:
+    if kind in ("wecom", "dingtalk") and not direct:
+        text = re.sub(r"^(?:@[\S]+[\s\u2005]+)+(?=/(?:咨询|consult|协作)\s|\[主题:)", "", text)
+    if not text or len(text) > 4000:
         return None
     address = {"connector": channel, "kind": kind, "chat": str(chat), "sender": str(sender),
                "message": str(native_id), "direct": direct}
@@ -81,11 +81,13 @@ def normalize(message):
     return {"address": address, "text": text, "at": at}
 
 
-def reply_subject(address):
+def reply_subject(address, proactive=False):
     kind, chat, message = address["kind"], address["chat"], address["message"]
     thread = address.get("thread")
     if kind == "telegram":
-        metadata = {"chat_id": chat, "source_message_id": message}
+        metadata = {"chat_id": chat}
+        if not proactive:
+            metadata["source_message_id"] = message
         if thread is not None:
             metadata["message_thread_id"] = int(thread)
     elif kind in ("discord", "wecom"):
@@ -206,6 +208,18 @@ def transport_only(base, accept, status=lambda *_: None, spool=None):
                         raise RuntimeError("DingTalk did not acknowledge the reply")
                 return "markdown" if payload["msgtype"] == "markdown" else None
 
+            async def publish_group(self, chat, text):
+                http = await self._ensure_http()
+                headers = await self._get_auth_headers()
+                body = {"robotCode": self._config.effective_robot_code, "openConversationId": chat,
+                        "msgKey": "sampleMarkdown", "msgParam": json.dumps({"title": "Contractor", "text": text}, ensure_ascii=False)}
+                async with http.post("https://api.dingtalk.com/v1.0/robot/groupMessages/send", json=body, headers=headers,
+                                     allow_redirects=False) as response:
+                    result = await response.json()
+                    if response.status != 200 or not isinstance(result.get("processQueryKey"), str) or not result["processQueryKey"]:
+                        raise RuntimeError("DingTalk group delivery was not confirmed")
+                return "markdown"
+
             async def _result_card(self, http, sender, delivery, link):
                 try:
                     headers = await self._get_auth_headers()
@@ -314,11 +328,20 @@ async def main(configs, ledger):
     async def deliver(data):
         request, address = data["request"], data["address"]
         channel = manager.get_channel(address["connector"])
+        proactive = data.get("proactive") is True
         sent, form = False, None
+        if proactive and (address.get("direct") or address["kind"] not in ("dingtalk", "wecom", "telegram", "discord") or not any(
+                row["id"] == address["connector"] and any(route.get("proactive") and route["chat"] == address["chat"]
+                and route.get("thread") == address.get("thread") for route in row["routes"]) for row in configs)):
+            emit("delivery", request=request, sent=False)
+            return
         if channel and channel.channel_type == address["kind"] and (address["kind"] != "wecom" or channel.is_connected):
             try:
-                reply = channel.reply_original(address, data["text"], data.get("card")) if address["kind"] == "dingtalk" \
-                    else channel.reply_text(reply_subject(address), data["text"])
+                if address["kind"] == "dingtalk":
+                    reply = channel.publish_group(address["chat"], data["text"]) if proactive \
+                        else channel.reply_original(address, data["text"], data.get("card"))
+                else:
+                    reply = channel.reply_text(reply_subject(address, proactive), data["text"])
                 result = await asyncio.wait_for(reply, timeout=20)
                 form = result if address["kind"] == "dingtalk" else None
                 if data.get("delivery") is not None:

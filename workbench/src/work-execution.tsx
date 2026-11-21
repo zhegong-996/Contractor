@@ -83,7 +83,8 @@ function SnapshotContents({ snapshot: snap, project, ticket, origin }: {
   snapshot: Snapshot; project: string; ticket: string; origin?: Route['conversationOrigin'];
 }) {
   const context = snap.contents!.context;
-  const evidence = context.events.filter(event => ['knowledge.source', 'task.confirmation', 'project.reference'].includes(event.type));
+  const evidence = context.events.filter(event => ['task.request', 'knowledge.source', 'task.confirmation', 'project.reference',
+    'task.topic-basis', 'task.topic-history', 'task.discussion', 'task.handoff'].includes(event.type));
   const review = snap.review;
   return <>
     <dl className="facts run-facts">
@@ -92,6 +93,15 @@ function SnapshotContents({ snapshot: snap, project, ticket, origin }: {
       {snap.isolation && <><dt>成员隔离</dt><dd>{snap.isolation.owner}</dd></>}
       {snap.contents!.runtime.resumed && <><dt>会话</dt><dd>接续上轮</dd></>}
     </dl>
+    <details className="minor-disclosure">
+      <summary>本轮实际提示词与技能</summary>
+      {snap.workerHarness && <dl className="facts run-facts">
+        <dt>配置版本</dt><dd><code title={snap.workerHarness.revision}>{short(snap.workerHarness.revision, 8)}</code></dd>
+        <dt>技能版本</dt><dd>{snap.workerHarness.skills.length ? snap.workerHarness.skills.map(skill =>
+          <div key={skill.id}>{skill.title} <code title={skill.revision}>{short(skill.revision, 12)}</code></div>) : '未挂载'}</dd>
+      </dl>}
+      <pre className="worker-frozen-prompt">{snap.contents!.skill.prompt ?? '未记录提示词'}</pre>
+    </details>
     {review && <details className="minor-disclosure">
       <summary>过程核对</summary>
       <dl className="facts run-facts">

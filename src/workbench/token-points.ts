@@ -14,9 +14,11 @@ const basis = z.object({
 export const pointPolicyInput = z.object({ enabled: z.boolean().optional(), tokensPerPoint: z.number().int().min(1).max(10_000_000), rates: z.array(basis).max(200) }).strict()
   .refine(({ rates }) => new Set(rates.map(r => JSON.stringify([r.provider, r.model]))).size === rates.length, '同一供应商的同一模型只能配置一个倍率');
 export const pointPolicyUpdate = pointPolicyInput.safeExtend({ revision: z.string().regex(/^[a-f0-9]{64}$/).optional() });
-export const pointLimitInput = z.object({ kind: scopeKind, subject: name, period: z.enum(['day', 'month']), limit: points.nullable() }).strict();
+export const pointScopeInput = z.object({ kind: scopeKind, subject: name }).strict();
+export const pointLimitInput = pointScopeInput.extend({ period: z.enum(['day', 'month']), limit: points.nullable(),
+  revision: z.number().int().nonnegative() }).strict();
 export type PointPolicy = z.infer<typeof pointPolicyInput>;
-export type PointLimit = z.infer<typeof pointLimitInput>;
+export type PointLimit = Omit<z.infer<typeof pointLimitInput>, 'revision'> & { revision?: number };
 export type PointScope = Pick<PointLimit, 'kind' | 'subject'>;
 type Rate = z.infer<typeof basis> & { tokensPerPoint: number };
 export type PointQuote = Rate & { reserved: number };
@@ -35,6 +37,9 @@ export class TokenPoints {
       CREATE TABLE IF NOT EXISTS workbench_point_policy (id INTEGER PRIMARY KEY CHECK(id=1), value TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS workbench_point_limit (
         kind TEXT NOT NULL, subject TEXT NOT NULL, period TEXT NOT NULL, units INTEGER NOT NULL, PRIMARY KEY(kind,subject)
+      );
+      CREATE TABLE IF NOT EXISTS workbench_point_limit_revision (
+        kind TEXT NOT NULL, subject TEXT NOT NULL, revision INTEGER NOT NULL, PRIMARY KEY(kind,subject)
       );
       CREATE TABLE IF NOT EXISTS workbench_point_charge (
         run INTEGER NOT NULL, attempt INTEGER NOT NULL, quote TEXT NOT NULL, reserved INTEGER NOT NULL, billed INTEGER,
@@ -62,9 +67,15 @@ export class TokenPoints {
     this.db.prepare('INSERT OR REPLACE INTO workbench_point_policy VALUES (1,?)').run(JSON.stringify({ ...policy, enabled }));
   }
 
+  revision({ kind, subject }: PointScope) {
+    return Number(this.db.prepare('SELECT revision FROM workbench_point_limit_revision WHERE kind=? AND subject=?').get(kind, subject)?.revision ?? 0);
+  }
+
   setLimit({ kind, subject, period, limit }: PointLimit) {
     if (limit === null) this.db.prepare('DELETE FROM workbench_point_limit WHERE kind=? AND subject=?').run(kind, subject);
     else this.db.prepare('INSERT OR REPLACE INTO workbench_point_limit VALUES (?,?,?,?)').run(kind, subject, period, Math.round(limit * scale));
+    this.db.prepare(`INSERT INTO workbench_point_limit_revision VALUES (?,?,1)
+      ON CONFLICT(kind,subject) DO UPDATE SET revision=revision+1`).run(kind, subject);
   }
 
   view(scope: PointScope) {
@@ -81,7 +92,7 @@ export class TokenPoints {
     const limit = policy ? Number(policy.units) : null;
     const billed = Number(row.billed), reserved = Number(row.reserved);
     const enabled = this.policy().enabled === true;
-    return { ...scope, enabled, enforced: enabled && limit !== null, period, since, limit: limit === null ? null : limit / scale, used: billed / scale,
+    return { ...scope, revision: this.revision(scope), enabled, enforced: enabled && limit !== null, period, since, limit: limit === null ? null : limit / scale, used: billed / scale,
       reserved: reserved / scale, tokens: Number(row.tokens), incomplete: Number(row.incomplete),
       overLimit: limit === null ? 0 : Math.max(0, billed - limit) / scale,
       blocked: enabled && limit !== null && billed + reserved >= limit,
@@ -95,6 +106,10 @@ export class TokenPoints {
     if (!rate) return;
     const exact = { ...rate, tokensPerPoint: policy.tokensPerPoint };
     return { ...exact, reserved: measure(rate.reserveTokens, exact) };
+  }
+
+  estimate(quote: PointQuote | undefined) {
+    return quote ? quote.reserved / scale : undefined;
   }
 
   admit(scopes: PointScope[], quote?: PointQuote, checkQuote = false) {

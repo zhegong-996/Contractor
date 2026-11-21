@@ -3,6 +3,7 @@ import { ArrowLeft, ArrowRight, Bot, Check, ChevronRight, CircleCheck, FileCheck
 import { api, uid, useData, useTickets, type Knowledge, type Ticket, type TicketRow, type TicketTopicContext } from './api.ts';
 import { AgentOptions, MaterialPicker } from './creation.tsx';
 import { Conversation } from './conversation.tsx';
+import { ChannelWorkLink } from './project-channels.tsx';
 import { AcceptedEvidence } from './accepted-evidence.tsx';
 import { ChannelReceipt, DeliveryVerification, StageChecks } from './work-evidence.tsx';
 import { WorkBoard, workStates, type BoardGrouping } from './work-board.tsx';
@@ -307,6 +308,7 @@ function TicketDetail(props: PageProps & { ticket: Ticket; tab: WorkTab }) {
           {actions.accept && <div className="ticket-next-action">
             <span><FileCheck2 size={17} />第 {upcoming} 版待你验收</span><a className="text-button" href={detailLink(hasVerification(ticket) ? 'verification' : 'delivery')}>核对本版成果 <ArrowRight size={14} /></a>
           </div>}
+          <ChannelWorkLink project={project} ticket={ticket} actor={workspace.actor} />
           <Conversation {...props} ticket={ticket} topic={ticket.work.topic} />
           <TicketOutcomes {...props} ticket={ticket} />
           {ticket.report && !ticket.result && !ticket.questions.length && !status && <div className="info-callout"><Bot size={17} /><span>{ticket.report.summary}</span></div>}
@@ -332,6 +334,7 @@ function TicketDetail(props: PageProps & { ticket: Ticket; tab: WorkTab }) {
           <dt>项目</dt><dd><a href={routeFor(project.id, 'project')}>{project.title}</a></dd>
           <dt>主题</dt><dd>{discussion ? <a href={discussion.href}>{discussion.name}</a> : ticket.topicTitle ?? '未归入主题'}</dd>
           <dt>发起人</dt><dd>{memberName(ticket.work.requester)}</dd>
+          {!ticket.work.consultation && <><dt>验收人</dt><dd>{memberName(ticket.acceptanceOwner)}</dd></>}
           <dt>负责 Agent</dt><dd>{agent?.title ?? ticket.work.agent}</dd>
           {agent?.owner && <><dt>Agent 所有者</dt><dd>{memberName(agent.owner)}</dd></>}
           {!!ticket.recovery?.owners.length && <><dt>待处理人</dt><dd>{ticket.recovery.owners.map(memberName).join('、')}</dd></>}
@@ -480,6 +483,15 @@ function Delivery(props: PageProps & { ticket: Ticket }) {
       {scope && <dl className="facts">
         <dt>委托仓库</dt><dd>{scope.repository}</dd><dt>基线分支</dt><dd>{scope.base}</dd><dt>获准路径</dt><dd>{scope.paths.join('、')}</dd>
       </dl>}
+      {ticket.publishStatus && <div className="revision-note">
+        <strong>{({ 'check-push': '本版已提交，待推送或核对远端', 'need-pr': '远端提交已核对，待关联 PR', 'update-pr': '待把本版提交推到原 PR' })[ticket.publishStatus.state]}</strong>
+        <div className="inline-meta"><span>研发 {ticket.publishStatus.owner ?? '待确认'}</span>
+          <Ext href={ticket.publishStatus.branchUrl}>{ticket.publishStatus.branch}</Ext><code>{ticket.publishStatus.commit}</code>
+          {ticket.publishStatus.pull && <Ext href={ticket.publishStatus.pull}>打开原 PR</Ext>}
+        </div>
+        {ticket.mayLinkDelivery && ticket.publishStatus.state === 'check-push' && <Button type="button" size="sm" variant="outline" disabled={busy}
+          onClick={() => void run(() => api('ticket/' + ticket.id + '/branch', { url: ticket.publishStatus!.branchUrl }), '已核对远端分支')}>核对远端分支</Button>}
+      </div>}
       {delivery && <div className="delivery-summary">
         <Ext href={delivery.url}><GitPullRequest size={16} />PR #{delivery.pr}</Ext><code title={delivery.headSha}>{short(delivery.headSha, 12)}</code>
         {delivery.state && <span>{pullStates[delivery.state]}</span>}
@@ -555,6 +567,18 @@ function Delivery(props: PageProps & { ticket: Ticket }) {
       routeFor(project.id, 'work', ticket.id, 'verification'), props.route.conversationOrigin), props.route.inboxOrigin)}>
       <ListChecks size={16} />查看逐项测试 <ArrowRight size={14} /></a>}
     <VersionDecision {...props} onRevise={() => setAction('revision')} />
+    {result && ticket.acceptanceChoices.length > 0 && <Button size="sm" variant="outline" className="self-start"
+      onClick={() => setAction('acceptance-owner')}>交接本版验收</Button>}
+    {result && action === 'acceptance-owner' && <Modal title="交接本版验收" close={() => setAction('')}>
+      <form className="form" onSubmit={async event => {
+        event.preventDefault(); const form = new FormData(event.currentTarget);
+        if (await run(() => api('ticket/' + ticket.id + '/acceptance-owner', { member: form.get('member'), reason: form.get('reason'),
+          previous: ticket.acceptanceOwner, revision: result.revision }), '本版验收已交接')) setAction('');
+      }}><Field label="新验收人"><select name="member" required><option value="">选择成员</option>{ticket.acceptanceChoices.map(person =>
+        <option key={person} value={person}>{project.members.find(m => m.name === person)?.displayName ?? person}</option>)}</select></Field>
+        <Field label="交接原因"><TextArea name="reason" rows={3} required maxLength={3500} /></Field>
+        <div className="form-actions"><Button disabled={busy} type="submit">确认交接</Button></div>
+      </form></Modal>}
     {ticket.actions.retryUnpublished && result && <Button size="sm" variant="outline" className="self-start" onClick={() => setAction('retry-unpublished')}>
       修正未推送的代码成果</Button>}
     {ticket.versions.length > 0 && <Section title="版本历史">
@@ -808,7 +832,7 @@ function TopicBasis({ ticket }: { ticket: Ticket }) {
   const path = 'ticket/' + ticket.id + '/topic-context';
   const data = useData<TicketTopicContext>(path, 5000);
   const { run, busy } = useActions();
-  const update = async (row: { id: string; source: 'web' | 'feishu'; revision: string }, confirmed: boolean) => {
+  const update = async (row: Pick<TicketTopicContext['recent'][number], 'id' | 'source' | 'revision'>, confirmed: boolean) => {
     if (await run(() => api(path, { id: row.id, source: row.source, revision: row.revision, confirmed }),
       confirmed ? '已确认主题依据' : '已移除本单确认')) await data.refetch();
   };

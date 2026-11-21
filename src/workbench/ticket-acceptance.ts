@@ -37,6 +37,10 @@ type AcceptancePorts = {
   audit: (id: string, kind: string, data: object) => void;
 };
 
+export function acceptanceAssignee(work: Work) {
+  return work.acceptanceAssignee?.version === (work.version ?? 1) ? work.acceptanceAssignee.member : work.requester;
+}
+
 export function openTicketAcceptance(store: Pick<SuperAgentStore, 'atomic'>, hub: Pick<ExecutionHub, 'confirmed'>,
   iterations: Iterations, knowledge: Pick<ProjectKnowledge, 'get' | 'save'>, ports: AcceptancePorts) {
   const { ticketFor, mayStart, delegationAuthority, pendingDelegation, missingRequiredDelegation, delegationResultsCurrent,
@@ -47,7 +51,7 @@ export function openTicketAcceptance(store: Pick<SuperAgentStore, 'atomic'>, hub
     const { ticket, work, project } = ticketFor(id, actor);
     if (work.consultation) throw new WorkbenchError('咨询已经回到主题讨论。', 409);
     if (!delegationAuthority(work)) throw new WorkbenchError('上游委托已失效，请重新确认验收范围。', 409);
-    if (work.requester !== actor || !mayStart(project, actor)) throw new WorkbenchError('当前工单由仍有协作权限的原发起人验收。', 403);
+    if (acceptanceAssignee(work) !== actor || !mayStart(project, actor)) throw new WorkbenchError('由当前版本的验收人验收。', 403);
     if (!work.accepted && (pendingDelegation(id, work.version ?? 1) || missingRequiredDelegation(id, work) || !delegationResultsCurrent(id, work)))
       throw new WorkbenchError('必需子任务的验收结果尚未齐备或已失效。', 409);
     if (body && !conditions.trim()) throw new WorkbenchError('请填写这条结论的适用条件。');
@@ -95,8 +99,8 @@ export function openTicketAcceptance(store: Pick<SuperAgentStore, 'atomic'>, hub
     }
     const check = ticketFor(id, actor);
     const current = check.work;
-    if (current.requester !== actor || !mayStart(check.project, actor))
-      throw new WorkbenchError('当前工单由仍有协作权限的原发起人验收。', 403);
+    if (acceptanceAssignee(current) !== actor || !mayStart(check.project, actor))
+      throw new WorkbenchError('由当前版本的验收人验收。', 403);
     if (current.accepted?.revision === revision) return verifyRepeat(current);
     if (current.accepted || !delegationAuthority(current) || readableOutput(id)?.revision !== revision
       || digest(current.delivery ?? null) !== digest(work.delivery ?? null)
@@ -125,7 +129,7 @@ export function openTicketAcceptance(store: Pick<SuperAgentStore, 'atomic'>, hub
       const confirmedIds = new Set(manifestFor(output.run)?.confirmations ?? []);
       const confirmed = hub.confirmed(id).filter(card => confirmedIds.has(card.id));
       const candidateBody = body || [
-        '本工单第 ' + (output.version ?? 1) + ' 版已由发起人验收。以下是本次工作记录，尚未确认可推广的适用条件。',
+        '本工单第 ' + (output.version ?? 1) + ' 版已由验收人确认。以下是本次工作记录，适用条件待核对。',
         ...(productResult ? ['本版验收条件：\n' + productResult.cases.map(row =>
           '- ' + row.title + '：' + row.expectation + '（通过）').join('\n')] : []),
         ...confirmed.map(card => ['人确认的问题：' + card.title, card.text,

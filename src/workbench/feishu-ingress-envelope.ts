@@ -4,10 +4,29 @@ import { readCardClick } from './feishu-cards.ts';
 
 const message = z.object({
   message_id: z.string().min(1).max(180), chat_id: z.string().min(1).max(180), chat_type: z.enum(['group', 'p2p']),
-  sender_type: z.literal('user'), sender_id: z.string().optional(), message_type: z.literal('text').optional(), content: z.string().max(16_000),
+  sender_type: z.literal('user'), sender_id: z.string().optional(), message_type: z.enum(['text', 'post']).optional(), content: z.string().max(16_000),
   root_id: z.string().max(180).nullish(), thread_id: z.string().max(180).nullish(), update_time: z.union([z.string(), z.number()]).optional(),
   mentions: z.array(z.object({ id: z.string(), key: z.string().optional(), name: z.string().optional() })).optional(),
 });
+
+export function feishuIngressText(content: string, kind?: string) {
+  if (kind === 'text' || !kind) return content;
+  if (kind !== 'post') return;
+  let body: unknown;
+  try { body = JSON.parse(content); } catch { return content; }
+  const element = z.object({ tag: z.string(), text: z.string().optional(), user_id: z.string().optional() });
+  const post = z.object({ title: z.string().optional(), content: z.array(z.array(element)) });
+  const localized = z.object({ zh_cn: post.optional(), en_us: post.optional(), ja_jp: post.optional() });
+  const direct = post.safeParse(body);
+  const variants = localized.safeParse(body);
+  const value = direct.success ? direct.data : variants.data?.zh_cn ?? variants.data?.en_us ?? variants.data?.ja_jp;
+  if (!value) return;
+  return [value.title, ...value.content.map(line => line.map(part => {
+    if (part.tag === 'text' || part.tag === 'a') return part.text ?? '';
+    if (part.tag === 'at' && part.user_id?.startsWith('@_user_')) return part.user_id;
+    return '';
+  }).join(''))].filter(Boolean).join('\n').trim();
+}
 
 const identity = (...parts: unknown[]) => createHash('sha256').update(JSON.stringify(parts)).digest('hex');
 

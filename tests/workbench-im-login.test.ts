@@ -234,13 +234,24 @@ test('工作台回调、开通、原账号绑定、项目授权和停止口令�
         if (url.pathname === '/sns/userinfo')
           return Response.json({openid:url.searchParams.get('openid'),nickname:'微信联调成员'});
       }
-      if (url.hostname !== 'open.feishu.cn') return native(input, opts);
-      if (url.pathname.endsWith('/oauth/token')) return Response.json({access_token: JSON.parse(opts.body).code});
-      if (url.pathname.endsWith('/user_info')) {
+      const scan = url.hostname === 'passport.feishu.cn';
+      if (!scan && url.hostname !== 'open.feishu.cn') return native(input, opts);
+      if (scan && url.pathname === '/suite/passport/oauth/token') {
+        const form = new URLSearchParams(opts.body);
+        if (opts.headers['content-type'] !== 'application/x-www-form-urlencoded'
+            || form.get('client_id') !== 'cli_fixture'
+            || form.get('redirect_uri') !== ${JSON.stringify(team + '/api/auth/im/callback')}
+            || !/^[A-Za-z0-9_-]{43}$/.test(form.get('code_verifier')))
+          return new Response('', {status:400});
+        return Response.json({access_token:form.get('code')});
+      }
+      if (!scan && url.pathname.endsWith('/oauth/token')) return Response.json({access_token: JSON.parse(opts.body).code});
+      if (scan ? url.pathname === '/suite/passport/oauth/userinfo' : url.pathname.endsWith('/user_info')) {
         const code=opts.headers.authorization.slice('Bearer '.length);
         const person=code==='newbie-refresh'?'newbie':code;
-        return Response.json({code:0,data:{tenant_key:person==='outside'?'wrong_tenant':'tenant_fixture',open_id:'ou_'+person,
-          name:code==='newbie-refresh'?'新版飞书名':person,avatar_thumb:'https://s3-imfile.feishucdn.com/avatar/'+code+'.png'}});
+        const data={tenant_key:person==='outside'?'wrong_tenant':'tenant_fixture',open_id:'ou_'+person,
+          name:code==='newbie-refresh'?'新版飞书名':person,avatar_thumb:'https://s3-imfile.feishucdn.com/avatar/'+code+'.png'};
+        return Response.json(scan ? data : {code:0,data});
       }
       return new Response('', {status:404});
     };
@@ -302,6 +313,42 @@ test('工作台回调、开通、原账号绑定、项目授权和停止口令�
   assert.deepEqual(sameAccount.projects.map((project: { id: string }) => project.id), ['store']);
   assert.equal((await api('admin/members', ssoSession)).status, 403);
   assert.equal((await pending()).length, 0);
+  const loginPage = await api('session').then(response => response.json());
+  assert.equal(loginPage.imLogin.embeddedQr, true);
+  assert.equal((await api('auth/im/qr', undefined, {}, 'https://wrong.invalid')).status, 403);
+  async function beginQr(next: string) {
+    const response = await api('auth/im/qr', undefined, { next });
+    assert.equal(response.status, 200, await response.clone().text());
+    assert.match(response.headers.get('cache-control')!, /no-store/);
+    const body = await response.json();
+    assert.equal(body.signedIn, false);
+    assert.equal(Object.hasOwn(body, 'proof'), false);
+    assert.ok(body.maxAge > 0);
+    const frame = new URL(body.frame);
+    assert.equal(frame.origin + frame.pathname, 'https://passport.feishu.cn/suite/passport/sso/qr');
+    assert.equal(frame.searchParams.get('goto'), body.location);
+    const authorize = new URL(body.location);
+    assert.equal(authorize.pathname, '/suite/passport/oauth/authorize');
+    const state = authorize.searchParams.get('state')!;
+    const name = 'contractor_im_qr_' + state;
+    const proof = cookie(response, name)!;
+    assert.match(response.headers.getSetCookie()[0]!, /HttpOnly.*SameSite=Lax.*Secure.*Max-Age=/);
+    assert.ok(proof);
+    return { state, proof, name };
+  }
+  const [qr1, qr2] = await Promise.all([beginQr('#/store/work/example?tab=execution'), beginQr('#/account')]);
+  assert.notEqual(qr1.name, qr2.name);
+  assert.match((await complete('existing', { ...qr1, proof: qr2.proof })).headers.get('location')!, /im=expired/);
+  const scanned = await complete('existing', qr1);
+  assert.equal(scanned.headers.get('location'), '/#/store/work/example?tab=execution');
+  const scannedSession = cookie(scanned, 'contractor_console')!;
+  assert.ok(scannedSession);
+  assert.match(scanned.headers.getSetCookie().find(value => value.startsWith(qr1.name + '='))!, /Max-Age=0/);
+  assert.equal((await api('overview', scannedSession).then(response => response.json())).actor, 'existing-member');
+  assert.equal((await api('admin/members', scannedSession)).status, 403);
+  assert.equal((await complete('existing', qr2)).headers.get('location'), '/#/account');
+  assert.match((await complete('existing', qr1)).headers.get('location')!, /im=expired/);
+  assert.match((await complete('outside', await beginQr('#/account'))).headers.get('location')!, /im=failed/);
   for (const [code, error] of [['disabled', 'blocked'], ['ambiguous', 'conflict']] as const) {
     const rejected = await complete(code, await begin());
     assert.match(rejected.headers.get('location')!, new RegExp('im=' + error));

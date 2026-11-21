@@ -1,7 +1,7 @@
 import { TextArea } from './components/input.tsx';
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ArrowUpRight, Bot, Send } from 'lucide-react';
-import { api, uid, useMessages, type Agent, type ConversationMessage, type Ticket } from './api.ts';
+import { api, uid, useData, useMessages, type Agent, type ConversationMessage, type ProjectChannels, type Ticket } from './api.ts';
 import { Markdown } from './markdown.tsx';
 import { Avatar, date, Ext, Failure, Field, Loading, short, Source, sourceName, useActions, useSessionScroll, useStored } from './ui.tsx';
 import { Button } from './components/button.tsx';
@@ -12,7 +12,8 @@ import { ExecutionEnvironment, executionTargetState, useExecutionTargets } from 
 
 type ConversationDraft = { text: string; nonce: string; consultants: string[]; devices?: { agent: string; device: string }[] };
 
-type DiscussionMessage = ConversationMessage & {
+type DiscussionMessage = Omit<ConversationMessage, 'channel' | 'sourceUrl'> & {
+  channel: string; sourceUrl?: string;
   url?: string; linkLabel?: string; inline?: boolean; commit?: string; revisions?: Ticket['channelHistory'][number]['revisions'];
 };
 
@@ -38,6 +39,9 @@ export function Conversation({ project, workspace, openTask, ticket, topic, rout
   const filter = ticket ? '?ticket=' + encodeURIComponent(ticket.id) : topic ? '?topic=' + encodeURIComponent(topic) : '';
   const reply = !ticket && route.reply;
   const data = useMessages(base + filter + (reply ? (filter ? '&' : '?') + 'reply=' + encodeURIComponent(reply) : ''));
+  const activeTopic = ticket?.work.topic ?? topic;
+  const connection = useData<ProjectChannels>(activeTopic ? 'project/' + project.id + '/channels?topic=' + encodeURIComponent(activeTopic) : '');
+  const [publication, choosePublication] = useState('');
   const [draft, setDraft] = useStored<ConversationDraft>('conversation:' + base + filter, { text: '', nonce: uid(), consultants: [] });
   const [agent, setAgent] = useState('');
   const [source, setChannel] = useStored('conversation-source:' + base + filter + (reply ? ':' + reply : ''), '');
@@ -58,7 +62,8 @@ export function Conversation({ project, workspace, openTask, ticket, topic, rout
   useEffect(() => {
     if (preferred) setDraft({ ...draft, consultants: [preferred] });
   }, [preferred]);
-  const messages: DiscussionMessage[] | undefined = ticket ? ticketDiscussion(ticket, data.error ? [] : data.rows ?? []) : data.rows;
+  const messages: DiscussionMessage[] | undefined = ticket ? ticketDiscussion(ticket, data.error ? [] : data.rows ?? [])
+    : data.rows?.map(row => ({ ...row, revisions: 'sourceRevisions' in row ? row.sourceRevisions : undefined }));
   const channels = [...new Set(messages?.map(item => item.channel) ?? [])];
   const filterable = desk || !!ticket;
   const channel = channels.includes(source) ? source : '';
@@ -83,17 +88,20 @@ export function Conversation({ project, workspace, openTask, ticket, topic, rout
   const sourceFilter = filterable && channels.length > 1 && <select aria-label="筛选消息来源" value={channel}
     onChange={event => setChannel(event.target.value)}><option value="">全部来源</option>{channels.map(item =>
       <option value={item} key={item}>{sourceName(item)}</option>)}</select>;
-  const publishable = !!ticket?.canReplyInFeishu && !agent && !selected.length;
-  const submit = async (publish: boolean) => {
+  const publishable = !!(ticket ? ticket.canReplyInFeishu : connection.data?.feishuReply) && !agent && !selected.length;
+  const destinations = !agent && !selected.length && (!ticket || ticket.imPublications.length)
+    ? connection.data?.imTopics.filter(row => !row.available && row.topic === activeTopic && row.canPublish) ?? [] : [];
+  const submit = async (publish?: string) => {
     const text = draft.text.trim();
-    if (!text || busy || needsDevice || publish && !publishable) return;
+    const feishu = publish === 'feishu';
+    if (!text || busy || needsDevice || (feishu && !publishable) || (publish && !feishu && !destinations.some(row => row.id === publish))) return;
     if (!consultants.length && agent) { openTask({ topic, parent: ticket?.id, agent, device: placements[0]?.device || undefined, request: text }); return; }
     const devices = placements.flatMap(({ participant, device }) => device ? [{ agent: participant.id, device }] : []);
     tail.current = { key: scrollKey, follow: true };
     if (await run(() => selected.length
       ? api('project/' + project.id + '/consult', { text, nonce: draft.nonce, topic, agents: selected, ...(devices.length && { devices }) })
-      : api(base, { text, nonce: draft.nonce, ticket: ticket?.id, topic, ...(publish && { feishu: true }) }),
-    selected.length ? '咨询已交给所选 Agent' : publish ? '已记录，等待飞书送达' : ticket ? '已在工单内留言' : '消息已发送')) {
+      : api(base, { text, nonce: draft.nonce, ticket: ticket?.id, topic, ...(feishu ? { feishu: true } : publish ? { im: publish } : {}) }),
+    selected.length ? '咨询已交给所选 Agent' : publish ? '已记录，等待渠道送达' : ticket ? '已在工单内留言' : '消息已发送')) {
       setDraft({ text: '', nonce: uid(), consultants: [] });
       setChannel('');
       setShowRoster(false);
@@ -124,9 +132,12 @@ export function Conversation({ project, workspace, openTask, ticket, topic, rout
         <Avatar avatar={members.get(item.actor)?.avatar} value={item.actor} /><div className="message">
           <div className="message-meta"><strong title={item.actor}>{members.get(item.actor)?.displayName ?? item.actor}</strong><Source channel={item.channel} /><time>{date(item.at)}</time>
             {item.inline && <span>行内评论 {short(item.commit)}</span>}
-            {item.url && <Ext href={item.url}>{item.linkLabel ?? '原消息'}</Ext>}
+            {(item.url || item.sourceUrl) && <Ext href={item.url ?? item.sourceUrl}>{item.linkLabel ?? '原消息'}</Ext>}
             {item.feishuDelivery && <span className="discussion-receipt" data-state={item.feishuDelivery}>
               {({ sent: '已公开到飞书', pending: '待送达飞书', dropped: '飞书未送达' })[item.feishuDelivery]}
+            </span>}
+            {item.mirrorDelivery && <span className="discussion-receipt" data-state={item.mirrorDelivery.state}>
+              {sourceName(item.mirrorDelivery.channel)} · {({ sent: '已送达', pending: '待送达', dropped: '待核对回执' })[item.mirrorDelivery.state]}
             </span>}
           </div>
           <Markdown text={item.text} />
@@ -140,7 +151,7 @@ export function Conversation({ project, workspace, openTask, ticket, topic, rout
     </div>
     {!reply && project.mayStart && <form className={desk ? 'form conversation-composer' : 'form ticket-composer'} onSubmit={event => {
       event.preventDefault();
-      void submit(false);
+      void submit();
     }}>
       {desk ? messageInput : <Field label={ticket ? '留言' : messageLabel}>{messageInput}</Field>}
       {!!consultants.length && (!desk || showRoster) && <TopicMemberPicker agents={consultants} value={draft.consultants ?? []}
@@ -172,7 +183,12 @@ export function Conversation({ project, workspace, openTask, ticket, topic, rout
         <Button size="sm" type="submit" disabled={busy || needsDevice || !draft.text.trim()}>{desk && <Send />}
           {selected.length ? '发起只读咨询' : agent ? '确认委托' : ticket ? '仅在工单内留言' : '发送'}</Button>
         {publishable && <Button size="sm" type="button" variant="outline" disabled={busy || !draft.text.trim()}
-          onClick={() => void submit(true)}>公开回复到飞书</Button>}
+          onClick={() => void submit('feishu')}>公开回复到飞书</Button>}
+        {!!destinations.length && <><select aria-label="选择公开回复的会话" value={publication} onChange={event => choosePublication(event.target.value)}>
+          <option value="">选择其他 IM 会话</option>{destinations.map(row => <option value={row.id} key={row.id}>
+            {sourceName(row.kind)} · {row.label}{row.tag ? ' / ' + row.tag : ''}</option>)}
+        </select><Button size="sm" type="button" variant="outline" disabled={busy || !draft.text.trim() || !destinations.some(row => row.id === publication)}
+          onClick={() => void submit(publication)}>公开到选定会话</Button></>}
       </div>
     </form>}
   </section>;

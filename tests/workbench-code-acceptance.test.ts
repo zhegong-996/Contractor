@@ -178,7 +178,7 @@ test('交付检查按版本冻结，失败只重核相应证据；独立审查�
   assert.equal(pending('owner', 'acceptance'), undefined);
   assert.equal(pending('maker', 'delivery'), undefined);
   await assert.rejects(accept(), /代码工单必须/);
-  await assert.rejects(work.accept('maker', id, output.revision, '', '', sha), /原发起人验收/);
+  await assert.rejects(work.accept('maker', id, output.revision, '', '', sha), /当前版本的验收人/);
   for (const checks of [[], [codeCheck(1, { head_sha: foreign })], [codeCheck(1), codeCheck(2, { status: 'in_progress', conclusion: null })],
     [codeCheck(2, { conclusion: 'failure' })]]) {
     remote.checks = checks; await save();
@@ -340,7 +340,7 @@ test('交付检查按版本冻结，失败只重核相应证据；独立审查�
   work.transferProjectMaintainer('owner', 'store', 'maker');
   remote.pausePullRead = true;
   await save();
-  const deniedDuringRead = assert.rejects(accept(sha, gate?.selection), { status: 403, message: /原发起人验收/ });
+  const deniedDuringRead = assert.rejects(accept(sha, gate?.selection), { status: 403, message: /当前版本的验收人/ });
   try {
     await wait(() => existsSync(readPaused) || undefined);
     work.setProjectMemberRole('maker', 'store', 'owner', 'reader');

@@ -20,14 +20,15 @@ const gatewayOutput = z.discriminatedUnion('type', [
 export async function startOctopIM(settings: OctopSettings | undefined) {
   if (!settings?.channels?.length) return;
   const state = await realpath(runtime());
-  const connectors = (await Promise.all(settings.channels.map(async ({ id, kind, credential, routes, allowAccountBinding }) => {
+  const connectors = (await Promise.all(settings.channels.map(async ({ id, kind, credential, routes, allowedConversations, allowAccountBinding }) => {
     try {
       const file = path.join(state, 'octop-im', credential + '.json');
       const stat = await lstat(file);
       if (await realpath(file) !== file || !stat.isFile() || stat.nlink !== 1 || (stat.mode & 0o077) || stat.size > 65536)
         throw new Error('凭据文件须为仅本人可读写的本地文件');
       const config = credentialsSchema.parse(JSON.parse(await readFile(file, 'utf8')));
-      return { id, kind, config, routes: routes.map(({ chat, thread }) => ({ chat, thread })), allowAccountBinding };
+      return { id, kind, config, routes: [...routes.map(({ chat, thread }) => ({ chat, thread })),
+        ...(allowedConversations ?? []).map(({ chat, thread, direct }) => ({ chat, thread, direct, proactive: !direct }))], allowAccountBinding };
     } catch {
       console.error('Octop IM 未载入本地连接配置 ' + id);
       return undefined;
@@ -74,7 +75,7 @@ export async function startOctopIM(settings: OctopSettings | undefined) {
 
   const transport: OctopIMTransport = {
     ready: address => !stopped && ready.has(address.connector),
-    async send(address, text, card, delivery) {
+    async send(address, text, card, delivery, proactive) {
       if (!transport.ready(address)) throw new Error('Octop IM 连接未就绪');
       return await new Promise<OctopIMDeliveryForm | void>((resolve, reject) => {
         const request = randomUUID();
@@ -85,7 +86,7 @@ export async function startOctopIM(settings: OctopSettings | undefined) {
         };
         const timeout = setTimeout(() => settle(false), 25000);
         pending.set(request, settle);
-        child.stdin.write(JSON.stringify({ request, address, text, card, delivery }) + '\n', error => { if (error) settle(false); });
+        child.stdin.write(JSON.stringify({ request, address, text, card, delivery, proactive }) + '\n', error => { if (error) settle(false); });
       });
     },
   };

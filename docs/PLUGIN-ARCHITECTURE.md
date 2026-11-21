@@ -41,7 +41,21 @@ flowchart LR
 
 `capabilities.ts` 定义 v1 接口。`platform-plugins.ts` 在工作台启动时组装各能力。以检索为例，适配器实现在 `plugins/`，`memory-providers.ts` 注册受信任的实现。配置文件选用适配器，部署重启后生效。候选知识和修订由核心授权与校验。工单、积分和验收由业务核心记账。执行租约由当前调度器记账。
 
-`assistant` 能力只接收已筛选的输入，返回结构化草稿及用量。替换其实现时沿用同一个能力端口。平台管理员选择模型，核心复核授权、校验输出并结算积分。路由建议、知识提炼和个人咨询不会创建 Worker 租约。
+`assistant` 负责模型调用。 `assistantHarness` 负责注册有版本的上下文组件和内置技能。两者都通过同一套能力接口在启动时注册。业务核心校验输入、模型可用性、输出格式和用量，核对实际派工、验收和知识采用。
+
+## Agent 配置和运行
+
+| 入口 | 可配置项 | 生效范围 |
+| --- | --- | --- |
+| 平台管理 → 平台 Router | 整理模型、每日调用上限。路由建议和知识提炼各有独立的提示词及挂载技能。 | 维护人请求路由建议、知识负责人整理验收候选。两种草稿共用模型，使用各自的配置。 |
+| 个人设置 → 个人 Agent | 名称、简介、模型、提示词、已确认的个人经验、上下文开关、技能。 | 自己的会话。可用内置、团队和本人技能。 |
+| 个人设置 → 我的 Worker | 执行设备登记和项目授权。 | 已获委托且有执行权限的项目工单。 |
+
+技能库支持 Markdown 或 `SKILL.md`，保存正文形成不可变版本。挂载引用具体版本。发布下一版后，可以从技能库切换到新版本。停用技能会从后续装配中移除它，状态变化期间已开始的调用需要重新发起。团队技能由平台服务管理员发布，个人技能限本人。项目专家原有的项目资源权限独立生效。
+
+模型调用由固定业务合同、配置提示词、已启用技能和经过范围检查的上下文共同组成。Router 的候选范围由项目职责与权限计算。知识提炼只读取已核对的验收候选。个人 Agent 可以切换本人经验和最近八轮会话。每次调用记录配置指纹及加载的技能、组件版本，个人会话另保留回复时的名称。
+
+添加上下文插件时，在 `plugins/` 中声明稳定标识、组件版本、适用角色和默认状态，用 `platform-plugins.ts` 注册。组件输入取自调用方已经核对的上下文，工作台按返回的组件清单生成配置开关。模型服务的地址和凭据由受信任的部署配置提供。执行命令、工作目录和设备授权通过 Worker 管理。
 
 ```json
 { "plugins": { "memory": "weighted-terms" } }
@@ -55,6 +69,6 @@ flowchart LR
 
 入口与 Figma 修订服务使用统一生命周期管理，工作台关闭时先结束这些任务，再关闭协作账本。既有 AutoLoop 运行目录继续由原运行时恢复。独立 Contractor 环境使用 `dispatch/hub.sqlite`。旧版设备配对、队列标记和历史验收报告通过兼容层读取，新页面、命令和配置使用 Contractor 名称。
 
-DeepSeek Harness 的 Agent Loop 依赖已注册的模型、工具和会话服务，Provider 卸载时负责回收资源。Contractor 采用同样的核心与可替换能力边界。当前插件由部署代码组装，运行时工作区沿用平台预先授权的执行端。 [Agent Loop](https://github.com/deepseek-ai/deepseek-harness/blob/fcc0ad462172522aaf5c93a7b2e01f6b9f0b0159/packages/core/agent-loop/src/index.ts) · [DeepSeek Provider 生命周期](https://github.com/deepseek-ai/deepseek-harness/blob/fcc0ad462172522aaf5c93a7b2e01f6b9f0b0159/packages/llm/llm-deepseek/src/host.ts)
+DeepSeek Harness 按作用域注册提示词段、工具和运行上下文。Co-Sight Harness 把模型配置、插件清单与流程门禁分别维护。Octop 将专家配置和技能生命周期接到指定 Agent。Contractor 借鉴这些设计，独立实现配置表单和模型装配。 [DeepSeek 提示词装配](https://github.com/deepseek-ai/deepseek-harness/blob/fcc0ad462172522aaf5c93a7b2e01f6b9f0b0159/docs/subsystems/system-prompt.md) · [Co-Sight 插件清单](https://github.com/ZTE-AICloud/Co-Sight/blob/01b93a40647c2999558cc130f149632dd75cbe1e/Co-Sight%20Harness/framework/docs/plugin-install.md) · [Octop 技能管理](https://github.com/TencentCloud/Octop/blob/30f4aecd2e14e7eeee639b8c6c33c9f404463df8/src/octop/api/routers/skills.py)
 
 CI 同时运行 Node 和 Python 原生适配器回归。`npm run package:source -- --committed` 检查发布范围与当前提交一致，再从已跟踪文件打包。默认命令可生成本地联调包。

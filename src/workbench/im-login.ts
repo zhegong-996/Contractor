@@ -4,15 +4,18 @@ import type { ConsoleAccount } from '../console-auth.ts';
 import { imConnections, imProvider, identityHash, imProviderNames, type ExternalIdentity, type IMLoginSettings,
   type IMProvider, type VerifiedIdentity } from './im-login-providers.ts';
 import { WorkbenchError } from './errors.ts';
+import { feishuScanOrigin } from './im-login-channels.ts';
 
 export const imCallbackPath = '/api/auth/im/callback';
 export const imLoginCookie = 'contractor_im_oauth';
+export const imQrCookie = (state: string | null) => state && /^[a-f0-9]{48}$/.test(state) ? 'contractor_im_qr_' + state : undefined;
 const maxChallenges = 500;
 const oauthTimeout = 8 * 60_000;
 const registrationTimeout = 7 * 24 * 60 * 60_000;
 const maxRegistrations = 500;
 type BindingSession = { member: string; fingerprint: string };
-type Challenge = { expires: number; proof: string; provider: IMProvider; authority: string; verifier: string; to: string; link?: BindingSession };
+type Challenge = { expires: number; proof: string; provider: IMProvider; authority: string; verifier: string; to: string;
+  link?: BindingSession; embeddedQr?: true };
 type Policy = { primary: IMProvider; legacyPassword: boolean };
 type Registration = { id: string; provider: IMProvider; identity: VerifiedIdentity; submittedAt: number };
 type CallbackResult = { to: string; status: 'expired' | 'failed' | 'cancelled' }
@@ -83,14 +86,16 @@ export function openIMLogin(db: DatabaseSync, config: IMLoginSettings | undefine
     const current = connection();
     const isLinked = (authority: string) => !!account?.imLogins?.some(row => row.authority === authority);
     return { provider, origin, ready: !!(current && callback), onTeamAddress: !!origin && origin === currentOrigin,
+      embeddedQr: !!callback && current?.provider === 'feishu',
       legacyPassword: legacyPassword(), hasPassword: !!account?.passwordHash, linked: !!current && isLinked(current.authority),
       migration: account && callback ? [...connections.values()].filter(item => item.provider !== provider)
         .map(item => ({ provider: item.provider, linked: isLinked(item.authority) })) : [],
     };
   }
-  function begin(to: string | null, inWeCom?: boolean, link?: BindingSession & { provider?: IMProvider }) {
+  function begin(to: string | null, inWeCom?: boolean, link?: BindingSession & { provider?: IMProvider }, embeddedQr?: true) {
     const current = link?.provider ? connections.get(link.provider) : connection();
-    if (!current || !callback) throw new WorkbenchError('当前工作台尚未启用企业登录。', 409);
+    if (!current || !callback || embeddedQr && current.provider !== 'feishu')
+      throw new WorkbenchError('当前工作台尚未启用此登录方式。', 409);
     const at = now();
     for (const [state, challenge] of challenges) if (challenge.expires <= at) challenges.delete(state);
     if (challenges.size >= maxChallenges) throw new WorkbenchError('登录请求较多，请稍后再试。', 429);
@@ -99,8 +104,15 @@ export function openIMLogin(db: DatabaseSync, config: IMLoginSettings | undefine
     const verifier = randomBytes(32).toString('base64url');
     const expires = at + oauthTimeout;
     challenges.set(state, { expires, proof: identityHash(proof), provider: current.provider, authority: current.authority,
-      verifier, to: imReturnPath(to), link });
-    return { location: current.authorize({ redirect: callback, state, verifier, inWeCom }).href, proof, maxAge: oauthTimeout / 1000 };
+      verifier, to: imReturnPath(to), link, embeddedQr });
+    return { location: current.authorize({ redirect: callback, state, verifier, inWeCom, embeddedQr }).href,
+      state, proof, maxAge: oauthTimeout / 1000 };
+  }
+  function beginQr(to: string | null) {
+    const start = begin(to, undefined, undefined, true);
+    const frame = new URL('/suite/passport/sso/qr', feishuScanOrigin);
+    frame.search = new URLSearchParams({ goto: start.location, sdk_version: '1.0.3' }).toString();
+    return { ...start, frame: frame.href };
   }
   async function finish(params: URLSearchParams, proof: string | undefined,
     mayLink: (link: BindingSession) => boolean): Promise<CallbackResult> {
@@ -122,7 +134,7 @@ export function openIMLogin(db: DatabaseSync, config: IMLoginSettings | undefine
       const issuers = params.getAll('iss');
       if (current.provider === 'discord' && (issuers.length !== 1 || issuers[0] !== 'https://discord.com'))
         return { to: step.to, status: 'failed' };
-      const identity = await current.verify(codes[0]!, { redirect: callback, state, verifier: step.verifier });
+      const identity = await current.verify(codes[0]!, { redirect: callback, state, verifier: step.verifier, embeddedQr: step.embeddedQr });
       if (epoch !== generation || step.expires <= now() || step.link && !mayLink(step.link))
         return { to: step.to, status: 'expired' };
       return { to: step.to, provider: current.provider, identity, link: step.link };
@@ -156,7 +168,7 @@ export function openIMLogin(db: DatabaseSync, config: IMLoginSettings | undefine
     db.prepare('DELETE FROM workbench_im_registration WHERE id=?').run(id);
   }
   return {
-    view, browser, select, legacyPassword, begin, finish, requestRegistration, registrations, dropRegistration,
+    view, browser, select, legacyPassword, begin, beginQr, finish, requestRegistration, registrations, dropRegistration,
     allowsSession(_account: ConsoleAccount, external?: ExternalIdentity) {
       return external ? external.authority === connection()?.authority : legacyPassword();
     },

@@ -15,6 +15,17 @@ export const checkoutFor = (config: Settings['attribution'], repository: string)
   .find(([name]) => name.toLowerCase() === repository.toLowerCase())?.[1];
 const git = async (cwd: string, ...args: string[]) => (await command('git', args, cwd)).trimEnd();
 
+export async function developmentSourceStatus(config: Settings['attribution'], target: DevelopmentTarget) {
+  const checkout = checkoutFor(config, target.repository);
+  if (!checkout) return { state: 'unconfigured' as const };
+  try {
+    const remote = await git(checkout, 'remote', 'get-url', 'origin');
+    if (remote.toLowerCase() !== ('https://github.com/' + target.repository + '.git').toLowerCase()) return { state: 'mismatch' as const };
+    const head = commitSha.safeParse(await git(checkout, 'rev-parse', 'refs/remotes/origin/' + target.base));
+    return head.success ? { state: 'ready' as const, head: head.data } : { state: 'unavailable' as const };
+  } catch { return { state: 'unavailable' as const }; }
+}
+
 export async function developmentCheckout(config: Settings['attribution'], target: DevelopmentTarget, ticket: string,
   continuation?: { commit?: string; baseSha?: string; retry?: { discarded: string; start: string } }): Promise<Development> {
   const checkout = checkoutFor(config, target.repository);

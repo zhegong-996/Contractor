@@ -88,7 +88,7 @@ test('多渠道咨询共用已验证成员，原会话回传、丢确认及重�
   assert.equal(await say({ ...telegram, thread: '9' }), undefined);
   assert.equal(await say({ ...telegram, kind: 'discord' }), undefined);
   await assert.rejects(Promise.resolve(say({ ...telegram, thread: '8' })), { status: 404 });
-  assert.equal(await say(telegram, '闲聊'), undefined);
+  assert.equal(await say({ ...telegram, message: 'unrelated-chat' }, '闲聊'), undefined);
   const first = await say(telegram);
   const second = await say(discord);
   const third = await say(dingtalk);
