@@ -119,7 +119,8 @@ export function MyWorkers({ workspace }: { workspace: Overview }) {
         <div className="record-row" key={device.id}><Laptop size={18} aria-hidden="true" /><strong>{device.name}</strong>
           <Pill tone={device.online ? 'green' : 'neutral'}>{device.state === 'retired' ? '已退役' : device.state === 'lost' ? '已丢失'
             : device.state === 'suspended' || device.claimsPaused ? '暂停接单' : device.online ? '在线' : '离线'}</Pill>
-          <span>{device.engines.map(engine => engine === 'codex' ? 'Codex' : 'Claude Code').join('、') || device.agent}</span>
+          <span>{device.engines.map(engine => engine === 'codex' ? 'Codex' : 'Claude Code').join('、')
+            || workspace.agents.find(agent => agent.id === device.agent)?.title || device.agent}</span>
           {device.independent && device.online && device.readyEngines.length < device.engines.length
             && <Pill tone="amber">部分引擎待就绪</Pill>}
           <span className="muted-text">{projects.filter(row => device.projects.includes(row.id)).map(row => row.title).join('、') || '尚未授权项目'}</span>

@@ -55,12 +55,12 @@ export function ChatPage(props: PageProps) {
               href={routeFor(project.id, 'agents', agent.id)}><Avatar kind="agent" value={agent.title} /><span>{agent.title}</span></a>)
               : <p className="muted-text">{selected ? '此主题暂无已授权的咨询 Agent' : '选择主题查看可咨询的 Agent'}</p>}
           </section>
-          <section><h2><ListChecks size={16} />{selected ? '主题工单' : '近期工单'}</h2>
+          <section><h2><ListChecks size={16} />{selected ? '交付工单' : '近期交付工单'}</h2>
             {tasks.slice(0, 8).map(item => <a className="chat-context-link" key={item.id}
               href={withConversationOrigin(routeFor(project.id, 'work', item.id), route)}>
               <span><code title={item.id}>{short(item.id)}</code> {item.title}</span><TicketStatus ticket={item} />
             </a>)}
-            {!tasks.length && <p className="muted-text">暂无工单</p>}
+            {!tasks.length && <p className="muted-text">暂无交付工单</p>}
           </section>
           {rules.data && rules.data.length > 0 && <section><h2><BookOpen size={16} />已采用的验收知识</h2>
             {rules.data.map(rule => <a className="chat-context-link" href={routeFor(project.id, 'knowledge', rule.id, 'current')} key={rule.id}>{rule.title}</a>)}
