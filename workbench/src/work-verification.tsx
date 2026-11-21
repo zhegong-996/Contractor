@@ -151,7 +151,7 @@ function CheckList({ ticket, report, checks, recordRevision, onRework }: {
         <Field label="核对结果"><select aria-label="核对结果" name="outcome" required defaultValue={editing.row.result ? editing.row.result.passed ? 'pass' : 'fail' : ''}>
           <option value="">选择结果</option><option value="pass">通过</option><option value="fail">未通过</option>
         </select></Field>
-        <Field label="实际观察"><TextArea name="note" rows={3} required maxLength={700} defaultValue={editing.row.result?.note} /></Field>
+        <Field label="实际观察"><TextArea aria-label="实际观察" name="note" rows={3} required maxLength={700} defaultValue={editing.row.result?.note} /></Field>
         <div className="form-actions"><Button disabled={busy} type="submit">保存</Button></div>
       </form>
     </Modal>}

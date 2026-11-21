@@ -612,12 +612,12 @@ function VersionDecision({ ticket, workspace, route, onRevise }: PageProps & { t
             onChange={e => saveDraft({ ...acceptDraft, conditions: e.target.value })} /></Field>}
         </details>
         <div className="actions"><Button type="submit" disabled={busy}><Check />验收第 {result.version ?? 1} 版</Button>
-          {ticket.actions.revise && <Button type="button" variant="outline" onClick={() => onRevise()}>打回修改</Button>}</div>
+          {ticket.actions.revise && <Button type="button" variant="outline" onClick={onRevise}>打回修改</Button>}</div>
       </form> : <div className="actions"><span className="muted-text">{ticket.deliveryStatus?.state === 'ready' || !ticket.deliveryStatus
         ? '等待本版需求验收条件通过。' : ticket.deliveryStatus.detail}</span>
-        {ticket.actions.revise && <Button variant="outline" size="sm" onClick={() => onRevise()}>打回修改</Button>}</div>}
+        {ticket.actions.revise && <Button variant="outline" size="sm" onClick={onRevise}>打回修改</Button>}</div>}
     </Section></div>}
-    {accepted && ticket.actions.revise && <Button variant="outline" className="self-start" onClick={() => onRevise()}>
+    {accepted && ticket.actions.revise && <Button variant="outline" className="self-start" onClick={onRevise}>
       {route.consultation ? '确认咨询对应的改动范围' : '在原单开启下一版'} <ArrowRight /></Button>}
   </>;
 }
@@ -687,7 +687,7 @@ function Revise({ ticket, project, consultation, initialReason, close }: { ticke
         kind: ticket.work.accepted ? 'continued' : 'rejected', ...(selected ? { material: selected } : {}), consultation, productCases }),
       ticket.work.development ? '已开启下一版，等待研发接单' : '已开启下一版')) close();
     }}>
-      <Field label="修改要求"><TextArea name="reason" rows={4} defaultValue={initialReason} required maxLength={3500} /></Field>
+      <Field label="修改要求"><TextArea aria-label="修改要求" name="reason" rows={4} defaultValue={initialReason} required maxLength={3500} /></Field>
       <details className="form-disclosure"><summary>本版资料</summary>
         <p className="muted-text">沿用原单引用的现行版本，可另行选择。</p>
         <MaterialPicker entries={catalog.data ?? []} values={selected ?? ticket.work.material} onChange={select} />
