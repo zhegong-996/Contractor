@@ -27,7 +27,7 @@ export function InboxPage(props: PageProps) {
   function decisionRoute(d: Decision) {
     if (d.kind === 'intake' || d.kind === 'channel') return;
     if (d.ticket) {
-      const tab = d.kind === 'access' ? 'context' : ['acceptance', 'delivery'].includes(d.kind) ? 'delivery' : 'activity';
+      const tab = d.kind === 'access' ? 'context' : d.kind === 'acceptance' ? 'verification' : d.kind === 'delivery' ? 'delivery' : 'activity';
       return workFromInbox(routeFor(d.project, 'work', d.ticket, tab), project.id, d.id, d.acceptanceRevision);
     }
     if (d.kind === 'discussion') return routeFor(d.project, 'project', d.subject, 'discussion');

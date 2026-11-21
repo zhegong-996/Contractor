@@ -8,7 +8,8 @@ import { ChannelReceipt, DeliveryVerification, StageChecks } from './work-eviden
 import { WorkBoard, workStates, type BoardGrouping } from './work-board.tsx';
 import { RunHistory } from './work-execution.tsx';
 import { eligibleExecutionDevices, ExecutionTargetPicker, useExecutionTargets } from './execution-target.tsx';
-import { CaseEditor, ProductChecks, ProductVerificationPanel } from './product-criteria.tsx';
+import { CaseEditor } from './product-criteria.tsx';
+import { hasVerification, WorkVerification } from './work-verification.tsx';
 import { conversationRoute, go, projectWorkRoute, routeFor, runRoute, withConversationOrigin, workFromInbox, type PageProps } from './navigation.ts';
 import { Button } from './components/button.tsx';
 import { Input, TextArea } from './components/input.tsx';
@@ -19,7 +20,7 @@ import { Markdown } from './markdown.tsx';
 import { Avatar, date, Empty, Ext, Failure, Field, IconButton, KnowledgeGrantStatus, Loading, Modal, PageTabs, Pill, recoveryLabel, SearchBox, Section, short, Source,
   Segments, TicketStatus, TopicOptions, topicName, useActions, useSessionScroll, useStored, Version } from './ui.tsx';
 
-const workTabs = [['activity', '协作动态'], ['execution', '执行记录'], ['delivery', '交付与验收'], ['context', '上下文']] as const;
+const workTabs = [['activity', '协作动态'], ['execution', '执行记录'], ['delivery', '交付'], ['verification', '测试与验收'], ['context', '上下文']] as const;
 type WorkTab = (typeof workTabs)[number][0];
 const pullStates: Record<string, string> = { open: '开启', draft: '草稿', closed: '已关闭', merged: '已合并' };
 const reviewStates: Record<string, string> = { APPROVED: '已通过', CHANGES_REQUESTED: '要求修改', COMMENTED: '已评论', DISMISSED: '已撤销', PENDING: '待提交' };
@@ -52,7 +53,8 @@ function TicketRecovery({ ticket, project, workspace }: PageProps & { ticket: Ti
       {!!recovery.decisionIds.length && <a href={routeFor(project.id, 'inbox')}>待我处理</a>}
       {['authorize-material', 'request-or-check-material'].includes(next) && <a href={base + '?tab=context'}>资料与授权</a>}
       {next === 'confirm-topic-basis' && <a href={base + '?tab=context'}>核对主题依据</a>}
-      {['wait-ci', 'wait-deployment', 'check-delivery', 'review-current-version', 'complete-product-checks'].includes(next) && <a href={base + '?tab=delivery'}>查看本版交付</a>}
+      {['wait-ci', 'wait-deployment', 'check-delivery'].includes(next) && <a href={base + '?tab=delivery'}>查看本版交付</a>}
+      {['review-current-version', 'complete-product-checks'].includes(next) && <a href={base + '?tab=verification'}>查看测试与验收</a>}
       {['restore-old-runner', 'reconnect-original-runner', 'check-runner'].includes(next) && <a href={routeFor(project.id, 'agents', undefined, 'devices')}>查看执行端</a>}
     </div>
   </Section>;
@@ -94,7 +96,7 @@ export function WorkPage(props: PageProps) {
   const data = useData<Ticket>(route.item ? 'ticket/' + route.item : '', 2200);
   const detailScroll = useSessionScroll(JSON.stringify(['work-detail', project.id, route.item, tab, route.revision, route.run, route.attempt]), {
     ready: !route.item || data.data?.project === project.id && data.data.id === route.item,
-    preserveInitial: !!route.decision || tab === 'delivery' && !!route.revision,
+    preserveInitial: !!route.decision || (tab === 'delivery' || tab === 'verification') && !!route.revision,
   });
   const scopeFilter = <Segments label="任务范围" items={[[ 'project', '项目任务' ], [ 'mine', '我的任务' ]]} value={scope} onChange={next => {
     setScope(next);
@@ -225,6 +227,9 @@ function TicketDetail(props: PageProps & { ticket: Ticket; tab: WorkTab }) {
   const detailLink = (page: WorkTab) => workFromInbox(
     withConversationOrigin(routeFor(project.id, 'work', ticket.id, page), route.conversationOrigin),
     route.inboxOrigin, route.decision, route.reviewRevision);
+  const testVersionLink = (revision?: string) => workFromInbox(
+    withConversationOrigin(routeFor(project.id, 'work', ticket.id, 'verification'), route.conversationOrigin), route.inboxOrigin)
+    + (revision ? '&revision=' + encodeURIComponent(revision) : '');
   const memberName = (id: string) => project.members.find(item => item.name === id)?.displayName ?? id;
   const deviceWaiting = !!ticket.device && !ticket.device.online && !ticket.endReason;
   const recoveryNext = ticket.recovery?.next;
@@ -239,7 +244,7 @@ function TicketDetail(props: PageProps & { ticket: Ticket; tab: WorkTab }) {
     || !!ticket.device && agent.executionCapabilities.local);
   const canHandoff = actions.handoff && recoveryNext !== 'wait-receipt' && !!handoffChoices.length;
   const historicalRevision = route.revision ?? (route.reviewRevision !== ticket.result?.revision ? route.reviewRevision : undefined);
-  const viewedVersion = tab === 'delivery' && historicalRevision
+  const viewedVersion = (tab === 'delivery' || tab === 'verification') && historicalRevision
     ? ticket.versions.find(version => version.revision === historicalRevision) : undefined;
   const versionAccepted = viewedVersion?.reviews.some(review => review.kind === 'accepted');
   const versionAgent = viewedVersion && ticket.runs.find(run => run.id === viewedVersion.run)?.attribution?.agent;
@@ -300,7 +305,7 @@ function TicketDetail(props: PageProps & { ticket: Ticket; tab: WorkTab }) {
           </section>}
           {executionActions}
           {actions.accept && <div className="ticket-next-action">
-            <span><FileCheck2 size={17} />第 {upcoming} 版待你验收</span><a className="text-button" href={detailLink('delivery')}>核对本版成果 <ArrowRight size={14} /></a>
+            <span><FileCheck2 size={17} />第 {upcoming} 版待你验收</span><a className="text-button" href={detailLink(hasVerification(ticket) ? 'verification' : 'delivery')}>核对本版成果 <ArrowRight size={14} /></a>
           </div>}
           <Conversation {...props} ticket={ticket} topic={ticket.work.topic} />
           <TicketOutcomes {...props} ticket={ticket} />
@@ -312,6 +317,11 @@ function TicketDetail(props: PageProps & { ticket: Ticket; tab: WorkTab }) {
         <TabsContent className="ticket-tab" value="delivery">{historicalRevision
           ? <DeliveryVersion {...props} ticket={ticket} revision={historicalRevision} />
           : <Delivery {...props} ticket={ticket} />}</TabsContent>
+        <TabsContent className="ticket-tab" value="verification">
+          <TicketVerification key={historicalRevision ?? ticket.result?.revision ?? 'plan'} {...props} ticket={ticket} revision={historicalRevision}
+            deliveryHref={detailLink('delivery') + (historicalRevision ? '&revision=' + encodeURIComponent(historicalRevision) : '')}
+            selectVersion={revision => { window.location.hash = testVersionLink(revision); }} />
+        </TabsContent>
         <TabsContent className="ticket-tab" value="context"><ContextPanel {...props} ticket={ticket} /></TabsContent>
       </PageTabs>
       {side && <aside className="inspector" aria-label="工单属性">
@@ -328,7 +338,7 @@ function TicketDetail(props: PageProps & { ticket: Ticket; tab: WorkTab }) {
           <dt>优先级</dt><dd>{ticket.work.priority === 'urgent' ? '紧急' : '普通'}</dd>
         </dl>
         {tab !== 'context' && <a className="inspector-link" href={detailLink('context')}><LockKeyhole size={16} /><span>引用与授权</span><ChevronRight size={15} /></a>}
-        {tab !== 'delivery' && <a className="inspector-link" href={detailLink('delivery')}><FileCheck2 size={16} /><span>查看验收依据</span><ChevronRight size={15} /></a>}
+        {tab !== 'verification' && <a className="inspector-link" href={detailLink('verification')}><FileCheck2 size={16} /><span>测试与验收</span><ChevronRight size={15} /></a>}
         {ticket.candidate && <a className="inspector-link" href={routeFor(project.id, 'knowledge', ticket.candidate, ticket.candidateTab)}>
           <FileCheck2 size={16} /><span>{ticket.candidateTab === 'review' ? '核对知识候选' : '查看关联知识'}</span><ChevronRight size={15} /></a>}
         {ticket.work.parent && <a className="inspector-link" href={routeFor(project.id, 'work', ticket.work.parent)}><Link2 size={16} /><span>上游工单</span></a>}
@@ -441,7 +451,6 @@ function Delivery(props: PageProps & { ticket: Ticket }) {
   const result = ticket.result;
   const delivery = ticket.work.delivery;
   const accepted = ticket.work.accepted;
-  const [acceptDraft, saveDraft] = useStored('accept:' + ticket.id + ':' + result?.revision, { body: '', conditions: '' });
   const scope = ticket.work.development;
   const ci = delivery?.ci;
   const deployment = delivery?.deployed;
@@ -542,37 +551,17 @@ function Delivery(props: PageProps & { ticket: Ticket }) {
       <a href={routeFor(project.id, 'knowledge', ticket.reusedAcceptance.id, 'current')}>{ticket.reusedAcceptance.title}</a>
       {ticket.reusedAcceptance.source && <AcceptedEvidence source={ticket.reusedAcceptance.source} project={project.id} />}
     </Section>}
-    {result && ticket.productVerification && <ProductVerificationPanel key={result.revision} ticket={ticket.id}
-      revision={result.revision} verification={ticket.productVerification} />}
-    {result && !accepted && (ticket.actions.accept || ticket.actions.revise || ticket.work.requester === workspace.actor) && <div className="decision-focus" data-decision-focus="acceptance" tabIndex={-1}><Section title="本版验收">
-      {ticket.actions.accept ? <form className="form" onSubmit={async e => {
-        e.preventDefault();
-        await run(() => api('ticket/' + ticket.id + '/accept', { revision: result.revision, commit: delivery?.headSha,
-          deployment: gate?.selection,
-          body: acceptDraft.body.trim(), conditions: acceptDraft.conditions.trim() }), '已验收此版本');
-      }}>
-        {gate?.selection && <div className="record-row"><span>验收环境 {gate.environment}</span>
-          <span>部署 #{gate.selection.id} · 状态 #{gate.selection.statusId}</span></div>}
-        <details className="form-disclosure"><summary>填写可复用结论（选填）</summary>
-          <Field label="结论"><TextArea rows={3} maxLength={16000} value={acceptDraft.body} onChange={e => saveDraft({ ...acceptDraft, body: e.target.value })} /></Field>
-          {acceptDraft.body.trim() && <Field label="适用条件"><Input maxLength={600} required value={acceptDraft.conditions}
-            onChange={e => saveDraft({ ...acceptDraft, conditions: e.target.value })} /></Field>}
-        </details>
-        <div className="actions"><Button type="submit" disabled={busy}><Check />验收第 {result.version ?? 1} 版</Button>
-          {ticket.actions.revise && <Button type="button" variant="outline" onClick={() => setAction('revision')}>打回修改</Button>}</div>
-      </form> : <div className="actions"><span className="muted-text">{ticket.deliveryStatus?.state === 'ready' || !ticket.deliveryStatus
-        ? '等待本版需求验收条件通过。' : ticket.deliveryStatus.detail}</span>
-        {ticket.actions.revise && <Button variant="outline" size="sm" onClick={() => setAction('revision')}>打回修改</Button>}</div>}
-    </Section></div>}
-    {accepted && ticket.actions.revise && <Button variant="outline" className="self-start" onClick={() => setAction('revision')}>
-      {props.route.consultation ? '确认咨询对应的改动范围' : '在原单开启下一版'} <ArrowRight /></Button>}
+    {hasVerification(ticket) && <a className="text-button self-start" href={workFromInbox(withConversationOrigin(
+      routeFor(project.id, 'work', ticket.id, 'verification'), props.route.conversationOrigin), props.route.inboxOrigin)}>
+      <ListChecks size={16} />查看逐项测试 <ArrowRight size={14} /></a>}
+    <VersionDecision {...props} onRevise={() => setAction('revision')} />
     {ticket.actions.retryUnpublished && result && <Button size="sm" variant="outline" className="self-start" onClick={() => setAction('retry-unpublished')}>
       修正未推送的代码成果</Button>}
     {ticket.versions.length > 0 && <Section title="版本历史">
       {ticket.versions.slice().reverse().map(version => <details className="version-record" key={version.revision}>
         <summary><Version version={version.version} /><code>{short(version.revision, 12)}</code><time>{date(version.at)}</time>
           {version.reviews.some(r => r.kind === 'accepted') && <Pill tone="green">已验收</Pill>}</summary>
-        <VersionBody version={version} project={project.id} />
+        <VersionBody version={version} project={project.id} ticket={ticket.id} />
       </details>)}
     </Section>}
     {ticket.work.measure && <ObservationPane {...props} ticket={ticket} />}
@@ -600,6 +589,54 @@ function Delivery(props: PageProps & { ticket: Ticket }) {
   </div>;
 }
 
+function VersionDecision({ ticket, workspace, route, onRevise }: PageProps & { ticket: Ticket; onRevise: () => void }) {
+  const { busy, run } = useActions();
+  const result = ticket.result;
+  const delivery = ticket.work.delivery;
+  const accepted = ticket.work.accepted;
+  const gate = ticket.deploymentGate;
+  const [acceptDraft, saveDraft] = useStored('accept:' + ticket.id + ':' + result?.revision, { body: '', conditions: '' });
+  return <>
+    {result && !accepted && (ticket.actions.accept || ticket.actions.revise || ticket.work.requester === workspace.actor) && <div className="decision-focus" data-decision-focus="acceptance" tabIndex={-1}><Section title="本版验收">
+      {ticket.actions.accept ? <form className="form" onSubmit={async e => {
+        e.preventDefault();
+        await run(() => api('ticket/' + ticket.id + '/accept', { revision: result.revision, commit: delivery?.headSha,
+          deployment: gate?.selection,
+          body: acceptDraft.body.trim(), conditions: acceptDraft.conditions.trim() }), '已验收此版本');
+      }}>
+        {gate?.selection && <div className="record-row"><span>验收环境 {gate.environment}</span>
+          <span>部署 #{gate.selection.id} · 状态 #{gate.selection.statusId}</span></div>}
+        <details className="form-disclosure"><summary>填写可复用结论（选填）</summary>
+          <Field label="结论"><TextArea rows={3} maxLength={16000} value={acceptDraft.body} onChange={e => saveDraft({ ...acceptDraft, body: e.target.value })} /></Field>
+          {acceptDraft.body.trim() && <Field label="适用条件"><Input maxLength={600} required value={acceptDraft.conditions}
+            onChange={e => saveDraft({ ...acceptDraft, conditions: e.target.value })} /></Field>}
+        </details>
+        <div className="actions"><Button type="submit" disabled={busy}><Check />验收第 {result.version ?? 1} 版</Button>
+          {ticket.actions.revise && <Button type="button" variant="outline" onClick={() => onRevise()}>打回修改</Button>}</div>
+      </form> : <div className="actions"><span className="muted-text">{ticket.deliveryStatus?.state === 'ready' || !ticket.deliveryStatus
+        ? '等待本版需求验收条件通过。' : ticket.deliveryStatus.detail}</span>
+        {ticket.actions.revise && <Button variant="outline" size="sm" onClick={() => onRevise()}>打回修改</Button>}</div>}
+    </Section></div>}
+    {accepted && ticket.actions.revise && <Button variant="outline" className="self-start" onClick={() => onRevise()}>
+      {route.consultation ? '确认咨询对应的改动范围' : '在原单开启下一版'} <ArrowRight /></Button>}
+  </>;
+}
+
+function TicketVerification(props: PageProps & {
+  ticket: Ticket; revision?: string; deliveryHref: string; selectVersion: (revision?: string) => void;
+}) {
+  const { ticket, revision, project, route, deliveryHref, selectVersion } = props;
+  const [reason, rework] = useState<string>();
+  const current = !revision || revision === ticket.result?.revision;
+  return <div className="detail-stack decision-focus" data-decision-focus="acceptance" tabIndex={-1}>
+    <WorkVerification ticket={ticket} revision={revision} deliveryHref={deliveryHref} selectVersion={selectVersion}
+      onRework={current && ticket.actions.revise ? rework : undefined} />
+    {current && <VersionDecision {...props} onRevise={() => rework('')} />}
+    {current && reason !== undefined && ticket.actions.revise && <Revise ticket={ticket} project={project}
+      consultation={route.consultation} initialReason={reason} close={() => rework(undefined)} />}
+  </div>;
+}
+
 function DeliveryVersion({ ticket, project, route, revision }: PageProps & { ticket: Ticket; revision: string }) {
   const version = ticket.versions.find(item => item.revision === revision);
   const stages = version?.reviews.findLast(review => review.stages)?.stages;
@@ -614,13 +651,13 @@ function DeliveryVersion({ ticket, project, route, revision }: PageProps & { tic
   return <div ref={panel} tabIndex={-1} className="detail-stack">
     {version ? <Section title={'第 ' + version.version + ' 版成果'} action={back}>
       <div className="inline-meta">成果修订 <code title={version.revision}>{short(version.revision, 12)}</code><time>{date(version.at)}</time></div>
-      <VersionBody version={version} project={project.id} />
+      <VersionBody version={version} project={project.id} ticket={ticket.id} />
       {stages && <StageChecks project={project.id} report={stages} />}
     </Section> : <Empty title="找不到指定的交付版本" action={back} />}
   </div>;
 }
 
-function VersionBody({ version, project }: { version: Ticket['versions'][number]; project: string }) {
+function VersionBody({ version, project, ticket }: { version: Ticket['versions'][number]; project: string; ticket: string }) {
   return <>
     {version.text !== undefined ? <Markdown text={version.text} /> : <p className="muted-text">此版本正文当前受限。</p>}
     {version.reviews.map(review => <div key={review.kind + review.at}>
@@ -628,14 +665,16 @@ function VersionBody({ version, project }: { version: Ticket['versions'][number]
         <strong>{({ accepted: '验收', rejected: '打回', continued: '开启下一版', withdrawn: '交付前撤回', rechecked: '重新核对' })[review.kind]}</strong><span>{review.actor}</span>
         <time>{date(review.at)}</time>{review.reason && <span>{review.reason}</span>}
       </div>
-      {review.product && <details className="minor-disclosure"><summary>本版验收检查</summary><ProductChecks verification={review.product} /></details>}
     </div>)}
+    {version.reviews.some(review => review.product) && <a className="text-button"
+      href={routeFor(project, 'work', ticket, 'verification') + '&revision=' + encodeURIComponent(version.revision)}>
+      <ListChecks size={16} />查看本版测试 <ArrowRight size={14} /></a>}
     {version.acceptedSource && <AcceptedEvidence source={version.acceptedSource} project={project} linkVersion={false} />}
   </>;
 }
 
-function Revise({ ticket, project, consultation, close }: { ticket: Ticket; project: PageProps['project'];
-  consultation?: PageProps['route']['consultation']; close: () => void }) {
+function Revise({ ticket, project, consultation, initialReason, close }: { ticket: Ticket; project: PageProps['project'];
+  consultation?: PageProps['route']['consultation']; initialReason?: string; close: () => void }) {
   const catalog = useData<Knowledge[]>('knowledge/' + project.id);
   const [selected, select] = useState<string[] | undefined>();
   const [productCases, setProductCases] = useState<{ title: string; expectation: string }[]>();
@@ -648,7 +687,7 @@ function Revise({ ticket, project, consultation, close }: { ticket: Ticket; proj
         kind: ticket.work.accepted ? 'continued' : 'rejected', ...(selected ? { material: selected } : {}), consultation, productCases }),
       ticket.work.development ? '已开启下一版，等待研发接单' : '已开启下一版')) close();
     }}>
-      <Field label="修改要求"><TextArea name="reason" rows={4} required maxLength={3500} /></Field>
+      <Field label="修改要求"><TextArea name="reason" rows={4} defaultValue={initialReason} required maxLength={3500} /></Field>
       <details className="form-disclosure"><summary>本版资料</summary>
         <p className="muted-text">沿用原单引用的现行版本，可另行选择。</p>
         <MaterialPicker entries={catalog.data ?? []} values={selected ?? ticket.work.material} onChange={select} />

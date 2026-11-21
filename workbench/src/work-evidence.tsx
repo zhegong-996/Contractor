@@ -25,19 +25,22 @@ const state = {
   pending: { label: '待核验', tone: 'amber' },
 } as const;
 
+export function RecheckDelivery({ ticket, revision, head }: { ticket: string; revision: string; head: string }) {
+  const { busy, run } = useActions();
+  return <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => void run(
+    () => api('ticket/' + part(ticket) + '/recheck-delivery', { revision, head }), '已重新核对本版交付证据',
+  )}><RefreshCw />重新核验</Button>;
+}
+
 export function DeliveryVerification({ ticket, revision, verification }: {
   ticket: string; revision: string; verification: NonNullable<Ticket['deliveryVerification']>;
 }) {
-  const { busy, run } = useActions();
   return <section className="detail-stack" aria-label="本版交付核验">
     <div className="record-row">
       <strong>本版交付核验</strong>
       <span>模板 {verification.template} · 第 {verification.version} 版</span>
       <code title={verification.head}>{short(verification.head, 12)}</code>
-      {verification.mayRecheck && <Button size="sm" variant="outline" disabled={busy} onClick={() => void run(
-        () => api('ticket/' + part(ticket) + '/recheck-delivery', { revision, head: verification.head }),
-        '已重新核对本版交付证据',
-      )}><RefreshCw />重新核验</Button>}
+      {verification.mayRecheck && <RecheckDelivery ticket={ticket} revision={revision} head={verification.head} />}
     </div>
     {verification.checks.map(check => <div className="record-row" key={check.app + ':' + check.name}>
       <Ext href={check.url ?? undefined}>{check.name}</Ext>
