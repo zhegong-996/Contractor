@@ -210,7 +210,7 @@ function TicketDetail(props: PageProps & { ticket: Ticket; tab: WorkTab }) {
     const frame = requestAnimationFrame(() => {
       const target = Array.from(detailRef.current?.querySelectorAll<HTMLElement>('[data-decision-focus]') ?? [])
         .find(node => node.dataset.decisionFocus === focus);
-      target?.scrollIntoView({ block: 'start' });
+      target?.scrollIntoView({ block: 'nearest' });
       target?.focus({ preventScroll: true });
     });
     return () => cancelAnimationFrame(frame);
@@ -267,6 +267,7 @@ function TicketDetail(props: PageProps & { ticket: Ticket; tab: WorkTab }) {
           : viewedVersion.reviews.some(review => review.kind === 'withdrawn') ? '交付前撤回' : viewedVersion.reviews.some(review => review.kind === 'rejected') ? '已打回' : '未验收'}</Pill>
         <Version version={viewedVersion.version} />
       </> : <><TicketStatus ticket={ticket} /><Version version={ticket.work.version} /></>}
+        <code title={ticket.id}>{short(ticket.id)}</code>
         <Source channel={ticket.work.source} />
         {discussion && <a className="ticket-discussion" href={discussion.href} aria-label={'返回讨论 ' + discussion.name}>
           <MessageSquare size={14} aria-hidden="true" /><span>{discussion.name}</span>
