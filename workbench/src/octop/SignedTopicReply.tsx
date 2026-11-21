@@ -15,17 +15,22 @@ export function SignedTopicReply({ reply, origin }: { reply: Reply; origin: Page
   const { project } = origin;
   const { speaker } = reply;
   const status = reply.recovery && recoveryLabel(reply.recovery) || statuses[reply.status] || '等待执行';
+  const thinking = ['running', 'queued', 'review'].includes(reply.status);
+  const tone = reply.status === 'answered' ? 'green' : reply.recovery ? 'amber'
+    : ['running', 'queued'].includes(reply.status) ? 'blue' : ['failed', 'blocked'].includes(reply.status) ? 'red' : 'neutral';
   const work = withConversationOrigin(routeFor(project, 'work', reply.ticket), origin);
   const run = reply.run && withConversationOrigin(runRoute(project, reply.ticket, reply.run, reply.attempt), origin);
-  return <article className="timeline-entry topic-reply" aria-label={speaker.name + '的咨询进度'}>
+  return <article className="timeline-entry topic-reply" data-state={reply.status} aria-label={speaker.name + '的回复'}>
     <Avatar value={speaker.name} kind="agent" /><div className="message">
       <div className="message-meta"><a href={routeFor(project, 'agents', speaker.id)}><strong>{speaker.name}</strong></a>
-        <Pill tone={reply.status === 'answered' ? 'green' : reply.recovery ? 'amber' : reply.status === 'running' ? 'blue' : 'neutral'}>{status}</Pill>
+        <Pill tone={tone}>{status}</Pill>
         {reply.device && <span>{reply.device}</span>}
         {reply.at && <time>{date(reply.at)}</time>}
         <a href={work}>工单 {short(reply.ticket)}</a>
         {run && <a href={run}>执行 #{reply.run}</a>}
       </div>
+      {thinking && !reply.text && <p className="agent-typing" role="status" aria-label="正在处理">
+        <span className="typing-dots"><i /><i /><i /></span>正在整理回答</p>}
       {reply.text && <Markdown text={reply.text} />}
       {!!reply.evidence?.length && <details className="minor-disclosure" open><summary>查询依据</summary>
         {reply.evidence.map(ref => <div className="revision-note" key={ref.id + ':' + ref.revision}>

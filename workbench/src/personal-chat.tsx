@@ -110,7 +110,7 @@ function PersonalChatThread({ workspace, project, conversation, profile, loading
             <div className="message"><div className="message-meta"><strong>{agentTitle}</strong>
               {turn.model && <span>{turn.model}</span>}{turn.answeredAt && <time>{date(turn.answeredAt)}</time>}</div>
               {turn.state === 'answered' && turn.answer ? <Markdown text={turn.answer} /> : turn.state === 'pending'
-                ? <p className="muted-text" role="status">正在回复</p> : <div className="actions">
+                ? <p className="agent-typing" role="status"><span className="typing-dots"><i /><i /><i /></span>正在回复</p> : <div className="actions">
                   <p className="muted-text">{turn.error ?? '暂未收到回复'}</p>
                   {turn.id === last?.id && <Button size="sm" variant="outline" onClick={() => setDraft({ text: turn.question, nonce: uid() })}>再问一次</Button>}
                 </div>}

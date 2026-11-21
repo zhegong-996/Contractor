@@ -17,7 +17,8 @@ export function eligibleExecutionDevices(devices: DeviceRow[] | undefined, agent
 }
 
 const deviceStatus = (device: DeviceRow) => device.online ? '在线' : device.claimsPaused ? '暂不接单' : '离线等待';
-const deviceLabel = (device: DeviceRow) => device.name + (device.online ? '' : ' · ' + deviceStatus(device));
+export const deviceLabelOf = (device: DeviceRow) => device.name + (device.online ? '' : ' · ' + deviceStatus(device));
+const deviceLabel = deviceLabelOf;
 
 type ExecutionTargetProps = {
   project: string; agent: Agent; targets: ReturnType<typeof useExecutionTargets>; value: string;
