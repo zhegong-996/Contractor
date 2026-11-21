@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query';
 import { Breadcrumb, ConfigProvider, Drawer, Layout, Menu as NavigationMenu, type ConfigProviderProps } from 'antd';
 import zhCN from 'antd/es/locale/zh_CN.js';
-import { ArrowRight, BookOpen, Bot, ChevronDown, ChevronRight, CircleCheck, FolderKanban, Inbox, ListChecks, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Plus, ShieldCheck, UserRound } from 'lucide-react';
+import { ArrowRight, BookOpen, Bot, ChevronDown, ChevronRight, CircleCheck, FolderKanban, Inbox, ListChecks, LogOut, Menu, MessageSquare, PanelLeftClose, PanelLeftOpen, Plus, ShieldCheck, UserRound } from 'lucide-react';
 import { api, uid, useData, type Overview, type Session } from './api.ts';
 import { ActionContext, Avatar, Failure, Field, IconButton, Loading, Logo, Modal, useActions, useStored } from './ui.tsx';
 import { Button } from './components/button.tsx';
@@ -28,6 +28,7 @@ const GlobalSettings = lazy(() => import('./access-settings.tsx').then(page => (
 
 const nav = [
   { key: 'inbox', icon: Inbox }, { key: 'work', icon: ListChecks },
+  { key: 'chat', icon: MessageSquare },
   { key: 'agents', icon: Bot }, { key: 'knowledge', icon: BookOpen },
 ] as const;
 
@@ -118,7 +119,7 @@ function Navigation({ workspace, project, route, close, newProject }: PageProps 
   const signOut = useSignOut();
   const [expanded, setExpanded] = useState(true);
   const [profile, setProfile] = useState(false);
-  const current = route.view === 'chat' ? 'work' : route.view;
+  const current = route.view;
   return <div className="sidebar-content">
     <a className="brand" href={routeFor(project.id, 'inbox')} onClick={close} aria-label="Contractor"><Logo /><span>Contractor</span></a>
     <nav className="sidebar-nav" aria-label="工作入口">

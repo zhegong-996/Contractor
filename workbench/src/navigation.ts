@@ -48,6 +48,8 @@ export function useRoute(): Route {
       return { project: '', view: 'inbox', global: pathname, tab: new URLSearchParams(search).get('tab') ?? undefined };
     const [project = '', view = 'inbox', item] = (pathname ?? '').split('/').map(decodeURIComponent);
     const params = new URLSearchParams(search);
+    const tab = params.get('tab') ?? undefined;
+    const projectDiscussion = view === 'project' && tab === 'chat';
     const originMatch = view === 'work' ? /^#\/([\w-]+)\/chat(?:\/([\w-]+))?(?:\?tab=(project))?$/.exec(params.get('fromChat') ?? '') : null;
     const conversationOrigin = originMatch ? { project: originMatch[1]!, item: originMatch[2], tab: originMatch[3] } : undefined;
     const consultation = /^([a-z0-9-]{1,80})\.([a-f0-9]{64})$/.exec(params.get('consultation') ?? '');
@@ -55,7 +57,8 @@ export function useRoute(): Route {
       const value = Number(params.get(key));
       return Number.isSafeInteger(value) && value > 0 ? value : undefined;
     };
-    return { project, view: Object.hasOwn(titles, view) ? view as View : 'inbox', item, tab: params.get('tab') ?? undefined,
+    return { project, view: projectDiscussion ? 'chat' : Object.hasOwn(titles, view) ? view as View : 'inbox', item,
+      tab: projectDiscussion ? (item ? undefined : 'project') : tab,
       run: positive('run'), attempt: positive('attempt'), revision: params.get('revision') ?? undefined,
       reply: params.get('reply') ?? undefined, participant: params.get('agent') ?? undefined, conversationOrigin,
       ...(consultation && { consultation: { ticket: consultation[1]!, revision: consultation[2]! } }) };

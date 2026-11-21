@@ -234,20 +234,32 @@ a.external:hover, a.text-button:hover { text-decoration: underline; text-underli
 .ticket-discussion svg { flex: none; }
 .ticket-discussion:hover { text-decoration: underline; }
 .ticket-frame { padding: 0 clamp(17px,3vw,32px) 30px; display: grid; grid-template-columns: minmax(0,1fr); gap: 18px; }
-.inspector { display: none; }
-.desktop-inspector { display: none; }
-@media (min-width: 1370px) {
-  .ticket-frame[data-inspector=true] { grid-template-columns: minmax(0,1fr) minmax(169px,210px); }
-  .inspector { display: block; border-left: 1px solid var(--line); padding-left: 15px; margin-top: 40px; align-self: start; }
-  .desktop-inspector { display: inline-flex; }
+.inspector { align-self: start; min-width: 0; }
+@media (min-width: 1280px) {
+  .ticket-frame[data-inspector=true] { grid-template-columns: minmax(0,1fr) minmax(176px,216px); }
+  .inspector { border-left: 1px solid var(--line); padding: 0 0 8px 16px; position: sticky; top: 12px; }
+}
+@media (max-width: 1279px) {
+  .inspector { order: -1; border: 1px solid var(--line); border-radius: 8px; padding: 0 12px 6px; }
 }
 .inspector h2 { font-size: 13px; margin: 15px 0 12px; }
 .inspector .facts { grid-template-columns: auto minmax(0,1fr); font-size: 12px; margin-bottom: 13px; }
+.inspector .facts dd a { color: var(--accent-strong); }
+.inspector .facts dd a:hover { text-decoration: underline; }
 .inspector-link { display: flex; align-items: center; min-height: 37px; gap: 7px; padding: 5px 7px; color: var(--dim); border-radius: 7px; font-size: 12px; }
 .inspector-link span { flex: 1; }
 .inspector-link:hover { background: var(--tint); color: var(--accent-strong); }
 .ticket-tab { padding-top: 17px; }
+.ticket-next-action, .ticket-next-action > span { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.ticket-next-action { justify-content: space-between; border: 1px solid var(--line); border-radius: 8px; background: var(--accent-soft); padding: 9px 12px; }
+.ticket-next-action > span { font-weight: 620; }
 .timeline { display: flex; flex-direction: column; gap: 16px; }
+.ticket-discussion-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
+.ticket-discussion-heading h2 { margin: 0; font-size: 15px; }
+.ticket-discussion-heading select { width: auto; max-width: 100%; }
+.ticket-composer { border-top: 1px solid var(--line); padding-top: 12px; }
+.discussion-receipt { color: var(--dim); }
+.discussion-receipt[data-state=sent] { color: var(--accent-strong); }
 .timeline-entry { display: flex; align-items: flex-start; gap: 10px; min-width: 0; }
 .topic-reply { margin-inline-start: clamp(8px, 2vw, 26px); }
 .topic-members { min-width: 0; padding: 0; margin: 0; border: 0; }

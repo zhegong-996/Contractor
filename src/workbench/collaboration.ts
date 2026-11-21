@@ -450,10 +450,12 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     const next = rows.length > limit ? rows[limit - 1]!.seq : undefined;
     const messages = rows.slice(0, limit).reverse().map(({ seq: _seq, ...row }) => {
       const batch = target.topic && !target.ticket && store.db.prepare('SELECT tickets FROM workbench_topic_consultation WHERE message=?').get(row.id);
-      if (!batch) return { ...row, channel: 'web', consultations: undefined };
+      const feishuDelivery = target.ticket ? store.replyStatus(key('conversation-reply', row.id)) : undefined;
+      const message = { ...row, ...(feishuDelivery && { feishuDelivery }) };
+      if (!batch) return { ...message, channel: 'web', consultations: undefined };
       const ids = JSON.parse(String(batch.tickets)) as string[];
       const origin = workOf(ids[0] ?? '')?.consultation;
-      return { ...row, channel: origin?.octopIM?.kind ?? (origin?.feishu ? 'feishu' : 'web'), consultations: ids.flatMap(id => {
+      return { ...message, channel: origin?.octopIM?.kind ?? (origin?.feishu ? 'feishu' : 'web'), consultations: ids.flatMap(id => {
         if (target.reply && id !== target.reply) return [];
         const work = workOf(id), ticket = store.tickets.get(id);
         if (!work?.consultation || !ticket || work.project !== project.id || work.topic !== target.topic) return [];
@@ -487,14 +489,19 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     const scope = conversationScope(project, actor, input);
     if (sensitiveFeishuText.test(input.text)) throw new WorkbenchError('请移除敏感凭据后再发到项目讨论。', 400);
     const message = key('conversation', id, scope, actor, input.nonce);
-    const thread = input.feishu && input.ticket && feishuDiscussionThread(input.ticket, project);
-    if (input.feishu && (!thread || !send)) throw new WorkbenchError('这张工单目前不能向飞书同步公开讨论。', 409);
+    const receipt = key('conversation-reply', message);
     const prior = store.db.prepare('SELECT text FROM workbench_conversation_message WHERE id=?').get(message);
-    if (prior && prior.text !== input.text) throw new WorkbenchError('这条发送请求已被使用，请重试。', 409);
+    if (prior) {
+      if (prior.text !== input.text || !!store.replyStatus(receipt) !== !!input.feishu)
+        throw new WorkbenchError('这条发送请求已使用，请重新编辑后发送。', 409);
+      return { id: message };
+    }
+    const thread = input.feishu && input.ticket && feishuDiscussionThread(input.ticket, project);
+    if (input.feishu && (!thread || !send)) throw new WorkbenchError('这张工单目前不能向飞书公开回复。', 409);
     store.atomic(() => {
       const inserted = store.db.prepare('INSERT OR IGNORE INTO workbench_conversation_message VALUES (?,?,?,?,?,?)')
         .run(message, id, scope, actor, input.text, new Date().toISOString());
-      if (inserted.changes && thread) queueReply({ id: key('conversation-reply', message), ticketId: input.ticket, kind: 'reply',
+      if (inserted.changes && thread) queueReply({ id: receipt, ticketId: input.ticket, kind: 'reply',
         channel: { ...thread, address: { ...thread.address, conversationAuthor: actor } }, text: '**' + actor + '**\n' + input.text });
     });
     return { id: message };
@@ -1559,8 +1566,9 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       const work = message.ticketId && workOf(message.ticketId);
       const project = work && projectById.get(work.project);
       const thread = project && feishuDiscussionThread(message.ticketId!, project);
-      if (!project || !mayStart(project, author) || !thread || thread.address.messageId !== message.channel.address.messageId) {
-        store.receipts.withdraw(id);
+      if (!project || !mayStart(project, author) || !thread || thread.address.messageId !== message.channel.address.messageId
+        || thread.address.chatId !== message.channel.address.chatId) {
+        store.receipts.settle(message, 'channelGone');
         return;
       }
     }
@@ -1699,7 +1707,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
         return;
       }
     }
-    if (outgoing.channel.source === 'feishu' && !outgoing.channel.address.direct && !outgoing.channel.address.userId && outgoing.ticketId) {
+    if (!author && outgoing.channel.source === 'feishu' && !outgoing.channel.address.direct && !outgoing.channel.address.userId && outgoing.ticketId) {
       const work = workOf(outgoing.ticketId);
       const project = work && projectById.get(work.project);
       const channel = project && feishuTopicDestination(project, work.topic, outgoing.channel);
@@ -1902,7 +1910,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     if (work?.material.some(material => knowledge.get(material)?.visibility !== 'project')) return;
     const origin = store.tickets.get(id)?.channels.find(channel => channel.source === 'feishu' && !channel.address.direct
       && channel.address.messageId && boundProject('feishu', channel.address.chatId ?? '')?.id === project.id);
-    return origin && feishuTopicDestination(project, work?.topic, origin);
+    return origin;
   }
 
   function delegationReviewThread(decision: HumanDecision) {
@@ -1911,7 +1919,8 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     const project = work && projectById.get(work.project);
     if (!project || !work || work.development
       || !delegations.list(decision.ticket).some(row => row.version === (work.version ?? 1) && row.resultEvent)) return;
-    return feishuDiscussionThread(decision.ticket, project);
+    const origin = feishuDiscussionThread(decision.ticket, project);
+    return origin && feishuTopicDestination(project, work.topic, origin);
   }
 
   effects.handle('delivery', async ({ ticketId, assignmentId }) => {
@@ -3074,12 +3083,19 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     if (feishuScope(String(chatId), rootId ?? messageId).project?.id !== projectId) return false;
     const actor = historyActor ?? links.member(input.sender, input.trigger.at);
     const project = projectById.get(projectId);
-    if (!actor || !project || !member(project, actor)) return false;
+    if (!actor || !project || !mayStart(project, actor)) return false;
     const prior = links.event(input.trigger.id);
     if (prior) return !!prior.ticket && prior.request.project === projectId;
     input = routeFeishuInput(project, input);
-    const targets = [input.origin, ...[input.trigger.meta.parentId, input.trigger.meta.rootId].flatMap(ref =>
-      typeof ref === 'string' && !isFeishuTopicRoot(project, String(input.trigger.meta.chatId), ref) ? [messageRef(feishuTriggerId(ref))] : [])];
+    const { parentId } = input.trigger.meta;
+    const targets = [input.origin, ...[parentId, rootId].flatMap(ref => {
+      if (typeof ref !== 'string') return [];
+      const target = messageRef(feishuTriggerId(ref));
+      if (!isFeishuTopicRoot(project, String(chatId), ref)) return [target];
+      // A project topic can reuse a ticket's opening message. Only an explicit reply to that opening inherits the ticket.
+      const linked = ref === parentId && links.ticket(target);
+      return linked && store.tickets.get(linked)?.origin.triggerId === feishuTriggerId(ref) ? [target] : [];
+    })];
     const matched = routingMatch(project, actor, targets);
     if (!matched.ticket || matched.reason || workOf(matched.ticket)?.project !== project.id) return false;
     const text = input.trigger.text.trim();
@@ -3359,6 +3375,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
           const { rootId, messageId } = input.trigger.meta;
           if (feishuScope(chat, rootId ?? messageId).project?.id !== project.id) continue;
           trackFeishuThread(input.trigger);
+          if (input.trigger.url) links.addFeishuPermalink(input.trigger.id, project.id, input.trigger.url);
           if (input.consultation) {
             try { await receiveFeishuConsultation(project, input.trigger, input.consultation, { sender: input.sender, source: ref }); }
             catch (error) {
@@ -4257,6 +4274,8 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       id: request.trigger.id, member, source: request.sender.provider, label: request.sender.label,
       at: request.trigger.at, text: request.sender.provider === 'feishu' && discussions.withdrawn(request.trigger.id)
         ? '飞书原消息已撤回。' : request.request, url: request.trigger.url ?? request.origin.url, note: request.note,
+      linkLabel: request.sender.provider !== 'feishu' || request.trigger.url ? '原消息'
+        : request.origin.url?.includes('/client/thread/open?') ? '原话题' : '原群聊',
       github: request.trigger.meta.githubComment as { kind: string; thread: number; commit?: string } | undefined,
       revisions: request.sender.provider === 'feishu'
         ? discussions.revisions(request.trigger.id).map(({ at, revision, text }) => ({ at: new Date(at).toISOString(), revision, text }))
@@ -4309,7 +4328,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
         && knowledge.usable(ticket.id, entry, accessReader(work)));
     };
     const actions = {
-      stop: !ticket.ended && (requester || maintainer),
+      stop: !ticket.ended && mayStart(project, actor) && (requester || maintainer),
       handoff: !consultation && !ticket.ended && maintainer && !work.developmentResponse && !handingOff(work) && !cardsFor(id).some(card => card.state === 'open'),
       resume: mayStart(project, actor) && (requester || maintainer || owner) && !work.developmentResponse
         && (!ticket.ended || requester && ticket.ended.outcome === 'completed' && !work.accepted && materialHidden),
@@ -5515,7 +5534,8 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     },
     stop(actor: string, id: string) {
       const { work, project } = ticketFor(id, actor);
-      if (work.requester !== actor && !maintain(project, actor)) throw new WorkbenchError('没有停止该工单的权限。', 403);
+      if (!mayStart(project, actor) || work.requester !== actor && !maintain(project, actor))
+        throw new WorkbenchError('没有停止该工单的权限。', 403);
       stopTicket(id, work, '成员停止');
     },
     async recheckDelivery(actor: string, id: string, input: { revision: string; head: string }) {

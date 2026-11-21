@@ -22,3 +22,18 @@ test('联调期间仅允许指定钉钉机器人的单聊回传', async () => {
     await assert.rejects(guard.deliver(send, other), /通知外发已暂停/);
   }
 });
+
+test('飞书联调通行证仅放行指定工单的主动公开回复', async () => {
+  const guard = notificationGuard(true, undefined, 'public-reply');
+  const address = { chatId: 'oc_store', messageId: 'om_wrap', conversationAuthor: 'product' };
+  const message = { id: 'public-reply', kind: 'reply' as const, ticketId: 'wrap', text: '小屏复核',
+    channel: { source: 'feishu', thread: 'store', address } };
+  const send = async () => 'sent';
+  assert.equal(await guard.deliver(send, undefined, message), 'sent');
+  for (const other of [
+    { ...message, id: 'unrelated' },
+    { ...message, kind: 'notice' as const },
+    { ...message, channel: { ...message.channel, address: { ...address, userId: 'ou_reader' } } },
+    { ...message, channel: { ...message.channel, address: { ...address, conversationAuthor: '' } } },
+  ]) await assert.rejects(guard.deliver(send, undefined, other), /通知外发已暂停/);
+});

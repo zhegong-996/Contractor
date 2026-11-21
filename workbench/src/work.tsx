@@ -177,7 +177,7 @@ function TaskBranch({ branch, home, current }: { branch: Branch<TicketRow>; home
 
 function TicketDetail(props: PageProps & { ticket: Ticket; tab: WorkTab }) {
   const { ticket, tab, workspace, project, route } = props;
-  const [side, setSide] = useStored('ticket-inspector', true);
+  const [side, setSide] = useState(() => window.matchMedia('(min-width: 1280px)').matches);
   const [dialog, setDialog] = useState('');
   const { busy, run } = useActions();
   const agent = workspace.agents.find(a => a.id === ticket.work.agent);
@@ -193,6 +193,8 @@ function TicketDetail(props: PageProps & { ticket: Ticket; tab: WorkTab }) {
       && ref.eligibleAgents.includes(a.id))));
   const handoffChoices = agentChoices.filter(a => a.id !== ticket.work.agent && a.engine !== 'octop' && agent?.engine !== 'octop');
   const actions = ticket.actions;
+  const detailLink = (page: WorkTab) => withConversationOrigin(routeFor(project.id, 'work', ticket.id, page), route.conversationOrigin);
+  const memberName = (id: string) => project.members.find(item => item.name === id)?.displayName ?? id;
   const deviceWaiting = !!ticket.device && !ticket.device.online && !ticket.endReason;
   const recoveryNext = ticket.recovery?.next;
   const waitingOnRecovery = !!recoveryNext && (recoveryNext.startsWith('wait-') || recoveryNext === 'restore-old-runner');
@@ -205,7 +207,6 @@ function TicketDetail(props: PageProps & { ticket: Ticket; tab: WorkTab }) {
   const canSwitch = maySwitch && (eligibleExecutionDevices(targets.devices.data, agent).some(device => device.id !== ticket.device?.id)
     || !!ticket.device && agent.executionCapabilities.local);
   const canHandoff = actions.handoff && recoveryNext !== 'wait-receipt' && !!handoffChoices.length;
-  const inspectorAvailable = tab === 'activity' || tab === 'delivery';
   const viewedVersion = tab === 'delivery' && route.revision !== undefined
     ? ticket.versions.find(version => version.revision === route.revision) : undefined;
   const versionAccepted = viewedVersion?.reviews.some(review => review.kind === 'accepted');
@@ -223,8 +224,8 @@ function TicketDetail(props: PageProps & { ticket: Ticket; tab: WorkTab }) {
       <div className="ticket-title-line">
         <h1>{ticket.title}</h1>
         <div className="ticket-top-actions">
-          {inspectorAvailable && <IconButton label={side ? '隐藏工单信息' : '显示工单信息'} className="desktop-inspector" onClick={() => setSide(!side)}>
-            {side ? <PanelRightClose /> : <PanelRightOpen />}</IconButton>}
+          <IconButton label={side ? '隐藏工单属性' : '显示工单属性'} aria-expanded={side} onClick={() => setSide(!side)}>
+            {side ? <PanelRightClose /> : <PanelRightOpen />}</IconButton>
           {project.mayStart && <IconButton label="新建子工单" onClick={() => props.openTask({ parent: ticket.id, topic: ticket.work.topic })}><Plus /></IconButton>}
         </div>
       </div>
@@ -242,10 +243,8 @@ function TicketDetail(props: PageProps & { ticket: Ticket; tab: WorkTab }) {
           : ticket.device.state === 'lost' ? ' · 已丢失' : ticket.device.state === 'suspended' ? ' · 已暂停'
             : ticket.device.claimsPaused ? ' · 暂不接单' : deviceWaiting ? ' · 离线' : ''}</span>}</div>
     </div>
-    <div className="ticket-frame" data-inspector={side && inspectorAvailable}>
-      <PageTabs value={tab} onChange={value => {
-        window.location.hash = withConversationOrigin(routeFor(project.id, 'work', ticket.id, value), route.conversationOrigin);
-      }} items={workTabs} label="工单详情">
+    <div className="ticket-frame" data-inspector={side}>
+      <PageTabs value={tab} onChange={value => { window.location.hash = detailLink(value); }} items={workTabs} label="工单详情">
         <TabsContent className="ticket-tab" value="activity">
           <TicketRecovery {...props} ticket={ticket} />
           {status && !ticket.recovery && <div className="info-callout"><History size={17} /><span>正在确认旧执行停止及接续权限。{ticket.report?.summary}</span></div>}
@@ -265,10 +264,13 @@ function TicketDetail(props: PageProps & { ticket: Ticket; tab: WorkTab }) {
           {ticket.questions.length > 0 && <section className="question-stack" aria-label="待答问题">
             {ticket.questions.map(question => <Question ticket={ticket.id} key={question.id} question={question} />)}
           </section>}
-          <Timeline {...props} ticket={ticket} />
-          <Conversation {...props} ticket={ticket.id} topic={ticket.work.topic} canReplyInFeishu={ticket.canReplyInFeishu} />
-          {ticket.report && !ticket.result && !ticket.questions.length && !status && <div className="info-callout"><Bot size={17} /><span>{ticket.report.summary}</span></div>}
           {executionActions}
+          {actions.accept && <div className="ticket-next-action">
+            <span><FileCheck2 size={17} />第 {upcoming} 版待你验收</span><a className="text-button" href={detailLink('delivery')}>核对本版成果 <ArrowRight size={14} /></a>
+          </div>}
+          <Conversation {...props} ticket={ticket} topic={ticket.work.topic} />
+          <TicketOutcomes {...props} ticket={ticket} />
+          {ticket.report && !ticket.result && !ticket.questions.length && !status && <div className="info-callout"><Bot size={17} /><span>{ticket.report.summary}</span></div>}
         </TabsContent>
         <TabsContent className="ticket-tab" value="execution">
           <RunHistory {...props} ticket={ticket} actions={<><TicketRecovery {...props} ticket={ticket} />{executionActions}</>} />
@@ -276,18 +278,24 @@ function TicketDetail(props: PageProps & { ticket: Ticket; tab: WorkTab }) {
         <TabsContent className="ticket-tab" value="delivery"><Delivery {...props} ticket={ticket} /></TabsContent>
         <TabsContent className="ticket-tab" value="context"><ContextPanel {...props} ticket={ticket} /></TabsContent>
       </PageTabs>
-      {side && inspectorAvailable && <aside className="inspector" aria-label="工单信息">
-        <h2>工单信息</h2>
+      {side && <aside className="inspector" aria-label="工单属性">
+        <h2>工单属性</h2>
         <dl className="facts">
-          <dt>发起人</dt><dd>{ticket.work.requester}</dd>
-          <dt>Agent 所有者</dt><dd>{agent?.owner ?? '—'}</dd>
-          {!discussion && <><dt>主题</dt><dd>{ticket.topicTitle ?? '未归入主题'}</dd></>}
+          <dt>状态</dt><dd><TicketStatus ticket={ticket} /></dd>
+          <dt>当前版本</dt><dd><Version version={ticket.work.version ?? 1} /></dd>
+          <dt>项目</dt><dd><a href={routeFor(project.id, 'project')}>{project.title}</a></dd>
+          <dt>主题</dt><dd>{discussion ? <a href={discussion.href}>{discussion.name}</a> : ticket.topicTitle ?? '未归入主题'}</dd>
+          <dt>发起人</dt><dd>{memberName(ticket.work.requester)}</dd>
+          <dt>负责 Agent</dt><dd>{agent?.title ?? ticket.work.agent}</dd>
+          {agent?.owner && <><dt>Agent 所有者</dt><dd>{memberName(agent.owner)}</dd></>}
+          {!!ticket.recovery?.owners.length && <><dt>待处理人</dt><dd>{ticket.recovery.owners.map(memberName).join('、')}</dd></>}
           <dt>优先级</dt><dd>{ticket.work.priority === 'urgent' ? '紧急' : '普通'}</dd>
-          <dt>创建时间</dt><dd>{date(ticket.createdAt)}</dd>
         </dl>
-        <a className="inspector-link" href={routeFor(project.id, 'work', ticket.id, 'context')}><LockKeyhole size={16} /><span>引用与授权</span><ChevronRight size={15} /></a>
-        <a className="inspector-link" href={routeFor(project.id, 'work', ticket.id, 'delivery')}><FileCheck2 size={16} /><span>查看验收依据</span><ChevronRight size={15} /></a>
-        {ticket.work.parent && <a className="inspector-link" href={routeFor(project.id, 'work', ticket.work.parent)}><Link2 size={16} />上游工单</a>}
+        {tab !== 'context' && <a className="inspector-link" href={detailLink('context')}><LockKeyhole size={16} /><span>引用与授权</span><ChevronRight size={15} /></a>}
+        {tab !== 'delivery' && <a className="inspector-link" href={detailLink('delivery')}><FileCheck2 size={16} /><span>查看验收依据</span><ChevronRight size={15} /></a>}
+        {ticket.candidate && <a className="inspector-link" href={routeFor(project.id, 'knowledge', ticket.candidate, ticket.candidateTab)}>
+          <FileCheck2 size={16} /><span>{ticket.candidateTab === 'review' ? '核对知识候选' : '查看关联知识'}</span><ChevronRight size={15} /></a>}
+        {ticket.work.parent && <a className="inspector-link" href={routeFor(project.id, 'work', ticket.work.parent)}><Link2 size={16} /><span>上游工单</span></a>}
       </aside>}
     </div>
     {dialog && <TicketCommand {...props} name={dialog} agentChoices={dialog === 'handoff' ? handoffChoices : agentChoices}
@@ -295,28 +303,9 @@ function TicketDetail(props: PageProps & { ticket: Ticket; tab: WorkTab }) {
   </div>;
 }
 
-function Timeline({ ticket, project }: PageProps & { ticket: Ticket }) {
-  const rows: { id: string; label: string; text: string; at: string; channel: string; url?: string; inline?: boolean; commit?: string;
-    revisions?: Ticket['channelHistory'][number]['revisions'] }[] = [
-    ...(!ticket.channelHistory.some(item => item.id === ticket.origin) ? [{ id: ticket.origin, label: ticket.work.requester, text: ticket.request, at: ticket.createdAt, channel: ticket.work.source }] : []),
-    ...ticket.channelHistory.map(item => ({ id: item.id, label: item.member, text: item.text, at: item.at, channel: item.source, url: item.url,
-      revisions: item.revisions, inline: item.github?.kind === 'inline', commit: item.github?.commit })),
-    ...ticket.history.filter(item => item.id !== ticket.origin && !ticket.channelHistory.some(c => c.id === item.id))
-      .map(item => ({ id: item.id, label: item.actor, text: item.text, at: item.at, channel: 'web' })),
-  ].sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
+function TicketOutcomes({ ticket, project }: PageProps & { ticket: Ticket }) {
+  if (!ticket.discussionNotes.length && !ticket.result && !ticket.materialHidden) return null;
   return <div className="timeline">
-    {rows.map(item => <article key={item.id} className="timeline-entry">
-      <Avatar value={item.label} /><div className="message">
-        <div className="message-meta"><strong>{item.label}</strong><Source channel={item.channel} /><time>{date(item.at)}</time>
-          {item.inline && <span>行内评论 {short(item.commit)}</span>}
-          {item.url && <Ext href={item.url}>原消息</Ext>}</div>
-        <Markdown text={item.text} />
-        {item.revisions && item.revisions.length > 1 && <details className="minor-disclosure">
-          <summary>消息修订 · {item.revisions.length}</summary>
-          {item.revisions.map(revision => <div className="revision-note" key={revision.revision}><time>{date(revision.at)}</time><p>{revision.text || '原消息已撤回'}</p></div>)}
-        </details>}
-      </div>
-    </article>)}
     {ticket.discussionNotes.map(item => <article className="timeline-entry" key={item.id}>
       <Avatar value="群" kind="agent" /><div className="message">
         <div className="message-meta"><strong>群反馈整理</strong><Source channel="feishu" /></div>

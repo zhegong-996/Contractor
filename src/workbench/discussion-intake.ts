@@ -19,13 +19,23 @@ export function discussionThread(meta: Record<string, unknown>, at: number): Dis
 export type SourceFact = { kind: 'material' | 'github'; key: string; title: string; text?: string; revision?: string; url?: string; knowledge?: true;
   messages?: string[]; exact?: boolean };
 
+function threadLink(chat: string, thread: unknown, position?: string) {
+  if (typeof thread !== 'string' || !threadKey.test(thread) || !/^oc_[A-Za-z0-9_-]+$/.test(chat)) return;
+  const url = new URL('https://applink.feishu.cn/client/thread/open');
+  for (const [name, value] of Object.entries({ open_chat_id: chat, open_thread_id: thread, openchatid: chat, openthreadid: thread }))
+    url.searchParams.set(name, value);
+  if (position !== undefined) url.searchParams.set('thread_position', position);
+  return url.href;
+}
+
 export function discussionInput(trigger: Trigger, app: string, senderApp = app): DiscussionInput {
   const chat = String(trigger.meta.chatId);
+  const topic = threadLink(chat, trigger.meta.threadId);
   return {
     trigger,
     sender: { provider: 'feishu', namespace: senderApp, id: trigger.actor.id, label: trigger.actor.id },
     origin: { key: 'feishu:' + app + ':' + trigger.threads[0]!.id,
-      label: trigger.url ? '飞书原消息' : '飞书群', url: trigger.url ?? feishuChatLink('feishu', chat) },
+      label: trigger.url ? '飞书原消息' : topic ? '飞书原话题' : '飞书群', url: trigger.url ?? topic ?? feishuChatLink('feishu', chat) },
   };
 }
 
@@ -33,6 +43,7 @@ const pageSchema = z.object({ ok: z.literal(true), identity: z.literal('user'), 
   items: z.array(z.unknown()), has_more: z.boolean().default(false), page_token: z.string().optional(),
 }) });
 const rawMessage = z.looseObject({ chat_id: z.string(), msg_type: z.string(), message_position: z.string().regex(/^-?\d+$/).optional(),
+  thread_message_position: z.string().regex(/^-?\d+$/).optional(),
   message_id: z.string(), update_time: z.string().regex(/^\d+$/).optional(),
   sender: z.looseObject({ id: z.string(), sender_type: z.string(), id_type: z.string().optional() }) });
 const tombstone = z.object({ chat_id: z.string(), message_id: z.string(), deleted: z.literal(true) });
@@ -77,6 +88,10 @@ function historyMessages(items: unknown[], history: History, feishu: Feishu, cha
     const trigger = feishuTrigger(thread ? { ...event, thread_id: thread.id,
       ...(message_id !== thread.root && { root_id: thread.root }) } : event, feishu.botId, feishu.appId) as (NativeTrigger & Trigger) | undefined;
     if (!trigger || Date.parse(trigger.at) < start || Date.parse(trigger.at) >= end) continue;
+    const position = raw.data.thread_message_position;
+    if (!trigger.url && position !== undefined && Number(position) >= 0) {
+      trigger.url = threadLink(chat, trigger.meta.threadId, position);
+    }
     if (!trigger.url && raw.data.message_position && Number(raw.data.message_position) >= 0) {
       const url = new URL(feishuChatLink('feishu', chat));
       url.searchParams.set('position', raw.data.message_position);

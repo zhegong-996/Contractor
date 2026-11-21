@@ -42,7 +42,7 @@ test('新项目的成员、主题和两个 Agent 隔离，飞书原卡只允许�
     import('../src/upstream.ts'), import('../src/workbench/discussion-intake.ts'), import('../src/workbench/feishu-cards.ts'),
   ]);
   const auth = new ConsoleAuth(); await auth.ready(); await auth.bootstrapOwner('product', 'test-only-password');
-  for (const person of ['design', 'engineering', 'outsider']) await auth.createAccount(person, 'test-only-password', 'operator', 'product');
+  for (const person of ['design', 'engineering', 'outsider', 'reader']) await auth.createAccount(person, 'test-only-password', 'operator', 'product');
   const config = settingsSchema.parse({ feishu: { profile: 'fixture', appId: 'app', botId: 'ou_bot', allowedGroups: ['oc_store'], decisionCards: true },
     crossChannel: {}, projects: [{ id: 'starter', title: '已配置项目', members: ['product','design','engineering'], maintainers: ['product'] }],
     functions: [{ id: 'review', title: '专业核对' }],
@@ -79,6 +79,7 @@ test('新项目的成员、主题和两个 Agent 隔离，飞书原卡只允许�
   assert.equal(work.createProject('product', { nonce, title: '门店推荐理由' }).id, project);
   assert.throws(() => work.createProject('product', { nonce, title: '另一项目' }), { status: 409 });
   for (const actor of ['design', 'engineering']) work.addProjectMember('product', project, actor);
+  work.addProjectMember('product', project, 'reader', 'reader');
   assert.throws(() => work.addProjectMember('design', project, 'outsider'), { status: 403 });
   assert.throws(() => work.addProjectAgent('product', project, 'copy-agent'), { status: 403 });
   work.addProjectAgent('design', project, 'copy-agent');
@@ -110,11 +111,16 @@ test('新项目的成员、主题和两个 Agent 隔离，飞书原卡只允许�
   assert.equal(work.detail('product', copy).work.topic, 'reasons');
   assert.equal(work.detail('engineering', wrap).work.topic, 'reasons');
   assert.throws(() => work.conversation('outsider', project, { ticket: copy }), { status: 404 });
-  const web = { nonce: randomUUID(), ticket: copy, text: '文案单内部补充', feishu: true };
+  const web = { nonce: randomUUID(), ticket: copy, text: '文案单公开补充', feishu: true };
   work.postConversation('design', project, web);
   work.postConversation('design', project, web);
   assert.equal(work.conversation('product', project, { ticket: copy }).length, 1);
   assert.equal(work.conversation('product', project, { ticket: wrap }).length, 0);
+  assert.throws(() => work.postConversation('design', project, { ...web, feishu: false }), { status: 409 });
+  assert.throws(() => work.postConversation('reader', project, web), { status: 403 });
+  const internal = { nonce: randomUUID(), ticket: wrap, text: '仅在小屏工单内留言' };
+  work.postConversation('engineering', project, internal);
+  assert.throws(() => work.postConversation('engineering', project, { ...internal, feishu: true }), { status: 409 });
   const groupCopy = normalize('design', 'om_copy_note', '文案的话题补充', 'om_copy');
   const groupWrap = normalize('product', 'om_wrap_note', '小屏的话题补充', 'om_wrap');
   assert.equal(work.receiveFeishuReply(groupCopy, project), true);
@@ -144,6 +150,8 @@ test('新项目的成员、主题和两个 Agent 隔离，飞书原卡只允许�
   const wrapCard = await wait(() => forPerson('engineering'));
   assert.ok(!deliveries.some(item => 'message' in item.target));
   assert.deepEqual(replies.filter(item => item.text.includes(web.text)).map(item => item.message), ['om_copy']);
+  assert.equal(work.conversation('reader', project, { ticket: copy })[0]?.feishuDelivery, 'sent');
+  assert.equal(replies.some(item => item.text.includes(internal.text)), false);
   const click = (item: Sent, actor: string, ref = item.ref) => readCardClick(JSON.stringify({
     type: 'card.action.trigger', event_id: randomUUID(), operator_id: 'ou_' + actor, message_id: ref, chat_id: 'oc_store',
     action_value: JSON.stringify(item.card.body.elements.find((entry: any) => entry.behaviors).behaviors[0].value),
@@ -165,7 +173,7 @@ test('新项目的成员、主题和两个 Agent 隔离，飞书原卡只允许�
   assert.equal(wrapRuns.length, 2);
   assert.ok(copyRuns.every(run => run.agent === 'copy-agent'));
   assert.ok(wrapRuns.every(run => run.agent === 'wrap-agent'));
-  assert.match(JSON.stringify(copyRuns.at(-1)), /文案单内部补充|文案的话题补充/);
+  assert.match(JSON.stringify(copyRuns.at(-1)), /文案单公开补充|文案的话题补充/);
   assert.doesNotMatch(JSON.stringify(copyRuns), /小屏的话题补充/);
   assert.match(JSON.stringify(wrapRuns.at(-1)), /小屏的话题补充/);
   assert.doesNotMatch(JSON.stringify(wrapRuns), /文案的话题补充|文案单内部补充/);

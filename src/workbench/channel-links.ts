@@ -183,6 +183,12 @@ export class ChannelLinks {
     );
   }
 
+  addFeishuPermalink(id: string, project: string, url: string) {
+    this.db.prepare(`UPDATE workbench_channel_event SET request=json_set(request,'$.trigger.url',?)
+      WHERE id=? AND project=? AND ticket IS NOT NULL AND json_extract(request,'$.sender.provider')='feishu'
+        AND json_extract(request,'$.trigger.url') IS NULL`).run(url, id, project);
+  }
+
   revise(id: string, at: string, body: string, shared: boolean) {
     const hash = digest(body.trim());
     const last = this.db.prepare('SELECT at,hash FROM workbench_channel_revision WHERE event=? ORDER BY at DESC,rowid DESC LIMIT 1').get(id);

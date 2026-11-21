@@ -142,7 +142,7 @@ test('话题补读接收真实 API 的负数群位置，保留根消息并忽略
   const feishu = { profile: 'bot', appId: 'cli_bot', botId: 'ou_bot' };
   const thread = { id: 'omt_one', root: 'om_root', at: start };
   const sample = { message_id: 'om_reply', chat_id: 'oc_room', root_id: thread.root, thread_id: thread.id,
-    msg_type: 'text', create_time: String(start + 1), message_position: '-3',
+    msg_type: 'text', create_time: String(start + 1), message_position: '-3', thread_message_position: '9',
     sender: { id: history.userOpenId, id_type: 'open_id', sender_type: 'user' },
     body: { content: JSON.stringify({ text: '/答 先场景后事实' }) } };
   const reader = new FeishuSources(async args => {
@@ -162,4 +162,8 @@ test('话题补读接收真实 API 的负数群位置，保留根消息并忽略
   assert.equal(reply.answer, '先场景后事实');
   assert.equal(reply.trigger.id, feishuTriggerId('om_reply'));
   assert.equal(reply.origin.key, 'feishu:cli_bot:oc_room:om_root');
+  const link = new URL(reply.trigger.url!);
+  assert.equal(link.pathname, '/client/thread/open');
+  assert.equal(link.searchParams.get('open_thread_id'), thread.id);
+  assert.equal(link.searchParams.get('thread_position'), '9');
 });

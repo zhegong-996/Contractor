@@ -2,12 +2,11 @@ import { useEffect, useState } from 'react';
 import { ArrowRight, BookOpen, Clipboard, FolderKanban, GitBranch, Link2, MessageSquare, Plus, Plug2 } from 'lucide-react';
 import { ProjectPermissions } from './access-settings.tsx';
 import { roleLabel } from './platform-access.tsx';
-import { api, useData, useTickets, type Channels, type Discussion, type FigmaSourceStatus, type GitHubConnection, type Imported, type ProjectChannels, type Resource } from './api.ts';
+import { api, useData, type Channels, type Discussion, type FigmaSourceStatus, type GitHubConnection, type Imported, type ProjectChannels, type Resource } from './api.ts';
 import { TicketPicker } from './components/ticket-picker.tsx';
 import { go, routeFor, type PageProps } from './navigation.ts';
 import { AgentOptions } from './creation.tsx';
 import { Receipts } from './agents.tsx';
-import { Conversation } from './conversation.tsx';
 import { ProjectRoutingPanel } from './operations-settings.tsx';
 import { ProjectRegression } from './project-regression.tsx';
 import { Button } from './components/button.tsx';
@@ -17,7 +16,7 @@ import { Markdown } from './markdown.tsx';
 import { Avatar, date, Empty, Ext, Failure, Field, Loading, MaterialIcon, Modal, PageTabs, Pill, Section, short, Source,
   TopicOptions, topicName, useActions, useStored } from './ui.tsx';
 
-const tabs = [['chat', '讨论'], ['structure', '项目结构'], ['sources', '资料与连接'], ['discussion', '群反馈'], ['regression', '回归评估'], ['usage', '用量'],
+const tabs = [['structure', '项目结构'], ['sources', '资料与连接'], ['discussion', '群反馈'], ['regression', '回归评估'], ['usage', '用量'],
   ['settings', '项目设置'], ['routing', '职责与路由']] as const;
 export function ProjectPage(props: PageProps) {
   const { project, route } = props;
@@ -27,11 +26,13 @@ export function ProjectPage(props: PageProps) {
     <header className="object-header"><div className="object-emblem"><FolderKanban size={25} /></div>
       <div className="min-w-0"><h1>{project.title}</h1><div className="object-meta"><span>{project.members.length} 位成员</span>
         <span>{project.topics.length} 个主题</span><span>{project.resources.filter(r => r.state === 'bound').length} 个来源</span></div></div>
-      <a className="text-button object-action" href={routeFor(project.id, 'work')}>项目工单 <ArrowRight size={16} /></a>
+      <div className="actions object-action">
+        <a className="text-button" href={routeFor(project.id, 'chat', undefined, 'project')}><MessageSquare size={16} />项目讨论</a>
+        <a className="text-button" href={routeFor(project.id, 'work')}>项目工单 <ArrowRight size={16} /></a>
+      </div>
     </header>
     {['settings', 'routing'].includes(route.tab ?? '') && !project.maintain && <Failure error={new Error('当前账号没有项目设置权限。')} />}
     <PageTabs label="项目详情" value={tab} items={shown} onChange={value => go(project.id, 'project', undefined, value)}>
-      <TabsContent value="chat" className="detail-stack"><ProjectChat {...props} /></TabsContent>
       <TabsContent value="structure" className="detail-stack"><Structure {...props} /></TabsContent>
       <TabsContent value="sources" className="detail-stack"><Sources {...props} /></TabsContent>
       {project.discussion && <TabsContent value="discussion" className="detail-stack"><GroupFeedback {...props} /></TabsContent>}
@@ -42,22 +43,6 @@ export function ProjectPage(props: PageProps) {
       {project.maintain && <TabsContent value="routing" className="detail-stack"><ProjectRoutingPanel project={project.id} /></TabsContent>}
     </PageTabs>
   </div></div>;
-}
-
-function ProjectChat(props: PageProps) {
-  const { project, route, openTask } = props;
-  const topic = project.topics.find(item => item.id === route.item)?.id ?? '';
-  const tickets = useTickets({ project: project.id, topic, purpose: 'work', limit: 12 }, !!topic, 5000).rows;
-  return <Section title={topicName(project, topic) ?? '项目讨论'} action={<div className="actions">
-    {!!project.topics.length && <select aria-label="讨论范围" value={topic} onChange={event => go(project.id, 'project', event.target.value || undefined, 'chat')}>
-    <TopicOptions project={project} empty="项目讨论" />
-    </select>}
-    {topic && project.mayStart && <Button size="sm" variant="outline" onClick={() => openTask({ topic })}>发起工单</Button>}
-  </div>}>
-    {!!tickets.length && <div className="record-row" aria-label="主题工单">{tickets.map(item =>
-      <a key={item.id} href={routeFor(project.id, 'work', item.id)}>{item.title}</a>)}</div>}
-    <Conversation {...props} key={topic} topic={topic || undefined} />
-  </Section>;
 }
 
 function Structure({ workspace, project, openTask }: PageProps) {
@@ -73,7 +58,7 @@ function Structure({ workspace, project, openTask }: PageProps) {
     </a>)}</Section>}
     <Section title="主题" action={project.maintain ? <Button variant="outline" size="sm" onClick={() => show(true)}><Plus />新建主题</Button> : undefined}>
       {project.topics.length ? project.topics.map(topic => <div className="topic-row" key={topic.id} data-child={!!topic.parent}>
-        <MessageSquare size={16} /><a href={routeFor(project.id, 'project', topic.id, 'chat')}><strong>{topic.title}</strong></a>{topic.parent && <small>{topicName(project, topic.parent)}</small>}
+        <MessageSquare size={16} /><a href={routeFor(project.id, 'chat', topic.id)}><strong>{topic.title}</strong></a>{topic.parent && <small>{topicName(project, topic.parent)}</small>}
         <a className="text-button" href={routeFor(project.id, 'work')}
           onClick={() => store('work:' + project.id, { query: '', topic: topic.id, status: 'all' })}>查看工单<ArrowRight size={14} /></a>
         {project.mayStart && <Button size="sm" variant="ghost" onClick={() => openTask({ topic: topic.id })}>发起</Button>}

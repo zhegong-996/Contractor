@@ -141,7 +141,8 @@ async function serve(release: () => void) {
     catch { return { state: 'unavailable' as const, mode: 'local' as const, checkedAt: Date.now() }; }
   };
   const plugins = new PluginHost();
-  const outbound = notificationGuard(configuredEnv('CONTRACTOR_PAUSE_NOTIFICATIONS') === '1', configuredEnv('CONTRACTOR_TEST_DINGTALK_CONNECTOR'));
+  const outbound = notificationGuard(configuredEnv('CONTRACTOR_PAUSE_NOTIFICATIONS') === '1',
+    configuredEnv('CONTRACTOR_TEST_DINGTALK_CONNECTOR'), configuredEnv('CONTRACTOR_TEST_FEISHU_REPLY'));
   const deviceKey = Buffer.from(await localDeviceKey(), 'hex');
   const feishu = config.feishu;
   const recoveryUrl = feishu && config.crossChannel ? 'https://applink.feishu.cn/client/bot/open?appId=' + encodeURIComponent(feishu.appId) : undefined;
@@ -835,7 +836,7 @@ async function serve(release: () => void) {
       if (!userId) return sendFeishu({ commands: { lark } }, message);
       await lark(['im', '+messages-send', '--user-id', userId, '--text', message.text, '--idempotency-key', message.id]);
       return 'sent';
-    })), cards ? { ...cards,
+    }, undefined, message)), cards ? { ...cards,
       send: (target, key, content) => outbound.deliver(() => cards.send(target, key, content)),
       update: (ref, content) => outbound.deliver(() => cards.update(ref, content)),
       available: () => {
