@@ -16,7 +16,7 @@ export function sandboxProvider(directory = process.env.CONTRACTOR_SANDBOX_ROOT)
     const manifest = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8'));
     const cli = path.join(root, 'dist', 'cli.js');
     if (manifest.name !== name || manifest.version !== version || !existsSync(cli)) throw new Error('unexpected runtime');
-    const zod = createRequire(cli)('zod/package.json') as { version?: string };
+    const zod = JSON.parse(readFileSync(createRequire(cli).resolve('zod/package.json'), 'utf8')) as { version?: string };
     if (zod.version !== zodVersion) throw new Error('unexpected zod version');
     return { root, cli };
   } catch {

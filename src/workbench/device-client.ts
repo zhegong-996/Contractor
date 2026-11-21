@@ -11,6 +11,7 @@ import { deviceHome, type DeviceJob, type ReleasedLease } from './devices.ts';
 import { cleanAcknowledged, cleanRemoteCodex, neverLaunched, prepareRemote, remoteStop } from './remote-runner.ts';
 import { runnerEndpoint, runnerWorkerSchema, workerCredential } from './runner-connection.ts';
 import { expiredCodexLogin, readPrivateRunnerFile } from './runner-credentials.ts';
+import { sandboxProvider } from './sandbox-provider.ts';
 
 if (!process.env.COLLAB_STATE_DIR || !path.isAbsolute(process.env.COLLAB_STATE_DIR))
   throw new Error('请使用工作台的 COLLAB_STATE_DIR 绝对路径。');
@@ -100,7 +101,11 @@ if (argv[0] === 'pair' || argv[0] === 'pair-remote') {
     const hub: WorkerHub = {
       async work(data) {
         const auth = codex ? await readPrivateRunnerFile(codex).catch(() => undefined) : undefined;
-        const validCodex = !!auth && !expiredCodexLogin(auth);
+        let sandboxReady = true;
+        if (codex) {
+          try { sandboxProvider(); } catch { sandboxReady = false; }
+        }
+        const validCodex = sandboxReady && !!auth && !expiredCodexLogin(auth);
         const engines = independent?.engines.filter(engine => engine !== 'codex' || validCodex);
         const unavailable = engines ? engines.length === 0 : !!codex && !validCodex;
         // Heartbeats, cancellation and receipt delivery continue with zero new-work capacity.
@@ -109,7 +114,8 @@ if (argv[0] === 'pair' || argv[0] === 'pair-remote') {
         const status = String(process.pid) + (answer.deviceActive === false || unavailable ? ':paused' : '');
         if (status !== announced) {
           await writeFile(ready, status, { mode: 0o600 });
-          if (unavailable) console.log('Codex 登录不可用，暂停接单。运行同一条连接命令更新登录。');
+          if (!sandboxReady) console.log('Codex 隔离工具未就绪。按执行端手册安装锁定版本并核对 CONTRACTOR_SANDBOX_ROOT。');
+          else if (unavailable) console.log('Codex 登录不可用，暂停接单。运行同一条连接命令更新登录。');
           announced = status;
         }
         if (remote) {

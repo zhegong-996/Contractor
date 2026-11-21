@@ -11,7 +11,7 @@ import test from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 import { promisify } from 'node:util';
 
-test('Codex 登录过期时拦截领取，更新专用登录后沿用原配对', { timeout: 25000 }, async t => {
+test('Codex 执行环境未就绪时拦截领取，修复后沿用原配对', { timeout: 25000 }, async t => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'contractor-expired-runner-'));
   const id = randomUUID();
   const requests: string[] = [];
@@ -36,9 +36,12 @@ test('Codex 登录过期时拦截领取，更新专用登录后沿用原配对',
   const slot = path.join(folder, 'member-credentials', 'engineering');
   const login = path.join(folder, 'codex-login');
   const bin = path.join(root, 'bin');
+  const sandbox = path.join(root, 'sandbox-fixture');
+  const zod = path.join(sandbox, 'node_modules', 'zod', 'package.json');
   const run = (action: 'connect' | 'stop') => promisify(execFile)(process.execPath,
     ['--import', 'tsx', 'src/workbench/runner-cli.ts', action, endpoint, '--no-browser'], {
-      env: { ...process.env, CONTRACTOR_RUNNER_HOME: root, PATH: bin + path.delimiter + process.env.PATH },
+      env: { ...process.env, CONTRACTOR_RUNNER_HOME: root, CONTRACTOR_SANDBOX_ROOT: sandbox,
+        PATH: bin + path.delimiter + process.env.PATH },
       timeout: 12000,
     });
   t.after(async () => {
@@ -46,12 +49,15 @@ test('Codex 登录过期时拦截领取，更新专用登录后沿用原配对',
     listener.close();
     await rm(root, { recursive: true, force: true });
   });
-  await Promise.all([device, slot, login, bin].map(dir => mkdir(dir, { recursive: true, mode: 0o700 })));
+  await Promise.all([device, slot, login, bin, path.dirname(zod), path.join(sandbox, 'dist')]
+    .map(dir => mkdir(dir, { recursive: true, mode: 0o700 })));
   for (const program of ['codex', 'bwrap', 'socat', 'rg'])
     await writeFile(path.join(bin, program), '#!/bin/sh\nexit 88\n', { mode: 0o700 });
   const auth = (exp: number) => ({ auth_mode: 'chatgpt',
     tokens: { access_token: 'fixture.' + Buffer.from(JSON.stringify({ exp })).toString('base64url') + '.fixture' } });
   const store = (name: string, content: unknown) => writeFile(name, JSON.stringify(content), { mode: 0o600 });
+  await Promise.all([store(path.join(sandbox, 'package.json'), { name: '@anthropic-ai/sandbox-runtime', version: '0.0.83' }),
+    writeFile(path.join(sandbox, 'dist', 'cli.js'), 'throw new Error("fixture must never execute");'), store(zod, { version: '4.6.7' })]);
   const connection = { driver: 'contractor', id, token: 'T'.repeat(43), endpoint, profile: {
     id: 'code', owner: 'engineering', engine: 'codex', model: 'gpt-6.1-sol',
     execution: { kind: 'remote', provider: 'openai', credential: 'test' },
@@ -83,6 +89,10 @@ test('Codex 登录过期时拦截领取，更新专用登录后沿用原配对',
   await store(credentialFile, expired);
   await waitFor(() => workPolls.at(-1) === false);
   await store(credentialFile, current);
+  await waitFor(() => workPolls.at(-1) === true);
+  await store(zod, { version: '3.25.76' });
+  await waitFor(() => workPolls.at(-1) === false);
+  await store(zod, { version: '4.6.7' });
   await waitFor(() => workPolls.at(-1) === true);
   await run('stop');
 
