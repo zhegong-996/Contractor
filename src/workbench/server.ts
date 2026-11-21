@@ -276,7 +276,6 @@ async function serve(release: () => void) {
         if (req.method === 'GET') {
           const status = url.searchParams.get('im');
           const notice = status === 'pending' ? '已提交开通申请。获批后，请回到此链接重新授权登录。'
-            : status === 'existing' ? '请先在工作台个人设置绑定已有账号，再返回此处。'
             : status ? '授权未完成，请重新登录或联系平台管理员。' : undefined;
           page(200, actor ? enrollment : undefined, actor ? undefined : notice);
           return;
@@ -389,19 +388,26 @@ async function serve(release: () => void) {
         if ('status' in result) status = result.status;
         else {
           const { identity, link } = result;
-          const priorChannelOwner = identity.channel && work.loginChannelOwner(identity.channel);
-          if (link) {
-            if (priorChannelOwner && priorChannelOwner !== link.member || !auth.linkExternalAccount(link.member, identity)) status = 'conflict';
+          const binding = identity.channel && work.loginChannelBinding(identity.channel);
+          const existing = auth.externalOwner(identity);
+          const channelMember = binding?.member;
+          if (binding?.conflict || existing && channelMember && existing.username !== channelMember) status = 'conflict';
+          else if (link) {
+            if (channelMember && channelMember !== link.member || !auth.linkExternalAccount(link.member, identity)) status = 'conflict';
             else {
               if (identity.channel) work.bindActivation(link.member, identity.channel);
               work.imLogin.dropRegistration(identity.subject);
               status = 'linked';
             }
           } else {
-            const existing = auth.externalOwner(identity);
-            if (existing) {
+            const account = existing ?? (channelMember ? auth.listAccounts().find(row => row.username === channelMember) : undefined);
+            if (!account && !channelMember) status = work.imLogin.requestRegistration(result.provider, identity);
+            else if (!account || account.disabled) status = 'blocked';
+            else if (!existing && !auth.linkExternalAccount(account.username, identity)) status = 'conflict';
+            else {
               const session = auth.loginExternal(identity);
               if (session) {
+                work.imLogin.dropRegistration(identity.subject);
                 auth.logout(req.headers.cookie);
                 cookies.push(...sessionCookies(session.cookie, origin));
                 res.setHeader('set-cookie', cookies);
@@ -409,8 +415,7 @@ async function serve(release: () => void) {
                 return;
               }
               status = 'blocked';
-            } else if (priorChannelOwner) status = 'existing';
-            else status = work.imLogin.requestRegistration(result.provider, identity);
+            }
           }
         }
         res.setHeader('set-cookie', cookies);

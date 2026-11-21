@@ -63,7 +63,7 @@ function Login({ session }: { session?: Session }) {
       <IMLoginEntry login={imLogin} status={notice.status} />
       {imLogin?.provider && !imLogin.ready && <p className="login-notice" role="status">{imNames[imLogin.provider]}登录暂不可用，请联系平台管理员。</p>}
       {session && !imLogin?.provider && <p className="muted-text">新成员请联系管理员启用团队授权登录。</p>}
-      {usePassword && <details className="login-alternative" open={notice.status === 'existing' || undefined}>
+      {usePassword && !['pending', 'denied', 'blocked', 'conflict'].includes(notice.status ?? '') && <details className="login-alternative">
         <summary>已有账号使用口令</summary>{passwordForm}
       </details>}
     </div>

@@ -41,7 +41,10 @@ export function permissionAdmin(auth: ConsoleAuth, work: Collaboration, verifyAc
       .filter(row => !rows.some(account => account.name === row.username) && work.activationIdentityAvailable(row.sender))
       .map(({ sender, ...row }) => ({ ...row, feishuName: sender.label })) : [];
     const imPending = work.imLogin.registrations()
-      .filter(({ identity }) => !auth.externalOwner(identity) && (!identity.channel || !work.loginChannelOwner(identity.channel)))
+      .filter(({ identity }) => {
+        const binding = identity.channel && work.loginChannelBinding(identity.channel);
+        return !auth.externalOwner(identity) && !binding?.member && !binding?.conflict;
+      })
       .map(({ id, provider, identity, submittedAt }) => ({ id, provider, displayName: identity.label,
         submittedAt: new Date(submittedAt).toISOString() }));
     const rolePermissions = CONSOLE_ROLES.map(id => ({ id, label: ROLE_LABELS[id],
@@ -87,8 +90,8 @@ export function permissionAdmin(auth: ConsoleAuth, work: Collaboration, verifyAc
       return serialize(async () => {
         mayCreate(actor, role);
         const request = work.imLogin.registrations().find(item => item.id === id);
-        if (!request || auth.externalOwner(request.identity)
-          || request.identity.channel && work.loginChannelOwner(request.identity.channel))
+        const binding = request?.identity.channel && work.loginChannelBinding(request.identity.channel);
+        if (!request || auth.externalOwner(request.identity) || binding?.member || binding?.conflict)
           throw new WorkbenchError('申请已失效或该身份已有账号。', 409);
         // The verified channel identity owns login. The internal name only keys platform records.
         const username = 'member-' + randomBytes(12).toString('hex');

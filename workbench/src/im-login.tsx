@@ -8,7 +8,6 @@ import { imAuthorizationHints, imProviderNames as imNames } from '../../src/work
 export { imNames };
 const notices = {
   pending: '已验证你的身份。管理员开通后，用同一个账号授权即可进入工作台。',
-  existing: '这个渠道身份已关联一个工作台账号。请登录原账号，在「个人设置 → 登录安全」完成绑定。',
   linked: '已绑定，可以使用此渠道登录原账号。',
   conflict: '此渠道身份已经绑定其他账号，或原账号已有该渠道的登录身份。',
   denied: '开通申请未获批准，请联系平台管理员。',

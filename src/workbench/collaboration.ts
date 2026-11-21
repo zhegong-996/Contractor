@@ -5277,9 +5277,13 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     createProject, addProjectMember, removeProjectMember, setProjectMemberRole, transferProjectMaintainer, addProjectAgent,
     canManageAccounts, guardAccountWithdrawal, withdrawAccountAuthority, projectAccess, projectKnowledgeAccess, setProjectKnowledgeAccess, platformPointBudgets,
     activation, imLogin, profiles, memberAvatar,
-    loginChannelOwner(sender: PlatformActor) {
-      if (sender.provider !== 'feishu' || sender.namespace !== config.feishu?.appId) return;
-      return links.member(sender) ?? auth.listAccounts().find(row => row.feishuOpenId === sender.id)?.username;
+    loginChannelBinding(sender: PlatformActor): { member?: string; conflict?: boolean } {
+      if (sender.provider !== 'feishu' || sender.namespace !== config.feishu?.appId) return {};
+      const members = new Set(auth.listAccounts().filter(row => row.feishuOpenId === sender.id).map(row => row.username));
+      const bound = links.member(sender);
+      if (bound) members.add(bound);
+      if (members.size > 1) return { conflict: true };
+      return { member: members.values().next().value };
     },
     activationIdentityAvailable(sender: PlatformActor, reservedFor?: string) {
       const bound = links.member(sender);

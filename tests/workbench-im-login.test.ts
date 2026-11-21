@@ -192,6 +192,16 @@ test('工作台回调、开通、原账号绑定、项目授权和停止口令�
   const auth = new ConsoleAuth(); await auth.ready(); await auth.bootstrapOwner('owner', password);
   await auth.createAccount('admin', password, 'admin', 'owner');
   await auth.createAccount('other', password, 'operator', 'owner');
+  await auth.createAccount('existing-member', password, 'operator', 'owner');
+  await auth.createAccount('disabled-member', password, 'operator', 'owner');
+  await auth.setDisabled('owner', 'disabled-member', true);
+  await auth.createAccount('legacy-import', password, 'viewer', 'owner', 'ou_ambiguous');
+  const { ChannelLinks } = await import('../src/workbench/channel-links.ts');
+  const database = new DatabaseSync(path.join(state, 'orchestrator.sqlite'));
+  const links = new ChannelLinks(database);
+  for (const [member, id] of [['existing-member', 'ou_existing'], ['disabled-member', 'ou_disabled'], ['other', 'ou_ambiguous']] as const)
+    assert.equal(links.bindVerified(member, { provider: 'feishu', namespace: 'cli_fixture', id, label: '已验证成员' }), true);
+  database.close();
   const listener = createServer().listen(0, '127.0.0.1');
   await once(listener, 'listening');
   const address = listener.address();
@@ -206,7 +216,8 @@ test('工作台回调、开通、原账号绑定、项目授权和停止口令�
   const runnerOrigin = 'https://contractor-runner.invalid';
   await writeFile(path.join(state, 'workbench.json'), JSON.stringify({
     port: address.port, workbenchPublicUrl: team, remoteRunnerPort: runnerAddress.port, runnerConnectUrl: runnerOrigin, imLogin: settings,
-    projects: [{ id: 'store', title: '门店推荐理由', members: ['owner'], maintainers: ['owner'] }],
+    feishu: { profile: 'fixture', appId: 'cli_fixture', botId: 'ou_bot', separateIngress: true },
+    projects: [{ id: 'store', title: '门店推荐理由', members: ['owner', 'existing-member'], maintainers: ['owner'] }],
     functions: [{ id: 'review', title: '核对' }],
     agents: [{ id: 'review', title: '小屏核对 Agent', owner: 'owner', function: 'review', capability: '核对小屏规则', skill: '只读核对联调资料',
       projects: ['store'], active: true, kind: 'specialist', engine: 'codex', model: 'fixture-model',
@@ -281,6 +292,22 @@ test('工作台回调、开通、原账号绑定、项目授权和停止口令�
   }
   const complete = (code: string, step: { state: string; proof?: string }, session?: string) =>
     api('auth/im/callback?' + new URLSearchParams({ code, state: step.state }), [step.proof, session].filter(Boolean).join('; '));
+  const sso = await complete('existing', await begin());
+  assert.equal(sso.headers.get('location'), '/#/store/work/example');
+  const ssoSession = cookie(sso, 'contractor_console');
+  assert.ok(ssoSession);
+  const sameAccount = await api('overview', ssoSession).then(response => response.json());
+  assert.equal(sameAccount.actor, 'existing-member');
+  assert.equal(sameAccount.platformRole, 'operator');
+  assert.deepEqual(sameAccount.projects.map((project: { id: string }) => project.id), ['store']);
+  assert.equal((await api('admin/members', ssoSession)).status, 403);
+  assert.equal((await pending()).length, 0);
+  for (const [code, error] of [['disabled', 'blocked'], ['ambiguous', 'conflict']] as const) {
+    const rejected = await complete(code, await begin());
+    assert.match(rejected.headers.get('location')!, new RegExp('im=' + error));
+    assert.equal(cookie(rejected, 'contractor_console'), undefined);
+  }
+  assert.equal((await pending()).length, 0);
   const step = await begin();
   const noProof = await complete('newbie', { state: step.state });
   assert.match(noProof.headers.get('location')!, /im=expired/);
