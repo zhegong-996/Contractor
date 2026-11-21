@@ -6,8 +6,10 @@ import type { knowledgeHealth } from './knowledge-health.ts';
 import type { FigmaSources } from './figma-source.ts';
 import type { octopReportedModel, prepareOctop } from './octop-bridge.ts';
 import type { readSkillManifest } from './skill-manifest.ts';
+import type { AssistantService } from './platform-assistant.ts';
 
 export interface Capabilities {
+  assistant: AssistantService;
   delivery: {
     inspectPull: typeof inspectPull;
     inspectBranch: typeof inspectBranch;

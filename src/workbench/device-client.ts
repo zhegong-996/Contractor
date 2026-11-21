@@ -9,7 +9,7 @@ import { trackWorkerProcesses } from './worker-process.ts';
 import { checkClaudeRunnerModel, remoteEngine, runnerAgentSchema } from './runner-profile.ts';
 import { deviceHome, type DeviceJob, type ReleasedLease } from './devices.ts';
 import { cleanAcknowledged, cleanRemoteCodex, neverLaunched, prepareRemote, remoteStop } from './remote-runner.ts';
-import { runnerEndpoint } from './runner-connection.ts';
+import { runnerEndpoint, runnerWorkerSchema, workerCredential } from './runner-connection.ts';
 import { expiredCodexLogin, readPrivateRunnerFile } from './runner-credentials.ts';
 
 if (!process.env.COLLAB_STATE_DIR || !path.isAbsolute(process.env.COLLAB_STATE_DIR))
@@ -20,6 +20,7 @@ const endpointSchema = runnerEndpoint;
 const credentials = z.union([
   z.object({ ...fields, port: portSchema }).strict(),
   z.object({ ...fields, endpoint: endpointSchema, profile: runnerAgentSchema.refine(remoteEngine) }).strict(),
+  z.object({ ...fields, driver: z.literal('contractor'), endpoint: endpointSchema, worker: runnerWorkerSchema }).strict(),
 ]);
 const argv = process.argv.slice(2);
 
@@ -59,6 +60,8 @@ if (argv[0] === 'pair' || argv[0] === 'pair-remote') {
   const connection = credentials.parse(JSON.parse(await readFile(runtime('devices', id, 'connection.json'), 'utf8')));
   if (id !== connection.id) throw new Error('执行端配置与 ID 不一致。');
   const profile = 'profile' in connection ? connection.profile : undefined;
+  const independent = 'worker' in connection ? connection.worker : undefined;
+  const remote = !!(profile || independent);
   const endpoint = 'endpoint' in connection ? connection.endpoint : 'http://127.0.0.1:' + connection.port;
   const home = deviceHome(id, connection.driver);
   const lock = runtime('devices', id, 'running.pid');
@@ -90,39 +93,52 @@ if (argv[0] === 'pair' || argv[0] === 'pair-remote') {
       await legacy.configureDeviceWorker(home, profile);
       createWorker = legacy.createWorker;
     }
-    const send = <T>(action: string, data: unknown) => request<T>(endpoint, action, data, connection.token, !!profile, connection.driver);
-    const codex = profile?.engine === 'codex' && runtime('member-credentials', profile.owner, profile.execution!.credential + '.json');
+    const send = <T>(action: string, data: unknown) => request<T>(endpoint, action, data, connection.token, remote, connection.driver);
+    const codex = profile?.engine === 'codex' ? runtime('member-credentials', profile.owner, profile.execution!.credential + '.json')
+      : independent?.engines.includes('codex') ? runtime('member-credentials', independent.owner, workerCredential + '.json') : undefined;
     let announced: string | undefined;
     const hub: WorkerHub = {
       async work(data) {
         const auth = codex ? await readPrivateRunnerFile(codex).catch(() => undefined) : undefined;
-        const unavailable = !!codex && (!auth || expiredCodexLogin(auth));
+        const validCodex = !!auth && !expiredCodexLogin(auth);
+        const engines = independent?.engines.filter(engine => engine !== 'codex' || validCodex);
+        const unavailable = engines ? engines.length === 0 : !!codex && !validCodex;
         // Heartbeats, cancellation and receipt delivery continue with zero new-work capacity.
         const answer = await send<{ job?: DeviceJob | null; cancel?: number[]; release?: ReleasedLease; deviceActive?: boolean }>(
-          'work', unavailable ? { ...data, capacity: false } : data);
+          'work', { ...data, ...(engines && { engines }), ...(unavailable && { capacity: false }) });
         const status = String(process.pid) + (answer.deviceActive === false || unavailable ? ':paused' : '');
         if (status !== announced) {
           await writeFile(ready, status, { mode: 0o600 });
           if (unavailable) console.log('Codex 登录不可用，暂停接单。运行同一条连接命令更新登录。');
           announced = status;
         }
-        if (profile) {
+        if (remote) {
           for (const run of answer.cancel ?? []) trackWorkerProcesses(run, true, home);
           if (answer.release) {
             const lease = answer.release;
             if (!await neverLaunched(home, lease)) throw new Error('有未归档的旧执行，请保留原机器和执行目录');
             await send('result', { run: lease.run, lease: lease.lease, stop: { attempt: lease.attempt, state: 'not-launched' },
               value: { outcome: 'cancelled', summary: '远端未启动此轮' } });
-            if (profile.engine === 'codex') await cleanRemoteCodex(lease.run, lease.attempt);
+            if (codex) await cleanRemoteCodex(lease.run, lease.attempt);
           }
           if (answer.job) {
-            try { answer.job = await prepareRemote(home, profile, answer.job); }
+            try {
+              let assigned = profile;
+              if (independent) {
+                assigned = runnerAgentSchema.refine(remoteEngine).parse(answer.job.remote?.profile);
+                if (assigned.owner !== independent.owner || !engines?.some(engine => engine === assigned?.engine))
+                  throw new Error('接单超出设备的所有者或引擎范围');
+                if (assigned.engine === 'codex') assigned = { ...assigned, execution: { ...assigned.execution!, credential: workerCredential } };
+                else await checkClaudeRunnerModel(assigned);
+              }
+              answer.job = await prepareRemote(home, assigned!, answer.job);
+            }
             catch {
               const lease = { run: answer.job.run, attempt: answer.job.attempt, lease: answer.job.token };
               if (!await neverLaunched(home, lease)) throw new Error('等待旧执行记录接续');
               await send('result', { run: lease.run, lease: lease.lease, stop: { attempt: lease.attempt, state: 'not-launched' },
                 value: { outcome: 'failed', error: '远端 Agent 或隔离工作区未能准备，请检查对应设备' } });
-              if (profile.engine === 'codex') await cleanRemoteCodex(lease.run, lease.attempt);
+              if (codex) await cleanRemoteCodex(lease.run, lease.attempt);
               answer.job = undefined;
             }
           }
@@ -131,7 +147,7 @@ if (argv[0] === 'pair' || argv[0] === 'pair-remote') {
       },
       started: (run, lease, value) => send('started', { run, lease, value }),
       async result(run, lease, value) {
-        if (!profile) return send('result', { run, lease, value });
+        if (!remote) return send('result', { run, lease, value });
         const entry = worker.entries().find(entry => entry.run === run && entry.token === lease);
         if (!entry) throw new Error('缺少远端本轮执行记录');
         const receipt = parseResult(value);
@@ -155,7 +171,7 @@ if (argv[0] === 'pair' || argv[0] === 'pair-remote') {
     while (!stop.signal.aborted) {
       for (const entry of worker.entries()) trackWorkerProcesses(entry.run, false, home);
       await worker.tick();
-      if (profile) await cleanAcknowledged(home, profile.engine === 'codex');
+      if (remote) await cleanAcknowledged(home, !!codex);
       if (!stop.signal.aborted) await delay(800);
     }
     await send('offline', {}).catch(() => {});

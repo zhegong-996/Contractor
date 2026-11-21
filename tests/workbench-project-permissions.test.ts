@@ -219,8 +219,12 @@ test('门店推荐理由 HTTP 权限、交接、项目撤权和账本范围在�
     inbox.put(ingressOwner, 'message', message.chat_id, JSON.stringify(message), now);
     await waitFor(async () => inbox.backlog(Date.now()).pending === 0 ? true : undefined);
   }
-  type Activation = { id: string; token: string; command: string; expires: number };
-  const opening = await request<Activation>('', 'account/activation/start', 200, { username: 'new-staff' });
+  await request('', 'account/activation/start', 410, { username: 'new-staff' });
+  // Preserve approvals already in progress when the old opening form is removed.
+  const { AccountActivation } = await import('../src/workbench/account-activation.ts');
+  const activationDb = new DatabaseSync(path.join(state, 'orchestrator.sqlite'));
+  const opening = new AccountActivation(activationDb).begin('new-staff');
+  activationDb.close();
   const proof = { id: opening.id, token: opening.token };
   const pendingActivations = () => request<{ pending: { id: string; username: string }[] }>('admin', 'admin/members', 200);
   const stateOf = () => request<{ state: string }>('', 'account/activation/status', 200, proof);

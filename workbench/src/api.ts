@@ -43,7 +43,7 @@ export type PlatformMembers = ReturnType<ReturnType<typeof permissionAdmin>['lis
 export type PlatformAudit = ReturnType<ReturnType<typeof permissionAdmin>['changes']>;
 export type PersonalProfile = ReturnType<Collaboration['profiles']['own']>;
 export type LoginPolicy = ReturnType<IMLogin['view']>;
-export type Session = { signedIn: boolean; recoveryUrl?: string; legacyActivation?: boolean; imLogin?: ReturnType<IMLogin['browser']> };
+export type Session = { signedIn: boolean; recoveryUrl?: string; imLogin?: ReturnType<IMLogin['browser']> };
 export type { GitHubConnection } from '../../src/workbench/github-intake.ts';
 export type MemoryRow = ReturnType<Collaboration['memoryHome']>[number];
 export type MemoryUse = ReturnType<Collaboration['memoryUses']>[number];

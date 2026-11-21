@@ -41,6 +41,8 @@ flowchart TD
 | **知识与记忆** | 查看候选、现行版本、历史、来源和使用记录。知识负责人确认采用、替代和失效。 [知识管理](docs/KNOWLEDGE-VERSIONS.md) |
 | **平台管理与积分** | 管角色、主登录渠道、模型服务和系统状态。后台按 Token 与模型倍率结算，前台按积分池管理。 [配置手册](docs/CONFIGURATION.md) |
 
+新成员使用团队选定的飞书、钉钉、企业微信、微信、Telegram、Discord 或 QQ 扫码或授权。平台同步渠道资料并提交开通申请，管理员审批平台角色，项目维护人单独授予项目权限。 [企业登录接入](docs/WORKBENCH-IM-LOGIN.md)
+
 **实现来源**。源码依赖包含 4 个固定提交的 MIT 子模块和 2 个适配自 Octop 的前端组件。Super-agent 提供工单和委托内核，AutoLoop 用于兼容运行与回滚，Octop Gateway 和 Memory 按部署选用。Contractor 实现业务路由、权限、上下文、验收与知识账本，并提供自研调度器。 [源码复用清单](docs/SOURCES.md)
 
 ## 快速开始

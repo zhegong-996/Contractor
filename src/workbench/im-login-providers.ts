@@ -1,17 +1,17 @@
-import { createHash } from 'node:crypto';
+import { createHash, createPublicKey, verify as verifySignature } from 'node:crypto';
 import { z } from 'zod';
 import { configuredEnv, isConfigSecretName } from './compatibility.ts';
 import type { PlatformActor } from './channel-links.ts';
 import { WorkbenchError } from './errors.ts';
 import { octopIMNativeId } from './octop-im-contract.ts';
+import { imProviderNames, type IMProvider } from './im-login-channels.ts';
 
-export const imProvider = z.enum(['feishu', 'dingtalk', 'wecom', 'wechat']);
-export type IMProvider = z.infer<typeof imProvider>;
-export const imProviderNames: Record<IMProvider, string> = {
-  feishu: '飞书', dingtalk: '钉钉', wecom: '企业微信', wechat: '微信',
-};
+export { imProviderNames, type IMProvider } from './im-login-channels.ts';
+export const imProvider = z.enum(Object.keys(imProviderNames) as IMProvider[]);
 const appId = z.string().regex(/^[a-zA-Z0-9_-]{1,180}$/);
 const secret = { secretEnv: z.string().refine(isConfigSecretName) };
+const numericId = z.string().regex(/^\d{1,32}$/);
+const numericApp = z.object({ appId: numericId, ...secret }).strict().optional();
 export const imLoginSettings = z.object({
   primary: imProvider,
   legacyPassword: z.boolean().default(true),
@@ -20,6 +20,9 @@ export const imLoginSettings = z.object({
     dingtalk: z.object({ appId, ...secret }).strict().optional(),
     wecom: z.object({ corpId: appId, agentId: z.string().regex(/^\d{1,16}$/), ...secret }).strict().optional(),
     wechat: z.object({ appId, ...secret }).strict().optional(),
+    telegram: numericApp,
+    discord: numericApp,
+    qq: numericApp,
   }).strict(),
 }).strict().refine(value => !!value.providers[value.primary], '主登录渠道须有对应的企业应用配置');
 export type IMLoginSettings = z.infer<typeof imLoginSettings>;
@@ -43,6 +46,9 @@ const avatarHosts: Record<IMProvider, readonly string[]> = {
   dingtalk: ['static-legacy.dingtalk.com', 'static.dingtalk.com'],
   wecom: [],
   wechat: ['thirdwx.qlogo.cn', 'wx.qlogo.cn'],
+  telegram: ['*.telesco.pe'],
+  discord: ['cdn.discordapp.com'],
+  qq: ['q.qlogo.cn', 'qzapp.qlogo.cn'],
 };
 export const imAvatarOrigins = Object.values(avatarHosts).flat().map(host => 'https://' + host);
 
@@ -64,6 +70,16 @@ const wecomToken = z.object({ errcode: z.literal(0), access_token: token });
 const wecomMember = z.object({ errcode: z.literal(0), userid: octopIMNativeId.optional(), UserId: octopIMNativeId.optional() });
 const wechatToken = tokenResponse.extend({ openid: octopIMNativeId });
 const wechatProfile = z.object({ openid: octopIMNativeId, nickname: label, headimgurl: z.unknown().optional() });
+const discordProfile = z.object({ id: numericId, global_name: label.nullable(), username: label,
+  avatar: z.string().regex(/^(a_)?[a-f0-9]{32}$/).nullish() });
+const qqIdentity = z.object({ client_id: z.union([numericId, z.number().int().positive().transform(String)]), openid: octopIMNativeId });
+const qqProfile = z.object({ ret: z.literal(0), nickname: label, figureurl_qq_1: z.unknown().optional(), figureurl_qq_2: z.unknown().optional() });
+const telegramIssuer = 'https://oauth.telegram.org';
+const telegramHeader = z.object({ alg: z.literal('RS256'), kid: z.string().min(1).max(180) });
+const telegramKeys = z.object({ keys: z.array(z.object({ kid: z.string(), kty: z.string(),
+  alg: z.string().optional(), use: z.string().optional(), n: z.string().optional(), e: z.string().optional() })).max(50) });
+const telegramClaims = z.object({ iss: z.literal(telegramIssuer), aud: numericId, sub: octopIMNativeId,
+  iat: z.number().int(), exp: z.number().int(), name: label, picture: z.unknown().optional() });
 
 function url(base: string, fields: Record<string, string>, fragment?: string) {
   const result = new URL(base);
@@ -75,7 +91,30 @@ const json = (body: unknown): RequestInit => ({
   method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
 });
 const bearer = (accessToken: string): RequestInit => ({ headers: { authorization: 'Bearer ' + accessToken } });
+const tokenForm = (fields: Record<string, string>, authorization?: string): RequestInit => ({
+  method: 'POST', body: new URLSearchParams(fields), headers: {
+    'content-type': 'application/x-www-form-urlencoded', ...(authorization && { authorization }),
+  },
+});
+const pkce = (verifier: string) => ({ code_challenge: createHash('sha256').update(verifier).digest('base64url'), code_challenge_method: 'S256' });
 const invalidMember = () => new WorkbenchError('未能验证该渠道身份或企业成员资格。', 403);
+
+async function verifyTelegram(jwt: string, client: string, keys: () => Promise<z.infer<typeof telegramKeys>>) {
+  const parts = jwt.split('.');
+  if (parts.length !== 3 || parts.some(part => !/^[A-Za-z0-9_-]+$/.test(part))) throw invalidMember();
+  const [header, payload, signature] = parts as [string, string, string];
+  const { kid } = telegramHeader.parse(JSON.parse(Buffer.from(header, 'base64url').toString('utf8')));
+  const key = (await keys()).keys.find(row => row.kid === kid && row.kty === 'RSA'
+    && (!row.alg || row.alg === 'RS256') && (!row.use || row.use === 'sig'));
+  if (!key?.n || !key.e) throw invalidMember();
+  const publicKey = createPublicKey({ format: 'jwk', key: { kty: 'RSA', n: key.n, e: key.e } });
+  if (!verifySignature('RSA-SHA256', Buffer.from(header + '.' + payload), publicKey, Buffer.from(signature, 'base64url')))
+    throw invalidMember();
+  const claims = telegramClaims.parse(JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')));
+  const now = Math.floor(Date.now() / 1000);
+  if (claims.aud !== client || claims.exp <= now || claims.iat > now + 60 || claims.exp <= claims.iat) throw invalidMember();
+  return { id: claims.sub, name: claims.name, avatars: [claims.picture] };
+}
 
 export function imConnections(settings: IMLoginSettings | undefined, feishuBotApp?: string,
   fetcher = fetch, env: NodeJS.ProcessEnv = process.env) {
@@ -110,7 +149,7 @@ export function imConnections(settings: IMLoginSettings | undefined, feishuBotAp
     add('feishu', [tenantKey, client], secretEnv, ({ redirect, state, verifier }) =>
       url('https://accounts.feishu.cn/open-apis/authen/v1/authorize', {
         client_id: client, redirect_uri: redirect, response_type: 'code', state, target_tenant: tenantKey,
-        code_challenge: createHash('sha256').update(verifier).digest('base64url'), code_challenge_method: 'S256',
+        ...pkce(verifier),
       }), async (code, { redirect, verifier }, appSecret) => {
       const data = await api(tokenResponse, 'https://open.feishu.cn/open-apis/authen/v2/oauth/token', json({
         grant_type: 'authorization_code', client_id: client, client_secret: appSecret,
@@ -177,6 +216,47 @@ export function imConnections(settings: IMLoginSettings | undefined, feishuBotAp
       }));
       if (profile.openid !== data.openid) throw invalidMember();
       return { id: data.openid, name: profile.nickname, avatars: [profile.headimgurl] };
+    });
+  }
+  if (configs.telegram) {
+    const { appId: client, secretEnv } = configs.telegram;
+    add('telegram', [client], secretEnv, ({ redirect, state, verifier }) => url(telegramIssuer + '/auth', {
+      client_id: client, redirect_uri: redirect, response_type: 'code', scope: 'openid profile', state, ...pkce(verifier),
+    }), async (code, { redirect, verifier }, appSecret) => {
+      const credentials = 'Basic ' + Buffer.from(client + ':' + appSecret).toString('base64');
+      const { id_token } = await api(z.object({ id_token: token }), telegramIssuer + '/token', tokenForm({
+        grant_type: 'authorization_code', code, redirect_uri: redirect, client_id: client, code_verifier: verifier,
+      }, credentials));
+      return verifyTelegram(id_token, client, () => api(telegramKeys, telegramIssuer + '/.well-known/jwks.json'));
+    });
+  }
+  if (configs.discord) {
+    const { appId: client, secretEnv } = configs.discord;
+    add('discord', [client], secretEnv, ({ redirect, state, verifier }) => url('https://discord.com/oauth2/authorize', {
+      client_id: client, redirect_uri: redirect, response_type: 'code', scope: 'identify', state, ...pkce(verifier),
+    }), async (code, { redirect, verifier }, appSecret) => {
+      const data = await api(tokenResponse, 'https://discord.com/api/oauth2/token', tokenForm({
+        grant_type: 'authorization_code', client_id: client, client_secret: appSecret, code, redirect_uri: redirect, code_verifier: verifier,
+      }));
+      const profile = await api(discordProfile, 'https://discord.com/api/v10/users/@me', bearer(data.access_token));
+      const avatar = profile.avatar && `https://cdn.discordapp.com/avatars/${profile.id}/${profile.avatar}.png`;
+      return { id: profile.id, name: profile.global_name || profile.username, avatars: [avatar] };
+    });
+  }
+  if (configs.qq) {
+    const { appId: client, secretEnv } = configs.qq;
+    add('qq', [client], secretEnv, ({ redirect, state }) => url('https://graph.qq.com/oauth2.0/authorize', {
+      client_id: client, redirect_uri: redirect, response_type: 'code', scope: 'get_user_info', state,
+    }), async (code, { redirect }, appSecret) => {
+      const data = await api(tokenResponse, url('https://graph.qq.com/oauth2.0/token', {
+        client_id: client, client_secret: appSecret, code, grant_type: 'authorization_code', redirect_uri: redirect, fmt: 'json',
+      }));
+      const identity = await api(qqIdentity, url('https://graph.qq.com/oauth2.0/me', { access_token: data.access_token, fmt: 'json' }));
+      if (identity.client_id !== client) throw invalidMember();
+      const profile = await api(qqProfile, url('https://graph.qq.com/user/get_user_info', {
+        access_token: data.access_token, oauth_consumer_key: client, openid: identity.openid, format: 'json',
+      }));
+      return { id: identity.openid, name: profile.nickname, avatars: [profile.figureurl_qq_2, profile.figureurl_qq_1] };
     });
   }
   return connections;

@@ -6,13 +6,15 @@ import { runtime } from '../config.ts';
 import type { Job } from './execution/protocol.ts';
 import type { CodeBundle, CodeDelta } from './code-bundle.ts';
 import type { RunnerAgent } from './runner-profile.ts';
-import { enrollmentToken, type RunnerConnectInput } from './runner-connection.ts';
+import { enrollmentToken, type RunnerConnectInput, type RunnerWorker } from './runner-connection.ts';
 
-type Binding = { owner: string; agent: string; projects: string[]; remote?: RunnerAgent };
-type Enrollment = RunnerConnectInput & { expires: number; approved?: { actor: string; project: string; agent: string } };
+type Binding = { owner: string; agent: string; projects: string[]; remote?: RunnerAgent; worker?: RunnerWorker };
+type Enrollment = RunnerConnectInput & { expires: number; approved?: { actor: string; project?: string; agent?: string } };
 export type DeviceState = 'active' | 'suspended' | 'lost' | 'retired';
-export type Device = Binding & { id: string; name: string; active: boolean; state: DeviceState; lastSeen: number | null; accepting?: boolean };
-export type DeviceJob = Job & { remote?: { authority: string; code?: CodeBundle } };
+export type Device = Binding & { id: string; name: string; active: boolean; state: DeviceState; lastSeen: number | null;
+  accepting?: boolean; readyEngines?: RunnerWorker['engines'] };
+export type DeviceJob = Job & { remote?: { authority: string; code?: CodeBundle; profile?: RunnerAgent } };
+export const isRemoteDevice = (row?: Pick<Device, 'remote' | 'worker'>) => !!(row?.remote || row?.worker);
 export type ReleasedLease = { run: number; attempt: number; lease: string };
 export type RemoteStop = { attempt: number; state: 'exited' | 'not-launched'; model?: string; code?: CodeDelta; usageCoverage?: 'partial' };
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
@@ -80,7 +82,7 @@ export class Devices {
   private register(binding: Binding, name: string, id: string, token: string) {
     const device = { ...binding, id, name, active: true };
     this.db.prepare('INSERT INTO workbench_device VALUES(?,?,?,NULL)').run(id, hash(token), JSON.stringify(device));
-    return { id, token, ...(binding.remote && { profile: binding.remote }) };
+    return { id, token, ...(binding.remote && { profile: binding.remote }), ...(binding.worker && { worker: binding.worker }) };
   }
 
   beginEnrollment(input: RunnerConnectInput, secret: string) {
@@ -100,7 +102,7 @@ export class Devices {
     return row ? JSON.parse(String(row.value)) as Enrollment : undefined;
   }
 
-  approveEnrollment(id: string, actor: string, project: string, agent: string) {
+  approveEnrollment(id: string, actor: string, project?: string, agent?: string) {
     const current = this.enrollment(id);
     if (!current || current.approved) return false;
     this.db.prepare('UPDATE workbench_device_enrollment SET value=? WHERE id=?')
@@ -116,6 +118,12 @@ export class Devices {
       current = this.byToken(previous);
       if (current) token = previous;
     }
+    if (current?.id === id && current.worker && current.active) {
+      const binding = authorize({ id, name: current.name, engines: current.worker.engines, mode: 'worker', expires: 0,
+        approved: { actor: current.owner } });
+      if (binding?.worker) return { id, token, worker: binding.worker };
+      return;
+    }
     if (current?.id === id && current.active && current.projects.length === 1
       && (current.remote?.engine === 'codex' || current.remote?.engine === 'claude')) {
       const binding = authorize({ id, name: current.name, engines: [current.remote.engine], expires: 0,
@@ -129,7 +137,7 @@ export class Devices {
     const entry: Enrollment = JSON.parse(String(row.value));
     if (!entry.approved) return { pending: true as const };
     const binding = authorize(entry);
-    if (!binding?.remote) return;
+    if (!binding || !isRemoteDevice(binding)) return;
     if (this.get(id)) return;
     return this.register(binding, entry.name, id, token);
   }
@@ -153,6 +161,11 @@ export class Devices {
     return this.db.prepare('SELECT value,seen FROM workbench_device ORDER BY rowid').all().map(row => this.decode(row));
   }
 
+  setProjects(id: string, projects: string[]) {
+    this.db.prepare("UPDATE workbench_device SET value=json_set(value,'$.projects',json(?)) WHERE id=?")
+      .run(JSON.stringify(projects), id);
+  }
+
   private connected(device: Device) {
     return device.active && device.lastSeen !== null && this.now() - device.lastSeen < onlineWindow;
   }
@@ -165,9 +178,9 @@ export class Devices {
     return this.connected(device) && device.accepting === false;
   }
 
-  heartbeat(id: string, online = true, accepting = true) {
-    this.db.prepare("UPDATE workbench_device SET seen=?,value=json_set(value,'$.accepting',json(?)) WHERE id=?")
-      .run(online ? this.now() : null, JSON.stringify(accepting), id);
+  heartbeat(id: string, online = true, accepting = true, engines?: RunnerWorker['engines']) {
+    this.db.prepare("UPDATE workbench_device SET seen=?,value=json_set(value,'$.accepting',json(?),'$.readyEngines',json(?)) WHERE id=?")
+      .run(online ? this.now() : null, JSON.stringify(accepting), JSON.stringify(engines ?? []), id);
   }
 
   active(id: string, active: boolean) {

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn, type ChildProcess } from 'node:child_process';
-import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { createHash, generateKeyPairSync, randomBytes, randomUUID, sign } from 'node:crypto';
 import { once } from 'node:events';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { request as httpRequest } from 'node:http';
@@ -19,14 +19,28 @@ const providers = {
   dingtalk: { appId: 'ding_fixture', secretEnv: 'CONTRACTOR_FIXTURE_DINGTALK' },
   wecom: { corpId: 'ww_fixture', agentId: '1000001', secretEnv: 'CONTRACTOR_FIXTURE_WECOM' },
   wechat: { appId: 'wx_fixture', secretEnv: 'CONTRACTOR_FIXTURE_WECHAT' },
+  telegram: { appId: '101', secretEnv: 'CONTRACTOR_FIXTURE_TELEGRAM' },
+  discord: { appId: '102', secretEnv: 'CONTRACTOR_FIXTURE_DISCORD' },
+  qq: { appId: '103', secretEnv: 'CONTRACTOR_FIXTURE_QQ' },
 };
 const env = Object.fromEntries(Object.values(providers).map(row => [row.secretEnv, 'only-fixture-secret']));
 const settings = imLoginSettings.parse({ primary: 'feishu', providers });
 const team = 'https://contractor-login.invalid';
 const callback = team + '/api/auth/im/callback';
 
-test('四个 IM 登录应用用各自的授权和身份接口，企业身份按签发应用核对', async () => {
+test('七个 IM 登录应用用各自的授权和身份接口，身份按签发应用核对', async () => {
   let tenant = 'tenant_fixture', memberType = 0, wecomInside = true, wechatIdentity = 'wechat-person';
+  let qqApp = providers.qq.appId;
+  const { publicKey, privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
+  const seconds = Math.floor(Date.now() / 1000);
+  const part = (value: object) => Buffer.from(JSON.stringify(value)).toString('base64url');
+  const claims = { iss: 'https://oauth.telegram.org', aud: providers.telegram.appId,
+    sub: 'telegram-person', name: 'Telegram 成员', iat: seconds, exp: seconds + 600 };
+  function jwt(values = claims) {
+    const payload = part({ kid: 'fixture', alg: 'RS256' }) + '.' + part(values);
+    return payload + '.' + sign('RSA-SHA256', Buffer.from(payload), privateKey).toString('base64url');
+  }
+  let idToken = jwt();
   const calls: { address: URL; options: RequestInit | undefined }[] = [];
   const fetcher: typeof fetch = async (input, options) => {
     const address = new URL(String(input));
@@ -42,11 +56,18 @@ test('四个 IM 登录应用用各自的授权和身份接口，企业身份按�
       case '/cgi-bin/auth/getuserinfo': return Response.json({ errcode: 0, ...(wecomInside ? { userid: 'enterprise-id' } : { openid: 'visitor' }) });
       case '/sns/oauth2/access_token': return Response.json({ access_token: 'wechat-token', openid: 'wechat-person' });
       case '/sns/userinfo': return Response.json({ openid: wechatIdentity, nickname: '微信账号' });
+      case '/token': return Response.json({ id_token: idToken });
+      case '/.well-known/jwks.json': return Response.json({ keys: [{ ...publicKey.export({ format: 'jwk' }), kid: 'fixture', alg: 'RS256' }] });
+      case '/api/oauth2/token': return Response.json({ access_token: 'discord-token' });
+      case '/api/v10/users/@me': return Response.json({ id: '1024', global_name: 'Discord 成员', username: 'discord-user' });
+      case '/oauth2.0/token': return Response.json({ access_token: 'qq-token' });
+      case '/oauth2.0/me': return Response.json({ client_id: qqApp, openid: 'qq-person' });
+      case '/user/get_user_info': return Response.json({ ret: 0, nickname: 'QQ 成员' });
       default: assert.fail('unexpected request ' + address.pathname);
     }
   };
   const connections = imConnections(settings, 'cli_fixture', fetcher, env);
-  assert.deepEqual([...connections.keys()], ['feishu', 'dingtalk', 'wecom', 'wechat']);
+  assert.deepEqual([...connections.keys()], Object.keys(providers));
   assert.equal(imConnections(settings, undefined, fetcher, {}).size, 0);
   const oauth = { redirect: callback, state: 'test-state', verifier: 'fixture-verifier' };
   const feishu = connections.get('feishu')!;
@@ -78,22 +99,43 @@ test('四个 IM 登录应用用各自的授权和身份接口，企业身份按�
   assert.equal((await wechat.verify('code', oauth)).label, '微信账号');
   wechatIdentity = 'different-user';
   await assert.rejects(wechat.verify('code', oauth), { status: 403 });
+  const telegram = connections.get('telegram')!;
+  assert.equal(telegram.authorize(oauth).searchParams.get('scope'), 'openid profile');
+  assert.equal((await telegram.verify('code', oauth)).label, 'Telegram 成员');
+  idToken = jwt({ ...claims, aud: '100' });
+  await assert.rejects(telegram.verify('code', oauth), { status: 403 });
+  idToken = jwt({ ...claims, exp: seconds - 1 });
+  await assert.rejects(telegram.verify('code', oauth), { status: 403 });
+  idToken = jwt().split('.').slice(0, 2).join('.') + '.eA';
+  await assert.rejects(telegram.verify('code', oauth), { status: 403 });
+  const discord = connections.get('discord')!;
+  assert.equal(discord.authorize(oauth).searchParams.get('scope'), 'identify');
+  assert.equal((await discord.verify('code', oauth)).label, 'Discord 成员');
+  const qq = connections.get('qq')!;
+  assert.equal(qq.authorize(oauth).searchParams.get('scope'), 'get_user_info');
+  assert.equal((await qq.verify('code', oauth)).label, 'QQ 成员');
+  qqApp = '104';
+  await assert.rejects(qq.verify('code', oauth), { status: 403 });
 });
 
 test('浏览器授权只消费一次，切换主 IM 作废未完成请求并保留已配置的偏好', async t => {
   const prior = process.env.CONTRACTOR_FIXTURE_FEISHU;
   const priorDing = process.env.CONTRACTOR_FIXTURE_DINGTALK;
+  const priorDiscord = process.env.CONTRACTOR_FIXTURE_DISCORD;
   process.env.CONTRACTOR_FIXTURE_FEISHU = env.CONTRACTOR_FIXTURE_FEISHU!;
   process.env.CONTRACTOR_FIXTURE_DINGTALK = env.CONTRACTOR_FIXTURE_DINGTALK!;
+  process.env.CONTRACTOR_FIXTURE_DISCORD = env.CONTRACTOR_FIXTURE_DISCORD!;
   const db = new DatabaseSync(':memory:');
   t.after(() => {
     db.close();
     if (prior === undefined) delete process.env.CONTRACTOR_FIXTURE_FEISHU; else process.env.CONTRACTOR_FIXTURE_FEISHU = prior;
     if (priorDing === undefined) delete process.env.CONTRACTOR_FIXTURE_DINGTALK; else process.env.CONTRACTOR_FIXTURE_DINGTALK = priorDing;
+    if (priorDiscord === undefined) delete process.env.CONTRACTOR_FIXTURE_DISCORD; else process.env.CONTRACTOR_FIXTURE_DISCORD = priorDiscord;
   });
   let calls = 0;
   const fetcher: typeof fetch = async input => {
     calls++;
+    if (String(input).endsWith('/users/@me')) return Response.json({ id: '104', global_name: 'Discord 成员' });
     return String(input).endsWith('user_info')
       ? Response.json({ code: 0, data: { tenant_key: 'tenant_fixture', open_id: 'ou_demo' } })
       : Response.json({ access_token: 'fixture-token' });
@@ -118,6 +160,16 @@ test('浏览器授权只消费一次，切换主 IM 作废未完成请求并保�
   await assert.rejects(login.finish(params, pending.proof, () => false), { status: 409 });
   assert.equal(login.registrations().length, 0);
   assert.equal(openIMLogin(db, settings, team).view().primary, 'dingtalk');
+  login.select({ primary: 'discord', legacyPassword: true }, []);
+  function discordCallback(issuer?: string) {
+    const step = login.begin('#/store/work/example');
+    const params = new URLSearchParams({ code: 'fixture', state: new URL(step.location).searchParams.get('state')! });
+    if (issuer) params.set('iss', issuer);
+    return login.finish(params, step.proof, () => false);
+  }
+  assert.deepEqual(await discordCallback('https://wrong.invalid'), { to: '/#/store/work/example', status: 'failed' });
+  assert.equal(calls, 2);
+  assert.ok('identity' in await discordCallback('https://discord.com'));
   for (const value of ['//example.invalid/', '#//example.invalid/', 'https://example.invalid', '#/store\\work'])
     assert.equal(imReturnPath(value), '/');
 });
@@ -242,18 +294,25 @@ test('工作台回调、开通、原账号绑定、项目授权和停止口令�
   const applications = await pending();
   assert.equal(applications.length, 1);
   assert.equal(applications[0]?.provider, 'feishu');
+  assert.equal(applications[0]?.displayName, 'newbie');
+  assert.ok(applications[0] && !Object.hasOwn(applications[0], 'username'));
   assert.doesNotMatch(JSON.stringify(applications), /ou_newbie|only-fixture-secret/);
   const approve = 'admin/im-registration/' + applications[0]!.id;
-  assert.equal((await api(approve, admin, { action: 'approve', username: 'new-staff', role: 'admin' })).status, 403);
-  assert.equal((await api(approve, admin, { action: 'approve', username: 'owner', role: 'operator' })).status, 409);
-  assert.equal((await api(approve, admin, { action: 'approve', username: 'new-staff', role: 'operator' })).status, 200);
+  assert.equal((await api(approve, admin, { action: 'approve', role: 'admin' })).status, 403);
+  assert.equal((await api(approve, admin, { action: 'approve', username: 'owner', role: 'operator' })).status, 400);
+  const approval = { action: 'approve', role: 'operator' };
+  assert.equal((await api(approve, admin, approval)).status, 200);
+  assert.equal((await api(approve, admin, approval)).status, 409);
   const entered = await complete('newbie', await begin());
   assert.equal(entered.headers.get('location'), '/#/store/work/example');
   const staff = cookie(entered, 'contractor_console')!;
   const overview = () => api('overview', staff).then(response => response.json());
+  const member = (await overview()).actor;
+  assert.match(member, /^member-[a-f0-9]{24}$/);
+  assert.equal((await api('session', staff).then(response => response.json())).imLogin.hasPassword, false);
   assert.deepEqual((await overview()).projects, []);
   assert.equal((await api('admin/members', staff)).status, 403);
-  assert.equal((await api('project/store/member', owner, { member: 'new-staff', role: 'reader' })).status, 200);
+  assert.equal((await api('project/store/member', owner, { member, role: 'reader' })).status, 200);
   assert.equal((await overview()).projects[0]?.mayStart, false);
   const profilePath = 'account/profile';
   const profile = () => api(profilePath, staff).then(response => response.json());
@@ -267,7 +326,7 @@ test('工作台回调、开通、原账号绑定、项目授权和停止口令�
   const refreshed = await complete('newbie-refresh', await begin());
   assert.ok(cookie(refreshed, 'contractor_console'), 'sync retained the same login identity');
   const saved = await profile();
-  assert.equal(saved.username, 'new-staff');
+  assert.equal(saved.username, member);
   assert.equal(saved.displayName, custom.displayName);
   assert.equal(saved.bio, custom.bio);
   assert.equal(saved.syncedName, '新版飞书名');
@@ -289,12 +348,12 @@ test('工作台回调、开通、原账号绑定、项目授权和停止口令�
   assert.equal((await api('project/store/member', owner, { member: 'other', role: 'reader' })).status, 200);
   assert.equal((await request(asset, other)).status, 200);
   const roster = (await api('overview', owner).then(response => response.json())).projects[0].members;
-  assert.equal(roster.find((row: { name: string }) => row.name === 'new-staff')?.displayName, custom.displayName);
-  assert.equal((await api('project/store/member/remove', owner, { member: 'new-staff' })).status, 200);
+  assert.equal(roster.find((row: { name: string }) => row.name === member)?.displayName, custom.displayName);
+  assert.equal((await api('project/store/member/remove', owner, { member })).status, 200);
   assert.deepEqual((await overview()).projects, []);
   assert.equal((await request(asset, other)).status, 404);
   assert.equal((await request(asset, staff)).status, 200, 'the member can still read their own profile');
-  await passwordLogin('new-staff', 401);
+  await passwordLogin(member, 401);
   assert.equal((await api('admin/im-login', admin, { primary: 'feishu', legacyPassword: false })).status, 403);
   assert.equal((await api('admin/im-login', owner, { primary: 'feishu', legacyPassword: false })).status, 409);
   assert.equal((await api('account/im-link', owner, {}, 'https://wrong.invalid')).status, 403);
@@ -339,7 +398,7 @@ test('工作台回调、开通、原账号绑定、项目授权和停止口令�
   const noLongerValid = await request('/runner/connect/' + randomUUID());
   assert.equal(noLongerValid.status, 404);
   assert.match(await noLongerValid.text(), /连接已过期[\s\S]*在执行机重新运行连接命令/);
-  assert.equal((await api('admin/members/new-staff/status', federatedOwner, { enabled: false })).status, 200);
+  assert.equal((await api(`admin/members/${member}/status`, federatedOwner, { enabled: false })).status, 200);
   assert.equal((await api('overview', staff)).status, 401);
   assert.match((await complete('newbie', await begin())).headers.get('location')!, /im=blocked/);
   assert.equal((await complete('ownerid', await link(federatedOwner, 'wechat'), federatedOwner)).headers.get('location'), '/?im=linked#/account');

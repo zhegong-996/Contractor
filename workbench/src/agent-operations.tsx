@@ -32,12 +32,16 @@ function DevicePane({ workspace, project }: PageProps) {
   const [pair, show] = useState(false);
   const [change, setChange] = useState<{ device: DeviceRow; state: 'lost' | 'retired' | 'active' }>();
   const { run, busy } = useActions();
-  return <Section title="项目设备" action={(remote || canPair) && <Button size="sm" onClick={() => show(true)}><Plus />连接设备</Button>}>
+  return <Section title="项目设备" action={<div className="actions">
+    <a className="text-button" href="#/account?tab=workers">我的执行设备</a>
+    {(remote || canPair) && <Button size="sm" onClick={() => show(true)}><Plus />连接设备</Button>}
+  </div>}>
     {data.error ? <Failure error={data.error} retry={() => void data.refetch()} /> : !data.data ? <Loading />
       : data.data.length ? data.data.map(device => <div className="resource-row" key={device.id}>
         <span className="heading-icon"><Cpu size={17} /></span>
         <div className="min-w-0"><strong>{device.name}</strong><p className="muted-text">
-          {workspace.agents.find(agent => agent.id === device.agent)?.title ?? device.agent} · {device.owner}
+          {device.eligibleAgents.map(id => workspace.agents.find(agent => agent.id === id)?.title ?? id).join('、')
+            || '暂无可用 Agent'} · {device.owner}
           {device.remote ? ' · 远程接入' : ' · 工作台主机'}
           {device.lastSeen && ' · ' + date(new Date(device.lastSeen).toISOString())}
         </p></div>
@@ -67,7 +71,7 @@ function DevicePane({ workspace, project }: PageProps) {
       </div>
     </Modal>}
     {pair && (remote ? <Modal title="连接设备" close={() => show(false)}>
-      <RunnerConnectInstructions url={remote} />
+      <RunnerConnectInstructions url={remote} legacy={workspace.executionRuntime !== 'contractor'} />
     </Modal> : <DevicePair project={project} workspace={workspace} close={() => show(false)} />)}
   </Section>;
 }

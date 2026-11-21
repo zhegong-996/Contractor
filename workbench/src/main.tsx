@@ -34,7 +34,7 @@ const nav = [
 function Login({ session }: { session?: Session }) {
   const { busy, run, error } = useActions();
   const query = useQueryClient();
-  const [accountAction, setAccountAction] = useState<'recovery' | 'activation'>();
+  const [recovering, setRecovering] = useState(false);
   const notice = useIMNotice();
   const { recoveryUrl, imLogin } = session ?? {};
   const usePassword = imLogin?.legacyPassword !== false;
@@ -47,13 +47,12 @@ function Login({ session }: { session?: Session }) {
       return true;
     });
   }}>
-    <Field label="账号"><Input name="username" autoComplete="username" required autoFocus={!imLogin?.ready} /></Field>
+    <Field label="账号"><Input name="username" autoComplete="username" required /></Field>
     <Field label="口令"><Input name="password" autoComplete="current-password" type="password" required /></Field>
     {error && <Failure error={new Error(error)} />}
     <Button type="submit" disabled={busy}>登录 <ArrowRight /></Button>
     {recoveryUrl && <div className="actions">
-      {session?.legacyActivation && <Button type="button" variant="ghost" size="sm" onClick={() => setAccountAction('activation')}>开通账号</Button>}
-      <Button type="button" variant="ghost" size="sm" onClick={() => setAccountAction('recovery')}>找回口令</Button>
+      <Button type="button" variant="ghost" size="sm" onClick={() => setRecovering(true)}>找回口令</Button>
     </div>}
   </form>;
   return <div className="login-wrap">
@@ -63,65 +62,13 @@ function Login({ session }: { session?: Session }) {
       {notice.text && <p className="login-notice" role={notice.status === 'pending' ? 'status' : 'alert'}>{notice.text}</p>}
       <IMLoginEntry login={imLogin} status={notice.status} />
       {imLogin?.provider && !imLogin.ready && <p className="login-notice" role="status">{imNames[imLogin.provider]}登录暂不可用，请联系平台管理员。</p>}
-      {usePassword && (imLogin?.ready ? <details className="login-alternative" open={notice.status === 'existing' || undefined}>
-        <summary>使用原账号口令</summary>{passwordForm}
-      </details> : passwordForm)}
+      {session && !imLogin?.provider && <p className="muted-text">新成员请联系管理员启用团队授权登录。</p>}
+      {usePassword && <details className="login-alternative" open={notice.status === 'existing' || undefined}>
+        <summary>已有账号使用口令</summary>{passwordForm}
+      </details>}
     </div>
-    {recoveryUrl && accountAction === 'recovery' && <RecoveryDialog url={recoveryUrl} close={() => setAccountAction(undefined)} />}
-    {recoveryUrl && session?.legacyActivation && accountAction === 'activation' && <ActivationDialog url={recoveryUrl} close={() => setAccountAction(undefined)} />}
+    {recoveryUrl && recovering && <RecoveryDialog url={recoveryUrl} close={() => setRecovering(false)} />}
   </div>;
-}
-
-type ActivationChallenge = { id: string; token: string; command: string; expires: number };
-type ActivationStatus = { state: 'waiting' | 'verified' | 'approved'; expires: number; feishuName?: string };
-function ActivationDialog({ url, close }: { url: string; close: () => void }) {
-  const { run, busy, clearError } = useActions();
-  const [challenge, setChallenge] = useStored<ActivationChallenge | undefined>('account-activation', undefined);
-  const [status, setStatus] = useState<ActivationStatus>();
-  const approved = status?.state === 'approved';
-  const verified = status?.state === 'verified';
-  function reset() { clearError(); setChallenge(undefined); setStatus(undefined); }
-  return <Modal title="开通工作台账号" close={close}>
-    <form className="form" onSubmit={async event => {
-      event.preventDefault();
-      const values = new FormData(event.currentTarget);
-      if (!challenge) {
-        const result = await run(() => api<ActivationChallenge>('account/activation/start', { username: String(values.get('name')).trim() }));
-        if (result) setChallenge(result);
-        return;
-      }
-      const proof = { id: challenge.id, token: challenge.token };
-      if (approved) {
-        if (await run(() => api('account/activation/complete', { ...proof, password: values.get('password') }), '账号已开通，请登录')) {
-          reset();
-          close();
-        }
-        return;
-      }
-      const result = await run(() => api<ActivationStatus>('account/activation/status', proof));
-      if (result) setStatus(result);
-    }}>
-      {!challenge ? <Field label="拟用账号名"><Input name="name" autoComplete="username" minLength={2} maxLength={32} required autoFocus /></Field>
-        : approved ? <>
-          <p>{status.feishuName} 的账号已批准。</p>
-          <Field label="设置口令"><Input name="password" type="password" autoComplete="new-password" minLength={8} maxLength={300} required autoFocus /></Field>
-        </>
-        : verified ? <p>已验证飞书账号 {status.feishuName}。请等待平台管理员批准，再回到此处设置口令。</p>
-        : <>
-          <p>请用企内飞书私聊机器人，在 10 分钟内发送这条命令。验证后需由平台管理员批准账号和角色。</p>
-          <code>{challenge.command}</code>
-          <div className="actions">
-            <Button type="button" variant="outline" onClick={() => void run(() => navigator.clipboard.writeText(challenge.command), '已复制命令')}>复制命令</Button>
-            <a className="text-button" href={url} target="_blank" rel="noreferrer">打开飞书机器人</a>
-          </div>
-          {status?.state === 'waiting' && <p className="muted-text" role="status">正在等待企内飞书验证。</p>}
-        </>}
-      <div className="form-actions">
-        {challenge && <Button type="button" variant="ghost" disabled={busy} onClick={reset}>重新发起</Button>}
-        <Button type="submit" disabled={busy}>{!challenge ? '生成验证命令' : approved ? '开通账号' : '查看开通状态'}</Button>
-      </div>
-    </form>
-  </Modal>;
 }
 
 function RecoveryDialog({ url, close }: { url: string; close: () => void }) {

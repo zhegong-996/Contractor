@@ -57,6 +57,8 @@ import { ReceiptJournal, type ReceiptDraft } from './receipt-journal.ts';
 import { assembleExecutionContext, executionPrompt, workResultType } from './execution-context.ts';
 import { workerClaims } from './worker-claims.ts';
 import { loadOperationsSettings, operationsSettings } from './operations-settings.ts';
+import { openPlatformAssistant } from './platform-assistant.ts';
+import { openPersonalAgents } from './personal-agent.ts';
 import { executionReceipts } from './execution-receipts.ts';
 import { TokenPoints, type PointLimit, type PointPolicy, type PointScope } from './token-points.ts';
 import { octopIMCanReply, octopIMRoute, type OctopIMAddress, type OctopIMEvent, type OctopIMTransport } from './octop-im-contract.ts';
@@ -85,7 +87,7 @@ import { openDecisionWorkflow } from './decision-workflow.ts';
 import { HumanDecisions, type HumanDecision, type HumanDecisionKind } from './human-decisions.ts';
 import { cardContent, consultationResultCard, feishuInboxCard, FeishuDecisionCards, type SharedConsultation, type CardTransport, type readCardClick } from './feishu-cards.ts';
 import { agentBudgetPool, AgentBudgets, type BudgetPool, type BudgetPeriod } from './agent-budget.ts';
-import { Devices, deviceHome, type Device, type DeviceState, type DeviceJob, type ReleasedLease, type RemoteStop } from './devices.ts';
+import { Devices, deviceHome, isRemoteDevice, type Device, type DeviceState, type DeviceJob, type ReleasedLease, type RemoteStop } from './devices.ts';
 
 export { WorkbenchError } from './errors.ts';
 
@@ -619,10 +621,20 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
   const isActive = (agent: Agent | undefined, project: Project): agent is Agent =>
     agents.available(agent, project, mayStart);
   const supportsDevice = (agent: Agent) => executionCapabilities(agent).local;
-  const deviceAllowed = (device: Pick<Device, 'agent' | 'owner' | 'projects' | 'remote'>, project: Project, agent: string) => {
+  const workerProfile = (agent: Agent) => {
+    const profile = runnerAgent(agent);
+    return (profile.execution?.kind === 'sandbox' || profile.execution?.kind === 'remote')
+      ? { ...profile, execution: { ...profile.execution, kind: 'remote' as const } } : undefined;
+  };
+  const deviceAllowed = (device: Pick<Device, 'agent' | 'owner' | 'projects' | 'remote' | 'worker'>, project: Project, agent: string) => {
     const service = agentById.get(agent);
-    return device.agent === agent && device.projects.includes(project.id)
-      && isActive(service, project) && service.owner === device.owner && (device.remote
+    if (!device.projects.includes(project.id) || !isActive(service, project) || service.owner !== device.owner) return false;
+    if (device.worker) {
+      const profile = workerProfile(service);
+      return config.executionRuntime === 'contractor' && !!config.remoteRunnerPort && !!profile && remoteEngine(profile)
+        && device.worker.engines.some(engine => engine === profile.engine);
+    }
+    return device.agent === agent && (device.remote
         ? !!config.remoteRunnerPort && remoteEngine(service) && digest(device.remote) === digest(runnerAgent(service))
         : supportsDevice(service));
   };
@@ -632,6 +644,8 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       throw new WorkbenchError('请选择已授权给该项目和 Agent 的执行端。', 409);
     return device;
   };
+  const deviceReady = (device: Device, agent: string) => devices.online(device)
+    && (!device.worker || !!device.readyEngines?.some(engine => engine === agentById.get(agent)?.engine));
   function selectDevice(project: Project, agent: Agent, requested?: string, development = false) {
     if (development && !executionCapabilities(agent).code)
       throw new WorkbenchError('此执行端尚不支持代码任务。', 403);
@@ -641,13 +655,13 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       const selected = routedDevice(route, id => {
         const device = devices.get(id);
         return device?.active && deviceAllowed(device, project, agent.id) ? device : undefined;
-      }, device => devices.online(device));
+      }, device => deviceReady(device, agent.id));
       if (!selected) throw new WorkbenchError('项目的主备执行端都已暂停或失去授权，请核对项目设置。', 409);
       return selected.id;
     }
     if (agent.execution?.kind !== 'remote') return;
     const eligible = devices.list().filter(device => device.active && deviceAllowed(device, project, agent.id));
-    const online = eligible.filter(device => devices.online(device));
+    const online = eligible.filter(device => deviceReady(device, agent.id));
     const candidates = online.length ? online : eligible;
     if (candidates.length !== 1) throw new WorkbenchError('请为该 Agent 选择一个已登记的远程执行端。', 409);
     return candidates[0]!.id;
@@ -2241,7 +2255,9 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       const ticket = ticketOfLane(run.lane);
       const work = workOf(ticket);
       const manifest = manifestFor(id);
-      return handingOff(work) || !!device?.remote && (!device.active || !mayRun(store.tickets.get(ticket), work)
+      const project = work && projectById.get(work.project);
+      return handingOff(work) || !!device && isRemoteDevice(device) && (!device.active || !mayRun(store.tickets.get(ticket), work)
+        || !project || !deviceAllowed(device, project, work!.agent)
         || !!work && !!manifest && !stageBasisCurrent(ticket, work, manifest) || !usable(ticket, manifest?.sources ?? []));
     },
     mayRedeliver(run, device) {
@@ -2254,12 +2270,13 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
         && deviceAllowed(device, project, work.agent)
         && modelRouteCurrent(project, work.agent, workModelPurpose(work), manifest.actor?.modelRoute);
     },
-    eligible(run, device) {
+    eligible(run, device, engines) {
       if (digestProjects.has(run.rule)) return !device;
       const id = ticketOfLane(run.lane);
       const work = workOf(id);
       if (!work || work.device !== device?.id || delegations.pending(id, work.version ?? 1)
         || requiresStageBasis(work) && !currentStageBasis(id, work)) return false;
+      if (device?.worker && !engines?.some(engine => engine === agentById.get(work.agent)?.engine)) return false;
       return device ? deviceAllowed(device, projectById.get(work.project)!, work.agent)
         : agentById.get(work.agent)?.execution?.kind !== 'remote';
     },
@@ -2467,13 +2484,17 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       try {
         const authority = { project: project.id, ticket: ticket.id, assignment: a.id, policy: ticket.mandate.policyVersion, sources,
           ...(topicRefs.length && { topicContext: topicRefs }) };
-        if (device?.remote) {
+        if (device && isRemoteDevice(device)) {
           if (development && !executionCapabilities(agent).code) throw new Error('此远端尚不支持代码任务');
+          const remoteProfile = device.worker && workerProfile(selectedAgent);
+          if (device.worker && !remoteProfile || device.remote && device.remote.model !== selectedAgent.model)
+            throw new Error('此执行端的模型已变化，请核对连接方式');
           const scope = digest({ ...authority, device: device.id, run: job.run, attempt: job.attempt });
-          isolation = { scope, owner: agent.owner, agent: agent.id, provider: agent.execution!.provider, model: agent.model!,
+          isolation = { scope, owner: agent.owner, agent: agent.id, provider: agent.execution!.provider, model: selectedAgent.model!,
             credentialVersion: 'runner-local', boundary: 'remote' };
-          prepared = { ...prepared, session: null, remote: { authority: scope, ...(development && { code: await exportCodeBundle(cwd, development.paths) }) }, rule: { ...prepared.rule, cwd: '.', skill: undefined },
-            agent: { ...prepared.agent, command: undefined, effort: agent.execution!.effort } };
+          prepared = { ...prepared, session: null, remote: { authority: scope, ...(remoteProfile && { profile: remoteProfile }),
+            ...(development && { code: await exportCodeBundle(cwd, development.paths) }) }, rule: { ...prepared.rule, cwd: '.', skill: undefined },
+            agent: { ...prepared.agent, model: selectedAgent.model, command: undefined, effort: agent.execution!.effort } };
         } else if (agent.engine === 'octop' && config.octop) {
           const assembled = await prepareExpert(config.octop, agent, prepared, !!work.consultation);
           prepared = assembled.job;
@@ -2729,7 +2750,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     const receipts = executionEvidence.receipts(id).filter(row => visible.has(attemptKey(row)));
     const pointAttempts = points.receipts(id).filter(row => visible.has(attemptKey(row)));
     const posted = new Set(receipts.map(attemptKey));
-    const missing = charges.filter(row => row.settled !== null && visible.has(attemptKey(row)) && !posted.has(attemptKey(row))).length;
+    const missing = charges.filter(row => row.run > 0 && row.settled !== null && visible.has(attemptKey(row)) && !posted.has(attemptKey(row))).length;
     return { ...usageSummary(receipts, missing), scope: manager ? 'project' as const : 'mine' as const,
       attempts: receipts.map(({ isolation: _host, ...row }) => row), pointAttempts,
       pointBudget: manager ? points.view({ kind: 'project', subject: id }) : points.view({ kind: 'personal', subject: actor }) };
@@ -4384,7 +4405,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     const deviceId = allowed ? devices.leasedTo(run, currentAttempt) : undefined;
     const device = deviceId && devices.get(deviceId);
     return { run, attempt: currentAttempt, attempts, agentVersion: manifest.agentVersion, policyVersion: manifest.policyVersion,
-      device: device ? { name: device.name, remote: !!device.remote } : undefined,
+      device: device ? { name: device.name, remote: isRemoteDevice(device) } : undefined,
       isolation: allowed && (actor === work.requester || actor === manifest.actor?.owner) ? manifest.isolation : undefined,
       assembly: manifest.assembly, recorded: !!manifest.assembly, readable: allowed,
       ...(allowed && manifest.assembly ? { contents: executionEvidence.unpack(manifest.assembly),
@@ -4655,37 +4676,45 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
   }
 
   function beginDeviceEnrollment(input: RunnerConnectInput, secret: string) {
+    if (input.mode === 'worker' && config.executionRuntime !== 'contractor')
+      throw new WorkbenchError('当前运行时请使用 contractor connect --bind-agent 连接。', 409);
     const request = requireValue(devices.beginEnrollment(input, secret), '连接请求不可用，请稍后重试。', 409);
     return { expires: request.expires, verification: config.runnerConnectUrl + '/runner/connect/' + request.id };
   }
 
   function deviceEnrollment(actor: string | undefined, id: string) {
     const request = requireValue(devices.enrollment(id), '连接请求已过期，请在执行机重新运行连接命令。', 404);
-    const choices = !actor ? [] : config.projects.filter(project => mayStart(project, actor)).flatMap(project =>
+    const choices = !actor || request.mode === 'worker' ? [] : config.projects.filter(project => mayStart(project, actor)).flatMap(project =>
       config.agents.flatMap(agent => {
         if (!remoteEngine(agent) || agent.owner !== actor || !isActive(agent, project)
           || !request.engines.some(engine => engine === agent.engine)) return [];
         return [{ project: project.id, projectTitle: project.title, agent: agent.id, agentTitle: agent.title, engine: agent.engine }];
       }));
-    return { name: request.name, approved: !!request.approved, choices };
+    return { name: request.name, approved: !!request.approved, choices, worker: request.mode === 'worker', engines: request.engines };
   }
 
-  function approveDeviceEnrollment(actor: string, id: string, project: string, agent: string) {
+  function approveDeviceEnrollment(actor: string, id: string, project?: string, agent?: string) {
     const request = deviceEnrollment(actor, id);
-    if (!request.choices.some(item => item.project === project && item.agent === agent))
+    if (!request.worker && !request.choices.some(item => item.project === project && item.agent === agent))
       throw new WorkbenchError('只能连接本人在该项目有权使用、且此设备已安装的 Agent。', 403);
     return store.atomic(() => {
-      deviceBinding(actor, project, agent, true);
+      if (request.worker) {
+        if (!account(actor) || project || agent) throw new WorkbenchError('由设备所有者确认连接。', 403);
+      } else deviceBinding(actor, project!, agent!, true);
       if (!devices.approveEnrollment(id, actor, project, agent))
         throw new WorkbenchError('连接请求已处理或已过期。', 409);
-      audit(project, 'device.enrollment-approved', { actor, agent, device: id });
+      audit(project ?? id, 'device.enrollment-approved', { actor, agent, device: id });
     });
   }
 
   function finishDeviceEnrollment(id: string, secret: string) {
     return store.atomic(() => requireValue(devices.finishEnrollment(id, secret, request => {
       const approval = request.approved!;
-      return deviceBinding(approval.actor, approval.project, approval.agent, true);
+      if (request.mode === 'worker') {
+        if (!account(approval.actor) || config.executionRuntime !== 'contractor') return;
+        return { owner: approval.actor, agent: '', projects: [], worker: { owner: approval.actor, engines: request.engines } };
+      }
+      return deviceBinding(approval.actor, approval.project!, approval.agent!, true);
     }), '连接请求已过期或权限已变化。', 403));
   }
 
@@ -4699,11 +4728,43 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
 
   function projectDevices(actor: string, id: string) {
     const project = projectFor(id, actor);
-    return devices.list().filter(device => device.projects.includes(id) && member(project, device.owner))
-      .map(device => ({ id: device.id, name: device.name, owner: device.owner, agent: device.agent, active: device.active,
-        state: device.state, remote: !!device.remote, online: devices.online(device), claimsPaused: devices.claimsPaused(device),
-        lastSeen: device.lastSeen, eligible: deviceAllowed(device, project, device.agent),
-        mayManage: device.owner === actor }));
+    return devices.list().filter(device => device.projects.includes(id) && member(project, device.owner)).map(device => {
+      const eligibleAgents = config.agents.filter(agent => deviceAllowed(device, project, agent.id)).map(agent => agent.id);
+      return { id: device.id, name: device.name, owner: device.owner, agent: device.agent, active: device.active, eligibleAgents,
+        readyAgents: eligibleAgents.filter(agent => deviceReady(device, agent)),
+        state: device.state, remote: isRemoteDevice(device), online: devices.online(device), claimsPaused: devices.claimsPaused(device),
+        lastSeen: device.lastSeen, eligible: eligibleAgents.length !== 0, mayManage: device.owner === actor };
+    });
+  }
+
+  function myWorkers(actor: string) {
+    const projects = config.projects.filter(project => mayStart(project, actor)).map(({ id, title }) => ({ id, title }));
+    return { projects, connectUrl: config.runnerConnectUrl, devices: devices.list().filter(device => device.owner === actor)
+      .map(device => ({ id: device.id, name: device.name, agent: device.agent, engines: device.worker?.engines ?? [],
+        readyEngines: devices.online(device) ? device.readyEngines ?? [] : [],
+        independent: !!device.worker, state: device.state, online: devices.online(device), claimsPaused: devices.claimsPaused(device),
+        projects: device.projects.filter(id => projects.some(project => project.id === id)), revision: digest(device.projects) })) };
+  }
+
+  function setWorkerProjects(actor: string, id: string, input: { projects: string[]; revision: string }) {
+    const device = devices.get(id);
+    if (!device?.worker || device.owner !== actor || !account(actor)) throw new WorkbenchError('找不到可管理的执行设备。', 404);
+    if (device.state === 'retired') throw new WorkbenchError('已退役执行端不能调整项目。', 409);
+    if (digest(device.projects) !== input.revision) throw new WorkbenchError('设备授权已变化，请刷新。', 409);
+    const projects = [...new Set(input.projects)];
+    if (projects.some(id => {
+      const project = projectById.get(id);
+      return !project || !mayStart(project, actor);
+    })) throw new WorkbenchError('只能授权给本人可参与的项目。', 403);
+    store.atomic(() => {
+      devices.setProjects(id, projects);
+      audit(id, 'device.projects-changed', { actor, projects });
+      const held = devices.held(id);
+      const run = held && hub.run(held.run);
+      const work = run && workOf(ticketOfLane(run.lane));
+      if (run && work && !projects.includes(work.project)) hub.cancel(run.id);
+    });
+    return myWorkers(actor);
   }
 
   function projectDeviceRoutes(actor: string, id: string) {
@@ -4711,11 +4772,11 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     const available = projectDevices(actor, id);
     const routes = new Set(deviceRouting.list(id).map(row => row.agent));
     return config.agents.filter(agent => agent.projects.includes(id) && member(project, agent.owner)
-      && (routes.has(agent.id) || available.some(device => device.agent === agent.id)))
+      && (routes.has(agent.id) || available.some(device => device.eligibleAgents.includes(agent.id))))
       .map(agent => {
         const route = deviceRouting.current(id, agent.id);
-        const selected = routedDevice(route, device => available.find(item => item.id === device && item.active && item.eligible),
-          device => device.online);
+        const selected = routedDevice(route, device => available.find(item => item.id === device && item.active && item.eligibleAgents.includes(agent.id)),
+          device => device.readyAgents.includes(agent.id));
         return { agent: agent.id, title: agent.title, ...route, revision: digest(route), selected: selected?.id };
       });
   }
@@ -4740,7 +4801,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     const device = requireValue(devices.get(id), '找不到执行端。');
     if (device.owner !== actor || !account(actor)) throw new WorkbenchError('由设备所有者管理接单。', 403);
     if (device.state === 'retired' && state !== 'retired') throw new WorkbenchError('退役执行端不能重新启用，请重新配对。', 409);
-    if (state === 'active' && !device.projects.some(project => {
+    if (state === 'active' && !device.worker && !device.projects.some(project => {
       const row = projectById.get(project);
       return row && deviceAllowed(device, row, device.agent);
     })) throw new WorkbenchError('执行端的项目或 Agent 授权已失效。', 403);
@@ -4768,7 +4829,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
   const connectors = new Set<string>();
   const connectedDevice = (token: string, remote: boolean) => {
     const device = requireValue(devices.byToken(token), '执行端配对已失效。', 401);
-    if (!!device.remote !== remote) throw new WorkbenchError('执行端须通过配对时的入口连接。', 403);
+    if (isRemoteDevice(device) !== remote) throw new WorkbenchError('执行端须通过配对时的入口连接。', 403);
     return device;
   };
   async function deviceWork(token: string, input: Parameters<WorkerHub['work']>[0], remote = false) {
@@ -5052,10 +5113,11 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     return { actor, actorProfile: profiles.view(account(actor)), platformRole: account(actor)?.role, crossChannel: !!config.crossChannel, needsYou: pending,
       canCreateRootProject, canCreateProject: canCreateRootProject || projects.some(project => maintain(project, actor)),
       canManagePointPolicy: canManagePointPolicy(actor), canManageAccounts: canManageAccounts(actor), canManageServices: canManageServices(actor),
+      assistantEnabled: assistant.enabled(),
       canManageLogin: account(actor)?.role === 'owner' && platformRight(actor, 'accounts-manage'),
       octopEnabled: !!config.octop,
       imAccountBinding: !!config.octop?.channels?.some(connector => connector.allowAccountBinding),
-      runnerConnectUrl: config.runnerConnectUrl,
+      runnerConnectUrl: config.runnerConnectUrl, executionRuntime: config.executionRuntime,
       feishuGroups: account(actor)?.role === 'owner' ? (config.feishu?.allowedGroups ?? []).filter(chat => !boundProject('feishu', chat)) : [],
       ownAgents: config.agents.filter(agent => agent.owner === actor).map(({ id, title, projects }) => ({ id, title, projects: projects.filter(id => ids.has(id)) })),
       projects: projects.map(p => ({ id: p.id, title: p.title, parent: p.parent && ids.has(p.parent) ? p.parent : undefined,
@@ -5119,9 +5181,63 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       accepted: { actor: work.requester, revision: output.revision, at: new Date().toISOString() } }, output, verification),
   });
   const settings = operationsSettings(store, config, operationPolicies, { canManageServices, projectFor, maintain, mayStart, topicsFor, audit });
+  const assistant = openPlatformAssistant(store, config.platformAssistant ?? [], plugins.use('assistant'), {
+    admin: canManageServices, allowed: operationPolicies.modelAllowed, audit, budgets, points,
+  });
+  const personalAgents = openPersonalAgents(store, assistant, actor => !!account(actor));
+  function routingDraftInput(actor: string, id: string) {
+    const row = store.db.prepare('SELECT value,actor FROM workbench_intake WHERE id=? AND (resolved IS NULL OR resolved=0)').get(id);
+    if (!row) throw new WorkbenchError('这条委托已处理或不存在。', 409);
+    const input: Start = JSON.parse(String(row.value));
+    const project = projectFor(input.project, actor);
+    if (!maintain(project, actor) || !mayStart(project, String(row.actor))) throw new WorkbenchError('由仍有权限的项目维护人核对。', 403);
+    const agents = config.agents.filter(agent => isActive(agentById.get(agent.id), project) && (!input.function || agent.function === input.function)
+      && (!input.target || deliveryTargets(project).some(ref => resourceView(project.id, ref).ref === input.target
+        && executionCapabilities(agent).code && ref.execution && authorizesDevelopment(project,
+          { repository: ref.externalId, base: ref.execution.base, paths: ref.execution.paths }, agent.owner))));
+    return { project: project.id, title: input.title, request: input.request.slice(0, 2400), topic: input.topic,
+      agents: agents.map(({ id, title, capability, function: duty }) => ({ id, title, capability, duty })) };
+  }
+  function memoryDraftInput(actor: string, id: string, revision: string) {
+    const entry = requireValue(knowledge.get(id), '找不到知识候选。');
+    const project = projectFor(entry.project, actor);
+    if (entry.owner !== actor || !mayStart(project, actor) || !canReadEntry(entry, actor))
+      throw new WorkbenchError('由仍有协作和来源权限的知识负责人整理。', 403);
+    if (entry.state !== 'candidate' || entry.revision !== revision || entry.source || !entry.ticket)
+      throw new WorkbenchError('请选择当前待核对的验收候选。', 409);
+    const origin = acceptedKnowledgeSource(entry);
+    if (!origin || entry.visibility !== 'project' || originOutput(entry)?.sources.some(ref => {
+      const source = knowledge.get(ref.id, ref.revision);
+      return !source || !consultationSource(source, project);
+    }) || !entryEvidence(entry, new Set(), true))
+      throw new WorkbenchError('这份候选的正文或来源需要人工核对。', 409);
+    const body = entry.body.slice(0, 12000);
+    if (sensitiveFeishuText.test([entry.title, entry.body, entry.conditions].join('\n')))
+      throw new WorkbenchError('候选包含敏感信息，请手动核对。', 409);
+    return { project: project.id, version: origin.version, title: entry.title, body, conditions: entry.conditions };
+  }
   const api = {
     ...settings,
+    platformAssistant: assistant.view,
+    setPlatformAssistant: assistant.update,
+    async draftIntake(actor: string, id: string) {
+      const input = routingDraftInput(actor, id);
+      if (!input.agents.length || sensitiveFeishuText.test(input.title + '\n' + input.request))
+        throw new WorkbenchError('这条委托需要人工核对。', 409);
+      const result = await assistant.draft('router', actor, input.project, input);
+      if (digest(routingDraftInput(actor, id)) !== digest(input)) throw new WorkbenchError('委托或可选 Agent 已变化，请刷新。', 409);
+      return { ...result, value: { ...result.value, agent: input.agents.some(row => row.id === result.value.agent) ? result.value.agent : null } };
+    },
+    async draftKnowledge(actor: string, id: string, revision: string) {
+      const input = memoryDraftInput(actor, id, revision);
+      const result = await assistant.draft('memory', actor, input.project, input);
+      if (digest(memoryDraftInput(actor, id, revision)) !== digest(input)) throw new WorkbenchError('候选或来源已变化，请刷新。', 409);
+      return result;
+    },
     loadedPlugins: plugins.manifest,
+    personalAgent: personalAgents.view,
+    setPersonalAgent: personalAgents.update,
+    askPersonalAgent: personalAgents.answer,
     ticketTopicContext(actor: string, id: string) {
       const { work, project, ticket } = ticketFor(id, actor);
       if (!work.topic || work.consultation || work.delegatedVia) return { basis: [], recent: [], editable: false };
@@ -5195,7 +5311,8 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       return entries.filter(entry => canReadEntry(entry, actor)).map(entry => ({ id: entry.id, revision: entry.revision, title: entry.title,
         acceptedSource: acceptedKnowledgeSource(entry) }));
     },
-    issueDevicePair, pairDevice, projectDevices, projectDeviceRoutes, setProjectDeviceRoute, deviceWork, deviceStarted, deviceResult,
+    issueDevicePair, pairDevice, projectDevices, projectDeviceRoutes, setProjectDeviceRoute, myWorkers, setWorkerProjects,
+    deviceWork, deviceStarted, deviceResult,
     beginDeviceEnrollment, deviceEnrollment, approveDeviceEnrollment, finishDeviceEnrollment,
     async recallMemory(actor: string, id: string, query: string) {
       const project = projectFor(id, actor);
@@ -5554,6 +5671,8 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
           acceptedSource: acceptedKnowledgeSource(e, true), canPublish: e.owner === actor && mayStart(project, actor) && e.state === 'candidate' && !e.draft?.needsReview && !!e.conditions.trim()
             && (!e.replaces || !!predecessor && !predecessor.retirement?.replacement) && entryEvidence(e, new Set(), true),
           canReview: e.owner === actor && mayStart(project, actor) && e.state === 'candidate' && !e.source,
+          canDraft: e.owner === actor && mayStart(project, actor) && e.state === 'candidate' && !e.source
+            && !!e.ticket && e.visibility === 'project' && assistant.enabled(),
           provenance: e.sources.flatMap<{ title: string; revision: string; ticket?: string; url?: string }>(ref => {
             const [source, revision] = ref.split('@');
             if (!source || !revision) return [];

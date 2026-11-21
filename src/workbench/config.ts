@@ -12,6 +12,7 @@ import { digestAgentId } from './discussion.ts';
 import { octopIMConnector } from './octop-im-contract.ts';
 import { imLoginSettings } from './im-login-providers.ts';
 import { memoryProviderIds } from './memory-providers.ts';
+import { assistantProfiles } from './platform-assistant.ts';
 
 const id = z.string().regex(/^[a-z][a-z0-9-]{0,47}$/);
 const member = z.string().regex(/^[a-zA-Z0-9_-]{2,32}$/);
@@ -86,6 +87,7 @@ export const settingsSchema = z.object({
   functions: z.array(z.object({ id, title, lead: id.optional() }).strict()).min(1),
   agents: z.array(agent),
   octop: octopSettings.optional(),
+  platformAssistant: assistantProfiles.optional(),
   plugins: z.object({ memory: z.enum(memoryProviderIds).optional() }).strict().optional(),
   feishu: z.object({ profile: z.string(), appId: z.string(), botId: z.string(), decisionCards: z.boolean().optional(),
     separateIngress: z.boolean().optional(),

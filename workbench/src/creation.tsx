@@ -95,15 +95,15 @@ export function Composer({ project, workspace, preset, close }: PageProps & { pr
       go(project.id, outcome.pending ? 'inbox' : 'work', outcome.ticket);
     }
   };
-  return <Modal title={preset.personal ? '交给我的 Agent' : preset.parent ? '新建子工单' : '发起协作'} close={close}>
+  return <Modal title={preset.personal ? '发起只读代办' : preset.parent ? '新建子工单' : '发起协作'} close={close}>
     <form className="form" onSubmit={handleSubmit}>
       <Field label="工单标题"><Input autoFocus value={draft.title} onChange={e => change('title', e.target.value)} required maxLength={100} /></Field>
       <Field label="要做什么"><TextArea rows={5} value={draft.request} onChange={e => change('request', e.target.value)} required maxLength={3500}
         placeholder="描述要解决的问题和验收条件" /></Field>
       <div className="form-grid">
-        <Field label="执行 Agent"><select value={draft.agent} required={!!preset.personal || !!deliveryTarget}
+        <Field label="执行 Agent"><select aria-label="执行 Agent" value={draft.agent} required={!!preset.personal || !!deliveryTarget}
           onChange={e => setDraft({ ...draft, agent: e.target.value, device: '' })}>
-          <option value="">{preset.personal ? '选择我的 Agent' : deliveryTarget ? '选择有仓库资格的 Agent' : '按项目职责分派'}</option>
+          <option value="">{preset.personal ? '选择我的执行 Agent' : deliveryTarget ? '选择有仓库资格的 Agent' : '按项目职责分派'}</option>
           {agentOptions.map(agent => <option key={agent.id} value={agent.id}>{agent.title} · {agent.owner}</option>)}
           {!preset.personal && !deliveryTarget && workspace.functions.filter(fn => options.some(agent => agent.function === fn.id)).map(fn => <option key={fn.id} value={'function:' + fn.id}>职责 · {fn.title}</option>)}
         </select></Field>

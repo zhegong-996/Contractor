@@ -12,7 +12,7 @@ export function useExecutionTargets(project?: string) {
 }
 
 export function eligibleExecutionDevices(devices: DeviceRow[] | undefined, agent?: Agent) {
-  return devices?.filter(device => device.agent === agent?.id && device.active && device.eligible) ?? [];
+  return devices?.filter(device => agent && device.eligibleAgents.includes(agent.id) && device.active) ?? [];
 }
 
 const deviceStatus = (device: DeviceRow) => device.online ? '在线' : device.claimsPaused ? '暂不接单' : '离线等待';
@@ -28,7 +28,7 @@ export function executionTargetState(targets: ReturnType<typeof useExecutionTarg
   const choices = eligibleExecutionDevices(devices.data, agent);
   const policy = routes.data?.find(route => route.agent === agent.id);
   const actualDefault = choices.find(device => device.id === policy?.selected);
-  const available = choices.filter(device => device.online);
+  const available = choices.filter(device => device.readyAgents.includes(agent.id));
   const candidates = available.length ? available : choices;
   const implied = actualDefault ?? (!policy?.primary && agent.executionCapabilities.remote && candidates.length === 1
     ? candidates[0] : undefined);
@@ -49,9 +49,9 @@ export function ExecutionEnvironment(props: ExecutionTargetProps) {
   </details>;
 }
 
-export function RunnerConnectInstructions({ url }: { url: string }) {
+export function RunnerConnectInstructions({ url, legacy = false }: { url: string; legacy?: boolean }) {
   const { run, busy } = useActions();
-  const command = 'contractor connect ' + url;
+  const command = 'contractor connect ' + url + (legacy ? ' --bind-agent' : '');
   return <div className="runner-connect-instructions">
     <p>在要接单的电脑或云服务器运行这条命令。</p>
     <div className="runner-command-row">
@@ -60,7 +60,8 @@ export function RunnerConnectInstructions({ url }: { url: string }) {
         () => navigator.clipboard.writeText(command), '命令已复制',
       )}><Copy size={14} />复制命令</Button>
     </div>
-    <p>打开终端给出的链接，登录后确认项目和 Agent。重新连接时运行同一条命令。</p>
+    <p>{legacy ? '打开终端给出的链接，登录后确认项目和 Agent。'
+      : '打开终端给出的链接确认设备，然后到个人设置授权项目。'}重新连接时运行同一条命令。</p>
     <details className="minor-disclosure">
       <summary>首次安装</summary>
       <p>向管理员领取 Contractor Runner 安装包。在执行机准备 Node.js 24 和对应的 Codex 或 Claude Code，再安装 Runner。</p>
@@ -100,7 +101,8 @@ export function ExecutionTargetPicker({ project, agent, targets, value, onChange
           <input type="radio" name="execution-target" value={device.id} checked={device.id === value} onChange={() => onChange(device.id)} />
           <Laptop size={17} aria-hidden="true" /><span><strong>{device.name}</strong><small>{device.remote ? '远程设备' : '已登记设备'} · {device.owner}
             {device.id === policy?.primary ? ' · 主用' : device.id === policy?.fallback ? ' · 备用' : ''}</small></span>
-          <Pill tone={device.online ? 'green' : 'amber'}>{deviceStatus(device)}</Pill>
+          <Pill tone={device.readyAgents.includes(agent.id) ? 'green' : 'amber'}>
+            {device.online && !device.readyAgents.includes(agent.id) ? '引擎待就绪' : deviceStatus(device)}</Pill>
         </label>)}
         {competing && !allowPlatform && !choices.some(device => device.id !== current?.id) && <p className="muted-text">暂无可切换的执行端</p>}
         {!competing && !preserve && needsChoice && !choices.length && <p className="muted-text">这个 Agent 暂无可用设备。</p>}
@@ -108,7 +110,7 @@ export function ExecutionTargetPicker({ project, agent, targets, value, onChange
       </div>}
     {connectUrl && <details className="minor-disclosure">
       <summary>连接新设备</summary>
-      <RunnerConnectInstructions url={connectUrl} />
+      <a className="text-button" href="#/account?tab=workers">打开我的执行设备 <ArrowUpRight size={13} /></a>
     </details>}
     <a className="text-button execution-target-manage" href={routeFor(project, 'agents', undefined, 'devices')}
       target="_blank" rel="noopener" aria-label="在新标签页管理执行设备">管理设备 <ArrowUpRight size={13} aria-hidden="true" /></a>

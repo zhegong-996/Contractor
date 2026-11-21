@@ -107,7 +107,7 @@ type ServiceStatusView = {
 const states: Record<string, string> = { ready: '就绪', connecting: '连接中', reconnecting: '重连中',
   unavailable: '异常', disabled: '未启用', stopped: '已停止' };
 const pluginTitles: Record<CapabilityProvider['capability'], string> = {
-  delivery: '交付证据', sources: '资料读取', memory: '知识检索', expert: '只读专家', gateway: '渠道标准化',
+  delivery: '交付证据', sources: '资料读取', memory: '知识检索', expert: '只读专家', gateway: '渠道标准化', assistant: '模型整理',
 };
 const providerTitles: Record<string, string> = {
   'github-actions': 'GitHub Actions', 'project-sources': 'GitHub、飞书、Figma',
@@ -209,7 +209,7 @@ function ProjectDeviceRouting({ project }: { project: string }) {
       <Button type="button" size="sm" variant="outline" disabled={!devices.data} onClick={() => select(row)}>设置</Button>
     </article>)}
     {selected && <DeviceRouteDialog endpoint={base + '/device-routes'} route={selected}
-      devices={devices.data?.filter(row => row.agent === selected.agent && row.active && row.eligible) ?? []}
+      devices={devices.data?.filter(row => row.eligibleAgents.includes(selected.agent) && row.active) ?? []}
       close={() => select(undefined)} />}
   </Section>;
 }

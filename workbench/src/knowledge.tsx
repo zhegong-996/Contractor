@@ -271,6 +271,7 @@ function KnowledgeEditor({ project, entry, mode, close }: PageProps & { entry?: 
   const initial = { title: entry?.title ?? '', body: entry?.body ?? '', conditions: entry?.conditions ?? '',
     visibility: entry?.visibility ?? 'restricted', kind: entry?.kind ?? 'reference', directory: entry?.directory ?? 'hidden' };
   const [draft, save] = useStored(key, initial);
+  const [suggestion, setSuggestion] = useState<{ value: { title: string; body: string; conditions: string }; model: { model: string } }>();
   const update = (name: keyof typeof draft, value: string) => save({ ...draft, [name]: value });
   const { run, busy } = useActions();
   async function submit(e: FormEvent) {
@@ -288,6 +289,21 @@ function KnowledgeEditor({ project, entry, mode, close }: PageProps & { entry?: 
   }
   return <Modal title={mode === 'review' ? '核对知识候选' : mode === 'replace' ? '拟定知识新版' : '新增项目知识'} close={close}>
     <form className="form" onSubmit={submit}>
+      {mode === 'review' && entry?.canDraft && <div className="actions">
+        <Button type="button" variant="outline" size="sm" disabled={busy} onClick={async () => {
+          const result = await run(() => api<{ value: { title: string; body: string; conditions: string }; model: { model: string } }>(
+            'knowledge/' + entry.id + '/draft', { revision: entry.revision }));
+          if (result) setSuggestion(result);
+        }}>从验收记录提炼</Button>
+      </div>}
+      {suggestion && <div className="context-preview" aria-live="polite">
+        <div className="inline-meta"><strong>{suggestion.value.title}</strong><Pill>{suggestion.model.model} · 待核对</Pill></div>
+        <Markdown text={suggestion.value.body} />
+        <p>{suggestion.value.conditions}</p>
+        <Button type="button" variant="outline" size="sm" onClick={() => {
+          save({ ...draft, ...suggestion.value }); setSuggestion(undefined);
+        }}>填入表单</Button>
+      </div>}
       <Field label="标题"><Input autoFocus maxLength={100} value={draft.title} onChange={e => update('title', e.target.value)} required /></Field>
       <Field label="正文"><TextArea value={draft.body} onChange={e => update('body', e.target.value)} rows={8} maxLength={16000} required /></Field>
       <Field label="适用条件"><TextArea value={draft.conditions} onChange={e => update('conditions', e.target.value)} rows={2} maxLength={600} required={!!mode} /></Field>

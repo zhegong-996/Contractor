@@ -9,8 +9,11 @@ export const runnerEndpoint = z.url().transform(value => new URL(value)).refine(
 export const runnerSecret = z.string().regex(/^[A-Za-z0-9_-]{43}$/);
 export const runnerEngines = z.array(z.enum(['codex', 'claude'])).min(1).max(2).refine(items => new Set(items).size === items.length);
 export const runnerRequestId = z.uuid();
+export const runnerWorkerSchema = z.object({ owner: z.string().regex(/^[a-zA-Z0-9_-]{2,32}$/), engines: runnerEngines }).strict();
+export type RunnerWorker = z.infer<typeof runnerWorkerSchema>;
+export const workerCredential = 'worker-session';
 export const runnerConnectInput = z.object({
-  id: runnerRequestId, name: z.string().trim().min(1).max(100), engines: runnerEngines,
+  id: runnerRequestId, name: z.string().trim().min(1).max(100), engines: runnerEngines, mode: z.literal('worker').optional(),
 }).strict();
 export type RunnerConnectInput = z.infer<typeof runnerConnectInput>;
 

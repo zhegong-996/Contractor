@@ -198,16 +198,13 @@ function ApprovalEditor({ approval, data, close }: { approval: Approval; data: P
     submit={{ form: 'account-approval', label: reject ? '拒绝开通' : '批准开通', danger: reject }}>
     <form className="form" id="account-approval" onSubmit={async event => {
       event.preventDefault();
-      const values = new FormData(event.currentTarget);
       const id = part(approval.request.id);
       const saved = await run(() => approval.kind === 'approve' ? api('admin/activation/' + id, { role })
-        : api('admin/im-registration/' + id, reject ? { action: 'reject' } : { action: 'approve', username: String(values.get('username')).trim(), role }),
+        : api('admin/im-registration/' + id, reject ? { action: 'reject' } : { action: 'approve', role }),
       reject ? '已拒绝开通申请' : '已批准开通申请');
       if (saved) close();
     }}>
       <strong>{approval.kind === 'approve' ? approval.request.feishuName + ' · ' + approval.request.username : approval.request.displayName}</strong>
-      {approval.kind === 'approve-im' && <Field label="平台账号名" hint="2–32 位英文字母、数字、连字符或下划线。"><Input name="username"
-        defaultValue={approval.request.username} required pattern={String.raw`[a-zA-Z0-9_\-]{2,32}`} maxLength={32} /></Field>}
       {!reject && <><RoleChoice role={role} choose={choose} data={data} /><RolePreview role={role} data={data} />
         <p className="muted-text">{approval.kind === 'approve' ? '批准后由成员本人设置口令。' : '批准后成员可使用' + imNames[approval.request.provider] + '登录。'}</p></>}
     </form>

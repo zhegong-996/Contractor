@@ -63,7 +63,7 @@ flowchart TB
 | 调度器 | 把委托和后续事件变成可领取的运行。保存队列、租约、延迟检查和人审等待。一张工单可以有多轮，每轮可有多个尝试。实例使用 AutoLoop 兼容调度器或 Contractor 独立调度器。 | [执行接口](../src/workbench/execution/contract.ts) · [Contractor 调度器](../src/workbench/execution/scheduler.ts) |
 | Worker 与回执 | 已登记的本机或远端设备领取。执行适配器装配当前工作目录和会话，核对进程已停止后回传。代码任务只导入已授权路径且保持 Git 基线一致。回执按运行与尝试写入成果、Token、积分和通知入箱。调度已确认、业务落库失败时可重报补写。 | [本机 worker](../src/workbench/execution/worker.ts) · [远程连接](../src/workbench/device-client.ts) · [回执恢复](../src/workbench/execution-receipts.ts) |
 | 交付与验收 | 工单版本绑定提交、PR、对应提交的检查和可选环境证据。打回后在原单产生新版本。人工验收依据当前版本。 | [交付证据](../src/workbench/delivery-evidence.ts) · [验收](../src/workbench/ticket-acceptance.ts) |
-| 知识回流 | 当前验收产生知识候选。人工采用后成为现行版本，保留出处、适用范围和替代关系。索引仅排序当前有权使用的资料。授权变化会影响原资料、派生成果和使用关系的读取。 | [知识与版本](../src/workbench/knowledge.ts) · [授权](../src/workbench/knowledge-authority.ts) · [图谱](../src/workbench/knowledge-graph.ts) |
+| 知识回流 | 当前验收产生知识候选。负责人可使用平台模型提炼可复用做法及适用条件，保留原始验收记录。人工采用后成为现行版本。索引仅排序当前有权使用的资料。授权变化会影响原资料、派生成果和使用关系的读取。 | [知识与版本](../src/workbench/knowledge.ts) · [授权](../src/workbench/knowledge-authority.ts) · [图谱](../src/workbench/knowledge-graph.ts) |
 | 任务中心 | 工单动作与运行历史放在「工作」。在「会话」查找有权访问的项目讨论、主题和工单讨论。归档只影响当前成员的目录。 | [会话索引](../src/workbench/conversation-index.ts) · [前端入口](../workbench/src/main.tsx) |
 | 过程复盘与回归 | 过程核对从对应执行尝试读取回执和成果。回归用例从已记录的成果与检查创建，基准和候选分别保留证据及配置版本。 | [过程核对](../src/workbench/process-review.ts) · [回归对照](../src/workbench/regression-review.ts) |
 
@@ -71,11 +71,13 @@ flowchart TB
 
 | 对象 | 谁配置 | 页面和设置 |
 | --- | --- | --- |
-| 个人 Agent | Agent 所有者和部署者 | 「Agent → 我的 Agent」接单开关、个人代办。启用专家库后可新建带个人职责、说明和技能的只读专家。CLI 引擎、凭据槽和可用模型在部署配置中登记。 |
-| 项目路由 | 项目维护人 | 「项目 → 职责与路由」配置成员职责、按主题及职责牵头、决定人，以及支持的本机 Codex 主备模型。Router 根据配置和权限分派。 |
-| Worker | 执行端所有者和项目维护人 | 在目标机器运行 `contractor connect` 并用本人账号选项目和 Agent。项目维护人设默认和备用设备。Worker 使用执行机自己的最小权限环境。 |
+| 个人 Agent | 成员 | 「个人设置 → 个人 Agent」维护自己的名称、指引、经验和轻量模型，进行私有咨询。项目 Agent 的职责与在岗状态继续在项目中管理。 |
+| Router | 平台管理员配置模型，项目维护人配置职责 | 「平台管理 → Router 与知识提炼」为两种提炼任务选择同一模型。「项目 → 职责与路由」配置项目和主题的牵头及决定人。核心根据规则和权限派单。 |
+| Worker | 设备所有者和项目维护人 | `contractor connect` 在本人账号登记执行机。所有者授权设备接单的项目，项目维护人设置主备。委托、会话和原工单恢复时选择适配该 Agent 的可用设备。 |
 
 平台管理员另外维护成员、登录策略、模型服务和积分政策。资料负责人管理原始来源权限、候选采用和撤权。可改配置、存储位置和生效方式见 [配置手册](CONFIGURATION.md)。
+
+模型整理通过 `assistant` 能力接入。路由建议只考虑当前已授权的接单候选。知识草稿从已验收的记录提炼做法和适用范围，人工复核后按现有版本逻辑采用。检索和来源权限继续通过知识核心及索引插件。这个边界吸收了按任务调用既有经验和将结构化记忆独立于会话上下文的做法。 [Superlinear 跨任务经验调用](https://www.superlinear.academy/c/share-your-projects/ai-a1eee1) · [Anthropic 记忆的组成](https://www.anthropic.com/research/components-of-agent-memory)
 
 ## 调度兼容与持久状态
 

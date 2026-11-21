@@ -7,7 +7,7 @@ import { Avatar, Empty, Failure, Loading, PageTabs, Pill, SearchBox, Section, Se
 import { AgentMemory, AgentOperations } from './agent-operations.tsx';
 import { AgentLibrary } from './agent-library.tsx';
 
-const agentTabs = [['profile', '职责与委托'], ['memory', '记忆'], ['receipts', '执行与费用']] as const;
+const agentTabs = [['profile', '职责与委托'], ['memory', '项目知识'], ['receipts', '执行与费用']] as const;
 export function AgentsPage(props: PageProps) {
   const { workspace, project, route } = props;
   const [query, search] = useStored('agents-search:' + project.id, '');
@@ -21,10 +21,11 @@ export function AgentsPage(props: PageProps) {
   return <div className="split" data-has-detail={!!route.item}>
     <aside className="split-list" aria-label="项目 Agent 列表">
       <div className="list-header"><h1>Agent</h1><div className="actions">
+        <a className="text-button" href="#/account?tab=agent"><Bot size={15} />个人 Agent 设置</a>
         {workspace.octopEnabled && <a className="text-button" href={routeFor(project.id, 'agents', undefined, 'library')}><Layers size={15} />专家与技能</a>}
         <a className="text-button" href={routeFor(project.id, 'agents', undefined, 'devices')}><Cpu size={15} />执行设备</a>
         <a className="text-button" href={routeFor(project.id, 'agents', undefined, 'budgets')}><ReceiptText size={15} />额度管理</a>
-      </div><Segments label="Agent 范围" items={[[ 'all', '项目 Agent' ], [ 'mine', '我的 Agent' ]]} value={scope} onChange={setScope} />
+      </div><Segments label="Agent 范围" items={[[ 'all', '项目 Agent' ], [ 'mine', '我负责的' ]]} value={scope} onChange={setScope} />
       <SearchBox label="搜索 Agent 或负责人" value={query} onChange={search} /></div>
       <div className="list-scroll">
         {shown.map(agent => <a className="list-item entry-item" href={routeFor(project.id, 'agents', agent.id)} key={agent.id}
@@ -64,10 +65,10 @@ function AgentDetail({ agent, project, workspace, route, openTask }: PageProps &
     <header className="object-header"><div className="object-emblem"><Bot size={26} /></div>
       <div className="min-w-0"><h1>{agent.title}</h1><div className="object-meta">
         <Pill tone={agent.active ? 'green' : 'neutral'}>{agent.active ? '在岗' : '未启用'}</Pill>
-        <span>{agent.kind === 'personal' ? '个人 Agent' : '专项 Agent'}</span><span>所有者 {agent.owner}</span>
+        <span>{agent.kind === 'personal' ? '成员执行配置' : '专项 Agent'}</span><span>所有者 {agent.owner}</span>
       </div></div>
       {project.mayStart && agent.active && <Button size="sm" className="object-action" onClick={() => openTask({ agent: agent.id, personal: mine })}>
-        <Play />{mine ? '交给我的 Agent' : '发起委托'}</Button>}
+        <Play />{mine ? '发起只读代办' : '发起委托'}</Button>}
     </header>
     <PageTabs label="Agent 详情" items={agentTabs} value={active} onChange={tab => go(project.id, 'agents', agent.id, tab)}>
       <TabsContent value="profile" className="detail-stack reading">

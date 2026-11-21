@@ -57,7 +57,7 @@ export async function prepareRemote(home: string, profile: RunnerAgent, job: Dev
   }
   const cwd = runDirectory(home, lease);
   await mkdir(cwd, { recursive: true, mode: 0o700 });
-  return { ...job, agent: { ...job.agent, use: 'contractor-remote-claude' }, rule: { ...job.rule, cwd } };
+  return { ...job, agent: { ...job.agent, use: 'contractor-remote-claude', provider: profile.execution!.provider }, rule: { ...job.rule, cwd } };
 }
 
 export async function remoteStop(home: string, entry: { run: number; attempt: number; token: string; turn: number; dir: string;

@@ -48,7 +48,7 @@ type Ports = {
 };
 
 export function operationsSettings(store: Pick<SuperAgentStore, 'db' | 'atomic'>,
-  config: Pick<Settings, 'agents' | 'functions' | 'octop'>, loaded: ReturnType<typeof loadOperationsSettings>, ports: Ports) {
+  config: Pick<Settings, 'agents' | 'functions' | 'octop' | 'platformAssistant'>, loaded: ReturnType<typeof loadOperationsSettings>, ports: Ports) {
   const { canManageServices, projectFor, maintain, mayStart, topicsFor, audit } = ports;
   function assertServices(actor: string) {
     if (!canManageServices(actor)) throw new WorkbenchError('需要平台服务管理权限。', 403);
@@ -58,7 +58,10 @@ export function operationsSettings(store: Pick<SuperAgentStore, 'db' | 'atomic'>
     return modelProvider.options.map(provider => {
       const value = loaded.service(provider);
       const agents = config.agents.filter(agent => agent.execution?.provider === provider && executionCapabilities(agent).available);
-      const profileModels = provider === 'deepseek' ? (config.octop?.profiles ?? []).map(profile => profile.model) : [];
+      const profileModels = [
+        ...(provider === 'deepseek' ? (config.octop?.profiles ?? []).map(profile => profile.model) : []),
+        ...(config.platformAssistant?.find(row => row.provider === provider)?.models ?? []),
+      ];
       return { provider, title: serviceTitle[provider], ...value, revision: digest(value),
         configured: agents.length > 0 || profileModels.length > 0,
         availableModels: [...new Set([...agents.flatMap(a => a.allowedModels ?? (a.model ? [a.model] : [])), ...profileModels])].sort() };

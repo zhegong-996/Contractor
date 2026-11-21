@@ -98,8 +98,8 @@ async function adapterFor(job: Job, claudeProvider?: string): Promise<Adapter> {
       if (!process.env.NODE_TEST_CONTEXT) throw new Error('缺少 Cursor 隔离执行适配');
       return (await import('../cursor.ts')).default;
     case 'contractor-remote-claude':
-      if (!claudeProvider) throw new Error('Claude 执行端未配置模型服务');
-      return (await import('../claude-runner-adapter.ts')).claudeRunnerAdapter(claudeProvider);
+      if (!job.agent.provider && !claudeProvider) throw new Error('Claude 执行端未配置模型服务');
+      return (await import('../claude-runner-adapter.ts')).claudeRunnerAdapter(job.agent.provider ?? claudeProvider!);
     default: throw new Error('执行端没有经授权的隔离适配');
   }
 }

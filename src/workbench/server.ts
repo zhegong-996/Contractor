@@ -30,6 +30,8 @@ import { permissionAdmin } from './permission-admin.ts';
 import { AccountRecovery } from './account-recovery.ts';
 import { feishuActivationName } from './account-activation.ts';
 import { modelProvider, modelServiceUpdate, projectRoutingUpdate } from './operations-settings.ts';
+import { assistantUpdate } from './platform-assistant.ts';
+import { personalAgentInput } from './personal-agent.ts';
 import { imLoginCookie, imReturnPath, withIMStatus } from './im-login.ts';
 import { imAvatarOrigins, imProvider, imProviderNames } from './im-login-providers.ts';
 import { profileUpdate } from './member-profile.ts';
@@ -195,7 +197,7 @@ async function serve(release: () => void) {
     if (!token) throw new WorkbenchError('请使用已配对的执行端。', 401);
     if (action === 'work') {
       const input = z.object({ claim: nonce, wait: z.number().min(0).max(50), capacity: z.boolean(),
-        running: z.array(z.number().int().positive()).max(1) }).strict().parse(native);
+        running: z.array(z.number().int().positive()).max(1), engines: z.array(z.enum(['codex', 'claude'])).max(2).optional() }).strict().parse(native);
       json(res, 200, await work.deviceWork(token, input, remote));
     } else if (action === 'started' || action === 'result') {
       const input = z.object({ run: z.number().int().positive(), lease: z.string().min(1).max(500), value: z.unknown(),
@@ -296,8 +298,11 @@ async function serve(release: () => void) {
           return;
         }
         if (!actor || form.get('action') !== 'approve') throw new WorkbenchError('请先登录。', 401);
-        const selected = z.tuple([id, id]).parse(form.get('selection')?.split('/'));
-        work.approveDeviceEnrollment(actor, requestId, ...selected);
+        if (enrollment.worker) work.approveDeviceEnrollment(actor, requestId);
+        else {
+          const selected = z.tuple([id, id]).parse(form.get('selection')?.split('/'));
+          work.approveDeviceEnrollment(actor, requestId, ...selected);
+        }
         res.writeHead(303, { location: url.pathname }).end();
         return;
       }
@@ -442,12 +447,9 @@ async function serve(release: () => void) {
           return;
         }
       }
+      if (post && view === 'account' && item === 'activation' && action === 'start' && !reference)
+        throw new WorkbenchError('新成员请通过团队主登录渠道开通。', 410);
       if (post && view === 'account' && item === 'activation' && verifyActivation) {
-        if (action === 'start') {
-          const input = z.object({ username }).strict().parse(await body(req));
-          json(res, 200, work.activation.begin(input.username));
-          return;
-        }
         if (action === 'status') {
           const input = activationRequest.parse(await body(req));
           json(res, 200, work.activation.status(input.id, input.token));
@@ -465,7 +467,7 @@ async function serve(release: () => void) {
       const account = actor ? auth.listAccounts().find(a => a.username === actor && !a.disabled) : undefined;
       if (get && view === 'session') {
         json(res, 200, { signedIn: !!account, recoveryUrl: work.imLogin.legacyPassword() ? recoveryUrl : undefined,
-          legacyActivation: !!verifyActivation, imLogin: work.imLogin.browser(browserOrigin, account) });
+          imLogin: work.imLogin.browser(browserOrigin, account) });
         return;
       }
       if (!actor || !account) throw new WorkbenchError('请先登录。', 401);
@@ -483,6 +485,16 @@ async function serve(release: () => void) {
         res.setHeader('set-cookie', browserCookie(imLoginCookie + '=' + start.proof, browserOrigin, '/api/auth/im/callback') + '; Max-Age=' + start.maxAge);
         output = { location: start.location };
       } else if (get && view === 'account' && item === 'profile' && !action) output = work.profiles.own(account);
+      else if (get && view === 'account' && item === 'workers' && !action) output = work.myWorkers(actor);
+      else if (get && view === 'account' && item === 'personal-agent' && !action) output = work.personalAgent(actor);
+      else if (post && view === 'account' && item === 'personal-agent' && !action)
+        output = work.setPersonalAgent(actor, personalAgentInput.parse(await body(req)));
+      else if (post && view === 'account' && item === 'personal-agent' && action === 'ask')
+        output = await work.askPersonalAgent(actor, z.object({ question: z.string().trim().min(1).max(3000) }).strict().parse(await body(req)).question);
+      else if (post && view === 'device' && item && action === 'projects')
+        output = work.setWorkerProjects(actor, z.uuid().parse(item), z.object({
+          revision: knowledgeRevision, projects: z.array(id).max(100),
+        }).strict().parse(await body(req)));
       else if (post && view === 'account' && item === 'profile' && !action)
         output = work.profiles.save(account, profileUpdate.parse(await body(req)));
       else if (get && view === 'member-avatar' && item && action && !reference) {
@@ -496,16 +508,19 @@ async function serve(release: () => void) {
         output = await accessAdmin!.setLoginPolicy(actor, input.primary, input.legacyPassword);
       } else if (post && view === 'admin' && item === 'im-registration' && action && !reference) {
         const input = z.discriminatedUnion('action', [
-          z.object({ action: z.literal('approve'), username, role: z.enum(CONSOLE_ROLES) }).strict(),
+          z.object({ action: z.literal('approve'), role: z.enum(CONSOLE_ROLES) }).strict(),
           z.object({ action: z.literal('reject') }).strict(),
         ]).parse(await body(req));
         const request = knowledgeRevision.parse(action);
-        if (input.action === 'approve') await accessAdmin!.approveIMRegistration(actor, request, input.username, input.role);
+        if (input.action === 'approve') await accessAdmin!.approveIMRegistration(actor, request, input.role);
         else await accessAdmin!.rejectIMRegistration(actor, request);
       } else if (get && view === 'admin' && item === 'members' && !action) output = accessAdmin!.list(actor);
       else if (get && view === 'admin' && item === 'access-audit' && !action) output = accessAdmin!.changes(actor);
       else if (get && view === 'admin' && item === 'point-budgets' && !action) output = work.platformPointBudgets(actor);
       else if (get && view === 'admin' && item === 'model-services' && !action) output = work.modelServices(actor);
+      else if (get && view === 'admin' && item === 'platform-assistant' && !action) output = work.platformAssistant(actor);
+      else if (post && view === 'admin' && item === 'platform-assistant' && !action)
+        output = work.setPlatformAssistant(actor, assistantUpdate.parse(await body(req)));
       else if (post && view === 'admin' && item === 'model-services' && action && !reference)
         output = work.setModelService(actor, modelProvider.parse(action), modelServiceUpdate.parse(await body(req)));
       else if (get && view === 'admin' && item === 'service-status' && !action) {
@@ -555,6 +570,7 @@ async function serve(release: () => void) {
         output = work.archiveConversation(actor, id.parse(item), target);
       }
       else if (get && view === 'needs-you') output = work.needsYou(actor);
+      else if (post && view === 'intake' && item && action === 'draft') output = await work.draftIntake(actor, item);
       else if (post && view === 'intake' && item && action === 'resolve') {
         const input = z.discriminatedUnion('action', [
           z.object({ action: z.literal('create'), agent: id.optional() }).strict(),
@@ -784,6 +800,8 @@ async function serve(release: () => void) {
         const input = z.object({ revision: knowledgeRevision, directory: z.enum(['requestable', 'hidden']) }).strict().parse(await body(req));
         work.setKnowledgeDirectory(actor, item, input.revision, input.directory);
       }
+      else if (post && view === 'knowledge' && item && action === 'draft') output = await work.draftKnowledge(actor, item,
+        z.object({ revision: knowledgeRevision }).strict().parse(await body(req)).revision);
       else if (post && view === 'knowledge' && action === 'review') output = work.reviewKnowledge(actor, item,
         z.object({ revision: z.string().length(64), title: title.optional(), body: z.string().trim().min(1).max(16000),
           conditions: z.string().trim().min(1).max(600) }).strict().parse(await body(req)));

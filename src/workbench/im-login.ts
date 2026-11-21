@@ -119,6 +119,9 @@ export function openIMLogin(db: DatabaseSync, config: IMLoginSettings | undefine
       if (params.has('error') || codes.length === 0) return { to: step.to, status: 'cancelled' };
       if (codes.length !== 1 || !/^[^\x00-\x20\x7f]{1,512}$/.test(codes[0]!))
         return { to: step.to, status: 'failed' };
+      const issuers = params.getAll('iss');
+      if (current.provider === 'discord' && (issuers.length !== 1 || issuers[0] !== 'https://discord.com'))
+        return { to: step.to, status: 'failed' };
       const identity = await current.verify(codes[0]!, { redirect: callback, state, verifier: step.verifier });
       if (epoch !== generation || step.expires <= now() || step.link && !mayLink(step.link))
         return { to: step.to, status: 'expired' };

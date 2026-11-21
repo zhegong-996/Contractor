@@ -7,15 +7,18 @@ import { setTimeout as wait } from 'node:timers/promises';
 import { parseArgs } from 'node:util';
 import { z } from 'zod';
 import { checkClaudeRunnerModel, remoteEngine, runnerAgentSchema } from './runner-profile.ts';
-import { runnerEndpoint, runnerRequestId, runnerSecret } from './runner-connection.ts';
+import { runnerEndpoint, runnerRequestId, runnerSecret, runnerWorkerSchema, workerCredential } from './runner-connection.ts';
 import { configuredEnv, formerName } from './compatibility.ts';
 import { assertRunnerSettled, hasUnsettledRuns } from './remote-runner.ts';
 import { expiredCodexLogin, readPrivateRunnerFile as file } from './runner-credentials.ts';
 
-const connectionSchema = z.object({ driver: z.literal('contractor').optional(), id: runnerRequestId, token: runnerSecret, endpoint: runnerEndpoint,
+const connectionFields = { id: runnerRequestId, token: runnerSecret };
+const legacyConnection = z.object({ ...connectionFields, driver: z.literal('contractor').optional(),
   profile: runnerAgentSchema.refine(remoteEngine) }).strict();
+const workerConnection = z.object({ ...connectionFields, driver: z.literal('contractor'), worker: runnerWorkerSchema }).strict();
+const connectionSchema = z.union([legacyConnection.extend({ endpoint: runnerEndpoint }), workerConnection.extend({ endpoint: runnerEndpoint })]);
 const pendingSchema = z.object({ id: runnerRequestId, secret: runnerSecret, expires: z.number() }).strict();
-const resultSchema = z.union([z.object({ pending: z.literal(true) }).strict(), connectionSchema.omit({ endpoint: true })]);
+const resultSchema = z.union([z.object({ pending: z.literal(true) }).strict(), legacyConnection, workerConnection]);
 const protocolSchema = z.object({ id: runnerRequestId, driver: z.enum(['autoloop', 'contractor']), held: z.boolean() }).strict();
 const workerFile = path.join(import.meta.dirname, 'device-client.ts');
 const loader = import.meta.resolve('tsx');
@@ -58,7 +61,7 @@ function openPage(url: string) {
   browser.unref();
 }
 
-async function enroll(folder: string, endpoint: string, browser: boolean, name: string) {
+async function enroll(folder: string, endpoint: string, browser: boolean, name: string, bindAgent: boolean) {
   const pendingFile = path.join(folder, 'pending.json');
   const old = await file(pendingFile);
   const restore = old && pendingSchema.parse(JSON.parse(old));
@@ -69,7 +72,7 @@ async function enroll(folder: string, endpoint: string, browser: boolean, name: 
     await save(path.join(local, 'connection.json'), paired);
     await save(path.join(folder, 'device.json'), { id: paired.id });
     await unlink(pendingFile);
-    console.log('授权已确认（' + paired.profile.id + '）。');
+    console.log('授权已确认（' + ('worker' in paired ? paired.worker.owner : paired.profile.id) + '）。');
     return paired;
   }
   if (restore) {
@@ -87,10 +90,10 @@ async function enroll(folder: string, endpoint: string, browser: boolean, name: 
   if (!engines.length) throw new Error('未检测到 Codex 或 Claude Code，请先安装其中一个');
   await save(pendingFile, pending);
   const invite = z.object({ expires: z.number(), verification: z.url() }).strict().parse(
-    await call(endpoint, 'enroll', pending.secret, { id: pending.id, name, engines }));
+    await call(endpoint, 'enroll', pending.secret, { id: pending.id, name, engines, ...(!bindAgent && { mode: 'worker' }) }));
   const url = new URL(invite.verification);
   if (url.href !== endpoint + '/runner/connect/' + pending.id) throw new Error('验证页面与团队工作台地址不一致');
-  console.log('请打开浏览器，登录并确认项目和 Agent：\n' + url.href);
+  console.log('请打开浏览器，登录并确认连接：\n' + url.href);
   if (browser) openPage(url.href);
   while (Date.now() < invite.expires) {
     await wait(2000, undefined, { signal: runnerProcesses.signal });
@@ -156,6 +159,7 @@ async function refreshProtocol(local: string, connection: z.infer<typeof connect
   const status = protocolSchema.parse(current);
   if (status.id !== connection.id) throw new Error('目标工作台返回了不同的执行端编号');
   if (status.driver === (connection.driver ?? 'autoloop')) return;
+  if ('worker' in connection) throw new Error('独立执行设备需要 Contractor 调度器。');
   if (status.held) throw new Error('工作台仍有未结清的接单记录，不能切换调度协议');
   await assertRunnerSettled(local);
   if (status.driver === 'autoloop' && !await lstat(path.join(import.meta.dirname, 'legacy-device-worker.ts')).catch(() => undefined))
@@ -190,7 +194,7 @@ async function setupLock(folder: string) {
 async function main() {
   const { positionals, values } = parseArgs({ allowPositionals: true, options: {
     profile: { type: 'string', default: 'default' },
-    name: { type: 'string' }, foreground: { type: 'boolean' }, 'no-browser': { type: 'boolean' },
+    name: { type: 'string' }, foreground: { type: 'boolean' }, 'no-browser': { type: 'boolean' }, 'bind-agent': { type: 'boolean' },
   } });
   const [action, address] = positionals;
   if (positionals.length !== 2 || !['connect', 'stop'].includes(action ?? ''))
@@ -221,15 +225,18 @@ async function main() {
       return console.log('接单进程已停止，保留设备身份与待回传记录');
     }
     const connection = id ? connectionSchema.parse(JSON.parse(await file(path.join(folder, 'devices', id, 'connection.json')) ?? 'null'))
-      : await enroll(folder, endpoint, !values['no-browser'], z.string().trim().min(1).max(100).parse(values.name ?? hostname()));
+      : await enroll(folder, endpoint, !values['no-browser'], z.string().trim().min(1).max(100).parse(values.name ?? hostname()), !!values['bind-agent']);
     if (connection.endpoint !== endpoint || id && connection.id !== id) throw new Error('执行端配置与当前连接不一致');
     const local = path.join(folder, 'devices', connection.id);
+    const profile = 'profile' in connection ? connection.profile : connection.worker.engines.includes('codex')
+      ? runnerAgentSchema.parse({ id: workerCredential, owner: connection.worker.owner, engine: 'codex',
+        execution: { kind: 'remote', provider: 'openai', credential: workerCredential } }) : undefined;
     const existing = await running(local, connection.id);
     if (existing) {
-      if (connection.profile.engine === 'codex') await prepareModel(folder, connection.profile);
+      if (profile?.engine === 'codex') await prepareModel(folder, profile);
       return console.log('执行端已在运行（' + connection.id + '）');
     }
-    await prepareModel(folder, connection.profile, id !== undefined && await hasUnsettledRuns(local));
+    if (profile) await prepareModel(folder, profile, id !== undefined && await hasUnsettledRuns(local) || 'worker' in connection);
     if (id) await refreshProtocol(local, connection);
     const env = { ...process.env, COLLAB_STATE_DIR: folder };
     const args = ['--import', loader, workerFile, 'connect', connection.id];

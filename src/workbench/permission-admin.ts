@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import { ROLE_LABELS, CONSOLE_ROLES, type ConsoleAuth, type ConsoleRole } from '../console-auth.ts';
 import { rbacEnforce } from '../rbac.ts';
 import type { Collaboration } from './collaboration.ts';
@@ -42,7 +43,7 @@ export function permissionAdmin(auth: ConsoleAuth, work: Collaboration, verifyAc
     const imPending = work.imLogin.registrations()
       .filter(({ identity }) => !auth.externalOwner(identity) && (!identity.channel || !work.loginChannelOwner(identity.channel)))
       .map(({ id, provider, identity, submittedAt }) => ({ id, provider, displayName: identity.label,
-        username: 'im-' + provider + '-' + id.slice(0, 10), submittedAt: new Date(submittedAt).toISOString() }));
+        submittedAt: new Date(submittedAt).toISOString() }));
     const rolePermissions = CONSOLE_ROLES.map(id => ({ id, label: ROLE_LABELS[id],
       capabilities: {
         collaborate: rbacEnforce(id, 'task-control'),
@@ -82,14 +83,17 @@ export function permissionAdmin(auth: ConsoleAuth, work: Collaboration, verifyAc
         return work.imLogin.view();
       });
     },
-    approveIMRegistration(actor: string, id: string, username: string, role: ConsoleRole) {
+    approveIMRegistration(actor: string, id: string, role: ConsoleRole) {
       return serialize(async () => {
         mayCreate(actor, role);
         const request = work.imLogin.registrations().find(item => item.id === id);
         if (!request || auth.externalOwner(request.identity)
           || request.identity.channel && work.loginChannelOwner(request.identity.channel))
           throw new WorkbenchError('申请已失效或该身份已有账号。', 409);
-        if (auth.listAccounts().some(row => row.username === username)) throw new WorkbenchError('该平台账号名已被使用。', 409);
+        // The verified channel identity owns login. The internal name only keys platform records.
+        const username = 'member-' + randomBytes(12).toString('hex');
+        if (auth.listAccounts().some(row => row.username === username))
+          throw new WorkbenchError('生成成员编号冲突，请重新批准。', 409);
         const { identity } = request;
         if (identity.channel) work.bindActivation(username, identity.channel);
         try { await auth.createExternalAccount(username, identity, role, actor); }

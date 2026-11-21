@@ -97,6 +97,7 @@ function DecisionModal({ workspace, decision, close }: PageProps & { decision: D
   const repositories = target.deliveryTargets.filter(ref => ref.eligibleAgents.length);
   const repository = repositories.find(ref => ref.ref === draft.repository);
   const [linkedProject, setLinkedProject] = useState<string>();
+  const [hint, setHint] = useState<{ agent: string | null; summary: string }>();
   const agents = workspace.agents.filter(a => a.active && a.projects.includes(target.id)
     && (!repository || repository.eligibleAgents.includes(a.id)));
   const materials = useData<Knowledge[]>(channel && draft.action === 'create' ? 'knowledge/' + target.id : '');
@@ -120,6 +121,17 @@ function DecisionModal({ workspace, decision, close }: PageProps & { decision: D
       {decision.request?.text && <Markdown text={decision.request.text} />}
       {decision.detail && <p className="muted-text">{decision.detail}</p>}
     </div>
+    {!channel && decision.kind === 'intake' && decision.request && project.maintain && workspace.assistantEnabled
+      && <div className="detail-stack">
+        <div className="actions"><Button type="button" variant="outline" size="sm" disabled={busy} onClick={async () => {
+          const result = await run(() => api<{ value: NonNullable<typeof hint> }>('intake/' + decision.subject + '/draft', {}));
+          if (result) setHint(result.value);
+        }}>生成接单建议</Button></div>
+        {hint && <div className="context-preview"><p>{hint.summary}</p>
+          {agents.some(agent => agent.id === hint.agent) && <Button type="button" variant="ghost" size="sm"
+            onClick={() => set({ ...draft, action: 'create', agent: hint.agent! })}>选择建议的 Agent</Button>}
+        </div>}
+      </div>}
     <Field label="处理方式"><select value={draft.action} onChange={e => set({ ...draft, action: e.target.value })}>
       <option value="create">{channel ? '新建工单' : '确认执行 Agent'}</option>
       {channel && <><option value="link">关联已有工单</option><option value="project">记到项目</option>

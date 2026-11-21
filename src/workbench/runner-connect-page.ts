@@ -2,7 +2,7 @@ const escape = (value: string) => value.replace(/[&<>"']/g, char =>
   ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]!);
 
 type Choice = { project: string; projectTitle: string; agent: string; agentTitle: string; engine: string };
-type Connection = { name: string; approved: boolean; choices: Choice[] };
+type Connection = { name: string; approved: boolean; choices: Choice[]; worker?: boolean; engines?: string[] };
 type LoginOptions = { oauth?: { label: string; url: string }; password: boolean; workbench?: string; expired?: boolean };
 
 export function runnerConnectPage(cspNonce: string, view?: Connection, error?: string, login: LoginOptions = { password: true }) {
@@ -29,11 +29,15 @@ export function runnerConnectPage(cspNonce: string, view?: Connection, error?: s
   const enterpriseLink = login.oauth ? '<p><a class="login-link" href="' + escape(login.oauth.url) + '">使用'
     + escape(login.oauth.label) + '登录</a></p>' : '';
   const form = login.expired ? '' : !view
-    ? '<p>登录后确认这台设备可以为哪个项目、哪个 Agent 接单。</p>' + enterpriseLink
+    ? '<p>登录后确认是否连接这台设备。</p>' + enterpriseLink
       + (login.password ? login.oauth ? '<details><summary>使用原账号口令</summary>' + passwordForm + '</details>' : passwordForm
         : login.oauth ? '' : '<p>当前登录渠道暂不可用，请联系管理员。</p>')
-    : view.approved ? '<p role="status">回到执行机等待上线，再从项目的「执行设备」查看。</p>'
-      + (login.workbench ? '<a class="login-link" href="' + escape(login.workbench) + '">返回工作台</a>' : '')
+    : view.approved ? '<p role="status">' + (view.worker ? '设备上线后，在个人设置授权可接单的项目。'
+      : '回到执行机等待上线，再从项目的「执行设备」查看。') + '</p>'
+      + (login.workbench ? '<a class="login-link" href="' + escape(login.workbench + (view.worker ? '#/account?tab=workers' : '')) + '">返回工作台</a>' : '')
+    : view.worker ? '<form method="post"><input type="hidden" name="action" value="approve"><p>检测到 '
+      + (view.engines ?? []).map(engine => engine === 'codex' ? 'Codex' : 'Claude Code').join('、')
+      + '。连接后可以在个人设置选择设备有权接单的项目。</p><button>确认连接我的设备</button></form>'
     : choices.length ? '<form method="post"><input type="hidden" name="action" value="approve">'
       + choice + '<button>确认连接</button></form>'
     : '<p>当前账号没有可连接的项目 Agent。请检查项目权限，以及执行机是否安装了对应 CLI。</p>';

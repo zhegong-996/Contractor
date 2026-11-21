@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
-import { Activity, ArrowLeft, Coins, Cpu, KeyRound, ListChecks, Plus, ShieldCheck, UsersRound } from 'lucide-react';
+import { Activity, ArrowLeft, Coins, Cpu, KeyRound, ListChecks, Plus, Route, ShieldCheck, UsersRound } from 'lucide-react';
 import { api, part, useData, type Overview, type PlatformAudit, type ProjectAccess, type Session } from './api.ts';
 import { PointsPane } from './agent-operations.tsx';
 import { routeFor, type GlobalView } from './navigation.ts';
@@ -11,6 +11,7 @@ import { LoginChannelSettings, MyIMLogin } from './im-login.tsx';
 import { AccountManagement, PlatformRoles, roleLabel } from './platform-access.tsx';
 import { PlatformQuota } from './platform-quota.tsx';
 import { PersonalProfileSettings } from './personal-profile.tsx';
+import { MyWorkers, PersonalAgentSettings, PlatformAssistantSettings } from './agent-settings.tsx';
 
 const actions = {
   'project.member-added': '添加成员', 'project.member-removed': '移除成员',
@@ -156,7 +157,8 @@ function PersonalLogin({ workspace }: { workspace: Overview }) {
   const login = session.data?.imLogin;
   const mayEditPassword = !!login?.hasPassword && login.legacyPassword;
   return <Section title="登录安全" action={mayEditPassword && <Button size="sm" variant="outline" onClick={() => setEditing(true)}><KeyRound />修改口令</Button>}>
-    <div className="record-row"><span>登录账号</span><strong>{workspace.actor}</strong>
+    <div className="record-row"><span>{mayEditPassword ? '口令账号' : '成员'}</span>
+      <strong>{mayEditPassword ? workspace.actor : workspace.actorProfile?.displayName ?? workspace.actor}</strong>
       {workspace.platformRole && <Pill>{roleLabel[workspace.platformRole]}</Pill>}</div>
     {login?.provider && <MyIMLogin login={login} />}
     {editing && mayEditPassword && <Modal title="修改口令" close={() => setEditing(false)}><form className="form" onSubmit={async event => {
@@ -186,7 +188,13 @@ export function GlobalSettings({ view, tab, workspace, logout, connections }: {
   if (view === 'account') return <div className="global-settings page-scroll">{header}
     <main className="project-page personal-settings">
       <header className="object-header"><div className="object-emblem"><ShieldCheck size={24} /></div><div><h1>个人设置</h1></div></header>
-      <div className="detail-stack"><PersonalProfileSettings /><PersonalLogin workspace={workspace} />{connections}</div>
+      <nav className="actions account-settings-nav" aria-label="个人设置">
+        {([['profile', '资料与登录'], ['agent', '个人 Agent'], ['workers', '执行设备']] as const).map(([key, label]) =>
+          <a className="text-button" key={key} href={'#/account?tab=' + key}
+            aria-current={(tab ?? 'profile') === key ? 'page' : undefined}>{label}</a>)}
+      </nav>
+      <div className="detail-stack">{tab === 'agent' ? <PersonalAgentSettings /> : tab === 'workers' ? <MyWorkers workspace={workspace} />
+        : <><PersonalProfileSettings /><PersonalLogin workspace={workspace} />{connections}</>}</div>
     </main>
   </div>;
   return <div className="platform-shell">{header}<PlatformDesk workspace={workspace} tab={tab} /></div>;
@@ -201,6 +209,7 @@ function PlatformDesk({ workspace, tab }: { workspace: Overview; tab?: string })
       { key: 'audit', title: '权限记录', caption: '追溯账号、角色和登录设置的变更。', icon: ListChecks, allowed: workspace.canManageAccounts },
     ] },
     { title: 'Agent 运行', items: [
+      { key: 'router', title: 'Router 与知识提炼', caption: '设置平台整理模型、调用上限与用量。', icon: Route, allowed: workspace.canManageServices },
       { key: 'models', title: '模型服务', caption: '管理各供应商的可用模型和平台执行策略。', icon: Cpu, allowed: workspace.canManageServices },
       { key: 'quota', title: '积分与额度', caption: '设置各模型如何折算积分，以及平台和个人的用量上限。', icon: Coins, allowed: workspace.canManagePointPolicy },
       { key: 'services', title: '服务状态', caption: '查看入站、检索和执行回执的运行情况。', icon: Activity, allowed: workspace.canManageServices },
@@ -213,7 +222,8 @@ function PlatformDesk({ workspace, tab }: { workspace: Overview; tab?: string })
   useLayoutEffect(() => { currentLink.current?.scrollIntoView({ block: 'nearest', inline: 'nearest' }); }, [active?.key]);
   const panes: Record<string, ReactNode> = {
     members: <AccountManagement actor={workspace.actor} />, roles: <PlatformRoles />, login: <LoginChannelSettings />,
-    audit: <PlatformChanges />, models: <ModelServices />, quota: <PlatformQuota mayViewModels={workspace.canManageServices} />, services: <ServiceStatus />,
+    audit: <PlatformChanges />, router: <PlatformAssistantSettings />, models: <ModelServices />,
+    quota: <PlatformQuota mayViewModels={workspace.canManageServices} />, services: <ServiceStatus />,
   };
   return <div className="platform-workspace">
     {available.length > 0 && <aside className="platform-nav">

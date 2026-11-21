@@ -15,6 +15,8 @@ flowchart LR
   E --> B[运行回执与交付证据]
   B --> C[按版本验收]
   C --> K[知识候选与人工采用]
+  K <--> Assist[可替换的轻量模型]
+  H <--> Assist
   K --> P
   T --> H[待办与人工决定]
   H --> T
@@ -38,6 +40,8 @@ flowchart LR
 ## 启动时组装
 
 `capabilities.ts` 定义 v1 接口。`platform-plugins.ts` 在工作台启动时组装各能力。以检索为例，适配器实现在 `plugins/`，`memory-providers.ts` 注册受信任的实现。配置文件选用适配器，部署重启后生效。候选知识和修订由核心授权与校验。工单、积分和验收由业务核心记账。执行租约由当前调度器记账。
+
+`assistant` 能力只接收已筛选的输入，返回结构化草稿及用量。替换其实现时沿用同一个能力端口。平台管理员选择模型，核心复核授权、校验输出并结算积分。路由建议、知识提炼和个人咨询不会创建 Worker 租约。
 
 ```json
 { "plugins": { "memory": "weighted-terms" } }

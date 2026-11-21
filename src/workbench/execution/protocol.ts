@@ -33,7 +33,7 @@ export const parseEvent = (input: unknown): EventInput => event.parse(input);
 export type Job = {
   run: number; token: string; attempt: number;
   rule: { name: string; cwd: string; skill?: string; prompt?: string; emits?: { source: string; types: string[] } };
-  agent: { id: string; name: string; use: string; model?: string; effort?: string; access: string; command?: string[]; timeout?: number };
+  agent: { id: string; name: string; use: string; model?: string; effort?: string; access: string; command?: string[]; timeout?: number; provider?: string };
   session: string | null;
   askFirst: string[];
   context: {
@@ -47,7 +47,7 @@ export type Job = {
   };
 };
 
-export type WorkRequest = { claim: string; running: number[]; wait: number; capacity: boolean };
+export type WorkRequest = { claim: string; running: number[]; wait: number; capacity: boolean; engines?: ('codex' | 'claude')[] };
 export type Started = { session: string; link?: string };
 export type WorkerHub = {
   work(request: WorkRequest): Promise<{ job?: Job | null; cancel?: number[] }>;
