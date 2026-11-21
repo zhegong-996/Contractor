@@ -31,12 +31,12 @@ jobs:
         run: |
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           node .github/contractor-store-small-screen/check.mjs \
-            collab-pilot/index.html "$GITHUB_SHA" "$RUNNER_TEMP/contractor-verification.json"
+            collab-pilot/index.html "$GITHUB_SHA" "$RUNNER_TEMP/contractor-evidence/contractor-verification.json"
       - name: Archive verification evidence
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: contractor-small-screen-${{ github.sha }}-attempt-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/contractor-verification.json
+          path: ${{ runner.temp }}/contractor-evidence/
           retention-days: 30
           if-no-files-found: error

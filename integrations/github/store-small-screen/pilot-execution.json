@@ -1,5 +1,5 @@
 {
-  "base": "contractor/layout-ci-pilot-base",
+  "base": "codex/store-acceptance-media-base-1121",
   "paths": [
     "collab-pilot/index.html"
   ],
@@ -17,7 +17,7 @@
   ],
   "deliveryTemplate": {
     "id": "store-small-screen",
-    "version": 2,
+    "version": 3,
     "product": {
       "browser": {
         "check": {
@@ -29,11 +29,11 @@
         "trustedFiles": [
           {
             "path": ".github/workflows/contractor-store-small-screen.yml",
-            "blob": "642d17bd0955e93c8ebf051f01f5d08db6b6f550"
+            "blob": "430504a090a64ca49ac39f8f86526fe3a8eec6b9"
           },
           {
             "path": ".github/contractor-store-small-screen/check.mjs",
-            "blob": "b36b3ee9a345c30c269af9e4b98c589f51925d94"
+            "blob": "0d3cde5927b794fe36b43235838fa3b4733fad95"
           },
           {
             "path": ".github/contractor-store-small-screen/package.json",
@@ -61,7 +61,8 @@
             "title": "360px 连续长词",
             "expectation": "正文可见，连续长词实际换行，页面和正文无横向溢出。"
           }
-        ]
+        ],
+        "captures": true
       },
       "manual": [
         {
@@ -70,6 +71,7 @@
           "expectation": "标题和推荐文案维持已确认的口径，三档视口的正文均易读。"
         }
       ]
-    }
+    },
+    "stages": {}
   }
 }

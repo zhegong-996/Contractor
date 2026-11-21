@@ -7,6 +7,7 @@ import { date, Empty, Ext, Field, Modal, Pill, Section, short, useActions } from
 import { RecheckDelivery } from './work-evidence.tsx';
 
 type Report = NonNullable<Ticket['productVerification']>;
+type Proof = NonNullable<Report['execution']>['history'][number];
 type Check = Report['cases'][number];
 type ManualCheck = Extract<Check, { kind: 'manual' }>;
 type Filter = 'all' | Check['state'];
@@ -14,6 +15,16 @@ type Filter = 'all' | Check['state'];
 const filters = [['all', '全部'], ['failed', '未通过'], ['pending', '待核对'], ['passed', '通过']] as const;
 const kinds = { browser: '浏览器检查', manual: '人工核对' };
 const checkKey = (row: Check) => row.kind + ':' + row.id;
+
+function commitHref(proof: Proof) {
+  const repository = /^https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/actions\/runs\/\d+\/attempts\/\d+$/.exec(proof.url)?.[1];
+  return repository && 'https://github.com/' + repository + '/commit/' + proof.head;
+}
+
+function captureHref(ticket: string, revision: string, proof: Proof, id: string, kind: 'screenshot' | 'recording') {
+  return window.location.origin + '/api/ticket/' + part(ticket) + '/product-capture?'
+    + new URLSearchParams({ revision, check: String(proof.checkId), case: id, kind });
+}
 
 function CheckState({ state }: { state: Check['state'] }) {
   const label = { passed: '通过', failed: '未通过', pending: '待核对' }[state];
@@ -64,13 +75,15 @@ export function WorkVerification({ ticket, revision, deliveryHref, selectVersion
         <span>第 {versionNumber} 版</span>
         {acceptedBy && <><Pill tone="green">已验收</Pill><span>{acceptedBy.actor} · {date(acceptedBy.at, true)}</span></>}
         {pull && <Ext href={pull.url}>PR #{pull.pr}</Ext>}
-        {report?.head && <code title={report.head}>{short(report.head, 12)}</code>}
+        {report?.head && (report.execution?.proof ? <Ext href={commitHref(report.execution.proof)}>
+          <code title={report.head}>{short(report.head, 12)}</code></Ext> : <code title={report.head}>{short(report.head, 12)}</code>)}
         <a className="text-button" href={deliveryHref}>查看交付 <ArrowUpRight size={14} /></a>
         {current && !hidden && ticket.result && report?.execution && ticket.deliveryVerification?.mayRecheck &&
           <RecheckDelivery ticket={ticket.id} revision={ticket.result.revision} head={ticket.deliveryVerification.head} />}
       </div>
       {checks.length ? <CheckList key={revision ?? ticket.result?.revision ?? 'plan'} ticket={ticket.id} checks={checks}
-        report={report} recordRevision={mayRecord} onRework={current ? onRework : undefined} />
+        report={report} reportRevision={current ? ticket.result?.revision : version?.revision}
+        recordRevision={mayRecord} onRework={current ? onRework : undefined} />
         : <Empty icon={<ClipboardCheck />} title={!current && !version ? '找不到指定版本'
           : hidden ? '此版本的测试证据当前受限' : current ? '本单没有逐项测试记录' : '此版本没有逐项测试记录'}
           description={current && !hidden && !acceptedBy ? '可在发起工单时添加人工核对项。自动检查使用项目交付模板。' : undefined} />}
@@ -78,8 +91,8 @@ export function WorkVerification({ ticket, revision, deliveryHref, selectVersion
   </div>;
 }
 
-function CheckList({ ticket, report, checks, recordRevision, onRework }: {
-  ticket: string; report: Omit<Report, 'mayRecord'> | undefined; checks: Check[]; recordRevision?: string;
+function CheckList({ ticket, report, checks, reportRevision, recordRevision, onRework }: {
+  ticket: string; report: Omit<Report, 'mayRecord'> | undefined; checks: Check[]; reportRevision?: string; recordRevision?: string;
   onRework?: (reason: string) => void;
 }) {
   const [filter, setFilter] = useState<Filter>('all');
@@ -124,10 +137,13 @@ function CheckList({ ticket, report, checks, recordRevision, onRework }: {
             {!!execution.proof.labels?.length && <small>{execution.proof.labels.join(' · ')}</small>}
           </div>}
         </div>}
+        {check.kind === 'browser' && reportRevision && execution?.proof?.captures &&
+          <CaseCapture key={checkKey(check) + ':' + execution.proof.checkId} ticket={ticket} revision={reportRevision}
+            proof={execution.proof} check={check} />}
         {check.kind === 'manual' && check.result && <div className="verification-source">
           {check.result.actor} · {date(check.result.at, true)}
         </div>}
-        <CheckHistory key={checkKey(check)} check={check} report={report} />
+        <CheckHistory key={checkKey(check)} check={check} report={report} ticket={ticket} revision={reportRevision} />
         {(recordRevision && check.kind === 'manual' || onRework && check.state === 'failed') && <div className="actions verification-actions">
           {recordRevision && check.kind === 'manual' && <Button type="button" size="sm" variant="outline"
             onClick={() => edit({ row: check, revision: recordRevision, head: report?.head })}>
@@ -158,7 +174,25 @@ function CheckList({ ticket, report, checks, recordRevision, onRework }: {
   </>;
 }
 
-function CheckHistory({ check, report }: { check: Check; report?: Omit<Report, 'mayRecord'> }) {
+function CaseCapture({ ticket, revision, proof, check }: { ticket: string; revision: string; proof: Proof; check: Check }) {
+  const [kind, setKind] = useState<'screenshot' | 'recording'>('screenshot');
+  const href = captureHref(ticket, revision, proof, check.id, kind);
+  return <div className="verification-capture">
+    <div className="verification-toolbar" role="group" aria-label="检查附件">
+      <Button size="sm" variant={kind === 'screenshot' ? 'outline' : 'ghost'} aria-pressed={kind === 'screenshot'}
+        type="button" onClick={() => setKind('screenshot')}>截图</Button>
+      <Button size="sm" variant={kind === 'recording' ? 'outline' : 'ghost'} aria-pressed={kind === 'recording'}
+        type="button" onClick={() => setKind('recording')}>录像</Button>
+      <Ext href={href}>{kind === 'screenshot' ? '打开原图' : '打开录像'}</Ext>
+    </div>
+    {kind === 'screenshot' ? <img src={href} alt={check.title + '的实测截图'} loading="lazy" />
+      : <video key={href} src={href} controls preload="metadata" playsInline aria-label={check.title + '的实测录像'} />}
+  </div>;
+}
+
+function CheckHistory({ check, report, ticket, revision }: {
+  check: Check; report?: Omit<Report, 'mayRecord'>; ticket: string; revision?: string;
+}) {
   const proof = report?.execution?.proof;
   const browser = check.kind === 'browser' ? report?.execution?.history?.flatMap(attempt => {
     const result = attempt.cases.find(row => row.id === check.id);
@@ -169,9 +203,14 @@ function CheckHistory({ check, report }: { check: Check; report?: Omit<Report, '
   return <details className="minor-disclosure verification-history">
     <summary>历史核对</summary>
     {browser && browser.map(({ attempt, result }) => <div key={attempt.checkId} className="verification-history-entry">
-      <div className="record-row"><Ext href={attempt.url}>第 {attempt.attempt} 次运行</Ext><code title={attempt.head}>{short(attempt.head, 12)}</code>
+      <div className="record-row"><Ext href={attempt.url}>第 {attempt.attempt} 次运行</Ext>
+        <Ext href={commitHref(attempt)}><code title={attempt.head}>{short(attempt.head, 12)}</code></Ext>
         <CheckState state={result.passed ? 'passed' : 'failed'} /></div>
       <p>{result.detail}</p>
+      {revision && attempt.captures && <div className="record-row">
+        <Ext href={captureHref(ticket, revision, attempt, check.id, 'screenshot')}>该次截图</Ext>
+        <Ext href={captureHref(ticket, revision, attempt, check.id, 'recording')}>该次录像</Ext>
+      </div>}
     </div>)}
     {manual && manual.slice().reverse().map(row => <div key={row.sequence} className="verification-history-entry">
       <div className="record-row"><span>{row.actor}</span><time dateTime={row.at}>{date(row.at, true)}</time>

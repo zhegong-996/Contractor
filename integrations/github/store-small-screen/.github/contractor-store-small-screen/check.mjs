@@ -1,4 +1,7 @@
-import { lstat, readFile, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import { createHash } from 'node:crypto';
 import { chromium } from 'playwright';
 
@@ -18,18 +21,15 @@ const failureText = {
   'content-overflows': '正文横向溢出',
   'content-narrower-than-244': '正文可用宽度低于 244px',
 };
-let browser;
-try {
-  const fileInfo = await lstat(file);
-  if (!fileInfo.isFile() || fileInfo.size > 256 * 1024) throw new Error('Expected a regular HTML fixture of at most 256 KiB.');
-  const html = await readFile(file, 'utf8');
-  report.htmlSha256 = createHash('sha256').update(html).digest('hex');
-  browser = await chromium.launch(process.env.CONTRACTOR_CHROMIUM ? { executablePath: process.env.CONTRACTOR_CHROMIUM } : {});
-  report.browser = browser.version();
-  const page = await browser.newPage({ javaScriptEnabled: false, offline: true, deviceScaleFactor: 1 });
-  await page.route('**/*', route => route.abort());
-  for (const width of [280, 320, 360]) {
-    await page.setViewportSize({ width, height: 800 });
+async function captureViewport(browser, html, width, captures, recordings) {
+  const viewport = { width, height: 800 };
+  const context = await browser.newContext({ viewport, javaScriptEnabled: false, offline: true, deviceScaleFactor: 1,
+    recordVideo: { dir: recordings, size: viewport } });
+  let video;
+  try {
+    await context.route('**/*', route => route.abort());
+    const page = await context.newPage();
+    video = page.video();
     await page.setContent(html, { waitUntil: 'domcontentloaded', timeout: 10000 });
     const sample = await page.evaluate(() => {
       const paragraphs = Array.from(document.querySelectorAll('p'));
@@ -66,6 +66,29 @@ try {
       }
       return null;
     });
+    await page.screenshot({ path: join(captures, 'viewport-' + width + '.png'), timeout: 10000 });
+    // Keep the measured frame visible in this short clip of a static fixture.
+    await delay(1200);
+    return sample;
+  } finally {
+    await context.close();
+    if (video) await video.saveAs(join(captures, 'viewport-' + width + '.webm'));
+  }
+}
+
+const captures = join(dirname(reportFile), 'captures');
+const recordings = await mkdtemp(join(tmpdir(), 'contractor-layout-video-'));
+let browser;
+try {
+  await mkdir(captures, { recursive: true });
+  const fileInfo = await lstat(file);
+  if (!fileInfo.isFile() || fileInfo.size > 256 * 1024) throw new Error('Expected a regular HTML fixture of at most 256 KiB.');
+  const html = await readFile(file, 'utf8');
+  report.htmlSha256 = createHash('sha256').update(html).digest('hex');
+  browser = await chromium.launch(process.env.CONTRACTOR_CHROMIUM ? { executablePath: process.env.CONTRACTOR_CHROMIUM } : {});
+  report.browser = browser.version();
+  for (const width of [280, 320, 360]) {
+    const sample = await captureViewport(browser, html, width, captures, recordings);
     if (!sample) {
       report.viewports.push({ width, passed: false, failures: ['missing-long-word'] });
       continue;
@@ -91,7 +114,10 @@ try {
   report.error = error instanceof Error ? error.message : 'Evaluation failed';
 } finally {
   try { await browser?.close(); }
-  finally { await writeFile(reportFile, JSON.stringify(report, null, 2) + '\n'); }
+  finally {
+    await rm(recordings, { recursive: true, force: true });
+    await writeFile(reportFile, JSON.stringify(report, null, 2) + '\n');
+  }
 }
 
 for (const row of report.viewports) {

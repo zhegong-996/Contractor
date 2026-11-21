@@ -286,6 +286,10 @@ a.external:hover, a.text-button:hover { text-decoration: underline; text-underli
 .verification-check dd, .verification-history-entry p { margin: 0; white-space: pre-wrap; }
 .verification-source { background: var(--muted-surface); border-radius: 6px; padding: 8px 10px; }
 .verification-source .record-row { padding-bottom: 0; }
+.verification-capture { margin-top: 10px; border-top: 1px solid var(--line); }
+.verification-capture .verification-toolbar > a { margin-left: auto; }
+.verification-capture img, .verification-capture video { display: block; width: auto; max-width: 100%; max-height: 420px;
+  border: 1px solid var(--line); border-radius: var(--radius); background: var(--muted-surface); }
 .verification-check .verification-history, .verification-actions { margin-top: 12px; }
 .verification-history-entry { border-top: 1px solid var(--line); padding: 4px 0 8px; }
 .decision-focus { scroll-margin-top: 16px; }

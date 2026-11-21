@@ -22,6 +22,7 @@ export const productTemplateSchema = z.object({
     workflow: trustedPath.refine(value => /^\.github\/workflows\/[a-zA-Z0-9_-]+\.ya?ml$/.test(value)),
     trustedFiles: z.array(z.object({ path: trustedPath, blob: z.string().regex(/^[a-f0-9]{40}$/) }).strict()).min(1).max(12),
     artifact: caseId,
+    captures: z.literal(true).optional(),
     cases: z.array(namedCase).min(1).max(20).refine(uniqueCases),
   }).strict().refine(value => value.trustedFiles.some(item => item.path === value.workflow)
     && new Set(value.trustedFiles.map(item => item.path)).size === value.trustedFiles.length, '请固定工作流与每个验证文件的 Git blob。').optional(),
@@ -30,10 +31,21 @@ export type BrowserVerification = NonNullable<z.infer<typeof productTemplateSche
 export const browserCaseResult = z.object({
   id: caseId, passed: z.boolean(), detail: z.string().trim().min(1).max(400),
 }).strict();
+const captureKind = z.enum(['screenshot', 'recording']);
+export const productCaptureInput = z.object({
+  revision: z.string().regex(/^[a-f0-9]{64}$/), check: z.coerce.number().int().positive().safe(), case: caseId, kind: captureKind,
+}).strict();
+export const captureFormats = {
+  screenshot: { type: 'image/png', extension: 'png', limit: 768 * 1024, signature: '89504e470d0a1a0a' },
+  recording: { type: 'video/webm', extension: 'webm', limit: 2 * 1024 * 1024, signature: '1a45dfa3' },
+} as const;
+export type BrowserCapture = { case: string; kind: z.infer<typeof captureKind>; bytes: Buffer };
 export type BrowserProof = {
   plan: string; head: string; checkId: number; run: number; attempt: number; artifact: number; url: string;
   executor: 'github-actions'; browser: string; labels: string[]; cases: z.infer<typeof browserCaseResult>[];
+  captures?: true;
 };
+export type BrowserReceipt = { proof: BrowserProof; captures: BrowserCapture[] };
 export type HumanCheck = { id: string; passed: boolean; note: string; actor: string; at: string };
 export const humanCheckInput = z.object({
   revision: z.string().regex(/^[a-f0-9]{64}$/), case: caseId, passed: z.boolean(), note: z.string().trim().min(1).max(700),
@@ -59,15 +71,32 @@ export function openProductVerification(db: DatabaseSync) {
       ticket TEXT NOT NULL, revision TEXT NOT NULL, check_id INTEGER NOT NULL, plan TEXT NOT NULL, value TEXT NOT NULL,
       PRIMARY KEY(ticket,revision,check_id,plan)
     );
+    CREATE TABLE IF NOT EXISTS workbench_product_capture (
+      ticket TEXT NOT NULL, revision TEXT NOT NULL, check_id INTEGER NOT NULL, plan TEXT NOT NULL,
+      case_id TEXT NOT NULL, kind TEXT NOT NULL, bytes BLOB NOT NULL,
+      PRIMARY KEY(ticket,revision,check_id,plan,case_id,kind)
+    );
     CREATE TABLE IF NOT EXISTS workbench_product_manual (
       ticket TEXT NOT NULL, revision TEXT NOT NULL, target TEXT NOT NULL, case_id TEXT NOT NULL, sequence INTEGER NOT NULL, value TEXT NOT NULL,
       PRIMARY KEY(ticket,revision,target,case_id,sequence)
     );
   `);
   const targetOf = (head?: string) => head ?? 'result';
-  const recordBrowser = (ticket: string, revision: string, proof: BrowserProof) => db.prepare(
-    'INSERT OR IGNORE INTO workbench_product_browser VALUES (?,?,?,?,?)',
-  ).run(ticket, revision, proof.checkId, proof.plan, JSON.stringify(proof));
+  const recordBrowser = (ticket: string, revision: string, { proof, captures }: BrowserReceipt) => {
+    const key = [ticket, revision, proof.checkId, proof.plan] as const;
+    const inserted = db.prepare('INSERT OR IGNORE INTO workbench_product_browser VALUES (?,?,?,?,?)')
+      .run(...key, JSON.stringify(proof));
+    if (inserted.changes && captures.length) {
+      const add = db.prepare('INSERT INTO workbench_product_capture VALUES (?,?,?,?,?,?,?)');
+      for (const item of captures) add.run(...key, item.case, item.kind, item.bytes);
+    }
+    return inserted;
+  };
+  const capture = (ticket: string, revision: string, proof: BrowserProof, id: string, kind: BrowserCapture['kind']) => {
+    const row = db.prepare('SELECT bytes FROM workbench_product_capture WHERE ticket=? AND revision=? AND check_id=? AND plan=? AND case_id=? AND kind=?')
+      .get(ticket, revision, proof.checkId, proof.plan, id, kind);
+    return row?.bytes instanceof Uint8Array ? row.bytes : undefined;
+  };
   const evidence = (ticket: string, revision: string, check: number, plan: string): BrowserProof | undefined => {
     const row = db.prepare('SELECT value FROM workbench_product_browser WHERE ticket=? AND revision=? AND check_id=? AND plan=?')
       .get(ticket, revision, check, plan);
@@ -116,7 +145,7 @@ export function openProductVerification(db: DatabaseSync) {
     } : undefined,
       ready: cases.every(row => row.state === 'passed') && (!browser || !!verified && check?.conclusion === 'success') };
   }
-  return { state, evidence, recordBrowser, recordHuman, humanHistory, manualCases };
+  return { state, evidence, recordBrowser, capture, recordHuman, humanHistory, manualCases };
 }
 
 export type ProductVerification = ReturnType<typeof openProductVerification>;

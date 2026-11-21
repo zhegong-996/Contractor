@@ -35,7 +35,7 @@ import { personalAgentInput } from './personal-agent.ts';
 import { imLoginCookie, imReturnPath, withIMStatus } from './im-login.ts';
 import { imAvatarOrigins, imProvider, imProviderNames } from './im-login-providers.ts';
 import { profileUpdate } from './member-profile.ts';
-import { humanCheckInput, manualCasesInput } from './product-verification.ts';
+import { captureFormats, humanCheckInput, manualCasesInput, productCaptureInput } from './product-verification.ts';
 import { regressionCaseInput, regressionCompareInput } from './regression-review.ts';
 import { deviceRouteInput } from './device-routing.ts';
 import { configuredEnv, formerName } from './compatibility.ts';
@@ -107,6 +107,25 @@ const settingsRoutes = {
 function json(res: ServerResponse, status: number, body: unknown) {
   res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' });
   res.end(JSON.stringify(body));
+}
+
+function captureResponse(res: ServerResponse, type: string, bytes: Uint8Array, range?: string) {
+  const size = bytes.byteLength;
+  const headers = { 'content-type': type, 'accept-ranges': 'bytes' };
+  if (!range) {
+    res.writeHead(200, { ...headers, 'content-length': size }).end(bytes);
+    return;
+  }
+  const match = /^bytes=(\d*)-(\d*)$/.exec(range);
+  const first = match?.[1], last = match?.[2];
+  const start = first ? Number(first) : last ? Math.max(0, size - Number(last)) : size;
+  const end = Math.min(size - 1, first && last ? Number(last) : size - 1);
+  if (!match || !Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start > end) {
+    res.writeHead(416, { ...headers, 'content-range': 'bytes */' + size }).end();
+    return;
+  }
+  res.writeHead(206, { ...headers, 'content-range': `bytes ${start}-${end}/${size}`, 'content-length': end - start + 1 })
+    .end(bytes.subarray(start, end + 1));
 }
 
 function browserCookie(value: string, origin: string, scope = '/') {
@@ -786,6 +805,11 @@ async function serve(release: () => void) {
         await work.linkDelivery(actor, item, value.url);
       } else if (post && view === 'ticket' && action === 'recheck-delivery') {
         output = await work.recheckDelivery(actor, item, z.object({ revision: knowledgeRevision, head: commitSha }).strict().parse(await body(req)));
+      } else if (get && view === 'ticket' && item && action === 'product-capture' && !reference) {
+        const input = productCaptureInput.parse(Object.fromEntries(url.searchParams));
+        const bytes = work.productCapture(actor, item, input);
+        captureResponse(res, captureFormats[input.kind].type, bytes, req.headers.range);
+        return;
       } else if (post && view === 'ticket' && item && action === 'product-check' && !reference) {
         output = work.recordProductCheck(actor, item, humanCheckInput.parse(await body(req)));
       } else if (post && view === 'ticket' && action === 'accept') {

@@ -67,7 +67,7 @@ import { channelDeliveryJournal } from './channel-delivery-journal.ts';
 import { openChannelJournal } from './channel-journal.ts';
 import { deliveryRequirements, deliveryTemplates, templateChecks, templateReview, verifyDeliveryTopic } from './delivery-template.ts';
 import { deliveryStages, stageBasisRevision } from './delivery-stages.ts';
-import { browserCheck, browserPlan, openProductVerification, type BrowserProof, type humanCheckInput } from './product-verification.ts';
+import { browserCheck, browserPlan, openProductVerification, type BrowserReceipt, type humanCheckInput, type productCaptureInput } from './product-verification.ts';
 import { openDeviceRouting, routedDevice, type deviceRouteInput } from './device-routing.ts';
 import type { z } from 'zod';
 import { OctopResources, type Expert, type ExpertSpec, type ExpertAuthority, type SkillRef } from './octop-resources.ts';
@@ -4047,7 +4047,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     };
     let latest: DeliveryEvidence;
     let attempts: PullCheck[];
-    let proof: BrowserProof | undefined;
+    let proof: BrowserReceipt | undefined;
     try {
       const target = pullTarget(project, pull.url);
       const policy = deliveryRequirements(work, target);
@@ -5638,6 +5638,16 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       });
     },
     accept,
+    productCapture(actor: string, id: string, input: z.infer<typeof productCaptureInput>) {
+      const view = detail(actor, id);
+      const previous = view.versions.find(row => row.revision === input.revision && row.text !== undefined);
+      const report = view.result?.revision === input.revision ? view.productVerification
+        : previous?.reviews.find(review => review.kind === 'accepted')?.product ?? previous?.reviews.findLast(review => review.product)?.product;
+      const execution = report?.execution;
+      const proof = [execution?.proof, ...(execution?.history ?? [])].find(row => row?.checkId === input.check && row.captures
+        && row.cases.some(result => result.id === input.case));
+      return requireValue(proof && product.capture(id, input.revision, proof, input.case, input.kind), '找不到可读的验收附件。', 404);
+    },
     recordProductCheck(actor: string, id: string, input: z.infer<typeof humanCheckInput>) {
       return store.atomic(() => {
         const { ticket, work, project } = ticketFor(id, actor);

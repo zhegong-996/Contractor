@@ -18,7 +18,7 @@ if (runner && (!validPort(config.remoteRunnerPort) || [config.port, listen].incl
 const machinePaths = /^\/api\/runner\/(?:enroll|enroll-status|pair|work|started|result|offline|protocol)$/;
 const confirmationPath = /^\/runner\/connect\/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/;
 const shellFiles = new Set(['/', '/favicon.ico', '/licenses/components', '/licenses/browser-dependencies']);
-const webHeaders = ['cookie', 'content-type', 'content-length', 'origin', 'accept', 'user-agent'];
+const webHeaders = ['cookie', 'content-type', 'content-length', 'origin', 'accept', 'user-agent', 'range'];
 const machineHeaders = ['authorization', 'content-type', 'content-length', 'x-contractor-execution'];
 const reject = (res, status) => res.writeHead(status, { 'cache-control': 'no-store' }).end();
 

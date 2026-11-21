@@ -9,7 +9,7 @@ import test from 'node:test';
 import { freezeDeliveryTemplate } from '../src/workbench/delivery-template.ts';
 import { formerName } from '../src/workbench/compatibility.ts';
 import { inspectProductVerification } from '../src/workbench/github-product-verification.ts';
-import { openProductVerification } from '../src/workbench/product-verification.ts';
+import { captureFormats, openProductVerification, type BrowserCapture } from '../src/workbench/product-verification.ts';
 import { resourceSchema } from '../src/workbench/project-resources.ts';
 import type { DeliveryEvidence, Work } from '../src/workbench/work-types.ts';
 
@@ -41,6 +41,7 @@ test('产品验证只采信本次 Actions job 的固定工作流、提交、报�
   const pins = new Map(spec.trustedFiles.map(item => ['contents/' + item.path + '?ref=' + head, item.blob]));
   let downloaded = 0;
   let downloadedMember: string | undefined;
+  let omitVideo = false;
   const ports = {
     async api(repo: string, route: string) {
       assert.equal(repo, repository);
@@ -53,11 +54,14 @@ test('产品验证只采信本次 Actions job 的固定工作流、提交、报�
       assert.deepEqual([repo, id, name], [repository, 100, spec.artifact + '-' + head + '-attempt-2']);
       return [{ artifacts: [artifact] }];
     },
-    async download(repo: string, id: number, member: string) {
+    async download(repo: string, id: number, member: string, caseIds: string[]) {
       assert.deepEqual([repo, id], [repository, 2]);
       downloaded++;
       downloadedMember = member;
-      return report;
+      const kinds = ['screenshot', 'recording'] as const;
+      const captures: BrowserCapture[] = caseIds.flatMap(caseId => kinds.filter(kind => !omitVideo || kind !== 'recording')
+        .map(kind => ({ case: caseId, kind, bytes: Buffer.from(captureFormats[kind].signature + 'ff', 'hex') })));
+      return { report, captures };
     },
   };
   const inspect = (value = delivery) => inspectProductVerification(template, value, ports);
@@ -81,12 +85,17 @@ test('产品验证只采信本次 Actions job 的固定工作流、提交、报�
   report.cases = [complete[0]!, complete[0]!, complete[1]!];
   assert.equal(await inspect(), undefined);
   report.cases = complete;
+  omitVideo = true;
+  assert.equal(await inspect(), undefined);
+  omitVideo = false;
   const proof = await inspect();
   assert.ok(proof);
+  assert.equal(proof.proof.captures, true);
+  assert.equal(proof.captures.length, spec.cases.length * 2);
   assert.equal(downloadedMember, 'contractor-verification.json');
   const previousWorkflow = formerName(spec.workflow);
   run.path = previousWorkflow;
-  const previousSpec = { ...spec, workflow: previousWorkflow,
+  const previousSpec = { ...spec, workflow: previousWorkflow, captures: undefined,
     trustedFiles: spec.trustedFiles.map(item => ({ ...item, path: formerName(item.path) })) };
   for (const item of previousSpec.trustedFiles) pins.set('contents/' + item.path + '?ref=' + head, item.blob);
   assert.ok(await inspectProductVerification({ ...template, product: { ...template.product!, browser: previousSpec } }, delivery, ports));
@@ -98,6 +107,12 @@ test('产品验证只采信本次 Actions job 的固定工作流、提交、报�
     const revision = 'a'.repeat(64);
     service.recordBrowser('ticket-a', revision, proof);
     service.recordBrowser('ticket-a', revision, proof);
+    const captured = proof.captures[0]!;
+    assert.deepEqual(Buffer.from(service.capture('ticket-a', revision, proof.proof, captured.case, captured.kind)!), captured.bytes);
+    assert.equal(service.capture('ticket-a', 'b'.repeat(64), proof.proof, captured.case, captured.kind), undefined);
+    assert.equal(service.capture('ticket-a', revision, { ...proof.proof, checkId: 40 }, captured.case, captured.kind), undefined);
+    assert.equal(service.capture('ticket-b', revision, proof.proof, captured.case, captured.kind), undefined);
+    assert.equal(db.prepare('SELECT count(*) AS n FROM workbench_product_capture').get()!.n, proof.captures.length);
     const input = { case: spec.cases[0]!.id, revision, head, previous: 0, passed: true, note: '可读' };
     service.recordHuman('ticket-a', head, { ...input, case: 'copy-review' }, 'product');
     assert.equal(service.state('ticket-a', revision, work, delivery)?.ready, true);
