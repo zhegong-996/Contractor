@@ -734,7 +734,8 @@ async function serve(release: () => void) {
           feishu: z.boolean().optional() }).strict().parse(await body(req)));
       } else if (post && view === 'project' && action === 'consult') {
         output = await work.consultTopic(actor, item, z.object({ nonce, text: prose, topic: id, agents: z.array(id).min(1).max(4),
-          knowledge: knowledgeRef.optional(), device: z.uuid().optional() })
+          knowledge: knowledgeRef.optional(), device: z.uuid().optional(),
+          devices: z.array(z.object({ agent: id, device: z.uuid() }).strict()).min(1).max(4).optional() })
           .strict().parse(await body(req)));
       } else if (post && view === 'project' && action === 'feishu-group') {
         work.bindFeishuGroup(actor, item, z.object({ chat: z.string().regex(/^oc_[a-zA-Z0-9_-]+$/), label: title, topic: id.optional() }).strict().parse(await body(req)));

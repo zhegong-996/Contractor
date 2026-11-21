@@ -1,6 +1,6 @@
 import { TextArea } from './components/input.tsx';
-import { Fragment, useEffect, useState } from 'react';
-import { Bot, Send } from 'lucide-react';
+import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { ArrowUpRight, Bot, Send } from 'lucide-react';
 import { api, uid, useMessages, type Agent, type ConversationMessage, type Ticket } from './api.ts';
 import { Markdown } from './markdown.tsx';
 import { Avatar, date, Ext, Failure, Field, Loading, short, Source, sourceName, useActions, useSessionScroll, useStored } from './ui.tsx';
@@ -10,7 +10,7 @@ import { selectedRosterIds, TopicMemberPicker } from './octop/TopicMemberPicker.
 import { SignedTopicReply } from './octop/SignedTopicReply.tsx';
 import { ExecutionEnvironment, executionTargetState, useExecutionTargets } from './execution-target.tsx';
 
-type ConversationDraft = { text: string; nonce: string; consultants: string[]; device?: { agent: string; id: string } };
+type ConversationDraft = { text: string; nonce: string; consultants: string[]; devices?: { agent: string; device: string }[] };
 
 type DiscussionMessage = ConversationMessage & {
   url?: string; linkLabel?: string; inline?: boolean; commit?: string; revisions?: Ticket['channelHistory'][number]['revisions'];
@@ -42,20 +42,21 @@ export function Conversation({ project, workspace, openTask, ticket, topic, rout
   const [agent, setAgent] = useState('');
   const [source, setChannel] = useStored('conversation-source:' + base + filter + (reply ? ':' + reply : ''), '');
   const [showRoster, setShowRoster] = useState(false);
-  const { run, busy } = useActions();
+  const { run, busy, scrollPositions } = useActions();
   const agents: Agent[] = workspace.agents.filter(item => item.active && item.projects.includes(project.id));
   const registered = project.topics.find(item => item.id === topic)?.consultants ?? [];
   const consultants = ticket ? [] : agents.filter(item => registered.includes(item.id));
   const selected = selectedRosterIds(draft.consultants ?? [], consultants);
-  const runnerAgent = selected.length === 1 ? consultants.find(item => item.id === selected[0])
-    : consultants.length === 0 ? agents.find(item => item.id === agent) : undefined;
-  const device = runnerAgent && draft.device?.agent === runnerAgent.id ? draft.device.id : '';
-  const targets = useExecutionTargets(!reply && project.mayStart && runnerAgent ? project.id : undefined);
-  const targetState = runnerAgent && executionTargetState(targets, runnerAgent, device);
-  const needsDevice = !!targetState && (device ? targetState.ready && !targetState.selected : targetState.needsChoice);
+  const participants = selected.length ? selected.flatMap(id => consultants.filter(row => row.id === id)) : agents.filter(row => row.id === agent);
+  const targets = useExecutionTargets(!reply && project.mayStart && participants.length ? project.id : undefined);
+  const placements = participants.map(participant => {
+    const device = draft.devices?.find(row => row.agent === participant.id)?.device ?? '';
+    return { participant, device, target: executionTargetState(targets, participant, device) };
+  });
+  const needsDevice = placements.some(({ device, target }) => !target.ready || (device ? !target.selected : target.needsChoice));
   const preferred = route.participant && consultants.some(item => item.id === route.participant) ? route.participant : undefined;
   useEffect(() => {
-    if (preferred) setDraft({ ...draft, consultants: [preferred], device: draft.device?.agent === preferred ? draft.device : undefined });
+    if (preferred) setDraft({ ...draft, consultants: [preferred] });
   }, [preferred]);
   const messages: DiscussionMessage[] | undefined = ticket ? ticketDiscussion(ticket, data.error ? [] : data.rows ?? []) : data.rows;
   const channels = [...new Set(messages?.map(item => item.channel) ?? [])];
@@ -63,7 +64,17 @@ export function Conversation({ project, workspace, openTask, ticket, topic, rout
   const channel = channels.includes(source) ? source : '';
   const visible = messages?.filter(item => !filterable || !channel || item.channel === channel);
   const members = new Map(project.members.map(member => [member.name, member]));
-  const scroll = useSessionScroll(JSON.stringify(['messages', base, filter, reply, channel]), { ready: desk && !!data.data });
+  const scrollKey = JSON.stringify(['messages', base, filter, reply, channel]);
+  const scroll = useSessionScroll(scrollKey, { ready: desk && !!data.data, preserveInitial: true });
+  const tail = useRef({ key: '', follow: false });
+  const last = visible?.at(-1);
+  const lastChange = last?.id + ':' + (last?.consultations?.map(row => [row.status, row.recovery, row.revision].join(':')).join('|') ?? '');
+  useLayoutEffect(() => {
+    const pane = scroll.ref.current;
+    if (!desk || !data.data || !pane) return;
+    if (tail.current.key !== scrollKey) tail.current = { key: scrollKey, follow: !scrollPositions.has(scrollKey) };
+    if (tail.current.follow) pane.scrollTop = pane.scrollHeight;
+  }, [desk, !!data.data, scrollKey, lastChange, scrollPositions]);
   const messageLabel = selected.length ? '只读咨询' : '发送给项目成员';
   const messageInput = <TextArea rows={desk ? 2 : 3} maxLength={3500} value={draft.text} required
     aria-label={desk ? messageLabel : undefined}
@@ -76,24 +87,37 @@ export function Conversation({ project, workspace, openTask, ticket, topic, rout
   const submit = async (publish: boolean) => {
     const text = draft.text.trim();
     if (!text || busy || needsDevice || publish && !publishable) return;
-    if (!consultants.length && agent) { openTask({ topic, parent: ticket?.id, agent, device: device || undefined, request: text }); return; }
+    if (!consultants.length && agent) { openTask({ topic, parent: ticket?.id, agent, device: placements[0]?.device || undefined, request: text }); return; }
+    const devices = placements.flatMap(({ participant, device }) => device ? [{ agent: participant.id, device }] : []);
+    tail.current = { key: scrollKey, follow: true };
     if (await run(() => selected.length
-      ? api('project/' + project.id + '/consult', { text, nonce: draft.nonce, topic, agents: selected, device: device || undefined })
+      ? api('project/' + project.id + '/consult', { text, nonce: draft.nonce, topic, agents: selected, ...(devices.length && { devices }) })
       : api(base, { text, nonce: draft.nonce, ticket: ticket?.id, topic, ...(publish && { feishu: true }) }),
     selected.length ? '咨询已交给所选 Agent' : publish ? '已记录，等待飞书送达' : ticket ? '已在工单内留言' : '消息已发送')) {
       setDraft({ text: '', nonce: uid(), consultants: [] });
       setChannel('');
+      setShowRoster(false);
       await data.refetch();
     }
   };
   return <section className={desk ? 'conversation-desk' : 'detail-stack'} aria-label={ticket ? '工单讨论' : undefined}>
     {ticket && <header className="ticket-discussion-heading"><h2>工单讨论</h2>{sourceFilter}</header>}
     {desk && sourceFilter && <div className="conversation-filter">{sourceFilter}</div>}
-    <div className={desk ? 'conversation-scroll' : undefined} {...(desk && scroll)}>
+    <div className={desk ? 'conversation-scroll' : undefined} ref={desk ? scroll.ref : undefined} onScroll={desk ? event => {
+      const panel = event.currentTarget;
+      tail.current = { key: scrollKey, follow: panel.scrollHeight - panel.clientHeight - panel.scrollTop < 48 };
+      scroll.onScroll(event);
+    } : undefined}>
     {reply && <a className="text-button" href={routeFor(project.id, 'chat', topic)}>返回主题讨论</a>}
     {data.error && <Failure error={data.error} retry={() => void data.refetch()} />}
     {filterable && data.isPending && <Loading />}
-    {data.hasNextPage && <Button size="sm" variant="ghost" disabled={data.isFetching} onClick={() => void data.fetchNextPage()}>加载更早消息</Button>}
+    {data.hasNextPage && <Button size="sm" variant="ghost" disabled={data.isFetching} onClick={async () => {
+      const pane = scroll.ref.current;
+      const height = pane?.scrollHeight ?? 0, top = pane?.scrollTop ?? 0;
+      tail.current = { key: scrollKey, follow: false };
+      await data.fetchNextPage();
+      if (pane) requestAnimationFrame(() => { pane.scrollTop = top + pane.scrollHeight - height; });
+    }}>加载更早消息</Button>}
     {desk && visible?.length === 0 && <p className="conversation-empty">{channel ? '此来源暂无消息' : '还没有消息，可以在这里发起讨论。'}</p>}
     {(!data.error || ticket) && !!visible?.length && <div className="timeline" aria-label="成员讨论">
       {visible.map(item => <Fragment key={item.id}><article className="timeline-entry member-message">
@@ -111,7 +135,7 @@ export function Conversation({ project, workspace, openTask, ticket, topic, rout
             {item.revisions.map(revision => <div className="revision-note" key={revision.revision}><time>{date(revision.at)}</time><p>{revision.text || '原消息已撤回'}</p></div>)}
           </details>}
         </div>
-      </article>{item.consultations?.map(reply => <SignedTopicReply key={reply.ticket} project={project.id} reply={reply} />)}</Fragment>)}
+      </article>{item.consultations?.map(reply => <SignedTopicReply key={reply.ticket} origin={route} reply={reply} />)}</Fragment>)}
     </div>}
     </div>
     {!reply && project.mayStart && <form className={desk ? 'form conversation-composer' : 'form ticket-composer'} onSubmit={event => {
@@ -120,11 +144,20 @@ export function Conversation({ project, workspace, openTask, ticket, topic, rout
     }}>
       {desk ? messageInput : <Field label={ticket ? '留言' : messageLabel}>{messageInput}</Field>}
       {!!consultants.length && (!desk || showRoster) && <TopicMemberPicker agents={consultants} value={draft.consultants ?? []}
-        onChange={consultants => setDraft({ ...draft, consultants,
-          device: consultants.length === 1 && draft.device?.agent === consultants[0] ? draft.device : undefined })} />}
-      {runnerAgent && <ExecutionEnvironment project={project.id} agent={runnerAgent} targets={targets} value={device}
-        connectUrl={runnerAgent.owner === workspace.actor && runnerAgent.executionCapabilities.remote ? workspace.runnerConnectUrl : undefined}
-        onChange={id => setDraft({ ...draft, device: id ? { id, agent: runnerAgent.id } : undefined })} />}
+        onChange={consultants => setDraft({ ...draft, consultants })} />}
+      {placements.length > 0 && <div className="topic-execution-choices">
+        {placements.map(({ participant, device }) => <ExecutionEnvironment key={participant.id} project={project.id} agent={participant}
+          targets={targets} value={device} label={selected.length ? participant.title + ' · 执行设备' : undefined}
+          hideManagement={placements.length > 1}
+          connectUrl={placements.length === 1 && participant.owner === workspace.actor && participant.executionCapabilities.remote
+            ? workspace.runnerConnectUrl : undefined}
+          onChange={id => setDraft({ ...draft, devices: [
+            ...(draft.devices ?? []).filter(row => row.agent !== participant.id),
+            ...(id ? [{ agent: participant.id, device: id }] : []),
+          ] })} />)}
+        {placements.length > 1 && <a className="text-button" href={routeFor(project.id, 'agents', undefined, 'devices')}
+          target="_blank" rel="noopener">项目可用设备 <ArrowUpRight size={13} /></a>}
+      </div>}
       <div className="form-actions">
         {desk && !!consultants.length && <Button size="sm" variant="ghost" className="consultant-picker" aria-expanded={showRoster} type="button"
           onClick={() => setShowRoster(!showRoster)}>
@@ -132,7 +165,6 @@ export function Conversation({ project, workspace, openTask, ticket, topic, rout
         </Button>}
         {!consultants.length && !!agents.length && <select aria-label="委托 Agent" value={agent} onChange={event => {
           setAgent(event.target.value);
-          if (draft.device) setDraft({ ...draft, device: undefined });
         }}>
           <option value="">仅发消息</option>
           {agents.map(item => <option key={item.id} value={item.id}>交给 {item.title}</option>)}

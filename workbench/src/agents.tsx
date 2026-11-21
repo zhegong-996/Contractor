@@ -1,6 +1,6 @@
-import { ArrowLeft, Bot, ChevronRight, Cpu, Layers, ListChecks, MessageSquare, Play, ReceiptText, ShieldCheck } from 'lucide-react';
+import { ArrowLeft, Bot, ChevronRight, Cpu, Laptop, Layers, ListChecks, MessageSquare, Play, ReceiptText, Route as Routing, ShieldCheck } from 'lucide-react';
 import { api, useData, useTickets, type Agent, type Usage } from './api.ts';
-import { go, routeFor, type PageProps } from './navigation.ts';
+import { agentSettingsRoute, go, routeFor, type PageProps } from './navigation.ts';
 import { TabsContent } from './components/page-tabs.tsx';
 import { Button } from './components/button.tsx';
 import { Avatar, Empty, Failure, Loading, PageTabs, Pill, SearchBox, Section, Segments, TicketStatus, useActions, useStored } from './ui.tsx';
@@ -10,20 +10,35 @@ import { AgentLibrary } from './agent-library.tsx';
 const agentTabs = [['profile', '职责与委托'], ['memory', '项目知识'], ['receipts', '执行与费用']] as const;
 export function AgentsPage(props: PageProps) {
   const { workspace, project, route } = props;
+  const tab = route.item ? undefined : route.tab;
+  const library = tab === 'library' && workspace.octopEnabled;
+  const catalogue = tab !== 'devices' && tab !== 'budgets' && !library;
+  return <div className="agent-workspace">
+    <nav className="agent-navigation" aria-label="Agent 配置入口">
+      <a className="text-button" href={routeFor(project.id, 'agents')} aria-current={catalogue ? 'page' : undefined}><Bot size={16} />项目 Agent</a>
+      <a className="text-button" href={agentSettingsRoute('agent', project.id)}><Bot size={16} />个人 Agent</a>
+      {workspace.canManageServices && <a className="text-button" href={agentSettingsRoute('router', project.id)}><Routing size={16} />平台 Router</a>}
+      <a className="text-button" href={agentSettingsRoute('workers', project.id)}><Laptop size={16} />我的 Worker</a>
+    </nav>
+    {tab === 'devices' || tab === 'budgets' ? <AgentOperations {...props} page={tab} />
+      : library ? <AgentLibrary {...props} />
+      : <ProjectAgentCatalog {...props} />}
+  </div>;
+}
+
+function ProjectAgentCatalog(props: PageProps) {
+  const { workspace, project, route } = props;
   const [query, search] = useStored('agents-search:' + project.id, '');
   const [scope, setScope] = useStored('agents-scope:' + project.id, 'all');
   const all = workspace.agents.filter(agent => agent.projects.includes(project.id));
   const shown = all.filter(a => (scope === 'all' || a.owner === workspace.actor)
     && (a.title + a.owner + a.capability).toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
   const selected = route.item ? all.find(agent => agent.id === route.item) : undefined;
-  if (!route.item && (route.tab === 'devices' || route.tab === 'budgets')) return <AgentOperations {...props} page={route.tab} />;
-  if (!route.item && route.tab === 'library' && workspace.octopEnabled) return <AgentLibrary {...props} />;
   return <div className="split" data-has-detail={!!route.item}>
     <aside className="split-list" aria-label="项目 Agent 列表">
-      <div className="list-header"><h1>Agent</h1><div className="actions">
-        <a className="text-button" href="#/account?tab=agent"><Bot size={15} />个人 Agent 设置</a>
+      <div className="list-header"><div className="actions">
         {workspace.octopEnabled && <a className="text-button" href={routeFor(project.id, 'agents', undefined, 'library')}><Layers size={15} />专家与技能</a>}
-        <a className="text-button" href={routeFor(project.id, 'agents', undefined, 'devices')}><Cpu size={15} />执行设备</a>
+        <a className="text-button" href={routeFor(project.id, 'agents', undefined, 'devices')}><Cpu size={15} />项目设备</a>
         <a className="text-button" href={routeFor(project.id, 'agents', undefined, 'budgets')}><ReceiptText size={15} />额度管理</a>
       </div><Segments label="Agent 范围" items={[[ 'all', '项目 Agent' ], [ 'mine', '我负责的' ]]} value={scope} onChange={setScope} />
       <SearchBox label="搜索 Agent 或负责人" value={query} onChange={search} /></div>
@@ -65,7 +80,7 @@ function AgentDetail({ agent, project, workspace, route, openTask }: PageProps &
     <header className="object-header"><div className="object-emblem"><Bot size={26} /></div>
       <div className="min-w-0"><h1>{agent.title}</h1><div className="object-meta">
         <Pill tone={agent.active ? 'green' : 'neutral'}>{agent.active ? '在岗' : '未启用'}</Pill>
-        <span>{agent.kind === 'personal' ? '成员执行配置' : '专项 Agent'}</span><span>所有者 {agent.owner}</span>
+        <span>{agent.kind === 'personal' ? '成员执行 Agent' : '专项 Agent'}</span><span>所有者 {agent.owner}</span>
       </div></div>
       {project.mayStart && agent.active && <Button size="sm" className="object-action" onClick={() => openTask({ agent: agent.id, personal: mine })}>
         <Play />{mine ? '发起只读代办' : '发起委托'}</Button>}

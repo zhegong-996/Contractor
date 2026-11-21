@@ -121,6 +121,12 @@ test('主题咨询通过原生执行隔离来源，重放只派一次，且只�
     [['copy-agent', 'answered', [material[0]]], ['wrap-agent', 'answered', [material[1]]]]);
   assert.ok(answers?.every(reply => reply.text && reply.text.length > 500
     && reply.text.endsWith('\n\n- 最后一项验收条件') && !reply.text.includes('[记忆:')));
+  for (const reply of answers ?? []) {
+    const result = work.detail('product', reply.ticket).result;
+    assert.equal(reply.run, result?.run);
+    assert.equal(reply.attempt, result?.attempt);
+    assert.equal(reply.device, '工作台运行时');
+  }
   assert.equal(replies.length, 2);
   assert.ok(replies.every(reply => reply.root === 'om_consult'));
   assert.ok(replies.every(reply => JSON.parse(reply.text).schema === '2.0'));
@@ -350,13 +356,6 @@ test('主题咨询通过原生执行隔离来源，重放只派一次，且只�
   for (const skipped of ['om_private_foreign', 'om_private_unquoted', 'om_private_command'])
     assert.ok(!work.channelEventSeen(feishuTriggerId(skipped)));
   assert.equal(work.detail('product', privateTicket).runs.length, 0);
-  const original = work.browse('product', 'store', '').find(entry => entry.id === material[1]);
-  assert.ok(original && 'revision' in original);
-  work.invalidateKnowledge('product', original.id, original.revision, '规则失效');
-  const withdrawn = work.conversation('engineer', 'store', { topic: input.topic })[0]?.consultations?.find(reply => reply.speaker.id === 'wrap-agent');
-  assert.equal(withdrawn?.status, 'unavailable');
-  assert.equal(withdrawn?.text, undefined);
-
   const connect = (project: string, agent: string, owner: string, name: string) =>
     work.pairDevice(work.issueDevicePair(owner, project, agent).code, name).id;
   const laptop = connect('store', 'copy-agent', 'product', '笔记本');
@@ -376,4 +375,30 @@ test('主题咨询通过原生执行隔离来源，重放只派一次，且只�
   assert.equal(work.conversation('product', 'store', { topic: input.topic }).length, beforeDevices + 1);
   work.transitionDevice('product', server, 'suspended');
   await assert.rejects(work.consultTopic('product', 'store', { ...pinned, nonce: randomUUID() }), { status: 409 });
+
+  const devices = [{ agent: 'copy-agent', device: laptop }, { agent: 'wrap-agent', device: otherAgent }];
+  const parallel = { ...input, nonce: randomUUID(), agents: devices.map(row => row.agent), devices };
+  const before = work.overview('product').tickets.length;
+  await assert.rejects(work.consultTopic('product', 'store', { ...parallel,
+    devices: [{ agent: 'copy-agent', device: laptop }, { agent: 'wrap-agent', device: otherProject }] }), { status: 409 });
+  await assert.rejects(work.consultTopic('product', 'store', { ...parallel, devices: [devices[0]!, devices[0]!] }), { status: 409 });
+  assert.equal(work.overview('product').tickets.length, before);
+  assert.equal(work.conversation('product', 'store', { topic: input.topic }).length, beforeDevices + 1);
+  const dispatch = await work.consultTopic('product', 'store', parallel);
+  assert.deepEqual(await work.consultTopic('product', 'store', { ...parallel, devices: devices.slice().reverse() }), dispatch);
+  await assert.rejects(work.consultTopic('product', 'store', { ...parallel, devices: [devices[0]!] }), { status: 409 });
+  const thread = () => work.conversation('engineer', 'store', { topic: input.topic }).find(row => row.id === dispatch.id)?.consultations;
+  for (let step = 0; step < 30 && !thread()?.every(row => row.recovery === 'device-offline'); step++) await delay(100);
+  assert.deepEqual(thread()?.map(row => [row.speaker.id, row.device, row.recovery]), [
+    ['copy-agent', '笔记本', 'device-offline'], ['wrap-agent', '小屏设备', 'device-offline'],
+  ]);
+  assert.deepEqual(dispatch.tickets.map(id => work.detail('product', id).work.device), [laptop, otherAgent]);
+  assert.ok(thread()?.every(row => row.run && !row.text));
+
+  const original = work.browse('product', 'store', '').find(entry => entry.id === material[1]);
+  assert.ok(original && 'revision' in original);
+  work.invalidateKnowledge('product', original.id, original.revision, '规则失效');
+  const withdrawn = work.conversation('engineer', 'store', { topic: input.topic })[0]?.consultations?.find(reply => reply.speaker.id === 'wrap-agent');
+  assert.equal(withdrawn?.status, 'unavailable');
+  assert.equal(withdrawn?.text, undefined);
 });

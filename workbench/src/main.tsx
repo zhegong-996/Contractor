@@ -227,7 +227,7 @@ function Workspace() {
   if (overview.error) return <div className="app-placeholder"><Failure error={overview.error} retry={() => void overview.refetch()} /></div>;
   if (!workspace) return <Loading />;
   if (requested.global) return <Suspense fallback={<Loading />}>
-    <GlobalSettings view={requested.global} tab={requested.tab} workspace={workspace} logout={signOut}
+    <GlobalSettings view={requested.global} tab={requested.tab} fromProject={requested.project} workspace={workspace} logout={signOut}
       connections={requested.global === 'account' ? <AccountsPage workspace={workspace} embedded /> : undefined} />
   </Suspense>;
   const targetProject = workspace.projects.find(p => p.id === requested.project);

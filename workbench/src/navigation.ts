@@ -4,7 +4,7 @@ import type { Overview, Project } from './api.ts';
 export const titles = { chat: '会话', inbox: '待我处理', work: '任务中心', knowledge: '知识与记忆', agents: 'Agent', project: '项目', accounts: '连接与账号' } as const;
 export type View = keyof typeof titles;
 export type GlobalView = 'platform' | 'account';
-type ConversationOrigin = { project: string; item?: string; tab?: string };
+type ConversationOrigin = { project: string; item?: string; tab?: string; reply?: string };
 export type Route = { project: string; view: View; item?: string; tab?: string; run?: number; attempt?: number; revision?: string;
   reply?: string; participant?: string; global?: GlobalView; conversationOrigin?: ConversationOrigin;
   personalChat?: true; workTopic?: string; projectWork?: boolean; inboxOrigin?: string; decision?: string; reviewRevision?: string;
@@ -30,6 +30,9 @@ export function personalChatRoute(conversation?: string, project?: string) {
   return '#/personal-chat' + (conversation ? '/' + encodeURIComponent(conversation) : '')
     + (project ? '?' + new URLSearchParams({ project }) : '');
 }
+export function agentSettingsRoute(tab: 'agent' | 'workers' | 'router', project: string) {
+  return (tab === 'router' ? '#/platform?' : '#/account?') + new URLSearchParams({ tab, project });
+}
 export function projectWorkRoute(project: string, topic?: string) {
   return routeFor(project, 'work') + '?' + new URLSearchParams({ scope: 'project', ...(topic && { topic }) });
 }
@@ -38,10 +41,13 @@ export function workFromInbox(href: string, project?: string, decision?: string,
   return href + (href.includes('?') ? '&' : '?') + new URLSearchParams({ fromInbox: project,
     ...(decision && { decision }), ...(revision && { review: revision }) });
 }
+export function conversationRoute(origin: ConversationOrigin) {
+  const href = routeFor(origin.project, 'chat', origin.item, !origin.item && origin.tab === 'project' ? 'project' : undefined);
+  return origin.item && origin.reply ? href + '?reply=' + encodeURIComponent(origin.reply) : href;
+}
 export function withConversationOrigin(href: string, origin?: ConversationOrigin) {
   if (!origin) return href;
-  const conversation = routeFor(origin.project, 'chat', origin.item, origin.tab === 'project' ? 'project' : undefined);
-  return href + (href.includes('?') ? '&' : '?') + new URLSearchParams({ fromChat: conversation });
+  return href + (href.includes('?') ? '&' : '?') + new URLSearchParams({ fromChat: conversationRoute(origin) });
 }
 export function runRoute(project: string, ticket: string, run: number, attempt?: number) {
   return routeFor(project, 'work', ticket, 'execution') + '&run=' + run + (attempt === undefined ? '' : '&attempt=' + attempt);
@@ -61,12 +67,13 @@ export function useRoute(): Route {
     const personal = /^personal-chat(?:\/([a-f0-9]{32}))?$/.exec(pathname ?? '');
     if (personal) return { project: params.get('project') ?? '', view: 'chat', personalChat: true, item: personal[1] };
     if (pathname === 'platform' || pathname === 'account')
-      return { project: '', view: 'inbox', global: pathname, tab: params.get('tab') ?? undefined };
+      return { project: params.get('project') ?? '', view: 'inbox', global: pathname, tab: params.get('tab') ?? undefined };
     const [project = '', view = 'inbox', item] = (pathname ?? '').split('/').map(decodeURIComponent);
     const tab = params.get('tab') ?? undefined;
     const projectDiscussion = view === 'project' && tab === 'chat';
-    const originMatch = view === 'work' ? /^#\/([\w-]+)\/chat(?:\/([\w-]+))?(?:\?tab=(project))?$/.exec(params.get('fromChat') ?? '') : null;
-    const conversationOrigin = originMatch ? { project: originMatch[1]!, item: originMatch[2], tab: originMatch[3] } : undefined;
+    const originMatch = view === 'work'
+      ? /^#\/([\w-]+)\/chat(?:\/([\w-]+))?(?:\?(?:tab=(project)|reply=([a-f0-9]{32})))?$/.exec(params.get('fromChat') ?? '') : null;
+    const conversationOrigin = originMatch ? { project: originMatch[1]!, item: originMatch[2], tab: originMatch[3], reply: originMatch[4] } : undefined;
     const consultation = /^([a-z0-9-]{1,80})\.([a-f0-9]{64})$/.exec(params.get('consultation') ?? '');
     const positive = (key: string) => {
       const value = Number(params.get(key));

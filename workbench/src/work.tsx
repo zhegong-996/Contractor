@@ -9,7 +9,7 @@ import { WorkBoard, workStates, type BoardGrouping } from './work-board.tsx';
 import { RunHistory } from './work-execution.tsx';
 import { eligibleExecutionDevices, ExecutionTargetPicker, useExecutionTargets } from './execution-target.tsx';
 import { CaseEditor, ProductChecks, ProductVerificationPanel } from './product-criteria.tsx';
-import { go, projectWorkRoute, routeFor, runRoute, withConversationOrigin, workFromInbox, type PageProps } from './navigation.ts';
+import { conversationRoute, go, projectWorkRoute, routeFor, runRoute, withConversationOrigin, workFromInbox, type PageProps } from './navigation.ts';
 import { Button } from './components/button.tsx';
 import { Input, TextArea } from './components/input.tsx';
 import { TicketPicker } from './components/ticket-picker.tsx';
@@ -79,7 +79,7 @@ export function WorkPage(props: PageProps) {
   const fromChat = route.conversationOrigin;
   const chatProject = workspace.projects.find(item => item.id === fromChat?.project);
   const chatTopic = chatProject?.topics.find(topic => topic.id === fromChat?.item)?.id;
-  const backToChat = chatProject && routeFor(chatProject.id, 'chat', chatTopic, fromChat?.tab === 'project' ? 'project' : undefined);
+  const backToChat = chatProject && conversationRoute({ project: chatProject.id, item: chatTopic, tab: fromChat?.tab, reply: fromChat?.reply });
   const status = ({ active: 'running', acceptance: 'review', accepted: 'done', answered: 'done', ended: 'closed' } as Record<string, string>)[filters.status] ?? filters.status;
   const listScroll = useSessionScroll(JSON.stringify(['work-list', project.id, scope, filters]), { visibleAt: route.item });
   const tickets = useTickets({ ...(scope === 'mine' ? { mine: true } : { project: project.id, topic: filters.topic }),

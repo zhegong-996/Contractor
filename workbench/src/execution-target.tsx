@@ -1,8 +1,9 @@
+import { useId, useState } from 'react';
 import { ArrowUpRight, Copy, Laptop, Route, Server } from 'lucide-react';
-import { useData, type Agent, type DeviceRoute, type DeviceRow } from './api.ts';
+import { api, useData, type Agent, type DeviceRoute, type DeviceRow, type Overview } from './api.ts';
 import { routeFor } from './navigation.ts';
 import { Button } from './components/button.tsx';
-import { Failure, Loading, Pill, useActions } from './ui.tsx';
+import { date, Failure, Field, Loading, Modal, Pill, useActions } from './ui.tsx';
 
 export function useExecutionTargets(project?: string) {
   const base = project ? 'project/' + project : '';
@@ -20,7 +21,7 @@ const deviceLabel = (device: DeviceRow) => device.name + (device.online ? '' : '
 
 type ExecutionTargetProps = {
   project: string; agent: Agent; targets: ReturnType<typeof useExecutionTargets>; value: string;
-  onChange: (id: string) => void; connectUrl?: string;
+  onChange: (id: string) => void; connectUrl?: string; label?: string; hideManagement?: boolean;
 };
 
 export function executionTargetState(targets: ReturnType<typeof useExecutionTargets>, agent: Agent, value: string) {
@@ -44,7 +45,7 @@ export function executionTargetState(targets: ReturnType<typeof useExecutionTarg
 export function ExecutionEnvironment(props: ExecutionTargetProps) {
   const state = executionTargetState(props.targets, props.agent, props.value);
   return <details className="form-disclosure execution-environment">
-    <summary><Laptop size={15} aria-hidden="true" />执行环境 · {state.summary}</summary>
+    <summary><Laptop size={15} aria-hidden="true" />{props.label ?? '执行环境'} · {state.summary}</summary>
     <ExecutionTargetPicker {...props} />
   </details>;
 }
@@ -70,10 +71,40 @@ export function RunnerConnectInstructions({ url, legacy = false }: { url: string
   </div>;
 }
 
-export function ExecutionTargetPicker({ project, agent, targets, value, onChange, connectUrl, mode = 'start', current }: ExecutionTargetProps & {
+export function LocalWorkerPair({ workspace, project, close }: { workspace: Overview; project?: string; close: () => void }) {
+  const agents = workspace.agents.filter(agent => agent.owner === workspace.actor && agent.active && agent.executionCapabilities.local);
+  const projects = workspace.projects.filter(row => row.mayStart && agents.some(agent => agent.projects.includes(row.id)));
+  const [selected, setSelected] = useState(project ?? projects[0]?.id ?? '');
+  const options = agents.filter(agent => agent.projects.includes(selected));
+  const [issued, setIssued] = useState<{ code: string; expires: number; port: number }>();
+  const { run, busy } = useActions();
+  return <Modal title="连接工作台主机" close={close}>
+    {issued ? <div className="form">
+      <p>在工作台主机上使用同一数据目录运行命令，并按提示输入配对码。</p>
+      <code className="connect-command">npm run runner -- pair {issued.port} "我的执行端"</code>
+      <div className="record-row"><strong>一次性配对码</strong><code>{issued.code}</code><span>{date(new Date(issued.expires).toISOString())} 失效</span></div>
+    </div> : <form className="form" onSubmit={async event => {
+      event.preventDefault();
+      const agent = new FormData(event.currentTarget).get('agent');
+      const proof = await run(() => api<NonNullable<typeof issued>>('device/pair', { project: selected, agent }));
+      if (proof) setIssued(proof);
+    }}>
+      {!project && <Field label="项目"><select aria-label="项目" value={selected} onChange={event => setSelected(event.target.value)} required>
+        {projects.map(row => <option value={row.id} key={row.id}>{row.title}</option>)}
+      </select></Field>}
+      <Field label="绑定我的 Agent"><select aria-label="绑定我的 Agent" name="agent" key={selected} required>
+        {options.map(agent => <option value={agent.id} key={agent.id}>{agent.title}</option>)}
+      </select></Field>
+      <div className="form-actions"><Button type="submit" disabled={busy || !options.length}>生成配对码</Button></div>
+    </form>}
+  </Modal>;
+}
+
+export function ExecutionTargetPicker({ project, agent, targets, value, onChange, connectUrl, label, hideManagement, mode = 'start', current }: ExecutionTargetProps & {
   mode?: 'start' | 'resume' | 'switch'; current?: { id: string; name: string };
 }) {
   const { devices, routes } = targets;
+  const group = useId();
   const { choices, policy, implied, needsChoice } = executionTargetState(targets, agent, value);
   const competing = mode === 'switch';
   const preserve = mode === 'resume';
@@ -85,20 +116,20 @@ export function ExecutionTargetPicker({ project, agent, targets, value, onChange
       : agent.executionCapabilities.remote ? '请选一台已登记的设备'
         : agent.executionCapabilities.available ? '工作台运行时' : agent.executionCapabilities.reason ?? '执行环境暂不可用';
   return <fieldset className="execution-targets">
-    <legend className={mode === 'start' ? 'sr-only' : undefined}>{competing ? '切换到' : '执行环境'}</legend>
+    <legend className={mode === 'start' ? 'sr-only' : undefined}>{label ?? (competing ? '切换到' : '执行环境')}</legend>
     {devices.error || routes.error ? <Failure error={devices.error ?? routes.error} retry={() => { void devices.refetch(); void routes.refetch(); }} />
       : !devices.data || !routes.data ? <Loading /> : <div className="execution-target-options">
         {!competing && (preserve || !needsChoice) && <label className="execution-target" data-selected={value === ''}>
-          <input type="radio" name="execution-target" value="" checked={value === ''} onChange={() => onChange('')} />
+          <input type="radio" name={group} value="" checked={value === ''} onChange={() => onChange('')} />
           <Route size={17} aria-hidden="true" /><span><strong>{defaultTitle}</strong><small>{defaultDetail}</small></span>
           <Pill tone="blue">{preserve ? '当前' : '自动'}</Pill>
         </label>}
         {allowPlatform && <label className="execution-target" data-selected={value === 'workbench'}>
-          <input type="radio" name="execution-target" value="workbench" checked={value === 'workbench'} onChange={() => onChange('workbench')} />
+          <input type="radio" name={group} value="workbench" checked={value === 'workbench'} onChange={() => onChange('workbench')} />
           <Server size={17} aria-hidden="true" /><span><strong>工作台运行时</strong><small>在工作台主机的隔离环境中运行</small></span>
         </label>}
         {choices.filter(device => !competing || device.id !== current?.id).map(device => <label className="execution-target" key={device.id} data-selected={device.id === value}>
-          <input type="radio" name="execution-target" value={device.id} checked={device.id === value} onChange={() => onChange(device.id)} />
+          <input type="radio" name={group} value={device.id} checked={device.id === value} onChange={() => onChange(device.id)} />
           <Laptop size={17} aria-hidden="true" /><span><strong>{device.name}</strong><small>{device.remote ? '远程设备' : '已登记设备'} · {device.owner}
             {device.id === policy?.primary ? ' · 主用' : device.id === policy?.fallback ? ' · 备用' : ''}</small></span>
           <Pill tone={device.readyAgents.includes(agent.id) ? 'green' : 'amber'}>
@@ -110,9 +141,9 @@ export function ExecutionTargetPicker({ project, agent, targets, value, onChange
       </div>}
     {connectUrl && <details className="minor-disclosure">
       <summary>连接新设备</summary>
-      <a className="text-button" href="#/account?tab=workers">打开我的执行设备 <ArrowUpRight size={13} /></a>
+      <a className="text-button" href="#/account?tab=workers" target="_blank" rel="noopener">打开我的 Worker <ArrowUpRight size={13} /></a>
     </details>}
-    <a className="text-button execution-target-manage" href={routeFor(project, 'agents', undefined, 'devices')}
-      target="_blank" rel="noopener" aria-label="在新标签页管理执行设备">管理设备 <ArrowUpRight size={13} aria-hidden="true" /></a>
+    {!hideManagement && <a className="text-button execution-target-manage" href={routeFor(project, 'agents', undefined, 'devices')}
+      target="_blank" rel="noopener">项目可用设备 <ArrowUpRight size={13} aria-hidden="true" /></a>}
   </fieldset>;
 }

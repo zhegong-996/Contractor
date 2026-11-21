@@ -175,12 +175,13 @@ function PersonalLogin({ workspace }: { workspace: Overview }) {
   </Section>;
 }
 
-export function GlobalSettings({ view, tab, workspace, logout, connections }: {
-  view: GlobalView; tab?: string; workspace: Overview; logout: () => void; connections?: ReactNode;
+export function GlobalSettings({ view, tab, fromProject, workspace, logout, connections }: {
+  view: GlobalView; tab?: string; fromProject?: string; workspace: Overview; logout: () => void; connections?: ReactNode;
 }) {
-  const back = workspace.projects[0] ? routeFor(workspace.projects[0].id, 'inbox') : '#/';
+  const origin = workspace.projects.find(project => project.id === fromProject);
+  const back = origin ? routeFor(origin.id, 'agents') : workspace.projects[0] ? routeFor(workspace.projects[0].id, 'inbox') : '#/';
   const header = <header className="toolbar settings-toolbar">
-    <a className="text-button" href={back}><ArrowLeft size={16} />返回工作台</a>
+    <a className="text-button" href={back}><ArrowLeft size={16} />{origin ? '返回项目 Agent' : '返回工作台'}</a>
     <span className="settings-location">{view === 'platform' ? '平台管理' : '个人设置'}</span>
     {view === 'platform' && <a className="text-button ml-auto" href="#/account">个人设置</a>}
     <Button variant="ghost" size="sm" onClick={logout}>退出登录</Button>
@@ -189,11 +190,11 @@ export function GlobalSettings({ view, tab, workspace, logout, connections }: {
     <main className="project-page personal-settings">
       <header className="object-header"><div className="object-emblem"><ShieldCheck size={24} /></div><div><h1>个人设置</h1></div></header>
       <nav className="actions account-settings-nav" aria-label="个人设置">
-        {([['profile', '资料与登录'], ['agent', '个人 Agent'], ['workers', '执行设备']] as const).map(([key, label]) =>
-          <a className="text-button" key={key} href={'#/account?tab=' + key}
+        {([['profile', '资料与登录'], ['agent', '个人 Agent'], ['workers', '我的 Worker']] as const).map(([key, label]) =>
+          <a className="text-button" key={key} href={'#/account?' + new URLSearchParams({ tab: key, ...(origin && { project: origin.id }) })}
             aria-current={(tab ?? 'profile') === key ? 'page' : undefined}>{label}</a>)}
       </nav>
-      <div className="detail-stack">{tab === 'agent' ? <PersonalAgentSettings /> : tab === 'workers' ? <MyWorkers workspace={workspace} />
+      <div className="detail-stack">{tab === 'agent' ? <PersonalAgentSettings project={origin?.id} /> : tab === 'workers' ? <MyWorkers workspace={workspace} />
         : <><PersonalProfileSettings /><PersonalLogin workspace={workspace} />{connections}</>}</div>
     </main>
   </div>;
@@ -209,7 +210,7 @@ function PlatformDesk({ workspace, tab }: { workspace: Overview; tab?: string })
       { key: 'audit', title: '权限记录', caption: '追溯账号、角色和登录设置的变更。', icon: ListChecks, allowed: workspace.canManageAccounts },
     ] },
     { title: 'Agent 运行', items: [
-      { key: 'router', title: 'Router 与知识提炼', caption: '设置平台整理模型、调用上限与用量。', icon: Route, allowed: workspace.canManageServices },
+      { key: 'router', title: '平台 Router 与知识提炼', caption: '设置平台整理模型、调用上限与用量。', icon: Route, allowed: workspace.canManageServices },
       { key: 'models', title: '模型服务', caption: '管理各供应商的可用模型和平台执行策略。', icon: Cpu, allowed: workspace.canManageServices },
       { key: 'quota', title: '积分与额度', caption: '设置各模型如何折算积分，以及平台和个人的用量上限。', icon: Coins, allowed: workspace.canManagePointPolicy },
       { key: 'services', title: '服务状态', caption: '查看入站、检索和执行回执的运行情况。', icon: Activity, allowed: workspace.canManageServices },

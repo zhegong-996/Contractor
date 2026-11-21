@@ -6,7 +6,7 @@ import { Button } from './components/button.tsx';
 import { Input } from './components/input.tsx';
 import { SettingsDrawer } from './components/settings-drawer.tsx';
 import { date, Empty, Failure, Field, Loading, Modal, Pill, Section, useActions } from './ui.tsx';
-import { RunnerConnectInstructions } from './execution-target.tsx';
+import { LocalWorkerPair, RunnerConnectInstructions } from './execution-target.tsx';
 
 export function AgentOperations(props: PageProps & { page: 'devices' | 'budgets' }) {
   const { page, project } = props;
@@ -14,7 +14,7 @@ export function AgentOperations(props: PageProps & { page: 'devices' | 'budgets'
   return <div className="page-scroll"><div className="project-page">
     <header className="object-header">
       <div className="object-emblem"><Icon size={24} /></div>
-      <div><h1>{page === 'devices' ? '执行设备' : '额度管理'}</h1><p className="muted-text">{project.title}</p></div>
+      <div><h1>{page === 'devices' ? '项目设备' : '额度管理'}</h1><p className="muted-text">{project.title}</p></div>
       <a className="text-button object-action" href={routeFor(project.id, 'agents')}><ArrowLeft size={16} />Agent</a>
     </header>
     <div className="detail-stack">{page === 'devices' ? <DevicePane {...props} />
@@ -32,9 +32,10 @@ function DevicePane({ workspace, project }: PageProps) {
   const [pair, show] = useState(false);
   const [change, setChange] = useState<{ device: DeviceRow; state: 'lost' | 'retired' | 'active' }>();
   const { run, busy } = useActions();
-  return <Section title="项目设备" action={<div className="actions">
-    <a className="text-button" href="#/account?tab=workers">我的执行设备</a>
-    {(remote || canPair) && <Button size="sm" onClick={() => show(true)}><Plus />连接设备</Button>}
+  return <Section title="可用设备" action={<div className="actions">
+    {project.maintain && <a className="text-button" href={routeFor(project.id, 'project', undefined, 'routing')}>主备设备配置</a>}
+    {workspace.executionRuntime !== 'contractor' && (remote || canPair)
+      && <Button size="sm" onClick={() => show(true)}><Plus />连接设备</Button>}
   </div>}>
     {data.error ? <Failure error={data.error} retry={() => void data.refetch()} /> : !data.data ? <Loading />
       : data.data.length ? data.data.map(device => <div className="resource-row" key={device.id}>
@@ -72,30 +73,8 @@ function DevicePane({ workspace, project }: PageProps) {
     </Modal>}
     {pair && (remote ? <Modal title="连接设备" close={() => show(false)}>
       <RunnerConnectInstructions url={remote} legacy={workspace.executionRuntime !== 'contractor'} />
-    </Modal> : <DevicePair project={project} workspace={workspace} close={() => show(false)} />)}
+    </Modal> : <LocalWorkerPair project={project.id} workspace={workspace} close={() => show(false)} />)}
   </Section>;
-}
-
-function DevicePair({ project, workspace, close }: Pick<PageProps, 'project' | 'workspace'> & { close: () => void }) {
-  const options = workspace.agents.filter(agent => agent.owner === workspace.actor && agent.active
-    && agent.executionCapabilities.local && agent.projects.includes(project.id));
-  const [issued, setIssued] = useState<{ code: string; expires: number }>();
-  const { run, busy } = useActions();
-  return <Modal title="连接本机执行端" close={close}>
-    {issued ? <div className="form">
-      <p>在工作台所在设备的项目目录，使用同一工作台数据目录运行以下命令。按提示把配对码输入终端。</p>
-      <code>npm run runner -- pair {location.port || '4280'} "研发本机"</code>
-      <div className="record-row"><strong>一次性配对码</strong><code>{issued.code}</code><span>{date(new Date(issued.expires).toISOString())} 失效</span></div>
-      <p className="muted-text">用终端返回的启动命令连接后，这台设备会显示在线。</p>
-    </div> : <form className="form" onSubmit={async event => {
-      event.preventDefault();
-      const agent = new FormData(event.currentTarget).get('agent');
-      const issued = await run(() => api<{ code: string; expires: number }>('device/pair', { project: project.id, agent }));
-      if (issued) setIssued(issued);
-    }}><Field label="绑定我的 Agent"><select name="agent" required>{options.map(agent => <option value={agent.id} key={agent.id}>{agent.title}</option>)}</select></Field>
-      <div className="form-actions"><Button type="submit" disabled={busy || !options.length}>生成配对码</Button></div>
-    </form>}
-  </Modal>;
 }
 
 export function PointsPane({ project }: { project: string }) {

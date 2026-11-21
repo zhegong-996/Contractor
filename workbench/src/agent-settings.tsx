@@ -4,7 +4,7 @@ import type { Collaboration } from '../../src/workbench/collaboration.ts';
 import { api, useData, type Overview } from './api.ts';
 import { Button } from './components/button.tsx';
 import { Input, TextArea } from './components/input.tsx';
-import { RunnerConnectInstructions } from './execution-target.tsx';
+import { LocalWorkerPair, RunnerConnectInstructions } from './execution-target.tsx';
 import { personalChatRoute } from './navigation.ts';
 import { date, Empty, Failure, Field, Loading, Modal, Pill, Section, useActions } from './ui.tsx';
 
@@ -15,11 +15,11 @@ type Model = NonNullable<Assistant['selection']>;
 const modelKey = (model: Model | null) => model ? model.provider + '/' + model.model : '';
 const modelLabel = (model: Model) => (model.provider === 'ollama' ? 'Ollama' : 'DeepSeek') + ' · ' + model.model;
 
-function ModelPicker({ choices, selection, onChange }: {
-  choices: Assistant['choices']; selection: Model | null; onChange: (value: Model | null) => void;
+function ModelPicker({ label, choices, selection, onChange }: {
+  label: string; choices: Assistant['choices']; selection: Model | null; onChange: (value: Model | null) => void;
 }) {
   const value = modelKey(selection);
-  return <select value={value} onChange={event => {
+  return <select aria-label={label} value={value} onChange={event => {
     const choice = choices.find(row => modelKey(row) === event.target.value);
     onChange(choice ? { provider: choice.provider, model: choice.model } : null);
   }}>
@@ -49,7 +49,7 @@ function RouterSettings({ current }: { current: Assistant }) {
         void run(() => api('admin/platform-assistant', { revision: current.revision, selection, dailyLimit: Number(dailyLimit) }), '平台模型已保存');
       }}>
         <div className="form-grid">
-          <Field label="路由建议与知识提炼"><ModelPicker choices={current.choices} selection={selection} onChange={choose} /></Field>
+          <Field label="路由建议与知识提炼"><ModelPicker label="路由建议与知识提炼" choices={current.choices} selection={selection} onChange={choose} /></Field>
           <Field label="每日调用上限"><Input type="number" min={1} max={1000} required value={dailyLimit} onChange={e => setLimit(e.target.value)} /></Field>
         </div>
         {!current.choices.length && <p className="muted-text">部署时先登记可用模型，登记后可在此启用。</p>}
@@ -69,26 +69,26 @@ function RouterSettings({ current }: { current: Assistant }) {
   </>;
 }
 
-export function PersonalAgentSettings() {
+export function PersonalAgentSettings({ project }: { project?: string }) {
   const data = useData<Agent>('account/personal-agent');
   if (data.error) return <Failure error={data.error} retry={() => void data.refetch()} />;
   if (!data.data) return <Loading />;
-  return <PersonalAgentForm key={data.data.revision} current={data.data} />;
+  return <PersonalAgentForm key={data.data.revision} current={data.data} project={project} />;
 }
 
-function PersonalAgentForm({ current }: { current: Agent }) {
+function PersonalAgentForm({ current, project }: { current: Agent; project?: string }) {
   const { title: name, instructions, experience, selection } = current;
   const [draft, setDraft] = useState({ title: name, instructions, experience, selection });
   const { run, busy } = useActions();
   return <div className="detail-stack">
-    <Section title="个人 Agent" action={<a className="text-button" href={personalChatRoute()}><Bot size={16} />打开我的会话</a>}>
+    <Section title="个人 Agent" action={<a className="text-button" href={personalChatRoute(undefined, project)}><Bot size={16} />打开我的会话</a>}>
       <form className="form" onSubmit={event => {
         event.preventDefault();
         void run(() => api('account/personal-agent', { ...draft, revision: current.revision }), '个人 Agent 已保存');
       }}>
         <div className="form-grid">
           <Field label="名称"><Input required maxLength={80} value={draft.title} onChange={e => setDraft({ ...draft, title: e.target.value })} /></Field>
-          <Field label="轻量模型"><ModelPicker choices={current.choices} selection={draft.selection} onChange={selection => setDraft({ ...draft, selection })} /></Field>
+          <Field label="轻量模型"><ModelPicker label="轻量模型" choices={current.choices} selection={draft.selection} onChange={selection => setDraft({ ...draft, selection })} /></Field>
         </div>
         <Field label="工作指引"><TextArea rows={3} maxLength={2000} value={draft.instructions} onChange={e => setDraft({ ...draft, instructions: e.target.value })} /></Field>
         <Field label="本人确认的经验"><TextArea rows={5} maxLength={4000} value={draft.experience} onChange={e => setDraft({ ...draft, experience: e.target.value })} /></Field>
@@ -101,17 +101,20 @@ function PersonalAgentForm({ current }: { current: Agent }) {
 export function MyWorkers({ workspace }: { workspace: Overview }) {
   const data = useData<Workers>('account/workers', 4000);
   const [edit, setEdit] = useState<Workers['devices'][number]>();
+  const [pair, setPair] = useState(false);
   const [selected, setSelected] = useState<string[]>([]);
   const { run, busy } = useActions();
   if (data.error) return <Failure error={data.error} retry={() => void data.refetch()} />;
   if (!data.data) return <Loading />;
   const { projects, devices, connectUrl } = data.data;
+  const local = workspace.agents.some(agent => agent.owner === workspace.actor && agent.active && agent.executionCapabilities.local
+    && projects.some(project => agent.projects.includes(project.id)));
   return <>
-    <Section title="我的执行设备">
+    <Section title="我的 Worker" action={!connectUrl && local && <Button size="sm" variant="outline" onClick={() => setPair(true)}>连接工作台主机</Button>}>
       {connectUrl ? <details className="minor-disclosure" open={!devices.length}>
         <summary>连接电脑或云服务器</summary>
         <RunnerConnectInstructions url={connectUrl} legacy={workspace.executionRuntime !== 'contractor'} />
-      </details> : <p className="muted-text">团队尚未设置执行端连接地址。</p>}
+      </details> : <p className="muted-text">团队尚未设置远程接入地址。</p>}
       {devices.length ? <div className="detail-stack">{devices.map(device =>
         <div className="record-row" key={device.id}><Laptop size={18} aria-hidden="true" /><strong>{device.name}</strong>
           <Pill tone={device.online ? 'green' : 'neutral'}>{device.state === 'retired' ? '已退役' : device.state === 'lost' ? '已丢失'
@@ -128,6 +131,7 @@ export function MyWorkers({ workspace }: { workspace: Overview }) {
             {device.state === 'active' ? '暂停接单' : '恢复接单'}</Button> : null}
         </div>)}</div> : <Empty title="暂无执行设备" icon={<Laptop />} />}
     </Section>
+    {pair && <LocalWorkerPair workspace={workspace} close={() => setPair(false)} />}
     {edit && <Modal title={'接单范围 · ' + edit.name} close={() => setEdit(undefined)}>
       <form className="form" onSubmit={async event => {
         event.preventDefault();

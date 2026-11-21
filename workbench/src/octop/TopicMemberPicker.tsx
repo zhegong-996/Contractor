@@ -23,7 +23,7 @@ export function TopicMemberPicker({ value, onChange, agents }: {
     <div className="topic-member-options">
       {visible.map(agent => {
         const active = selectedSet.has(agent.id);
-        return <button type="button" className="topic-member-option" key={agent.id} aria-pressed={active}
+        return <button type="button" className="topic-member-option" key={agent.id} aria-pressed={active} disabled={!active && selected.length >= 4}
           onClick={() => {
             if (!frozenFront) setFrozenFront(selectedSet);
             onChange(active ? selected.filter(id => id !== agent.id) : [...selected, agent.id]);
@@ -33,5 +33,6 @@ export function TopicMemberPicker({ value, onChange, agents }: {
         </button>;
       })}
     </div>
+    {selected.length >= 4 && <small className="muted-text">每次最多选择 4 位 Agent</small>}
   </fieldset>;
 }

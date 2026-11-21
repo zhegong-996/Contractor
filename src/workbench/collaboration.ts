@@ -459,7 +459,8 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       return { ...message, channel: origin?.octopIM?.kind ?? (origin?.feishu ? 'feishu' : 'web'), consultations: ids.flatMap(id => {
         if (target.reply && id !== target.reply) return [];
         const work = workOf(id), ticket = store.tickets.get(id);
-        if (!work?.consultation || !ticket || work.project !== project.id || work.topic !== target.topic) return [];
+        if (!work?.consultation || !ticket || work.project !== project.id || work.topic !== target.topic
+          || !privateConsultationVisible(work, actor)) return [];
         const stored = outputFor(id);
         const result = stored && outputUsable(id, stored) && (!work.octop || work.requester === actor || agentById.get(work.agent)?.owner === actor)
           ? stored : undefined;
@@ -471,9 +472,16 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
             && origin.requester === actor && origin.accepted?.revision === accepted.revision && mayStart(project, actor)) };
         });
         const stage = ticketStage(ticket);
+        const runs = stored ? [] : hub.runs(work.lane ?? id);
+        const run = stored ? hub.run(stored.run) : runs.at(-1);
+        const attempt = stored?.attempt ?? (run?.attempts || undefined);
+        const device = (run && attempt ? devices.leasedTo(run.id, attempt) : undefined) ?? work.device;
+        const recovery = !stored && !ticket.ended ? ticketRecovery(actor, ticket, work, project, runs) : undefined;
         return [{ ticket: id, speaker: { id: work.agent, name: work.consultation.name },
           status: evidence && result ? 'answered' : stored ? 'unavailable' : ticket.ended ? 'stopped'
-            : stage.stage === 'person' ? stage.action : stage.stage === 'working' && !stage.action ? 'running' : 'queued',
+            : stage.stage === 'person' ? stage.action : run?.state === 'claimed' ? 'running' : 'queued',
+          run: run?.id, attempt, device: device ? devices.get(device)?.name : '工作台运行时',
+          recovery: recovery?.kind,
           ...(evidence && result && { text: result.text, at: result.at, revision: result.revision, evidence, retrievedEvidence }) }];
       }) };
     });
@@ -1184,13 +1192,20 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     return consultTopic(actor, route.project, { topic: route.topic, ...question, nonce: id }, trigger, { address, account });
   }
 
-  async function consultTopic(actor: string, projectId: string, input: { topic: string; text: string; nonce: string; agents?: string[]; knowledge?: KnowledgeRef; device?: string }, trigger?: Trigger,
+  async function consultTopic(actor: string, projectId: string, input: {
+    topic: string; text: string; nonce: string; agents?: string[]; knowledge?: KnowledgeRef;
+    device?: string; devices?: { agent: string; device: string }[];
+  }, trigger?: Trigger,
     im?: { address: OctopIMAddress; account: PlatformActor }, accepted?: (tickets: string[]) => void) {
     const plan = () => {
       const project = projectFor(projectId, actor);
       if (!mayStart(project, actor)) throw new WorkbenchError('当前账号没有主题咨询权限。', 403);
-      if (input.device && (trigger || input.agents?.length !== 1))
-        throw new WorkbenchError('请从工作台选择一位咨询 Agent 后再指定执行设备。', 409);
+      if ((trigger && (input.device || input.devices)) || (input.device && (input.devices || input.agents?.length !== 1)))
+        throw new WorkbenchError('请在工作台为所选咨询 Agent 指定执行设备。', 409);
+      const placements = new Map(input.devices?.map(({ agent, device }) => [agent, device]));
+      if (input.devices && (placements.size !== input.devices.length || [...placements.keys()].some(agent => !input.agents?.includes(agent))))
+        throw new WorkbenchError('每位所选 Agent 只能指定一台获授权的设备。', 409);
+      if (input.device) placements.set(input.agents![0]!, input.device);
       const topicScope = conversationScope(project, actor, { topic: input.topic });
       if (input.knowledge && trigger) throw new WorkbenchError('受限知识只能从工作台发起咨询。', 403);
       const scope = input.knowledge ? privateConsultationScope(topicScope, actor) : topicScope;
@@ -1201,7 +1216,8 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       if (trigger && (!account || im && (!route || route.project !== projectId || route.topic !== input.topic
         || links.member(im.account) !== actor))) throw new WorkbenchError('当前渠道账号或会话无权在此主题发起咨询。', 403);
       const message = key('topic-consultation', projectId, scope, actor, trigger?.source ?? 'web', input.nonce);
-      const signature = digest({ text: input.text, agents: input.agents?.slice().sort(), knowledge: input.knowledge, device: input.device });
+      const signature = digest({ text: input.text, agents: input.agents?.slice().sort(), knowledge: input.knowledge, device: input.device,
+        ...(input.devices?.length && { devices: Object.fromEntries([...placements].sort(([left], [right]) => left.localeCompare(right))) }) });
       const prior = store.db.prepare('SELECT signature,tickets FROM workbench_topic_consultation WHERE message=?').get(message);
       if (prior) {
         if (trigger || prior.signature === signature) return { prior: { id: message, tickets: JSON.parse(String(prior.tickets)) as string[] } };
@@ -1219,7 +1235,8 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       const selected = candidates.filter(item => requested.includes(item.agent));
       if (restricted && (selected.length !== 1 || agentById.get(selected[0]!.agent)?.engine !== 'octop'))
         throw new WorkbenchError('受限知识咨询请选择一个主题 Octop 专家。', 403);
-      return { project, selected, restricted, message, signature, scope, account, channel };
+      const assigned = selected.map(row => ({ ...row, device: selectDevice(project, agentById.get(row.agent)!, placements.get(row.agent)) }));
+      return { project, selected: assigned, restricted, message, signature, scope, account, channel };
     };
     const initial = plan();
     if (initial.prior) {
@@ -1247,7 +1264,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       const { project, selected, restricted, message, signature, scope, account, channel } = current;
       store.db.prepare('INSERT INTO workbench_conversation_message VALUES (?,?,?,?,?,?)')
         .run(message, projectId, scope, actor, input.text, trigger?.at ?? new Date().toISOString());
-      const tickets = selected.map(({ agent, material }) => {
+      const tickets = selected.map(({ agent, material, device }) => {
         const service = agentById.get(agent)!;
         let requiredKnowledge: KnowledgeRef | undefined;
         if (restricted) {
@@ -1264,7 +1281,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
         }
         const request = '先读取本轮提供的执行上下文。只回答与自己职责和指定资料有关的部分，其他部分由同主题 Agent 处理。若需要改代码，只说明建议与理由，交给人确认。' +
           '给出简短完整的结论，引用资料提供的 [记忆:条目@修订] 标记。\n\n咨询：' + input.text;
-        return requireValue(start(actor, { project: projectId, topic: input.topic, agent, material, device: input.device,
+        return requireValue(start(actor, { project: projectId, topic: input.topic, agent, material, device,
           title: ('主题咨询 · ' + service.title).slice(0, 100), request, priority: 'normal', nonce: key(message, agent) }, undefined, true,
         { message, name: service.title, feishu: channel, account, requiredKnowledge, ...(restricted && { private: true }),
           ...(im && { octopIM: im.address }) }).ticket, '咨询未获准。', 409);
@@ -4707,7 +4724,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
   }
 
   function issueDevicePair(actor: string, projectId: string, agentId: string, remote = false) {
-    return devices.begin(deviceBinding(actor, projectId, agentId, remote));
+    return { ...devices.begin(deviceBinding(actor, projectId, agentId, remote)), port: remote ? config.remoteRunnerPort! : config.port };
   }
 
   function beginDeviceEnrollment(input: RunnerConnectInput, secret: string) {

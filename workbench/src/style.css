@@ -584,6 +584,14 @@ input[type=checkbox] { width: 15px; height: 15px; accent-color: var(--accent); }
 .execution-target-manage { margin-top: 5px; }
 .execution-environment { min-width: 0; }
 .execution-environment .execution-target-options { max-height: min(190px, 24vh); overflow-y: auto; }
+.topic-execution-choices { display: grid; gap: 5px; min-width: 0; }
+.topic-execution-choices .execution-environment { min-width: 0; }
+.topic-execution-choices summary { overflow-wrap: anywhere; }
+.topic-member-option:disabled { opacity: 0.55; cursor: default; }
+.agent-workspace { display: grid; grid-template-rows: auto minmax(0, 1fr); height: 100%; min-width: 0; }
+.agent-navigation { display: flex; flex-wrap: wrap; gap: 3px 8px; padding: 6px clamp(10px, 2vw, 24px); border-bottom: 1px solid var(--line); background: var(--surface); }
+.agent-navigation .text-button { border-radius: 6px; padding-inline: 8px; }
+.agent-navigation [aria-current=page] { background: var(--accent-soft); }
 
 @media (max-width: 900px) {
   .run-history { grid-template-columns: minmax(0, 1fr); }

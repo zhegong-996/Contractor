@@ -5,7 +5,7 @@ import { ExecutionEnvironment, executionTargetState, useExecutionTargets } from 
 import { Field, Modal, SearchBox, Source, TopicOptions, useActions, useStored } from './ui.tsx';
 import { Button } from './components/button.tsx';
 import { Input, TextArea } from './components/input.tsx';
-import { go, type PageProps, type TaskPreset } from './navigation.ts';
+import { go, routeFor, withConversationOrigin, type PageProps, type TaskPreset } from './navigation.ts';
 import { CaseEditor } from './product-criteria.tsx';
 
 export function MaterialPicker({ entries, values, onChange }: {
@@ -38,7 +38,7 @@ function initialDraft(preset: TaskPreset): Draft {
     baseline: preset.lesson ? String(preset.lesson.baseline) : '', targetValue: '', recall: !!preset.personal, device: preset.device ?? '' };
 }
 
-export function Composer({ project, workspace, preset, close }: PageProps & { preset: TaskPreset; close: () => void }) {
+export function Composer({ project, workspace, route, preset, close }: PageProps & { preset: TaskPreset; close: () => void }) {
   const defaultDraft = useState(() => initialDraft(preset))[0];
   const key = ['composer', project.id, preset.agent, preset.parent, preset.topic, preset.material?.join(','), preset.lesson?.id, preset.personal].join('/');
   const [draft, setDraft] = useStored(preset.request ? key + '/' + defaultDraft.nonce : key, defaultDraft);
@@ -92,7 +92,9 @@ export function Composer({ project, workspace, preset, close }: PageProps & { pr
     if (outcome) {
       setDraft(initialDraft(preset));
       close();
-      go(project.id, outcome.pending ? 'inbox' : 'work', outcome.ticket);
+      if (outcome.pending) go(project.id, 'inbox');
+      else window.location.hash = withConversationOrigin(routeFor(project.id, 'work', outcome.ticket),
+        outcome.ticket && route.view === 'chat' ? route : undefined);
     }
   };
   return <Modal title={preset.personal ? '发起只读代办' : preset.parent ? '新建子工单' : '发起协作'} close={close}>
