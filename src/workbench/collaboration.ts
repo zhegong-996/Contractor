@@ -3336,6 +3336,17 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
 
   const historyReads = new Map<string, Promise<{ listed: boolean; checked: boolean }>>();
   const historyStatus = new Map<string, { at: number; state: 'ready' | 'partial' | 'failed' | 'unauthorized' }>();
+  function historyReplyActor(input: DiscussionInput, history: NonNullable<Project['consultationHistory']>) {
+    const { trigger, sender } = input;
+    if (!input.history || sender.namespace !== history.appId || input.command || input.answer || input.consultation
+      || trigger.text.trimStart().startsWith('/')) return;
+    const linked = links.member(sender, trigger.at);
+    const current = links.member(sender);
+    if (linked && linked === current) return linked;
+    if (!linked && !current && history.appId !== config.feishu?.appId && sender.id === history.userOpenId
+      && dmAccount(history.member)) return history.member;
+  }
+
   function syncDiscussionSource(project: Project, ref: ProjectResource, slot: number) {
     const chat = ref.externalId;
     const id = key('discussion-history', project.id, chat);
@@ -3354,9 +3365,11 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       const { since, cursor } = discussions.chat(project.id, chat)!;
       const start = Math.max(since, cursor - 120_000, slot - discussionLookback);
       const watched = discussions.watchMessages(project.id, chat);
+      const topicRoots = Object.values(ref.feishuTopicRoots ?? {});
+      const watchedIds = [...new Set([...watched.map(message => message.native), ...topicRoots])];
       const [listed, checked] = await withFeishuReads(() => Promise.allSettled([
         start < slot ? readDiscussionHistory(reader, history, config.feishu!, chat, start, slot, end.signal) : undefined,
-        refreshDiscussionMessages(reader, history, config.feishu!, chat, watched.map(message => message.native)),
+        refreshDiscussionMessages(reader, history, config.feishu!, chat, watchedIds),
       ]));
       end.signal.throwIfAborted();
       if (!allowed()) {
@@ -3376,6 +3389,10 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
           if (feishuScope(chat, rootId ?? messageId).project?.id !== project.id) continue;
           trackFeishuThread(input.trigger);
           if (input.trigger.url) links.addFeishuPermalink(input.trigger.id, project.id, input.trigger.url);
+          if (rootId) {
+            const author = historyReplyActor(input, history);
+            if (author) receiveFeishuReply(input, project.id, author);
+          }
           if (input.consultation) {
             try { await receiveFeishuConsultation(project, input.trigger, input.consultation, { sender: input.sender, source: ref }); }
             catch (error) {
@@ -3413,7 +3430,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
         return listed.status === 'fulfilled' && covered;
       });
       let threadFailures = 0;
-      for (const thread of discussions.threads(project.id, chat, slot)) {
+      for (const thread of discussions.threads(project.id, chat, slot, topicRoots)) {
         if (feishuScope(chat, thread.root).project?.id !== project.id) continue;
         const from = Math.max(since, thread.cursor - 120_000, slot - discussionLookback);
         const replies = await readDiscussionThread(reader, history, config.feishu!, chat, thread, from, slot, end.signal).catch(() => undefined);
@@ -3473,15 +3490,11 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     const withdrawn = new Set(batch.withdrawn);
     store.atomic(() => {
       for (const input of batch.inputs) {
-        const { trigger, sender } = input;
-        if (withdrawn.has(trigger.id) || sender.namespace !== history.appId || input.command || input.answer || input.consultation
-          || trigger.text.trimStart().startsWith('/') || trigger.meta.rootId !== root
+        const { trigger } = input;
+        if (withdrawn.has(trigger.id) || trigger.meta.rootId !== root
           || typeof trigger.meta.parentId !== 'string' || trigger.meta.parentId === root) continue;
-        const linked = links.member(sender, trigger.at);
-        const currentActor = links.member(sender);
-        const ownMessage = history.appId !== config.feishu!.appId && sender.id === history.userOpenId && dmAccount(history.member);
-        const actor = linked && linked === currentActor ? linked : !linked && !currentActor && ownMessage ? history.member : undefined;
-        if (actor && mayStart(project, actor)) receiveFeishuReply(input, project.id, actor);
+        const actor = historyReplyActor(input, history);
+        if (actor) receiveFeishuReply(input, project.id, actor);
       }
       discussions.advanceThread(project.id, chat, thread, until, true);
     });

@@ -150,10 +150,11 @@ export class Discussions {
       .run(project, chat, thread.id, thread.root, thread.at, scope.since);
   }
 
-  threads(project: string, chat: string, end: number) {
+  threads(project: string, chat: string, end: number, roots: string[] = []) {
     return this.store.db.prepare(`SELECT id,root,at,cursor FROM workbench_discussion_thread
-      WHERE project=? AND chat=? AND at>=? AND cursor<? ORDER BY checked,at,id LIMIT 12`)
-      .all(project, chat, end - discussionLookback, end) as (DiscussionThread & { cursor: number })[];
+      WHERE project=? AND chat=? AND (at>=? OR root IN (SELECT value FROM json_each(?)))
+        AND cursor<? ORDER BY checked,at,id LIMIT 12`)
+      .all(project, chat, end - discussionLookback, JSON.stringify(roots), end) as (DiscussionThread & { cursor: number })[];
   }
 
   thread(project: string, chat: string, id: string) {

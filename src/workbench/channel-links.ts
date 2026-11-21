@@ -186,6 +186,7 @@ export class ChannelLinks {
   addFeishuPermalink(id: string, project: string, url: string) {
     this.db.prepare(`UPDATE workbench_channel_event SET request=json_set(request,'$.trigger.url',?)
       WHERE id=? AND project=? AND ticket IS NOT NULL AND json_extract(request,'$.sender.provider')='feishu'
+        AND json_extract(request,'$.note')=1
         AND json_extract(request,'$.trigger.url') IS NULL`).run(url, id, project);
   }
 

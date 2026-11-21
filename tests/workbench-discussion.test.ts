@@ -8,6 +8,21 @@ import { readDiscussionHistory, readDiscussionThread, refreshDiscussionMessages 
 import { FeishuSources } from '../src/feishu-sources.ts';
 import type { SuperAgentStore } from '../src/superagent-ports.ts';
 
+test('休眠的项目绑定话题仍补读，其他旧话题按原回看窗口退出', () => {
+  const db = new DatabaseSync(':memory:');
+  try {
+    const discussions = new Discussions({ db } as SuperAgentStore);
+    const end = 1795230647000, old = end - 4 * 24 * 3600_000;
+    discussions.track('one', 'oc_room', old);
+    discussions.trackThread('one', 'oc_room', { id: 'omt_pinned', root: 'om_pinned', at: old });
+    discussions.trackThread('one', 'oc_room', { id: 'omt_stale', root: 'om_stale', at: old });
+    assert.deepEqual(discussions.threads('one', 'oc_room', end), []);
+    assert.deepEqual(discussions.threads('one', 'oc_room', end, ['om_pinned']).map(row => row.id), ['omt_pinned']);
+  } finally {
+    db.close();
+  }
+});
+
 test('群整理按上海时间在半天结束运行，回执须覆盖本批且只能引用本项目', () => {
   const next = nextRun(parseCron('0 0,12 * * *')!, Date.parse('2026-11-14T11:59:58+08:00'), discussionZone);
   assert.equal(next, Date.parse('2026-11-14T12:00:00+08:00'));
