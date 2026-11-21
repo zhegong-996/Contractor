@@ -5,8 +5,44 @@ export const imProviderNames = {
 
 export type IMProvider = keyof typeof imProviderNames;
 
-export const feishuScanOrigin = 'https://passport.feishu.cn';
+export const imQrOrigins = {
+  feishu: 'https://passport.feishu.cn',
+  dingtalk: 'https://login.dingtalk.com',
+  wecom: 'https://open.work.weixin.qq.com',
+} as const;
+export type IMQrProvider = keyof typeof imQrOrigins;
+export const isIMQrProvider = (provider: IMProvider | undefined): provider is IMQrProvider =>
+  provider !== undefined && Object.hasOwn(imQrOrigins, provider);
+
+export const imCallbackPath = '/api/auth/im/callback';
 export const feishuScanAuthorizePath = '/suite/passport/oauth/authorize';
+
+export const isIMAuthorizationCode = (value: unknown): value is string =>
+  typeof value === 'string' && /^[^\x00-\x20\x7f]{1,512}$/.test(value);
+
+export function imQrContinuation(provider: IMQrProvider, location: string, payload: unknown, teamOrigin: string) {
+  const target = URL.parse(location);
+  if (!target) return;
+  const event = payload && typeof payload === 'object' ? payload as Record<string, unknown> : undefined;
+  if (provider === 'feishu') {
+    if (target.origin !== imQrOrigins.feishu || target.pathname !== feishuScanAuthorizePath
+      || event?.source !== 'qrcode' || !isIMAuthorizationCode(event.tmp_code)) return;
+    target.searchParams.set('tmp_code', event.tmp_code);
+    return target.href;
+  }
+  if (target.origin !== teamOrigin || target.pathname !== imCallbackPath) return;
+  const returned = provider === 'wecom' ? payload : event?.success === true ? event.redirectUrl : undefined;
+  const callback = typeof returned === 'string' ? URL.parse(returned) : null;
+  const state = target.searchParams.get('state');
+  if (!state || !callback || callback.origin !== teamOrigin || callback.pathname !== imCallbackPath
+    || callback.username || callback.password || callback.searchParams.getAll('state').length !== 1
+    || callback.searchParams.get('state') !== state) return;
+  const codes = [...callback.searchParams.getAll('code'), ...(provider === 'dingtalk' ? callback.searchParams.getAll('authCode') : [])];
+  if (codes.length === 0 && provider === 'wecom') return target.href;
+  if (codes.length !== 1 || !isIMAuthorizationCode(codes[0])) return;
+  target.searchParams.set('code', codes[0]);
+  return target.href;
+}
 
 export const imAuthorizationHints: Record<IMProvider, string> = {
   feishu: '打开飞书授权页，用所在组织的账号继续。',

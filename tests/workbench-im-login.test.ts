@@ -13,6 +13,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { pathToFileURL } from 'node:url';
 import { imConnections, imLoginSettings } from '../src/workbench/im-login-providers.ts';
 import { imReturnPath, openIMLogin } from '../src/workbench/im-login.ts';
+import { imQrContinuation, imQrOrigins, type IMQrProvider } from '../src/workbench/im-login-channels.ts';
 
 const providers = {
   feishu: { appId: 'cli_fixture', tenantKey: 'tenant_fixture', secretEnv: 'CONTRACTOR_FIXTURE_FEISHU' },
@@ -157,10 +158,14 @@ test('浏览器授权只消费一次，切换主 IM 作废未完成请求并保�
   params.set('state', new URL(pending.location).searchParams.get('state')!);
   assert.throws(() => login.select({ primary: 'dingtalk', legacyPassword: false }, []), { status: 409 });
   login.select({ primary: 'dingtalk', legacyPassword: true }, []);
+  assert.equal(login.qrOrigin(), imQrOrigins.dingtalk);
+  assert.equal(login.beginQr('#/account').provider, 'dingtalk');
   await assert.rejects(login.finish(params, pending.proof, () => false), { status: 409 });
   assert.equal(login.registrations().length, 0);
   assert.equal(openIMLogin(db, settings, team).view().primary, 'dingtalk');
   login.select({ primary: 'discord', legacyPassword: true }, []);
+  assert.equal(login.qrOrigin(), undefined);
+  assert.throws(() => login.beginQr('#/account'), { status: 409 });
   function discordCallback(issuer?: string) {
     const step = login.begin('#/store/work/example');
     const params = new URLSearchParams({ code: 'fixture', state: new URL(step.location).searchParams.get('state')! });
@@ -233,6 +238,25 @@ test('工作台回调、开通、原账号绑定、项目授权和停止口令�
           return Response.json({access_token:'wechat-fixture-token',openid:'wx_'+url.searchParams.get('code')});
         if (url.pathname === '/sns/userinfo')
           return Response.json({openid:url.searchParams.get('openid'),nickname:'微信联调成员'});
+      }
+      if (url.hostname === 'api.dingtalk.com') {
+        if (url.pathname === '/v1.0/oauth2/userAccessToken')
+          return Response.json({accessToken:JSON.parse(opts.body).code});
+        if (url.pathname === '/v1.0/contact/users/me')
+          return Response.json({unionId:opts.headers['x-acs-dingtalk-access-token'],nick:'钉钉联调成员'});
+        if (url.pathname === '/v1.0/oauth2/accessToken') return Response.json({accessToken:'ding-app-fixture'});
+      }
+      if (url.hostname === 'oapi.dingtalk.com' && url.pathname === '/topapi/user/getbyunionid') {
+        const { unionid } = JSON.parse(opts.body);
+        const contact_type = unionid === 'outside' ? 1 : 0;
+        return Response.json({errcode:0,result:{contact_type,userid:'staff_'+unionid}});
+      }
+      if (url.hostname === 'qyapi.weixin.qq.com') {
+        if (url.pathname === '/cgi-bin/gettoken') return Response.json({errcode:0,access_token:'wecom-app-fixture'});
+        if (url.pathname === '/cgi-bin/auth/getuserinfo') {
+          const code = url.searchParams.get('code');
+          return Response.json({errcode:0,...(code === 'outside' ? {openid:'visitor'} : {userid:'wecom_'+code})});
+        }
       }
       const scan = url.hostname === 'passport.feishu.cn';
       if (!scan && url.hostname !== 'open.feishu.cn') return native(input, opts);
@@ -316,25 +340,35 @@ test('工作台回调、开通、原账号绑定、项目授权和停止口令�
   const loginPage = await api('session').then(response => response.json());
   assert.equal(loginPage.imLogin.embeddedQr, true);
   assert.equal((await api('auth/im/qr', undefined, {}, 'https://wrong.invalid')).status, 403);
-  async function beginQr(next: string) {
+  async function beginQr(next: string, provider: IMQrProvider = 'feishu') {
     const response = await api('auth/im/qr', undefined, { next });
     assert.equal(response.status, 200, await response.clone().text());
     assert.match(response.headers.get('cache-control')!, /no-store/);
     const body = await response.json();
     assert.equal(body.signedIn, false);
+    assert.equal(body.provider, provider);
     assert.equal(Object.hasOwn(body, 'proof'), false);
     assert.ok(body.maxAge > 0);
     const frame = new URL(body.frame);
-    assert.equal(frame.origin + frame.pathname, 'https://passport.feishu.cn/suite/passport/sso/qr');
-    assert.equal(frame.searchParams.get('goto'), body.location);
     const authorize = new URL(body.location);
-    assert.equal(authorize.pathname, '/suite/passport/oauth/authorize');
+    assert.equal(frame.origin, imQrOrigins[provider]);
+    if (provider === 'feishu') {
+      assert.equal(frame.pathname, '/suite/passport/sso/qr');
+      assert.equal(frame.searchParams.get('goto'), body.location);
+      assert.equal(authorize.pathname, '/suite/passport/oauth/authorize');
+    } else {
+      assert.equal(authorize.origin + authorize.pathname, callback);
+      assert.equal(frame.searchParams.get('redirect_uri'), callback);
+      assert.equal(frame.searchParams.get('state'), authorize.searchParams.get('state'));
+      if (provider === 'dingtalk') assert.equal(frame.searchParams.get('iframe'), 'true');
+      else assert.equal(frame.searchParams.get('login_type'), 'jssdk');
+    }
     const state = authorize.searchParams.get('state')!;
     const name = 'contractor_im_qr_' + state;
     const proof = cookie(response, name)!;
     assert.match(response.headers.getSetCookie()[0]!, /HttpOnly.*SameSite=Lax.*Secure.*Max-Age=/);
     assert.ok(proof);
-    return { state, proof, name };
+    return { state, proof, name, location: authorize.href };
   }
   const [qr1, qr2] = await Promise.all([beginQr('#/store/work/example?tab=execution'), beginQr('#/account')]);
   assert.notEqual(qr1.name, qr2.name);
@@ -481,4 +515,32 @@ test('工作台回调、开通、原账号绑定、项目授权和停止口令�
   assert.equal((await api('session').then(response => response.json())).imLogin.provider, 'wechat');
   const migratedOwner = cookie(await complete('ownerid', await begin()), 'contractor_console')!;
   assert.equal((await api('overview', migratedOwner).then(response => response.json())).actor, 'owner');
+  let activeOwner = migratedOwner;
+  for (const provider of ['dingtalk', 'wecom'] as const) {
+    const linked = await complete('ownerid', await link(activeOwner, provider), activeOwner);
+    assert.equal(linked.headers.get('location'), '/?im=linked#/account');
+    assert.equal((await api('admin/im-login', activeOwner, { primary: provider, legacyPassword: false })).status, 200);
+    const publicLogin = (await api('session').then(response => response.json())).imLogin;
+    assert.equal(publicLogin.provider, provider);
+    assert.equal(publicLogin.embeddedQr, true);
+    assert.deepEqual(publicLogin.migration, []);
+    assert.equal((await api('auth/im/qr', undefined, { provider: 'feishu' })).status, 400);
+    const qr = await beginQr('#/store/work/example?tab=execution', provider);
+    const vendorResult = (href: string) => provider === 'dingtalk' ? { success: true, redirectUrl: href } : href;
+    const key = provider === 'dingtalk' ? 'authCode' : 'code';
+    assert.equal(imQrContinuation(provider, qr.location, vendorResult(qr.location + '&' + key + '=ownerid'), team),
+      qr.location + '&code=ownerid');
+    assert.equal(imQrContinuation(provider, qr.location, vendorResult(qr.location.replace(team, 'https://wrong.invalid') + '&' + key + '=ownerid'), team), undefined);
+    assert.equal(imQrContinuation(provider, qr.location, vendorResult(qr.location + '&state=other&' + key + '=ownerid'), team), undefined);
+    const result = await api('auth/im/callback?' + new URLSearchParams({ state: qr.state, [key]: 'ownerid' }), qr.proof);
+    assert.equal(result.headers.get('location'), '/#/store/work/example?tab=execution');
+    activeOwner = cookie(result, 'contractor_console')!;
+    assert.ok(activeOwner);
+    const original = await api('overview', activeOwner).then(response => response.json());
+    assert.equal(original.actor, 'owner');
+    assert.equal(original.platformRole, 'owner');
+    assert.deepEqual(original.projects.map((project: { id: string; maintain: boolean }) => [project.id, project.maintain]), [['store', true]]);
+    assert.match((await complete('ownerid', qr)).headers.get('location')!, /im=expired/);
+    assert.match((await complete('outside', await beginQr('#/account', provider))).headers.get('location')!, /im=failed/);
+  }
 });

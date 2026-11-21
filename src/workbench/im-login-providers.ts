@@ -4,7 +4,7 @@ import { configuredEnv, isConfigSecretName } from './compatibility.ts';
 import type { PlatformActor } from './channel-links.ts';
 import { WorkbenchError } from './errors.ts';
 import { octopIMNativeId } from './octop-im-contract.ts';
-import { feishuScanAuthorizePath, feishuScanOrigin, imProviderNames, type IMProvider } from './im-login-channels.ts';
+import { feishuScanAuthorizePath, imProviderNames, imQrOrigins, type IMProvider, type IMQrProvider } from './im-login-channels.ts';
 
 export { imProviderNames, type IMProvider } from './im-login-channels.ts';
 export const imProvider = z.enum(Object.keys(imProviderNames) as IMProvider[]);
@@ -100,6 +100,23 @@ const tokenForm = (fields: Record<string, string>, authorization?: string): Requ
 const pkce = (verifier: string) => ({ code_challenge: createHash('sha256').update(verifier).digest('base64url'), code_challenge_method: 'S256' });
 const invalidMember = () => new WorkbenchError('未能验证该渠道身份或企业成员资格。', 403);
 
+export const qrFrames: Record<IMQrProvider, (authorize: URL, callback: URL) => { frame: string; location: string }> = {
+  feishu: authorize => ({
+    frame: url(imQrOrigins.feishu + '/suite/passport/sso/qr', { goto: authorize.href, sdk_version: '1.0.3' }).href,
+    location: authorize.href,
+  }),
+  dingtalk: (authorize, callback) => {
+    authorize.searchParams.set('iframe', 'true');
+    return { frame: authorize.href, location: callback.href };
+  },
+  wecom: (authorize, callback) => ({
+    frame: url(imQrOrigins.wecom + '/wwopen/sso/qrConnect', {
+      ...Object.fromEntries(authorize.searchParams), login_type: 'jssdk', lang: 'zh', version: '1.2.4',
+    }).href,
+    location: callback.href,
+  }),
+};
+
 async function verifyTelegram(jwt: string, client: string, keys: () => Promise<z.infer<typeof telegramKeys>>) {
   const parts = jwt.split('.');
   if (parts.length !== 3 || parts.some(part => !/^[A-Za-z0-9_-]+$/.test(part))) throw invalidMember();
@@ -148,7 +165,7 @@ export function imConnections(settings: IMLoginSettings | undefined, feishuBotAp
   if (configs.feishu) {
     const { appId: client, tenantKey, secretEnv } = configs.feishu;
     add('feishu', [tenantKey, client], secretEnv, ({ redirect, state, verifier, embeddedQr }) =>
-      url(embeddedQr ? feishuScanOrigin + feishuScanAuthorizePath : 'https://accounts.feishu.cn/open-apis/authen/v1/authorize', {
+      url(embeddedQr ? imQrOrigins.feishu + feishuScanAuthorizePath : 'https://accounts.feishu.cn/open-apis/authen/v1/authorize', {
         client_id: client, redirect_uri: redirect, response_type: 'code', state, target_tenant: tenantKey,
         ...pkce(verifier),
       }), async (code, { redirect, verifier, embeddedQr }, appSecret) => {
@@ -157,10 +174,10 @@ export function imConnections(settings: IMLoginSettings | undefined, feishuBotAp
         code, redirect_uri: redirect, code_verifier: verifier,
       };
       const { access_token: access } = embeddedQr
-        ? await api(tokenResponse, feishuScanOrigin + '/suite/passport/oauth/token', tokenForm(fields))
+        ? await api(tokenResponse, imQrOrigins.feishu + '/suite/passport/oauth/token', tokenForm(fields))
         : await api(tokenResponse, 'https://open.feishu.cn/open-apis/authen/v2/oauth/token', json(fields));
       const profile = embeddedQr
-        ? await api(feishuMember, feishuScanOrigin + '/suite/passport/oauth/userinfo', bearer(access))
+        ? await api(feishuMember, imQrOrigins.feishu + '/suite/passport/oauth/userinfo', bearer(access))
         : (await api(feishuProfile, 'https://open.feishu.cn/open-apis/authen/v1/user_info', bearer(access))).data;
       if (profile.tenant_key !== tenantKey) throw invalidMember();
       return { id: profile.open_id, name: profile.name, avatars: [profile.avatar_thumb, profile.avatar_url, profile.picture], ...(client === feishuBotApp && {

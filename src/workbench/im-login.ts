@@ -1,12 +1,12 @@
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import type { ConsoleAccount } from '../console-auth.ts';
-import { imConnections, imProvider, identityHash, imProviderNames, type ExternalIdentity, type IMLoginSettings,
+import { imConnections, imProvider, identityHash, imProviderNames, qrFrames, type ExternalIdentity, type IMLoginSettings,
   type IMProvider, type VerifiedIdentity } from './im-login-providers.ts';
 import { WorkbenchError } from './errors.ts';
-import { feishuScanOrigin } from './im-login-channels.ts';
+import { imCallbackPath, imQrOrigins, isIMAuthorizationCode, isIMQrProvider } from './im-login-channels.ts';
 
-export const imCallbackPath = '/api/auth/im/callback';
+export { imCallbackPath };
 export const imLoginCookie = 'contractor_im_oauth';
 export const imQrCookie = (state: string | null) => state && /^[a-f0-9]{48}$/.test(state) ? 'contractor_im_qr_' + state : undefined;
 const maxChallenges = 500;
@@ -54,6 +54,14 @@ export function openIMLogin(db: DatabaseSync, config: IMLoginSettings | undefine
       : { primary: config.primary, legacyPassword: config.legacyPassword };
   }
   const connection = () => policy && connections.get(policy.primary);
+  const qrProvider = () => {
+    const provider = connection()?.provider;
+    return callback && isIMQrProvider(provider) ? provider : undefined;
+  };
+  const qrOrigin = () => {
+    const provider = qrProvider();
+    return provider && imQrOrigins[provider];
+  };
   const legacyPassword = () => policy?.legacyPassword ?? true;
 
   function view() {
@@ -86,7 +94,7 @@ export function openIMLogin(db: DatabaseSync, config: IMLoginSettings | undefine
     const current = connection();
     const isLinked = (authority: string) => !!account?.imLogins?.some(row => row.authority === authority);
     return { provider, origin, ready: !!(current && callback), onTeamAddress: !!origin && origin === currentOrigin,
-      embeddedQr: !!callback && current?.provider === 'feishu',
+      embeddedQr: !!qrProvider(),
       legacyPassword: legacyPassword(), hasPassword: !!account?.passwordHash, linked: !!current && isLinked(current.authority),
       migration: account && callback ? [...connections.values()].filter(item => item.provider !== provider)
         .map(item => ({ provider: item.provider, linked: isLinked(item.authority) })) : [],
@@ -94,7 +102,7 @@ export function openIMLogin(db: DatabaseSync, config: IMLoginSettings | undefine
   }
   function begin(to: string | null, inWeCom?: boolean, link?: BindingSession & { provider?: IMProvider }, embeddedQr?: true) {
     const current = link?.provider ? connections.get(link.provider) : connection();
-    if (!current || !callback || embeddedQr && current.provider !== 'feishu')
+    if (!current || !callback || embeddedQr && !isIMQrProvider(current.provider))
       throw new WorkbenchError('当前工作台尚未启用此登录方式。', 409);
     const at = now();
     for (const [state, challenge] of challenges) if (challenge.expires <= at) challenges.delete(state);
@@ -109,10 +117,12 @@ export function openIMLogin(db: DatabaseSync, config: IMLoginSettings | undefine
       state, proof, maxAge: oauthTimeout / 1000 };
   }
   function beginQr(to: string | null) {
+    const provider = qrProvider();
+    if (!provider || !callback) throw new WorkbenchError('当前工作台尚未启用扫码登录。', 409);
     const start = begin(to, undefined, undefined, true);
-    const frame = new URL('/suite/passport/sso/qr', feishuScanOrigin);
-    frame.search = new URLSearchParams({ goto: start.location, sdk_version: '1.0.3' }).toString();
-    return { ...start, frame: frame.href };
+    const destination = new URL(callback);
+    destination.searchParams.set('state', start.state);
+    return { ...start, provider, ...qrFrames[provider](new URL(start.location), destination) };
   }
   async function finish(params: URLSearchParams, proof: string | undefined,
     mayLink: (link: BindingSession) => boolean): Promise<CallbackResult> {
@@ -129,12 +139,12 @@ export function openIMLogin(db: DatabaseSync, config: IMLoginSettings | undefine
     try {
       if (step.link && !mayLink(step.link)) return { to: step.to, status: 'expired' };
       if (params.has('error') || codes.length === 0) return { to: step.to, status: 'cancelled' };
-      if (codes.length !== 1 || !/^[^\x00-\x20\x7f]{1,512}$/.test(codes[0]!))
+      if (codes.length !== 1 || !isIMAuthorizationCode(codes[0]))
         return { to: step.to, status: 'failed' };
       const issuers = params.getAll('iss');
       if (current.provider === 'discord' && (issuers.length !== 1 || issuers[0] !== 'https://discord.com'))
         return { to: step.to, status: 'failed' };
-      const identity = await current.verify(codes[0]!, { redirect: callback, state, verifier: step.verifier, embeddedQr: step.embeddedQr });
+      const identity = await current.verify(codes[0], { redirect: callback, state, verifier: step.verifier, embeddedQr: step.embeddedQr });
       if (epoch !== generation || step.expires <= now() || step.link && !mayLink(step.link))
         return { to: step.to, status: 'expired' };
       return { to: step.to, provider: current.provider, identity, link: step.link };
@@ -168,7 +178,7 @@ export function openIMLogin(db: DatabaseSync, config: IMLoginSettings | undefine
     db.prepare('DELETE FROM workbench_im_registration WHERE id=?').run(id);
   }
   return {
-    view, browser, select, legacyPassword, begin, beginQr, finish, requestRegistration, registrations, dropRegistration,
+    view, browser, select, legacyPassword, begin, beginQr, qrOrigin, finish, requestRegistration, registrations, dropRegistration,
     allowsSession(_account: ConsoleAccount, external?: ExternalIdentity) {
       return external ? external.authority === connection()?.authority : legacyPassword();
     },

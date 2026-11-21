@@ -3,7 +3,8 @@ import { ArrowRight, Check, Copy, QrCode } from 'lucide-react';
 import { api, useData, type LoginPolicy, type Session } from './api.ts';
 import { Button } from './components/button.tsx';
 import { Failure, FormError, Loading, Pill, Section, useActions } from './ui.tsx';
-import { feishuScanAuthorizePath, feishuScanOrigin, imAuthorizationHints, imProviderNames as imNames } from '../../src/workbench/im-login-channels.ts';
+import { imAuthorizationHints, imProviderNames as imNames, imQrContinuation, imQrOrigins, isIMQrProvider,
+  type IMQrProvider } from '../../src/workbench/im-login-channels.ts';
 
 export { imNames };
 const notices = {
@@ -32,9 +33,10 @@ export function useIMNotice() {
   return { status, text: status && notices[status] };
 }
 
-type LoginQr = { signedIn: false; frame: string; location: string; maxAge: number } | { signedIn: true; to: string };
+type LoginQr = { signedIn: false; provider: IMQrProvider; frame: string; location: string; maxAge: number }
+  | { signedIn: true; to: string };
 
-function FeishuLoginQr({ next }: { next: string }) {
+function IMLoginQr({ provider, next }: { provider: IMQrProvider; next: string }) {
   const iframe = useRef<HTMLIFrameElement>(null);
   const [code, setCode] = useState<Extract<LoginQr, { signedIn: false }>>();
   const [error, setError] = useState<Error>();
@@ -49,45 +51,51 @@ function FeishuLoginQr({ next }: { next: string }) {
     void api<LoginQr>('auth/im/qr', { next }).then(result => {
       if (discarded) return;
       if (result.signedIn) { window.location.replace(result.to); return; }
+      if (result.provider !== provider) { window.location.reload(); return; }
+      if (URL.parse(result.frame)?.origin !== imQrOrigins[provider]) throw new Error('登录二维码暂时无法打开。');
       setCode(result);
       expires = window.setTimeout(() => setRefresh(count => count + 1), result.maxAge * 1000);
     }).catch(reason => {
       if (!discarded) setError(reason instanceof Error ? reason : new Error('暂时无法生成登录二维码。'));
     });
     return () => { discarded = true; window.clearTimeout(expires); };
-  }, [next, refresh]);
+  }, [next, provider, refresh]);
 
   useEffect(() => {
     if (!code) return;
     const destination = code.location;
     function scanned(event: MessageEvent) {
-      if (event.origin !== feishuScanOrigin || event.source !== iframe.current?.contentWindow) return;
-      const { source, tmp_code: temporary } = event.data ?? {};
-      if (source !== 'qrcode' || typeof temporary !== 'string' || !/^[^\x00-\x20\x7f]{1,512}$/.test(temporary)) return;
-      const authorize = new URL(destination);
-      if (authorize.origin !== feishuScanOrigin || authorize.pathname !== feishuScanAuthorizePath) return;
+      if (event.origin !== imQrOrigins[provider] || event.source !== iframe.current?.contentWindow) return;
+      const next = imQrContinuation(provider, destination, event.data, window.location.origin);
+      if (!next) {
+        if (provider === 'dingtalk' && typeof event.data?.errorMsg === 'string' && event.data.errorMsg)
+          setError(new Error('钉钉二维码暂不可用。请重试，或联系管理员检查登录配置。'));
+        return;
+      }
       window.removeEventListener('message', scanned);
-      authorize.searchParams.set('tmp_code', temporary);
-      window.location.replace(authorize.href);
+      window.location.replace(next);
     }
     window.addEventListener('message', scanned);
     return () => window.removeEventListener('message', scanned);
-  }, [code]);
+  }, [code, provider]);
 
   return <div className="login-qr">
     {error ? <Failure error={error} retry={retry} /> : <>
-      <div className="login-qr-frame">
-        {code ? <iframe ref={iframe} title="飞书登录二维码" src={code.frame} sandbox="allow-scripts allow-same-origin" referrerPolicy="origin" />
+      <div className="login-qr-frame" data-provider={provider}>
+        {code ? <iframe ref={iframe} title={imNames[provider] + '登录二维码'} src={code.frame}
+          sandbox="allow-scripts allow-same-origin" referrerPolicy="origin"
+          onLoad={provider === 'wecom' ? () => iframe.current?.contentWindow?.postMessage('ask_usePostMessage', imQrOrigins.wecom) : undefined} />
           : <Loading />}
       </div>
-      <p>请使用飞书扫码登录</p>
+      {provider === 'feishu' && <p>请使用飞书扫码登录</p>}
     </>}
   </div>;
 }
 
 export function IMLoginEntry({ login, status, active }: { login?: Session['imLogin']; status?: keyof typeof notices; active: boolean }) {
   if (!login?.ready || !login.provider) return null;
-  if (login.embeddedQr && login.onTeamAddress) return active ? <FeishuLoginQr next={location.hash} /> : null;
+  if (login.embeddedQr && login.onTeamAddress && isIMQrProvider(login.provider))
+    return active ? <IMLoginQr provider={login.provider} next={location.hash} /> : null;
   const next = new URLSearchParams({ next: location.hash });
   const start = (login.onTeamAddress ? '' : login.origin ?? '') + '/api/auth/im/start?' + next;
   return <div className="login-enterprise">

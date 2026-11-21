@@ -36,7 +36,6 @@ import { assistantUpdate } from './platform-assistant.ts';
 import { assistantSkillChange } from './assistant-harness.ts';
 import { personalAgentInput } from './personal-agent.ts';
 import { imLoginCookie, imQrCookie, imReturnPath, withIMStatus } from './im-login.ts';
-import { feishuScanOrigin } from './im-login-channels.ts';
 import { workerHarnessUpdate } from './worker-harness.ts';
 import { imAvatarOrigins, imProvider, imProviderNames } from './im-login-providers.ts';
 import { profileUpdate } from './member-profile.ts';
@@ -367,7 +366,7 @@ async function serve(release: () => void) {
         if (url.pathname === '/') {
           const nonce = randomBytes(18).toString('base64');
           // Allow Ant Design's per-component theme variables only for this document.
-          const scanFrame = work?.imLogin.browser(publicWorkbench?.origin ?? '').embeddedQr ? feishuScanOrigin : "'none'";
+          const scanFrame = work?.imLogin.qrOrigin() ?? "'none'";
           res.setHeader('content-security-policy', `default-src 'self'; script-src 'self'; style-src 'self' 'nonce-${nonce}'; img-src 'self' blob: ${imAvatarOrigins.join(' ')}; frame-src ${scanFrame}; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`);
           res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
             .end(bytes.toString('utf8').replace('content="WORKBENCH_STYLE_NONCE"', `content="${nonce}"`));
@@ -397,9 +396,9 @@ async function serve(release: () => void) {
           json(res, 200, { signedIn: true, to: imReturnPath(next ?? null) });
           return;
         }
-        const { frame, location, state, proof, maxAge } = work.imLogin.beginQr(next ?? null);
+        const { provider, frame, location, state, proof, maxAge } = work.imLogin.beginQr(next ?? null);
         res.setHeader('set-cookie', browserCookie(imQrCookie(state) + '=' + proof, browserOrigin, '/api/auth/im/callback') + '; Max-Age=' + maxAge);
-        json(res, 200, { signedIn: false, frame, location, maxAge });
+        json(res, 200, { signedIn: false, provider, frame, location, maxAge });
         return;
       }
       if (get && view === 'auth' && item === 'im' && action === 'start' && !reference) {
