@@ -114,6 +114,8 @@ test('门店推荐理由的分页、详情、运行和健康检查独立于失�
   const detail = await api<ReturnType<Collaboration['detail']>>('ticket/' + tickets[0]);
   assert.equal(detail.request, '核对长词换行');
   assert.ok(Array.isArray(detail.history));
+  const missingCapture = 'ticket/' + tickets[0] + '/product-capture?revision=' + '0'.repeat(64) + '&check=1&case=viewport-280&kind=screenshot';
+  assert.equal((await request(missingCapture, cookie)).status, 404, '附件地址须进入专用路由');
   assert.equal((await request('tickets?project=internal', await login('engineer'))).status, 404);
   assert.equal(finished, false, '列表和详情须在等待索引时可用');
   await writeFile(release, '1');

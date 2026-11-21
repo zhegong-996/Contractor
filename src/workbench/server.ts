@@ -631,13 +631,19 @@ async function serve(release: () => void) {
       else if (get && view === 'ticket' && item && action === 'runs' && reference)
         output = work.executionSnapshot(actor, item, z.coerce.number().int().positive().parse(reference),
           url.searchParams.has('attempt') ? z.coerce.number().int().positive().parse(url.searchParams.get('attempt')) : undefined);
+      else if (get && view === 'ticket' && item && action === 'product-capture' && !reference) {
+        const input = productCaptureInput.parse(Object.fromEntries(url.searchParams));
+        const bytes = work.productCapture(actor, item, input);
+        captureResponse(res, captureFormats[input.kind].type, bytes, req.headers.range);
+        return;
+      }
       else if (view === 'regression' && item && get && !action)
         output = work.regressionList(actor, id.parse(item));
       else if (view === 'regression' && item && post && action === 'case' && !reference)
         output = work.createRegressionCase(actor, id.parse(item), regressionCaseInput.parse(await body(req)));
       else if (view === 'regression' && item && post && action === 'compare' && !reference)
         output = work.compareRegression(actor, id.parse(item), regressionCompareInput.parse(await body(req)));
-      else if (get && view === 'ticket' && item) output = work.detail(actor, item);
+      else if (get && view === 'ticket' && item && !action) output = work.detail(actor, item);
       else if (get && view === 'request' && item) output = { ticket: work.resolveStart(actor, item) };
       else if (view === 'octop' && item && get && !action) output = work.octopCatalog(actor, item);
       else if (view === 'octop' && item && get && action === 'recall') output = await work.octopRecall(actor, item, (url.searchParams.get('q') ?? '').slice(0, 240));
@@ -805,11 +811,6 @@ async function serve(release: () => void) {
         await work.linkDelivery(actor, item, value.url);
       } else if (post && view === 'ticket' && action === 'recheck-delivery') {
         output = await work.recheckDelivery(actor, item, z.object({ revision: knowledgeRevision, head: commitSha }).strict().parse(await body(req)));
-      } else if (get && view === 'ticket' && item && action === 'product-capture' && !reference) {
-        const input = productCaptureInput.parse(Object.fromEntries(url.searchParams));
-        const bytes = work.productCapture(actor, item, input);
-        captureResponse(res, captureFormats[input.kind].type, bytes, req.headers.range);
-        return;
       } else if (post && view === 'ticket' && item && action === 'product-check' && !reference) {
         output = work.recordProductCheck(actor, item, humanCheckInput.parse(await body(req)));
       } else if (post && view === 'ticket' && action === 'accept') {
