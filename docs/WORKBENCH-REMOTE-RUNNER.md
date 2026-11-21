@@ -4,6 +4,8 @@
 
 在工作台运行目录的 `workbench.json` 配置 `remoteRunnerPort`，并将 `runnerConnectUrl` 设置为团队的 HTTPS 根地址，例如 `https://collab.example.com`。在该入口保留原始 Host，将 `/runner/connect/*` 转给工作台监听端口，将 `/api/runner/*` 转给独立的执行端监听端口，两者均在回环地址上。生产入口可对签发连接请求和浏览器登录做限流，回环 HTTP 可用于本机或隔离联调。日常使用只需知道团队地址。
 
+飞书登录和工作台已使用固定 HTTPS 地址时，可以将 `runnerConnectUrl` 与 `workbenchPublicUrl` 设为同一个根地址。若外层 HTTPS 隧道只转发到一个本机端口，可将该端口接到 `node scripts/workbench-https-proxy.mjs 4635`。脚本从 `COLLAB_STATE_DIR` 读取配置，并将设备协议转给独立的接单端口。浏览器在同一域名确认设备，之后在「我的 Worker」单独授权项目。
+
 在 `agents` 登记负责人、项目、职责和模型。支持如下远程运行配置。
 
 | 引擎 | 执行配置 | 执行机准备 |
@@ -37,7 +39,7 @@ Claude Code 的运行检查依据本轮登记的服务商。DeepSeek 读取执�
 
 项目维护人在「项目 → 职责与路由 → 执行端路由」按 Agent 设置默认及备用执行端。主端在线时优先使用主端，只有获准的备用端在线时派给备用端。两台合资格的设备都离线时，新单等待主端。发起人仍可在同一 Agent 下指定执行端。已派出的任务沿原工单处理断线恢复，换端继续核对原执行停止、资料授权和额度。
 
-在主题会话只选一位咨询 Agent 时，输入区可选择本次的执行设备，设备范围由当前项目和该 Agent 决定。多人只读咨询各自用项目规则。发起工单时也可以按同样方式选设备。在线、离线和暂不接单来自 Runner 的状态更新。指定仍有授权的离线设备时，任务等待该设备恢复。设备选择和实际模型可以在工单的执行记录核对。
+在主题会话选择咨询 Agent 后，可以为每位 Agent 指定本次的执行设备，也可以沿用项目路由。设备范围由当前项目和该 Agent 的授权决定。发起工单时也可指定设备。在线、离线和暂不接单来自 Runner 的状态更新。指定已授权的离线设备时，任务等待该设备恢复。设备和实际模型可以在工单的执行记录核对。
 
 连接指引和会话入口参考设备与 Agent 分离的交互。项目授权沿用 Contractor 的项目与设备登记。 [LobeHub 执行设备](https://landing-staging.lobehub.com/ja/docs/usage/agent/execution-devices) · [GitHub 自托管 Runner 访问范围](https://docs.github.com/en/actions/how-tos/manage-runners/self-hosted-runners/manage-access)
 
