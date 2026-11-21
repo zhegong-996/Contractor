@@ -35,7 +35,8 @@ function BoardCard({ ticket, home, workspace, mine, group, origin }: { ticket: T
   const location = [mine && home.title, topic, ticket.work.parent && '子工单'].filter(Boolean).join(' / ');
   const [label] = ticketStatus(ticket);
   const updated = new Date(ticket.updatedAt);
-  return <a className="work-card" href={routeFor(home.id, 'work', ticket.id)} onClick={() => store('board-return:' + ticket.id, origin)}>
+  return <a className="work-card" data-priority={ticket.work.priority ?? 'normal'} href={routeFor(home.id, 'work', ticket.id)}
+    onClick={() => store('board-return:' + ticket.id, origin)}>
     <div className="work-card-meta"><span title={ticket.id}>{short(ticket.id)}</span>
       {ticket.work.version && <span>第 {ticket.work.version} 版</span>}
       {group === 'status' && ticket.work.priority === 'urgent' && <span className="work-card-urgent"><CircleAlert size={13} />紧急</span>}
@@ -46,13 +47,14 @@ function BoardCard({ ticket, home, workspace, mine, group, origin }: { ticket: T
       <Pill tone={state.tone}>{state.id === 'waiting' && label === '待验收' ? state.title : label}</Pill>
     </div>}
     {location && <span className="work-card-location" title={location}>{location}</span>}
-    {state.id === 'running' && <span className="work-card-progress" title={ticket.progress?.summary ?? ''}>
-      正在执行{!!ticket.progress?.attempts && ticket.progress.attempts > 1 ? ' · 第 ' + ticket.progress.attempts + ' 轮' : ''}
-      {ticket.progress?.device ? ' · ' + ticket.progress.device : ''}
-      {ticket.progress?.summary ? ' · ' + ticket.progress.summary : ''}
+    {state.id === 'running' && <span className="work-card-progress" title={[ticket.progress?.device, ticket.progress?.summary].filter(Boolean).join(' · ')}>
+      <span className="work-card-activity">正在执行</span>
+      {!!ticket.progress?.attempts && ticket.progress.attempts > 1 && <span className="work-card-round">第 {ticket.progress.attempts} 轮</span>}
+      <span className="work-card-progress-text">
+        {[ticket.progress?.device, ticket.progress?.summary].filter(Boolean).join(' · ') || '等待执行端回报'}</span>
     </span>}
     {state.id === 'waiting' && ticket.progress?.summary && <span className="work-card-progress" title={ticket.progress.summary}>
-      {ticket.progress.device ? ticket.progress.device + ' · ' : ''}{ticket.progress.summary}</span>}
+      <span className="work-card-progress-text">{ticket.progress.device ? ticket.progress.device + ' · ' : ''}{ticket.progress.summary}</span></span>}
     <div className="work-card-footer"><span title={assigned ? 'Agent · ' + assigned.title + ' · ' + assigned.owner : '发起人 · ' + name}>
       <Avatar avatar={requester?.avatar} value={assigned?.title ?? ticket.work.requester} kind={assigned ? 'agent' : 'person'} />
       <span>{name}</span>
@@ -65,11 +67,11 @@ function BoardColumn({ label, tone, items, scrollKey, render, icon: Icon }: {
 }) {
   const scroll = useSessionScroll(scrollKey);
   const [limit, setLimit] = useStored('board-limit:' + scrollKey, 30);
-  return <section className="work-column" aria-label={label + ' · ' + items.length + ' 张工单'}>
+  return <section className="work-column" data-tone={tone} aria-label={label + ' · ' + items.length + ' 张工单'}>
     <header className="work-column-header"><Icon className={'work-state-icon work-state-' + tone} size={17} aria-hidden="true" />
       <h2>{label}</h2><span className="work-column-count">{items.length}</span></header>
     <div className="work-column-items" {...scroll}>
-      {items.length ? items.slice(0, limit).map(render) : <span className="work-column-empty">暂无工单</span>}
+      {items.length ? items.slice(0, limit).map(render) : <span className="work-column-empty"><Icon size={15} aria-hidden="true" />暂无工单</span>}
       {items.length > limit && <Button size="sm" variant="ghost" onClick={() => setLimit(limit + 30)}>显示更多</Button>}
     </div>
   </section>;

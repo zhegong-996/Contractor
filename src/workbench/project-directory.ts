@@ -33,6 +33,17 @@ export function loadProjectDirectory(store: SuperAgentStore, config: Settings) {
   const projectAgents = store.db.prepare('SELECT project,agent,owner FROM workbench_project_agent ORDER BY rowid').all();
   const configuredAgentProjects = new Map(config.agents.map(a => [a.id, a.projects]));
   const projects = [...config.projects, ...createdProjects.filter(p => !config.projects.some(existing => existing.id === p.id))].map(project => {
+    // 早期版本落库的项目可能缺少后来新增的数组字段（例如 goals），
+    // 前端与后端多处直接对这些字段调用数组方法，缺省会导致渲染崩溃。
+    // 就地补齐，保持对象身份，调用方对 config.projects 的后续修改仍即时可见。
+    project.relatedProjects ??= [];
+    project.delegations ??= [];
+    project.dispatch ??= [];
+    project.responsibilities ??= [];
+    project.topics ??= [];
+    project.resources ??= [];
+    project.goals ??= [];
+    project.routines ??= [];
     const members = new Set(project.members);
     for (const row of projectMembers) {
       if (row.project !== project.id) continue;

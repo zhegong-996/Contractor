@@ -17,6 +17,11 @@ export const decisionVisual = {
   feedback: [Workflow, '反馈改进'],
   approval: [ShieldCheck, '项目审批'],
 } as const;
+export const decisionTone = {
+  channel: 'blue', intake: 'blue', discussion: 'blue', answer: 'blue', development: 'blue',
+  acceptance: 'green', delivery: 'green', access: 'amber', approval: 'amber',
+  blocked: 'red', budget: 'red', feedback: 'red', 'development-returned': 'red',
+} as const;
 const inboxScopes = [['all', '全部项目'], ['project', '当前项目']] as const;
 
 export function InboxPage(props: PageProps) {
@@ -37,7 +42,8 @@ export function InboxPage(props: PageProps) {
   }
   return <div className="page-scroll"><div className="dashboard">
     <div className="dashboard-heading"><div className="heading-icon"><Inbox size={23} /></div>
-      <div><h1>待我处理</h1><p>{decisions.length ? decisions.length + ' 项需要你的决定' : '当前没有待你决定的事项'}</p></div>
+      <div><h1>待我处理 {!!decisions.length && <span className="heading-count">{decisions.length}</span>}</h1>
+        <p>{decisions.length ? decisions.length + ' 项需要你的决定' : '当前没有待你决定的事项'}</p></div>
       <Segments value={scope} onChange={setScope} items={inboxScopes} label="待办范围" />
     </div>
     <div className="dashboard-grid">
@@ -59,8 +65,8 @@ export function InboxPage(props: PageProps) {
                 {d.request?.text ?? d.detail}
               </p>}
             </div><div className="inbox-item-end"><time>{date(d.openedAt)}</time><ChevronRight size={17} /></div></>;
-            return href ? <a key={d.id} className="inbox-row" href={href}>{contents}</a>
-              : <button key={d.id} className="inbox-row" type="button" onClick={() => open(d)}>{contents}</button>;
+            return href ? <a key={d.id} className="inbox-row" data-tone={decisionTone[d.kind] ?? 'blue'} href={href}>{contents}</a>
+              : <button key={d.id} className="inbox-row" data-tone={decisionTone[d.kind] ?? 'blue'} type="button" onClick={() => open(d)}>{contents}</button>;
           }) : <Empty title="待办已清空" description="需要你授权、答复或验收的事项会显示在这里。" icon={<CheckCheck />} />}
         </section>
         <Section title="最近协作" action={<a href={projectWorkRoute(project.id)} className="text-button">全部工单 <ArrowRight size={15} /></a>}>

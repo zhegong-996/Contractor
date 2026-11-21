@@ -1,7 +1,7 @@
 import { ArrowRight, Bot, ClipboardCheck, CircleDot, FolderKanban, Inbox, ListChecks } from 'lucide-react';
 import { ticketListState } from '../../src/workbench/ticket-list-state.ts';
 import type { Decision } from './api.ts';
-import { decisionVisual } from './inbox.tsx';
+import { decisionTone, decisionVisual } from './inbox.tsx';
 import { personalChatRoute, projectWorkRoute, routeFor, workFromInbox, type PageProps } from './navigation.ts';
 import { date, Section, short, TicketStatus, Version } from './ui.tsx';
 
@@ -28,6 +28,11 @@ export function HomePage({ workspace }: PageProps) {
     <div className="dashboard-heading"><div className="heading-icon"><FolderKanban size={23} /></div>
       <div><h1>工作台概览</h1><p>{today} · {display}，今天有 {needsYou.length} 项需要你决定</p></div>
     </div>
+    <div className="home-stats">
+      <a className="home-stat" href={'#/inbox'}><Inbox size={18} /><span>{needsYou.length}</span><small>待我处理</small></a>
+      <a className="home-stat" href={projectWorkRoute(workspace.projects[0]?.id ?? '')}><CircleDot size={18} /><span>{running.length}</span><small>正在执行</small></a>
+      <a className="home-stat" href={projectWorkRoute(workspace.projects[0]?.id ?? '')}><ClipboardCheck size={18} /><span>{review.length}</span><small>待验收</small></a>
+    </div>
     <div className="dashboard-grid">
       <div className="dashboard-main">
         <Section title="待我处理" action={<span className="muted-text">{needsYou.length} 项</span>}>
@@ -40,8 +45,8 @@ export function HomePage({ workspace }: PageProps) {
                 {d.ticket && <code title={d.ticket}>{short(d.ticket)}</code>}{d.version && <Version version={d.version} />}</div>
               <strong>{d.ticketTitle ?? d.title}</strong>
             </div><span className="inbox-item-end"><time>{date(d.openedAt)}</time></span></>;
-            return href ? <a key={d.id} className="inbox-row" href={href}>{contents}</a>
-              : <div key={d.id} className="inbox-row">{contents}</div>;
+            return href ? <a key={d.id} className="inbox-row" data-tone={decisionTone[d.kind] ?? 'blue'} href={href}>{contents}</a>
+              : <div key={d.id} className="inbox-row" data-tone={decisionTone[d.kind] ?? 'blue'}>{contents}</div>;
           }) : <p className="muted-text">没有待你决定的事项。</p>}
         </Section>
         <Section title="正在执行" action={<span className="muted-text">{running.length} 张</span>}>
