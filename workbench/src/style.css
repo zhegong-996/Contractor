@@ -83,7 +83,6 @@ a.external:hover, a.text-button:hover { text-decoration: underline; text-underli
 .task-center-tabs { display: flex; flex: none; align-items: center; gap: 16px; padding: 0 clamp(12px, 2vw, 24px); background: var(--surface); border-bottom: 1px solid var(--line); }
 .task-center-tabs a { display: inline-flex; align-items: center; gap: 6px; min-height: 41px; padding: 0 5px; color: var(--dim); border-bottom: 2px solid transparent; }
 .task-center-tabs a[aria-current=page] { color: var(--accent-strong); border-bottom-color: var(--accent); font-weight: 650; }
-.task-center-tabs .task-center-attention { margin-left: auto; }
 .conversation-directory .list-header { display: grid; gap: 8px; }
 .conversation-directory .list-title h2 { font-size: 18px; }
 .conversation-directory-row { display: flex; align-items: center; gap: 2px; }
@@ -166,6 +165,12 @@ a.external:hover, a.text-button:hover { text-decoration: underline; text-underli
 .inbox-row + .inbox-row { border-top: 1px solid var(--line); }
 .inbox-row:hover, .recent-row:hover { background: var(--muted-surface); }
 .inbox-row:focus-visible, .recent-row:focus-visible { outline-offset: -2px; }
+.inbox-item-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 8px; }
+.inbox-item-meta code, .project-ticket-row code { color: var(--dim); }
+.project-ticket-row { display: flex; align-items: center; min-height: 42px; gap: 9px; padding: 5px 6px; border-radius: 6px; }
+.project-ticket-row + .project-ticket-row { border-top: 1px solid var(--line); }
+.project-ticket-row strong { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.project-ticket-row:hover { background: var(--muted-surface); }
 .inbox-icon, .project-shortcut-icon { border-radius: 8px; width: 35px; height: 35px; background: var(--accent-soft); color: var(--accent-strong); display: grid; place-items: center; flex: none; }
 .inbox-item-body { flex: 1; min-width: 0; }
 .inbox-item-body > div { font-size: 11px; color: var(--dim); margin-bottom: 3px; }
@@ -250,6 +255,9 @@ a.external:hover, a.text-button:hover { text-decoration: underline; text-underli
 .inspector-link span { flex: 1; }
 .inspector-link:hover { background: var(--tint); color: var(--accent-strong); }
 .ticket-tab { padding-top: 17px; }
+.decision-focus { scroll-margin-top: 16px; }
+.decision-focus:focus { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: 7px; }
+.ticket-decision-state { display: inline-block; margin-top: 8px; font-size: 12px; color: var(--dim); }
 .ticket-next-action, .ticket-next-action > span { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .ticket-next-action { justify-content: space-between; border: 1px solid var(--line); border-radius: 8px; background: var(--accent-soft); padding: 9px 12px; }
 .ticket-next-action > span { font-weight: 620; }
@@ -614,6 +622,7 @@ input[type=checkbox] { width: 15px; height: 15px; accent-color: var(--accent); }
 .chat-heading-icon { display: grid; place-items: center; width: 35px; height: 35px; flex: none; border-radius: 8px; background: var(--accent-soft); color: var(--accent); }
 .chat-back { display: none; }
 .chat-heading .actions { flex: none; }
+.chat-work-link { display: inline-flex; align-items: center; gap: 5px; min-height: 32px; padding-inline: 7px; color: var(--accent-strong); }
 .context-toggle { color: var(--dim); }
 .context-toggle[aria-expanded=true] { background: var(--tint); color: var(--accent-strong); }
 .chat-content { display: grid; grid-template-columns: minmax(0, 1fr); min-height: 0; flex: 1; }
@@ -646,6 +655,11 @@ input[type=checkbox] { width: 15px; height: 15px; accent-color: var(--accent); }
 .conversation-composer textarea:focus-visible { outline-offset: -2px; }
 .conversation-composer .check-row { padding-inline: 6px; font-size: 12px; }
 .conversation-composer .consultant-picker { color: var(--accent-strong); }
+.personal-chat-thread { flex: 1; }
+.personal-chat-turn { display: grid; gap: 15px; }
+.personal-context-note { padding-inline: 6px; font-size: 12px; color: var(--dim); }
+.standalone-chat { height: 100dvh; display: flex; flex-direction: column; min-height: 0; }
+.standalone-chat > .split { flex: 1; min-height: 0; }
 .chat-context { overflow: auto; min-width: 0; border-left: 1px solid var(--line); padding: 7px 13px 15px; background: var(--muted-surface); }
 .chat-context section { padding: 11px 0; border-bottom: 1px solid var(--line); }
 .chat-context section h2 { display: flex; align-items: center; gap: 7px; font-size: 13px; margin-bottom: 6px; }

@@ -7,6 +7,7 @@ export type GlobalView = 'platform' | 'account';
 type ConversationOrigin = { project: string; item?: string; tab?: string };
 export type Route = { project: string; view: View; item?: string; tab?: string; run?: number; attempt?: number; revision?: string;
   reply?: string; participant?: string; global?: GlobalView; conversationOrigin?: ConversationOrigin;
+  personalChat?: true; workTopic?: string; projectWork?: boolean; inboxOrigin?: string; decision?: string; reviewRevision?: string;
   consultation?: { ticket: string; revision: string } };
 export type TaskPreset = {
   request?: string;
@@ -24,6 +25,18 @@ export function routeFor(project: string, view: View, item?: string, tab?: strin
 }
 export function go(project: string, view: View, item?: string, tab?: string) {
   window.location.hash = routeFor(project, view, item, tab);
+}
+export function personalChatRoute(conversation?: string, project?: string) {
+  return '#/personal-chat' + (conversation ? '/' + encodeURIComponent(conversation) : '')
+    + (project ? '?' + new URLSearchParams({ project }) : '');
+}
+export function projectWorkRoute(project: string, topic?: string) {
+  return routeFor(project, 'work') + '?' + new URLSearchParams({ scope: 'project', ...(topic && { topic }) });
+}
+export function workFromInbox(href: string, project?: string, decision?: string, revision?: string) {
+  if (!project) return href;
+  return href + (href.includes('?') ? '&' : '?') + new URLSearchParams({ fromInbox: project,
+    ...(decision && { decision }), ...(revision && { review: revision }) });
 }
 export function withConversationOrigin(href: string, origin?: ConversationOrigin) {
   if (!origin) return href;
@@ -44,10 +57,12 @@ export function useRoute(): Route {
   const hash = useSyncExternalStore(subscribe, () => window.location.hash);
   const [pathname, search] = hash.slice(2).split('?');
   try {
-    if (pathname === 'platform' || pathname === 'account')
-      return { project: '', view: 'inbox', global: pathname, tab: new URLSearchParams(search).get('tab') ?? undefined };
-    const [project = '', view = 'inbox', item] = (pathname ?? '').split('/').map(decodeURIComponent);
     const params = new URLSearchParams(search);
+    const personal = /^personal-chat(?:\/([a-f0-9]{32}))?$/.exec(pathname ?? '');
+    if (personal) return { project: params.get('project') ?? '', view: 'chat', personalChat: true, item: personal[1] };
+    if (pathname === 'platform' || pathname === 'account')
+      return { project: '', view: 'inbox', global: pathname, tab: params.get('tab') ?? undefined };
+    const [project = '', view = 'inbox', item] = (pathname ?? '').split('/').map(decodeURIComponent);
     const tab = params.get('tab') ?? undefined;
     const projectDiscussion = view === 'project' && tab === 'chat';
     const originMatch = view === 'work' ? /^#\/([\w-]+)\/chat(?:\/([\w-]+))?(?:\?tab=(project))?$/.exec(params.get('fromChat') ?? '') : null;
@@ -57,10 +72,19 @@ export function useRoute(): Route {
       const value = Number(params.get(key));
       return Number.isSafeInteger(value) && value > 0 ? value : undefined;
     };
+    const token = (name: string, pattern: RegExp) => {
+      const value = params.get(name);
+      return value && pattern.test(value) ? value : undefined;
+    };
     return { project, view: projectDiscussion ? 'chat' : Object.hasOwn(titles, view) ? view as View : 'inbox', item,
       tab: projectDiscussion ? (item ? undefined : 'project') : tab,
       run: positive('run'), attempt: positive('attempt'), revision: params.get('revision') ?? undefined,
       reply: params.get('reply') ?? undefined, participant: params.get('agent') ?? undefined, conversationOrigin,
+      ...(view === 'work' && {
+        workTopic: token('topic', /^[\w-]{1,80}$/), projectWork: params.get('scope') === 'project',
+        inboxOrigin: token('fromInbox', /^[\w-]{1,80}$/), decision: token('decision', /^[a-f0-9]{32}$/),
+        reviewRevision: token('review', /^[a-f0-9]{64}$/),
+      }),
       ...(consultation && { consultation: { ticket: consultation[1]!, revision: consultation[2]! } }) };
   } catch { return { project: '', view: 'inbox' }; }
 }

@@ -5,7 +5,7 @@ import { api, useData, type Overview } from './api.ts';
 import { Button } from './components/button.tsx';
 import { Input, TextArea } from './components/input.tsx';
 import { RunnerConnectInstructions } from './execution-target.tsx';
-import { Markdown } from './markdown.tsx';
+import { personalChatRoute } from './navigation.ts';
 import { date, Empty, Failure, Field, Loading, Modal, Pill, Section, useActions } from './ui.tsx';
 
 type Assistant = ReturnType<Collaboration['platformAssistant']>;
@@ -79,11 +79,9 @@ export function PersonalAgentSettings() {
 function PersonalAgentForm({ current }: { current: Agent }) {
   const { title: name, instructions, experience, selection } = current;
   const [draft, setDraft] = useState({ title: name, instructions, experience, selection });
-  const [question, ask] = useState('');
-  const [reply, setReply] = useState<{ text: string; model: Model }>();
   const { run, busy } = useActions();
   return <div className="detail-stack">
-    <Section title="个人 Agent" action={<Pill tone="blue">仅本人</Pill>}>
+    <Section title="个人 Agent" action={<a className="text-button" href={personalChatRoute()}><Bot size={16} />打开我的会话</a>}>
       <form className="form" onSubmit={event => {
         event.preventDefault();
         void run(() => api('account/personal-agent', { ...draft, revision: current.revision }), '个人 Agent 已保存');
@@ -96,19 +94,6 @@ function PersonalAgentForm({ current }: { current: Agent }) {
         <Field label="本人确认的经验"><TextArea rows={5} maxLength={4000} value={draft.experience} onChange={e => setDraft({ ...draft, experience: e.target.value })} /></Field>
         <div className="form-actions"><Button type="submit" disabled={busy}>保存</Button></div>
       </form>
-    </Section>
-    <Section title="个人咨询" action={<Bot size={17} aria-hidden="true" />}>
-      <form className="form" onSubmit={async event => {
-        event.preventDefault();
-        const result = await run(() => api<Awaited<ReturnType<Collaboration['askPersonalAgent']>>>('account/personal-agent/ask', { question }));
-        if (result) setReply({ text: result.value.answer, model: result.model });
-      }}>
-        <Field label="问题" hint={current.enabled ? '使用已保存的个人指引与经验，计入个人额度。' : '保存可用的轻量模型后即可咨询。'}>
-          <TextArea rows={3} required maxLength={3000} value={question} onChange={e => ask(e.target.value)} />
-        </Field>
-        <div className="form-actions"><Button type="submit" disabled={busy || !current.enabled || !question.trim()}>咨询我的 Agent</Button></div>
-      </form>
-      {reply && <div className="context-preview" aria-live="polite"><Pill>{modelLabel(reply.model)}</Pill><Markdown text={reply.text} /></div>}
     </Section>
   </div>;
 }

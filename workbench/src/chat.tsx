@@ -2,9 +2,9 @@ import { ArrowLeft, BookOpen, Bot, ChevronRight, ListChecks, MessageSquare, Pane
 import { part, useData, useTickets, type TopicRule } from './api.ts';
 import { Conversation } from './conversation.tsx';
 import { ConversationDirectory } from './conversation-directory.tsx';
-import { routeFor, withConversationOrigin, type PageProps } from './navigation.ts';
+import { projectWorkRoute, routeFor, withConversationOrigin, type PageProps } from './navigation.ts';
 import { Button } from './components/button.tsx';
-import { Avatar, Empty, Failure, Pill, Source, TicketStatus, useStored } from './ui.tsx';
+import { Avatar, Empty, Failure, Pill, short, Source, TicketStatus, useStored } from './ui.tsx';
 
 type Channels = { feishuReady: boolean; im: { connector: string; kind: string; topics: string[]; ready: boolean }[] };
 
@@ -30,6 +30,7 @@ export function ChatPage(props: PageProps) {
           <h1>{selected?.title ?? '项目讨论'}</h1>
         </div>
         <div className="actions">
+          <a className="chat-work-link" href={projectWorkRoute(project.id, selected?.id)} aria-label={selected ? '查看主题工单' : '查看项目工单'}><ListChecks size={17} /><span>工单</span></a>
           <Button size="sm" variant="ghost" className="context-toggle" aria-expanded={showDetails} aria-controls="chat-context"
             aria-label={showDetails ? '收起上下文' : '查看上下文'} title={showDetails ? '收起上下文' : '查看上下文'}
             onClick={() => setDetails(!showDetails)}><PanelRight /><span>上下文</span></Button>
@@ -57,10 +58,9 @@ export function ChatPage(props: PageProps) {
           <section><h2><ListChecks size={16} />{selected ? '主题工单' : '近期工单'}</h2>
             {tasks.slice(0, 8).map(item => <a className="chat-context-link" key={item.id}
               href={withConversationOrigin(routeFor(project.id, 'work', item.id), route)}>
-              <span>{item.title}</span><TicketStatus ticket={item} />
+              <span><code title={item.id}>{short(item.id)}</code> {item.title}</span><TicketStatus ticket={item} />
             </a>)}
             {!tasks.length && <p className="muted-text">暂无工单</p>}
-            <a className="text-button" href={routeFor(project.id, 'work')}>项目任务 <ChevronRight size={15} /></a>
           </section>
           {rules.data && rules.data.length > 0 && <section><h2><BookOpen size={16} />已采用的验收知识</h2>
             {rules.data.map(rule => <a className="chat-context-link" href={routeFor(project.id, 'knowledge', rule.id, 'current')} key={rule.id}>{rule.title}</a>)}

@@ -36,12 +36,13 @@ export function openPersonalAgents(store: Pick<SuperAgentStore, 'db' | 'atomic'>
       return view(actor);
     });
   }
-  async function answer(actor: string, question: string) {
+  async function answer(actor: string, question: string, history?: { role: 'user' | 'assistant'; content: string }[]) {
     const current = profile(actor);
     if (!current.selection) throw new WorkbenchError('请先为个人 Agent 配置模型。', 409);
     if (sensitiveFeishuText.test([question, current.instructions, current.experience].join('\n')))
       throw new WorkbenchError('请移除问题或个人经验中的凭据、邀请链接等敏感信息。', 409);
-    const result = await assistant.answer(actor, { question, instructions: current.instructions, experience: current.experience }, current.selection);
+    const result = await assistant.answer(actor, { question, instructions: current.instructions, experience: current.experience,
+      ...(history?.length && { history }) }, current.selection);
     if (digest(profile(actor)) !== digest(current) || !assistant.usable(current.selection))
       throw new WorkbenchError('个人 Agent 配置或模型授权已变化，请重试。', 409);
     return result;

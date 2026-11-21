@@ -79,7 +79,8 @@ test('平台模型只起草，个人经验隔离，设备登记与任务授权�
       const data = JSON.parse(input.evidence);
       if (data.body && delayDraft) await delayDraft;
       const value = data.agents ? { agent: 'outside-model-choice', summary: '需要负责人决定' }
-        : data.question ? { answer: data.experience } : { title: '小屏长词', body: '核对 280px、320px、360px', conditions: '门店推荐卡片' };
+        : data.question ? { answer: data.history?.[0]?.content ?? data.experience }
+          : { title: '小屏长词', body: '核对 280px、320px、360px', conditions: '门店推荐卡片' };
       return { model: input.model, choices: [{ message: { content: JSON.stringify(value) } }], usage: { prompt_tokens: 12, completion_tokens: 8 } };
     },
   } } });
@@ -107,6 +108,27 @@ test('平台模型只起草，个人经验隔离，设备登记与任务授权�
   assert.equal(answer.value.answer, '门店小屏用连续长词');
   assert.equal(answer.model.model, 'fixture-b');
   assert.equal(work.platformAssistant('product').recent.length, 0);
+
+  const opening = { nonce: randomUUID(), question: '门店标签是柚木-71。' };
+  const first = work.sendPersonalMessage('engineering', opening);
+  assert.deepEqual(work.sendPersonalMessage('engineering', opening), first);
+  assert.throws(() => work.sendPersonalMessage('engineering', { ...opening, question: '改用其他标签' }), { status: 409 });
+  assert.throws(() => work.sendPersonalMessage('engineering', { ...opening, conversation: first.conversation, nonce: randomUUID() }),
+    { status: 409 });
+  assert.equal(work.personalConversations('engineering').rows[0]?.id, first.conversation);
+  for (const other of ['product', 'outsider']) {
+    assert.equal(work.personalConversations(other).rows.length, 0);
+    assert.throws(() => work.personalConversation(other, first.conversation), { status: 404 });
+    assert.throws(() => work.sendPersonalMessage(other, { ...opening, conversation: first.conversation }), { status: 404 });
+  }
+  await wait(() => work.personalConversation('engineering', first.conversation).rows[0]?.answer);
+  const followup = { nonce: randomUUID(), conversation: first.conversation, question: '刚才的门店标签是什么？' };
+  work.sendPersonalMessage('engineering', followup);
+  assert.equal(await wait(() => work.personalConversation('engineering', first.conversation).rows.at(-1)?.answer), opening.question);
+  assert.deepEqual(work.personalConversation('engineering', first.conversation).rows.map(turn => turn.model), ['fixture-b', 'fixture-b']);
+  assert.equal(calls.filter(call => JSON.parse(call.evidence).question === opening.question).length, 1);
+  assert.deepEqual(JSON.parse(calls.find(call => JSON.parse(call.evidence).question === followup.question)!.evidence).history,
+    [{ role: 'user', content: opening.question }, { role: 'assistant', content: '门店小屏用连续长词' }]);
 
   const scope = { project: 'store', title: '门店推荐理由', request: '整理小屏验收清单', material: [],
     priority: 'normal' as const };

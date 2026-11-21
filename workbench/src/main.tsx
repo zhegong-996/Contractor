@@ -3,13 +3,13 @@ import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query';
 import { Breadcrumb, ConfigProvider, Drawer, Layout, Menu as NavigationMenu, type ConfigProviderProps } from 'antd';
 import zhCN from 'antd/es/locale/zh_CN.js';
-import { ArrowRight, BookOpen, Bot, ChevronDown, ChevronRight, CircleCheck, FolderKanban, Inbox, ListChecks, LogOut, Menu, PanelLeftClose, PanelLeftOpen, Plus, ShieldCheck, UserRound } from 'lucide-react';
+import { ArrowRight, BookOpen, Bot, ChevronDown, ChevronRight, CircleCheck, FolderKanban, Inbox, ListChecks, LogOut, Menu, MessageSquare, PanelLeftClose, PanelLeftOpen, Plus, ShieldCheck, UserRound } from 'lucide-react';
 import { api, uid, useData, type Overview, type Session } from './api.ts';
 import { ActionContext, Avatar, Failure, Field, IconButton, Loading, Logo, Modal, useActions, useStored } from './ui.tsx';
 import { Button } from './components/button.tsx';
 import { Input } from './components/input.tsx';
 import { preference, WorkspaceSidebar } from './components/workspace-sidebar.tsx';
-import { go, routeFor, titles, useRoute, type PageProps, type TaskPreset } from './navigation.ts';
+import { go, personalChatRoute, routeFor, titles, useRoute, type PageProps, type TaskPreset } from './navigation.ts';
 import { Composer } from './creation.tsx';
 import { forest, type Branch } from './hierarchy.ts';
 import { workbenchTheme } from './components/theme.ts';
@@ -20,6 +20,7 @@ import './style.css';
 const WorkPage = lazy(() => import('./work.tsx').then(page => ({ default: page.WorkPage })));
 const InboxPage = lazy(() => import('./inbox.tsx').then(page => ({ default: page.InboxPage })));
 const ChatPage = lazy(() => import('./chat.tsx').then(page => ({ default: page.ChatPage })));
+const PersonalChatPage = lazy(() => import('./personal-chat.tsx').then(page => ({ default: page.PersonalChatPage })));
 const KnowledgePage = lazy(() => import('./knowledge.tsx').then(page => ({ default: page.KnowledgePage })));
 const AgentsPage = lazy(() => import('./agents.tsx').then(page => ({ default: page.AgentsPage })));
 const ProjectPage = lazy(() => import('./project.tsx').then(page => ({ default: page.ProjectPage })));
@@ -28,6 +29,7 @@ const GlobalSettings = lazy(() => import('./access-settings.tsx').then(page => (
 
 const nav = [
   { key: 'inbox', icon: Inbox }, { key: 'work', icon: ListChecks },
+  { key: 'chat', icon: MessageSquare },
   { key: 'agents', icon: Bot }, { key: 'knowledge', icon: BookOpen },
 ] as const;
 
@@ -118,19 +120,20 @@ function Navigation({ workspace, project, route, close, newProject }: PageProps 
   const signOut = useSignOut();
   const [expanded, setExpanded] = useState(true);
   const [profile, setProfile] = useState(false);
-  const current = route.view === 'chat' ? 'work' : route.view;
+  const current = route.view;
   return <div className="sidebar-content">
     <a className="brand" href={routeFor(project.id, 'inbox')} onClick={close} aria-label="Contractor"><Logo /><span>Contractor</span></a>
     <nav className="sidebar-nav" aria-label="工作入口">
       <NavigationMenu mode="inline" selectedKeys={[current]} className="primary-navigation"
         items={nav.map(({ key, icon: Icon }) => ({ key, icon: <Icon size={17} />, title: titles[key],
-          label: <a href={routeFor(project.id, key)} aria-current={current === key ? 'page' : undefined}>
+          label: <a href={key === 'chat' ? personalChatRoute(undefined, project.id) : routeFor(project.id, key)} aria-current={current === key ? 'page' : undefined}>
             {titles[key]}{key === 'inbox' && workspace.needsYou.length > 0 && <span className="nav-count">{workspace.needsYou.length}</span>}
           </a> }))}
         onClick={({ key, domEvent }) => {
           if (domEvent.ctrlKey || domEvent.metaKey || domEvent.shiftKey || domEvent.altKey) return;
           domEvent.preventDefault();
-          go(project.id, key as (typeof nav)[number]['key']);
+          if (key === 'chat') window.location.hash = personalChatRoute(undefined, project.id);
+          else go(project.id, key as (typeof nav)[number]['key']);
           close?.();
         }} />
     </nav>
@@ -228,24 +231,31 @@ function Workspace() {
       connections={requested.global === 'account' ? <AccountsPage workspace={workspace} embedded /> : undefined} />
   </Suspense>;
   const targetProject = workspace.projects.find(p => p.id === requested.project);
-  if ((requested.project || requested.reply) && !targetProject) return <div className="app-placeholder">
+  if (!requested.personalChat && (requested.project || requested.reply) && !targetProject) return <div className="app-placeholder">
     <Failure error={new Error(requested.reply ? '当前账号无权打开这条主题回复。' : '当前账号无权打开此项目。')} />
     <a className="text-button" href="#/">返回工作台</a>
   </div>;
   const project = targetProject ?? workspace.projects[0];
   const newProject = () => setCreatingProject(true);
   const projectModal = creatingProject && <NewProject workspace={workspace} close={() => setCreatingProject(false)} />;
+  if (!project && requested.personalChat) return <div className="standalone-chat">
+    <header className="toolbar"><a href="#/">返回工作台</a><strong>会话</strong></header>
+    <Suspense fallback={<Loading />}><PersonalChatPage workspace={workspace} conversation={requested.item} /></Suspense>
+  </div>;
   if (!project) return <div className="app-placeholder">
     <Failure error={new Error('当前账号尚未加入项目。')} />
     <div className="actions mt-4">{workspace.canCreateProject && <Button onClick={newProject}>新建项目</Button>}
       {(workspace.canManageAccounts || workspace.canManagePointPolicy || workspace.canManageServices) && <a className="text-button" href="#/platform">平台管理</a>}
-      <a className="text-button" href="#/account">个人设置</a><Button variant="ghost" onClick={signOut}>退出登录</Button></div>{projectModal}
+      <a className="text-button" href={personalChatRoute()}>会话</a><a className="text-button" href="#/account">个人设置</a>
+      <Button variant="ghost" onClick={signOut}>退出登录</Button></div>{projectModal}
   </div>;
-  const route = { ...requested, project: project.id, item: requested.project && requested.project !== project.id ? undefined : requested.item };
+  const route = { ...requested, project: project.id, item: requested.item };
   const props = { workspace, project, route, openTask: (preset: TaskPreset = {}) => { clearError(); setComposer(preset); } };
   const Page = { chat: ChatPage, inbox: InboxPage, work: WorkPage, knowledge: KnowledgePage, agents: AgentsPage, project: ProjectPage, accounts: AccountsPage }[route.view];
-  const taskCenter = route.view === 'work' || route.view === 'chat';
-  const page = <Suspense fallback={<Loading />}><Page key={project.id + ':' + route.view} {...props} /></Suspense>;
+  const chat = route.view === 'chat';
+  const page = <Suspense fallback={<Loading />}>{route.personalChat
+    ? <PersonalChatPage workspace={workspace} project={project.id} conversation={route.item} />
+    : <Page key={project.id + ':' + route.view} {...props} />}</Suspense>;
   return <Layout className="shell" hasSider={!narrow} data-collapsed={collapsed || undefined}>
     {!narrow && <WorkspaceSidebar collapsed={collapsed}><Navigation {...props} newProject={newProject} /></WorkspaceSidebar>}
     {narrow && <Drawer className="mobile-workspace-nav" placement="left" title="导航" size={280} open={drawer}
@@ -261,21 +271,18 @@ function Workspace() {
           }}>{narrow ? <Menu /> : collapsed ? <PanelLeftOpen /> : <PanelLeftClose />}</IconButton>
         <Breadcrumb aria-label="当前位置" className="toolbar-path" items={[
           { title: <a href={routeFor(project.id, 'project')}><FolderKanban size={14} /><span>{project.title}</span></a> },
-          ...(route.view === 'project' ? [] : [{ title: taskCenter ? titles.work : titles[route.view] }]),
+          ...(route.view === 'project' ? [] : [{ title: titles[route.view] }]),
         ]} />
-        {project.mayStart && !(route.view === 'chat' && (route.item || route.tab === 'project')) && !(route.view === 'work' && !route.item) &&
+        {project.mayStart && !route.personalChat && !(chat && (route.item || route.tab === 'project')) && !(route.view === 'work' && !route.item) &&
           <Button size="sm" type="button" className="create-button" onClick={() => props.openTask()}><Plus />发起协作</Button>}
       </Layout.Header>
       {error && !composer && <div className="toolbar-error"><Failure error={new Error(error)} retry={clearError} /></div>}
-      <Layout.Content className={'main-view' + (taskCenter ? ' task-center' : '')} id="main-content">
-        {taskCenter && <nav className="task-center-tabs" aria-label="任务中心">
-          <a href={routeFor(project.id, 'work')} aria-current={route.view === 'work' ? 'page' : undefined}>工作</a>
-          <a href={routeFor(project.id, 'chat')} aria-current={route.view === 'chat' ? 'page' : undefined}>会话</a>
-          {workspace.needsYou.length > 0 && <a className="task-center-attention" href={routeFor(project.id, 'inbox')}>
-            待我处理 <span className="nav-count">{workspace.needsYou.length}</span>
-          </a>}
+      <Layout.Content className={'main-view' + (chat ? ' task-center' : '')} id="main-content">
+        {chat && <nav className="task-center-tabs" aria-label="会话范围">
+          <a href={personalChatRoute(undefined, project.id)} aria-current={route.personalChat ? 'page' : undefined}>个人会话</a>
+          <a href={routeFor(project.id, 'chat', undefined, 'project')} aria-current={!route.personalChat ? 'page' : undefined}>项目会话</a>
         </nav>}
-        {taskCenter ? <div className="task-center-content">{page}</div> : page}
+        {chat ? <div className="task-center-content">{page}</div> : page}
       </Layout.Content>
     </Layout>
     {composer && <Composer {...props} preset={composer} close={() => setComposer(null)} />}

@@ -59,6 +59,7 @@ import { workerClaims } from './worker-claims.ts';
 import { loadOperationsSettings, operationsSettings } from './operations-settings.ts';
 import { openPlatformAssistant } from './platform-assistant.ts';
 import { openPersonalAgents } from './personal-agent.ts';
+import { openPersonalConversations } from './personal-conversations.ts';
 import { executionReceipts } from './execution-receipts.ts';
 import { TokenPoints, type PointLimit, type PointPolicy, type PointScope } from './token-points.ts';
 import { octopIMCanReply, octopIMRoute, type OctopIMAddress, type OctopIMEvent, type OctopIMTransport } from './octop-im-contract.ts';
@@ -907,7 +908,9 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
         ? codeDeliveryState(store.tickets.get(decision.ticket)!, workOf(decision.ticket)!) : undefined;
       const ticketTitle = decision.ticket && privateConsultationVisible(workOf(decision.ticket), actor)
         ? store.tickets.get(decision.ticket)?.title : undefined;
-      return { ...decision, ticketTitle, notification: store.replyStatus(decisionReceipt(decision)) ?? 'no-channel',
+      const version = ticketTitle && decision.ticket ? workOf(decision.ticket)?.version ?? 1 : undefined;
+      const acceptanceRevision = version && decision.kind === 'acceptance' && decision.ticket ? outputFor(decision.ticket)?.revision : undefined;
+      return { ...decision, ticketTitle, version, acceptanceRevision, notification: store.replyStatus(decisionReceipt(decision)) ?? 'no-channel',
         ...(issue ? { detail: issue.detail } : {}),
         ...(channel && { request: { text: channel.request.request, topic: channel.request.topic, sender: channel.member,
           url: channel.request.trigger.url ?? channel.request.origin.url, reference: visibleReference(channel.request.reference, actor),
@@ -5217,6 +5220,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     admin: canManageServices, allowed: operationPolicies.modelAllowed, audit, budgets, points,
   });
   const personalAgents = openPersonalAgents(store, assistant, actor => !!account(actor));
+  const personalConversations = openPersonalConversations(store, personalAgents);
   function routingDraftInput(actor: string, id: string) {
     const row = store.db.prepare('SELECT value,actor FROM workbench_intake WHERE id=? AND (resolved IS NULL OR resolved=0)').get(id);
     if (!row) throw new WorkbenchError('这条委托已处理或不存在。', 409);
@@ -5270,6 +5274,9 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     personalAgent: personalAgents.view,
     setPersonalAgent: personalAgents.update,
     askPersonalAgent: personalAgents.answer,
+    personalConversations: personalConversations.list,
+    personalConversation: personalConversations.history,
+    sendPersonalMessage: personalConversations.send,
     ticketTopicContext(actor: string, id: string) {
       const { work, project, ticket } = ticketFor(id, actor);
       if (!work.topic || work.consultation || work.delegatedVia) return { basis: [], recent: [], editable: false };
@@ -5803,6 +5810,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       end.abort();
       await tick;
       await Promise.allSettled([...historyReads.values(), ...figmaSyncs.values()]);
+      await personalConversations.close();
       await effects.drain();
       channelDb?.close();
       hub.close();

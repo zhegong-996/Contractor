@@ -497,7 +497,13 @@ async function serve(release: () => void) {
         output = work.setPersonalAgent(actor, personalAgentInput.parse(await body(req)));
       else if (post && view === 'account' && item === 'personal-agent' && action === 'ask')
         output = await work.askPersonalAgent(actor, z.object({ question: z.string().trim().min(1).max(3000) }).strict().parse(await body(req)).question);
-      else if (post && view === 'device' && item && action === 'projects')
+      else if (get && view === 'personal-chat' && !action) {
+        const { before } = z.object({ before: z.coerce.number().int().positive().optional() }).strict().parse(Object.fromEntries(url.searchParams));
+        output = item ? work.personalConversation(actor, /^[a-f0-9]{32}$/.test(item) ? item : '', before) : work.personalConversations(actor, before);
+      } else if (post && view === 'personal-chat' && !item && !action) {
+        output = work.sendPersonalMessage(actor, z.object({ conversation: z.string().regex(/^[a-f0-9]{32}$/).optional(),
+          nonce, question: z.string().trim().min(1).max(3000) }).strict().parse(await body(req)));
+      } else if (post && view === 'device' && item && action === 'projects')
         output = work.setWorkerProjects(actor, z.uuid().parse(item), z.object({
           revision: knowledgeRevision, projects: z.array(id).max(100),
         }).strict().parse(await body(req)));

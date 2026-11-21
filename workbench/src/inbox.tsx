@@ -4,10 +4,10 @@ import { ArrowRight, Bot, CheckCheck, ChevronRight, ClipboardCheck, GitPullReque
 import { api, useData, useTickets, type Decision, type Knowledge } from './api.ts';
 import { TicketPicker } from './components/ticket-picker.tsx';
 import { AgentOptions, MaterialPicker } from './creation.tsx';
-import { go, routeFor, type PageProps } from './navigation.ts';
+import { go, personalChatRoute, projectWorkRoute, routeFor, workFromInbox, type PageProps } from './navigation.ts';
 import { Button } from './components/button.tsx';
 import { Markdown } from './markdown.tsx';
-import { date, Empty, Ext, Field, Modal, Section, Segments, TicketStatus, TopicOptions, useActions, useStored } from './ui.tsx';
+import { date, Empty, Ext, Field, Modal, Section, Segments, short, TicketStatus, TopicOptions, useActions, useStored, Version } from './ui.tsx';
 
 const decisionVisual = {
   channel: [Link2, '确认归属'], intake: [Workflow, '确认分工'], discussion: [MessageSquare, '群反馈'],
@@ -22,12 +22,13 @@ export function InboxPage(props: PageProps) {
   const [scope, setScope] = useStored<'all' | 'project'>('inbox-scope', 'all');
   const [opened, open] = useState<Decision>();
   const decisions = workspace.needsYou.filter(d => scope === 'all' || d.project === project.id);
-  const latest = useTickets({ project: project.id, limit: 6 }, true, 5000).rows;
+  const latest = useTickets({ project: project.id, purpose: 'work', limit: 6 }, true, 4000).rows;
   const memberAgents = workspace.agents.filter(a => a.projects.includes(project.id));
   function decisionRoute(d: Decision) {
+    if (d.kind === 'intake' || d.kind === 'channel') return;
     if (d.ticket) {
       const tab = d.kind === 'access' ? 'context' : ['acceptance', 'delivery'].includes(d.kind) ? 'delivery' : 'activity';
-      return routeFor(d.project, 'work', d.ticket, tab);
+      return workFromInbox(routeFor(d.project, 'work', d.ticket, tab), project.id, d.id, d.acceptanceRevision);
     }
     if (d.kind === 'discussion') return routeFor(d.project, 'project', d.subject, 'discussion');
     if (d.kind === 'budget') return routeFor(d.project, 'project', undefined, 'usage');
@@ -45,7 +46,10 @@ export function InboxPage(props: PageProps) {
             const href = decisionRoute(d);
             const ticket = d.ticketTitle;
             const contents = <><span className="inbox-icon"><Icon size={18} /></span><div className="inbox-item-body">
-              <div><span className="category-label">{kind}</span>{scope === 'all' && <span> · {workspace.projects.find(p => p.id === d.project)?.title}</span>}</div>
+              <div className="inbox-item-meta"><span className="category-label">{kind}</span>
+                {scope === 'all' && <span>{workspace.projects.find(p => p.id === d.project)?.title}</span>}
+                {d.ticket && <code title={d.ticket}>{short(d.ticket)}</code>}{d.version && <Version version={d.version} />}
+              </div>
               <strong>{ticket ?? d.title}</strong>
               {(ticket && d.title !== ticket || d.request?.text || d.detail) && <p>
                 {ticket && d.title !== ticket && d.title}
@@ -57,8 +61,8 @@ export function InboxPage(props: PageProps) {
               : <button key={d.id} className="inbox-row" type="button" onClick={() => open(d)}>{contents}</button>;
           }) : <Empty title="待办已清空" description="需要你授权、答复或验收的事项会显示在这里。" icon={<CheckCheck />} />}
         </section>
-        <Section title="最近协作" action={<a href={routeFor(project.id, 'work')} className="text-button">全部工单 <ArrowRight size={15} /></a>}>
-          {latest.length ? latest.map(item => <a className="recent-row" href={routeFor(project.id, 'work', item.id)} key={item.id}>
+        <Section title="最近协作" action={<a href={projectWorkRoute(project.id)} className="text-button">全部工单 <ArrowRight size={15} /></a>}>
+          {latest.length ? latest.map(item => <a className="recent-row" href={workFromInbox(routeFor(project.id, 'work', item.id), project.id)} key={item.id}>
             <ListChecks size={17} /><div><strong>{item.title}</strong><small>{workspace.agents.find(a => a.id === item.work.agent)?.title ?? item.work.agent} · {date(item.updatedAt)}</small></div>
             <TicketStatus ticket={item} /><ChevronRight className="recent-arrow" size={16} />
           </a>) : <p className="muted-text">这个项目还没有工单。</p>}
@@ -70,6 +74,7 @@ export function InboxPage(props: PageProps) {
           <dl className="project-counts"><div><dt>在岗 Agent</dt><dd>{memberAgents.filter(a => a.active).length}</dd></div>
             <div><dt>已接入来源</dt><dd>{project.resources.filter(r => r.state === 'bound').length}</dd></div></dl>
           <a className="inspector-link" href={routeFor(project.id, 'knowledge')}><LockKeyhole size={16} /><span>项目知识</span><ChevronRight size={15} /></a>
+          <a className="inspector-link" href={personalChatRoute(undefined, project.id)}><Bot size={16} /><span>与我的 Agent 对话</span><ChevronRight size={15} /></a>
           {project.discussion && <a className="inspector-link" href={routeFor(project.id, 'project', undefined, 'discussion')}>
             <MessageSquare size={16} /><span>群反馈整理</span><ChevronRight size={15} /></a>}
         </Section>

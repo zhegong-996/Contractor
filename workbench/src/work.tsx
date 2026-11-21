@@ -9,7 +9,7 @@ import { WorkBoard, workStates, type BoardGrouping } from './work-board.tsx';
 import { RunHistory } from './work-execution.tsx';
 import { eligibleExecutionDevices, ExecutionTargetPicker, useExecutionTargets } from './execution-target.tsx';
 import { CaseEditor, ProductChecks, ProductVerificationPanel } from './product-criteria.tsx';
-import { go, routeFor, runRoute, withConversationOrigin, type PageProps } from './navigation.ts';
+import { go, projectWorkRoute, routeFor, runRoute, withConversationOrigin, workFromInbox, type PageProps } from './navigation.ts';
 import { Button } from './components/button.tsx';
 import { Input, TextArea } from './components/input.tsx';
 import { TicketPicker } from './components/ticket-picker.tsx';
@@ -65,12 +65,17 @@ function githubActor(identity: { login: string; member?: string } | null | undef
 
 export function WorkPage(props: PageProps) {
   const { project, route, workspace, openTask } = props;
-  const [filters, setFilters] = useStored('work:' + project.id, { query: '', topic: '', status: 'all' });
-  const [scope, setScope] = useStored('work-scope', 'project');
+  const routedTopic = project.topics.find(topic => topic.id === route.workTopic)?.id;
+  const [filters, setFilters] = useStored('work:' + project.id + (route.projectWork ? ':project:' + (routedTopic ?? '') : ''),
+    { query: '', topic: routedTopic ?? '', status: 'all' });
+  const [storedScope, setScope] = useStored('work-scope', 'project');
+  const scope = route.projectWork ? 'project' : storedScope;
   const [view, setView] = useStored<'board' | 'list'>('work-view', 'board');
   const [group, setGroup] = useStored<BoardGrouping>('work-board-group', 'status');
-  const [origin] = useStored('board-origin:' + route.item, project.id);
-  const boardProject = workspace.projects.some(item => item.id === origin) ? origin : project.id;
+  const [origin] = useStored('board-return:' + route.item, { project: project.id, topic: undefined as string | undefined, scoped: false });
+  const boardProject = workspace.projects.some(item => item.id === origin.project) ? origin.project : project.id;
+  const boardBack = origin.scoped ? projectWorkRoute(boardProject, origin.topic) : routeFor(boardProject, 'work');
+  const backToInbox = workspace.projects.some(item => item.id === route.inboxOrigin) ? routeFor(route.inboxOrigin!, 'inbox') : undefined;
   const fromChat = route.conversationOrigin;
   const chatProject = workspace.projects.find(item => item.id === fromChat?.project);
   const chatTopic = chatProject?.topics.find(topic => topic.id === fromChat?.item)?.id;
@@ -78,7 +83,7 @@ export function WorkPage(props: PageProps) {
   const status = ({ active: 'running', acceptance: 'review', accepted: 'done', answered: 'done', ended: 'closed' } as Record<string, string>)[filters.status] ?? filters.status;
   const listScroll = useSessionScroll(JSON.stringify(['work-list', project.id, scope, filters]), { visibleAt: route.item });
   const tickets = useTickets({ ...(scope === 'mine' ? { mine: true } : { project: project.id, topic: filters.topic }),
-    q: filters.query.trim().slice(0, 240), state: workStates.find(item => item.id === status)?.id }, view === 'list' || !route.item, 4000);
+    purpose: 'work', q: filters.query.trim().slice(0, 240), state: workStates.find(item => item.id === status)?.id }, view === 'list' || !route.item, 4000);
   const shown = tickets.rows;
   const empty = !shown.length && !tickets.isPending && !tickets.hasNextPage && !tickets.error;
   const listState = <>{tickets.error && <Failure error={tickets.error} retry={() => void tickets.refetch()} />}
@@ -89,14 +94,20 @@ export function WorkPage(props: PageProps) {
   const data = useData<Ticket>(route.item ? 'ticket/' + route.item : '', 2200);
   const detailScroll = useSessionScroll(JSON.stringify(['work-detail', project.id, route.item, tab, route.revision, route.run, route.attempt]), {
     ready: !route.item || data.data?.project === project.id && data.data.id === route.item,
-    preserveInitial: tab === 'delivery' && !!route.revision,
+    preserveInitial: !!route.decision || tab === 'delivery' && !!route.revision,
   });
-  const scopeFilter = <Segments label="任务范围" items={[[ 'project', '项目任务' ], [ 'mine', '我的任务' ]]} value={scope} onChange={setScope} />;
+  const scopeFilter = <Segments label="任务范围" items={[[ 'project', '项目任务' ], [ 'mine', '我的任务' ]]} value={scope} onChange={next => {
+    setScope(next);
+    if (route.projectWork && next === 'mine') go(project.id, 'work');
+  }} />;
   const viewFilter = <Segments label="任务视图" items={[[ 'board', '看板' ], [ 'list', '列表' ]]} value={view} onChange={setView} />;
   const taskFilters = <>
     <SearchBox label="搜索工单" value={filters.query} onChange={query => setFilters({ ...filters, query })} />
     <div className="filters">
-      {scope !== 'mine' && <select aria-label="筛选主题" value={filters.topic} onChange={e => setFilters({ ...filters, topic: e.target.value })}><TopicOptions project={project} empty="全部主题" /></select>}
+      {scope !== 'mine' && <select aria-label="筛选主题" value={filters.topic} onChange={e => {
+        if (route.projectWork && !route.item) window.location.hash = projectWorkRoute(project.id, e.target.value);
+        else setFilters({ ...filters, topic: e.target.value });
+      }}><TopicOptions project={project} empty="全部主题" /></select>}
       <select aria-label="筛选状态" value={status} onChange={e => setFilters({ ...filters, status: e.target.value })}>
         <option value="all">全部状态</option>{workStates.map(({ id, title }) => <option value={id} key={id}>{title}</option>)}
       </select>
@@ -117,6 +128,7 @@ export function WorkPage(props: PageProps) {
       </div>
     </header>
     {shown.length > 0 && <WorkBoard tickets={shown} workspace={workspace} project={project} mine={scope === 'mine'} group={group}
+      origin={{ project: project.id, topic: routedTopic, scoped: !!route.projectWork }}
       scrollKey={JSON.stringify(['work-board', project.id, scope, group, filters])} />}
     {empty && <Empty title="没有匹配的工单" icon={<ListChecks />} />}
     {listState}
@@ -140,9 +152,9 @@ export function WorkPage(props: PageProps) {
       </div>
     </aside>}
     <div className="split-detail" {...detailScroll}>
-      {route.item && <a className={backToChat || view === 'board' ? 'work-back' : 'mobile-back'}
-        href={backToChat || routeFor(view === 'board' ? boardProject : project.id, 'work')}>
-        <ArrowLeft size={16} />{backToChat ? '返回会话' : view === 'board' ? '返回看板' : '工单列表'}</a>}
+      {route.item && <a className={backToInbox || backToChat || view === 'board' ? 'work-back' : 'mobile-back'}
+        href={backToInbox || backToChat || (view === 'board' ? boardBack : routeFor(project.id, 'work'))}>
+        <ArrowLeft size={16} />{backToInbox ? '返回待办' : backToChat ? '返回会话' : view === 'board' ? '返回看板' : '工单列表'}</a>}
       {!route.item ? <div className="desk-overview"><h1>{scope === 'mine' ? '我的任务' : project.title}</h1>
         <div className="status-grid">{workStates.map(({ id, title }) => <button key={id} type="button" aria-pressed={status === id}
           onClick={() => setFilters({ ...filters, status: status === id ? 'all' : id })}>{title}</button>)}</div>
@@ -186,6 +198,23 @@ function TicketDetail(props: PageProps & { ticket: Ticket; tab: WorkTab }) {
     ? { name: topic.title, href: routeFor(project.id, 'chat', topic.id) }
     : !ticket.work.topic ? { name: '项目讨论', href: routeFor(project.id, 'chat', undefined, 'project') } : undefined;
   const decision = workspace.needsYou.find(d => d.ticket === ticket.id && (d.kind === 'development' || d.kind === 'development-returned'));
+  const routedDecision = workspace.needsYou.find(d => d.ticket === ticket.id && d.id === route.decision);
+  const detailRef = useRef<HTMLDivElement>(null);
+  const focus = routedDecision && (routedDecision.kind === 'answer' ? 'answer-' + routedDecision.card
+    : routedDecision.kind === 'access' ? 'access-' + routedDecision.subject
+    : routedDecision.kind === 'acceptance' ? 'acceptance'
+    : routedDecision.kind === 'delivery' ? 'delivery-evidence'
+    : routedDecision.kind.startsWith('development') ? 'development' : 'recovery');
+  useLayoutEffect(() => {
+    if (!focus) return;
+    const frame = requestAnimationFrame(() => {
+      const target = Array.from(detailRef.current?.querySelectorAll<HTMLElement>('[data-decision-focus]') ?? [])
+        .find(node => node.dataset.decisionFocus === focus);
+      target?.scrollIntoView({ block: 'start' });
+      target?.focus({ preventScroll: true });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [focus, tab]);
   const status = ticket.work.handoff && !ticket.work.handoff.completedAt && !ticket.work.handoff.cancelledAt;
   const agentChoices = workspace.agents.filter(a => a.active && a.projects.includes(project.id)
     && (!ticket.work.personal || a.kind === 'personal' && a.owner === ticket.work.requester)
@@ -193,7 +222,9 @@ function TicketDetail(props: PageProps & { ticket: Ticket; tab: WorkTab }) {
       && ref.eligibleAgents.includes(a.id))));
   const handoffChoices = agentChoices.filter(a => a.id !== ticket.work.agent && a.engine !== 'octop' && agent?.engine !== 'octop');
   const actions = ticket.actions;
-  const detailLink = (page: WorkTab) => withConversationOrigin(routeFor(project.id, 'work', ticket.id, page), route.conversationOrigin);
+  const detailLink = (page: WorkTab) => workFromInbox(
+    withConversationOrigin(routeFor(project.id, 'work', ticket.id, page), route.conversationOrigin),
+    route.inboxOrigin, route.decision, route.reviewRevision);
   const memberName = (id: string) => project.members.find(item => item.name === id)?.displayName ?? id;
   const deviceWaiting = !!ticket.device && !ticket.device.online && !ticket.endReason;
   const recoveryNext = ticket.recovery?.next;
@@ -207,8 +238,9 @@ function TicketDetail(props: PageProps & { ticket: Ticket; tab: WorkTab }) {
   const canSwitch = maySwitch && (eligibleExecutionDevices(targets.devices.data, agent).some(device => device.id !== ticket.device?.id)
     || !!ticket.device && agent.executionCapabilities.local);
   const canHandoff = actions.handoff && recoveryNext !== 'wait-receipt' && !!handoffChoices.length;
-  const viewedVersion = tab === 'delivery' && route.revision !== undefined
-    ? ticket.versions.find(version => version.revision === route.revision) : undefined;
+  const historicalRevision = route.revision ?? (route.reviewRevision !== ticket.result?.revision ? route.reviewRevision : undefined);
+  const viewedVersion = tab === 'delivery' && historicalRevision
+    ? ticket.versions.find(version => version.revision === historicalRevision) : undefined;
   const versionAccepted = viewedVersion?.reviews.some(review => review.kind === 'accepted');
   const versionAgent = viewedVersion && ticket.runs.find(run => run.id === viewedVersion.run)?.attribution?.agent;
   const send = (action: string, data: unknown, message: string) => run(() => api('ticket/' + ticket.id + '/' + action, data), message);
@@ -219,7 +251,7 @@ function TicketDetail(props: PageProps & { ticket: Ticket; tab: WorkTab }) {
     {canHandoff && <Button variant="outline" size="sm" onClick={() => setDialog('handoff')}>交接 Agent</Button>}
     {actions.stop && <Button variant="ghost" size="sm" onClick={() => setDialog('stop')}>停止工单</Button>}
   </div>;
-  return <div className="ticket-shell">
+  return <div className="ticket-shell" ref={detailRef}>
     <div className="ticket-top">
       <div className="ticket-title-line">
         <h1>{ticket.title}</h1>
@@ -229,6 +261,7 @@ function TicketDetail(props: PageProps & { ticket: Ticket; tab: WorkTab }) {
           {project.mayStart && <IconButton label="新建子工单" onClick={() => props.openTask({ parent: ticket.id, topic: ticket.work.topic })}><Plus /></IconButton>}
         </div>
       </div>
+      {route.decision && !routedDecision && <span className="ticket-decision-state" role="status">这项待办已处理或已更新</span>}
       <div className="ticket-head-meta">{viewedVersion ? <>
         <Pill tone={versionAccepted ? 'green' : 'neutral'}>{versionAccepted ? '已验收'
           : viewedVersion.reviews.some(review => review.kind === 'withdrawn') ? '交付前撤回' : viewedVersion.reviews.some(review => review.kind === 'rejected') ? '已打回' : '未验收'}</Pill>
@@ -246,11 +279,11 @@ function TicketDetail(props: PageProps & { ticket: Ticket; tab: WorkTab }) {
     <div className="ticket-frame" data-inspector={side}>
       <PageTabs value={tab} onChange={value => { window.location.hash = detailLink(value); }} items={workTabs} label="工单详情">
         <TabsContent className="ticket-tab" value="activity">
-          <TicketRecovery {...props} ticket={ticket} />
+          {ticket.recovery && <div className="decision-focus" data-decision-focus="recovery" tabIndex={-1}><TicketRecovery {...props} ticket={ticket} /></div>}
           {status && !ticket.recovery && <div className="info-callout"><History size={17} /><span>正在确认旧执行停止及接续权限。{ticket.report?.summary}</span></div>}
           {deviceWaiting && !status && !ticket.recovery && <div className="info-callout"><Bot size={17} />{ticket.device?.name}
             {ticket.device?.claimsPaused ? ' 暂不接单，请核对执行端。' : ' 当前离线，等待连接或确认接续。'}</div>}
-          {decision && <section className="decision-box">
+          {decision && <section className="decision-box decision-focus" data-decision-focus="development" tabIndex={-1}>
             <span className="decision-mark"><ShieldCheck size={18} /></span><div>
               <h2>{decision.title}</h2>{decision.detail && <p>{decision.detail}</p>}
               <div className="actions">
@@ -275,7 +308,9 @@ function TicketDetail(props: PageProps & { ticket: Ticket; tab: WorkTab }) {
         <TabsContent className="ticket-tab" value="execution">
           <RunHistory {...props} ticket={ticket} actions={<><TicketRecovery {...props} ticket={ticket} />{executionActions}</>} />
         </TabsContent>
-        <TabsContent className="ticket-tab" value="delivery"><Delivery {...props} ticket={ticket} /></TabsContent>
+        <TabsContent className="ticket-tab" value="delivery">{historicalRevision
+          ? <DeliveryVersion {...props} ticket={ticket} revision={historicalRevision} />
+          : <Delivery {...props} ticket={ticket} />}</TabsContent>
         <TabsContent className="ticket-tab" value="context"><ContextPanel {...props} ticket={ticket} /></TabsContent>
       </PageTabs>
       {side && <aside className="inspector" aria-label="工单属性">
@@ -333,7 +368,7 @@ function Question({ ticket, question }: { ticket: string; question: Ticket['ques
       ...(choice === undefined ? { text: text.trim() } : { choice }) }), '答复已提交');
     if (response) setText('');
   }
-  return <article className="decision-box">
+  return <article className="decision-box decision-focus" data-decision-focus={'answer-' + question.id} tabIndex={-1}>
     <span className="decision-mark"><Bot size={19} /></span><div>
       <h2>{question.title}</h2><p>{question.text}</p>
       {question.options.length > 0 && <div className="actions">
@@ -410,7 +445,6 @@ function Delivery(props: PageProps & { ticket: Ticket }) {
   const ci = delivery?.ci;
   const deployment = delivery?.deployed;
   const gate = ticket.deploymentGate;
-  if (props.route.revision !== undefined) return <DeliveryVersion {...props} revision={props.route.revision} />;
   return <div className="detail-stack">
     {ticket.stages && <StageChecks project={project.id} ticket={ticket.id} report={ticket.stages} />}
     <Section title="当前成果" action={<Version version={ticket.work.version} />}>
@@ -431,7 +465,7 @@ function Delivery(props: PageProps & { ticket: Ticket }) {
         {citation.acceptedSource && <AcceptedEvidence source={citation.acceptedSource} project={project.id} />}
       </article>)}
     </Section>}
-    {(scope || delivery || ticket.mayLinkDelivery || ticket.githubIssues.length > 0 || ticket.work.branches?.length) && <Section title="GitHub 交付"
+    {(scope || delivery || ticket.mayLinkDelivery || ticket.githubIssues.length > 0 || ticket.work.branches?.length) && <div className="decision-focus" data-decision-focus="delivery-evidence" tabIndex={-1}><Section title="GitHub 交付"
       action={ticket.mayLinkDelivery ? <Button variant="outline" size="sm" onClick={() => setAction('pull')}><GitPullRequest />{delivery ? '更新 PR 关联' : '关联 PR'}</Button> : undefined}>
       {scope && <dl className="facts">
         <dt>委托仓库</dt><dd>{scope.repository}</dd><dt>基线分支</dt><dd>{scope.base}</dd><dt>获准路径</dt><dd>{scope.paths.join('、')}</dd>
@@ -502,14 +536,14 @@ function Delivery(props: PageProps & { ticket: Ticket }) {
         <code>{short(branch.sha, 12)}</code><small>{branch.push?.actor?.login}</small>
       </div>)}
       {ticket.mayLinkDelivery && <Button variant="ghost" size="sm" onClick={() => setAction('branch')}><GitBranch />关联分支</Button>}
-    </Section>}
+    </Section></div>}
     {ticket.reusedAcceptance && <Section title="本版沿用的验收知识">
       <a href={routeFor(project.id, 'knowledge', ticket.reusedAcceptance.id, 'current')}>{ticket.reusedAcceptance.title}</a>
       {ticket.reusedAcceptance.source && <AcceptedEvidence source={ticket.reusedAcceptance.source} project={project.id} />}
     </Section>}
     {result && ticket.productVerification && <ProductVerificationPanel key={result.revision} ticket={ticket.id}
       revision={result.revision} verification={ticket.productVerification} />}
-    {result && !accepted && (ticket.actions.accept || ticket.actions.revise || ticket.work.requester === workspace.actor) && <Section title="本版验收">
+    {result && !accepted && (ticket.actions.accept || ticket.actions.revise || ticket.work.requester === workspace.actor) && <div className="decision-focus" data-decision-focus="acceptance" tabIndex={-1}><Section title="本版验收">
       {ticket.actions.accept ? <form className="form" onSubmit={async e => {
         e.preventDefault();
         await run(() => api('ticket/' + ticket.id + '/accept', { revision: result.revision, commit: delivery?.headSha,
@@ -528,7 +562,7 @@ function Delivery(props: PageProps & { ticket: Ticket }) {
       </form> : <div className="actions"><span className="muted-text">{ticket.deliveryStatus?.state === 'ready' || !ticket.deliveryStatus
         ? '等待本版需求验收条件通过。' : ticket.deliveryStatus.detail}</span>
         {ticket.actions.revise && <Button variant="outline" size="sm" onClick={() => setAction('revision')}>打回修改</Button>}</div>}
-    </Section>}
+    </Section></div>}
     {accepted && ticket.actions.revise && <Button variant="outline" className="self-start" onClick={() => setAction('revision')}>
       {props.route.consultation ? '确认咨询对应的改动范围' : '在原单开启下一版'} <ArrowRight /></Button>}
     {ticket.actions.retryUnpublished && result && <Button size="sm" variant="outline" className="self-start" onClick={() => setAction('retry-unpublished')}>
@@ -573,7 +607,8 @@ function DeliveryVersion({ ticket, project, route, revision }: PageProps & { tic
     panel.current?.scrollIntoView({ block: 'start' });
     panel.current?.focus({ preventScroll: true });
   }, [revision]);
-  const back = <a className="text-button" href={withConversationOrigin(routeFor(project.id, 'work', ticket.id, 'delivery'), route.conversationOrigin)}>
+  const back = <a className="text-button" href={workFromInbox(
+    withConversationOrigin(routeFor(project.id, 'work', ticket.id, 'delivery'), route.conversationOrigin), route.inboxOrigin)}>
     <ArrowLeft size={15} />返回交付</a>;
   return <div ref={panel} tabIndex={-1} className="detail-stack">
     {version ? <Section title={'第 ' + version.version + ' 版成果'} action={back}>
@@ -668,7 +703,7 @@ function ContextPanel({ ticket, project, workspace }: PageProps & { ticket: Tick
       {(ticket.work.resources ?? []).map(ref => <div className="record-row" key={ref.ref}><Source channel={ref.source} /><Ext href={ref.url}>{ref.label}</Ext>
         {ref.revision && <code>{ref.revision}</code>}</div>)}
       {!ticket.requests.length && !ticket.work.resources?.length && <p className="muted-text">{ticket.work.material.length ? '引用资料已记录在执行快照中。' : '没有单独的资料授权。'}</p>}
-      {ticket.requests.map(request => <article className="grant" key={request.id}>
+      {ticket.requests.map(request => <article className="grant decision-focus" key={request.id} data-decision-focus={'access-' + request.id} tabIndex={-1}>
         <div><strong>{request.title}</strong><p>{request.readerOwner || '原执行者'} · {request.purpose === 'review' ? '仅查阅本版成果' : '仅本工单执行'} · 版本 {short(request.revision)}</p></div>
         <KnowledgeGrantStatus {...request} />
         <div className="actions">

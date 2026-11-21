@@ -2,9 +2,9 @@ import { useEffect, useState } from 'react';
 import { ArrowRight, BookOpen, Clipboard, FolderKanban, GitBranch, Link2, MessageSquare, Plus, Plug2 } from 'lucide-react';
 import { ProjectPermissions } from './access-settings.tsx';
 import { roleLabel } from './platform-access.tsx';
-import { api, useData, type Channels, type Discussion, type FigmaSourceStatus, type GitHubConnection, type Imported, type ProjectChannels, type Resource } from './api.ts';
+import { api, useData, useTickets, type Channels, type Discussion, type FigmaSourceStatus, type GitHubConnection, type Imported, type ProjectChannels, type Resource } from './api.ts';
 import { TicketPicker } from './components/ticket-picker.tsx';
-import { go, routeFor, type PageProps } from './navigation.ts';
+import { go, projectWorkRoute, routeFor, type PageProps } from './navigation.ts';
 import { AgentOptions } from './creation.tsx';
 import { Receipts } from './agents.tsx';
 import { ProjectRoutingPanel } from './operations-settings.tsx';
@@ -14,7 +14,7 @@ import { Input } from './components/input.tsx';
 import { TabsContent } from './components/page-tabs.tsx';
 import { Markdown } from './markdown.tsx';
 import { Avatar, date, Empty, Ext, Failure, Field, Loading, MaterialIcon, Modal, PageTabs, Pill, Section, short, Source,
-  TopicOptions, topicName, useActions, useStored } from './ui.tsx';
+  TicketStatus, TopicOptions, topicName, useActions, useStored, Version } from './ui.tsx';
 
 const tabs = [['structure', '项目结构'], ['sources', '资料与连接'], ['discussion', '群反馈'], ['regression', '回归评估'], ['usage', '用量'],
   ['settings', '项目设置'], ['routing', '职责与路由']] as const;
@@ -28,7 +28,6 @@ export function ProjectPage(props: PageProps) {
         <span>{project.topics.length} 个主题</span><span>{project.resources.filter(r => r.state === 'bound').length} 个来源</span></div></div>
       <div className="actions object-action">
         <a className="text-button" href={routeFor(project.id, 'chat', undefined, 'project')}><MessageSquare size={16} />项目讨论</a>
-        <a className="text-button" href={routeFor(project.id, 'work')}>项目工单 <ArrowRight size={16} /></a>
       </div>
     </header>
     {['settings', 'routing'].includes(route.tab ?? '') && !project.maintain && <Failure error={new Error('当前账号没有项目设置权限。')} />}
@@ -51,7 +50,8 @@ function Structure({ workspace, project, openTask }: PageProps) {
   const [agentForm, setAgentForm] = useState(false);
   const own = workspace.ownAgents.filter(item => !item.projects.includes(project.id));
   const projectAgents = workspace.agents.filter(item => item.projects.includes(project.id));
-  const { busy, run, store } = useActions();
+  const { busy, run } = useActions();
+  const work = useTickets({ project: project.id, purpose: 'work', limit: 6 }, true, 4000);
   return <>
     {!!related.length && <Section title="项目关系">{related.map(p => <a className="record-row" key={p.id} href={routeFor(p.id, 'project')}>
       <GitBranch size={16} /><strong>{p.title}</strong><span>{p.parent === project.id ? '子项目' : p.id === project.parent ? '上级项目' : '关联项目'}</span><ArrowRight size={15} />
@@ -59,10 +59,16 @@ function Structure({ workspace, project, openTask }: PageProps) {
     <Section title="主题" action={project.maintain ? <Button variant="outline" size="sm" onClick={() => show(true)}><Plus />新建主题</Button> : undefined}>
       {project.topics.length ? project.topics.map(topic => <div className="topic-row" key={topic.id} data-child={!!topic.parent}>
         <MessageSquare size={16} /><a href={routeFor(project.id, 'chat', topic.id)}><strong>{topic.title}</strong></a>{topic.parent && <small>{topicName(project, topic.parent)}</small>}
-        <a className="text-button" href={routeFor(project.id, 'work')}
-          onClick={() => store('work:' + project.id, { query: '', topic: topic.id, status: 'all' })}>查看工单<ArrowRight size={14} /></a>
+        <a className="text-button" href={projectWorkRoute(project.id, topic.id)}>查看工单<ArrowRight size={14} /></a>
         {project.mayStart && <Button size="sm" variant="ghost" onClick={() => openTask({ topic: topic.id })}>发起</Button>}
       </div>) : <p className="muted-text">暂无主题。</p>}
+    </Section>
+    <Section title="项目工单" action={<a className="text-button" href={projectWorkRoute(project.id)}>全部工单 <ArrowRight size={15} /></a>}>
+      {work.error ? <Failure error={work.error} retry={() => void work.refetch()} /> : work.isPending ? <Loading />
+        : work.rows.length ? work.rows.map(item => <a className="project-ticket-row" href={routeFor(project.id, 'work', item.id)} key={item.id}>
+          <code title={item.id}>{short(item.id)}</code><strong>{item.title}</strong>
+          {item.work.version && <Version version={item.work.version} />}<TicketStatus ticket={item} />
+        </a>) : <p className="muted-text">暂无工单。</p>}
     </Section>
     <Section title="项目成员">
       <div className="member-grid">{project.members.map(m => <div className="member" key={m.name}><Avatar avatar={m.avatar} value={m.name} />

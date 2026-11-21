@@ -15,6 +15,7 @@ export const workStates = [
   { id: 'closed', title: '已结束', tone: 'neutral', icon: CircleStop },
 ] as const;
 export type BoardGrouping = 'status' | 'priority';
+type BoardOrigin = { project: string; topic?: string; scoped: boolean };
 const workState = ticketListState;
 
 const priorityGroups = [
@@ -24,7 +25,7 @@ const priorityGroups = [
 const boardDate = new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric' });
 
 function BoardCard({ ticket, home, workspace, mine, group, origin }: { ticket: TicketRow; home: PageProps['project'];
-  workspace: PageProps['workspace']; mine: boolean; group: BoardGrouping; origin: string }) {
+  workspace: PageProps['workspace']; mine: boolean; group: BoardGrouping; origin: BoardOrigin }) {
   const { store } = useActions();
   const state = workStates.find(row => row.id === workState(ticket))!;
   const assigned = workspace.agents.find(agent => agent.id === ticket.work.agent);
@@ -34,7 +35,7 @@ function BoardCard({ ticket, home, workspace, mine, group, origin }: { ticket: T
   const location = [mine && home.title, topic, ticket.work.parent && '子工单'].filter(Boolean).join(' / ');
   const [label] = ticketStatus(ticket);
   const updated = new Date(ticket.updatedAt);
-  return <a className="work-card" href={routeFor(home.id, 'work', ticket.id)} onClick={() => store('board-origin:' + ticket.id, origin)}>
+  return <a className="work-card" href={routeFor(home.id, 'work', ticket.id)} onClick={() => store('board-return:' + ticket.id, origin)}>
     <div className="work-card-meta"><span title={ticket.id}>{short(ticket.id)}</span>
       {ticket.work.version && <span>第 {ticket.work.version} 版</span>}
       {group === 'status' && ticket.work.priority === 'urgent' && <span className="work-card-urgent"><CircleAlert size={13} />紧急</span>}
@@ -67,8 +68,8 @@ function BoardColumn({ label, tone, items, scrollKey, render, icon: Icon }: {
   </section>;
 }
 
-export function WorkBoard({ tickets, workspace, project, mine, group, scrollKey }: Pick<PageProps, 'workspace' | 'project'> & {
-  tickets: TicketRow[]; mine: boolean; group: BoardGrouping; scrollKey: string;
+export function WorkBoard({ tickets, workspace, project, mine, group, scrollKey, origin }: Pick<PageProps, 'workspace' | 'project'> & {
+  tickets: TicketRow[]; mine: boolean; group: BoardGrouping; scrollKey: string; origin: BoardOrigin;
 }) {
   const scroll = useSessionScroll(scrollKey);
   const columns = group === 'status' ? workStates : priorityGroups;
@@ -79,7 +80,7 @@ export function WorkBoard({ tickets, workspace, project, mine, group, scrollKey 
       if (column.id === 'closed' && !items.length) return null;
       return <BoardColumn key={column.id} label={column.title} icon={column.icon} tone={column.tone} items={items} scrollKey={scrollKey + ':' + column.id}
         render={ticket => <BoardCard key={ticket.id} ticket={ticket} home={homes.get(ticket.work.project) ?? project}
-          workspace={workspace} mine={mine} group={group} origin={project.id} />} />;
+          workspace={workspace} mine={mine} group={group} origin={origin} />} />;
     })}
   </div>;
 }
