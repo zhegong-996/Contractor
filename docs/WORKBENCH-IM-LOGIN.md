@@ -39,12 +39,30 @@
 | 渠道 | 开放平台需要的应用与校验 |
 | --- | --- |
 | 飞书 | 自建应用网页登录，工作台嵌入飞书二维码，回调核对企业 `tenant_key`。 [飞书扫码登录集成](https://open.feishu.cn/solutions/detail/qrcode) |
-| 钉钉 | 企业内部应用，在「登录与分享」登记回调，开放个人身份读取和企业通讯录成员核对。 [钉钉网页登录](https://open.dingtalk.com/document/orgapp/tutorial-obtaining-user-personal-information) |
+| 钉钉 | 企业内部应用：`应用能力 → 添加应用能力 → 网页应用`（缺少该能力时扫码后不会跳回调），并在 `安全设置 → 重定向URL` 登记工作台回调，开通「通讯录个人信息读权限」后发布版本。 [钉钉网页登录](https://open.dingtalk.com/document/orgapp/tutorial-obtaining-user-personal-information) |
 | 企业微信 | 企业自建应用开启「企业微信授权登录」，登记可信回调域与服务出口，并将测试成员设为可见。服务端核对应用取得的企业成员 ID。 [企微网页登录](https://developer.work.weixin.qq.com/document/path/98152) |
 | 微信 | 微信开放平台已审核的网站应用与微信扫码登录。使用应用内 OpenID。 [微信网站应用登录](https://developers.weixin.qq.com/doc/oplatform/Website_App/WeChat_Login/Wechat_Login.html) |
 | Telegram | 在 BotFather 的 Login Widget 设置允许回调并取得 Client ID 和 Client Secret。使用 `openid profile` 和默认 RS256 签名。 [Telegram Login](https://core.telegram.org/bots/telegram-login) |
 | Discord | 创建 OAuth2 应用并登记回调。用 `identify` 获取账号。 [Discord OAuth2](https://docs.discord.com/developers/topics/oauth2) |
 | QQ | 在 QQ 互联审核网站应用并配置回调。通过应用内 OpenID 识别成员。 [QQ 互联](https://wiki.connect.qq.com/使用authorization_code获取access_token) |
+
+## 实测接入步骤
+
+### 钉钉（新版开发者后台）
+
+1. 创建企业内部应用，在「凭证与基础信息」记录 AppKey（`client_id`）与 AppSecret（只注入本机环境，不入库）。
+2. `应用能力 → 添加应用能力 → 网页应用` 并保存。只有机器人能力的应用不会处理扫码登录回调，扫完会一直停在授权页。
+3. `安全设置 → 重定向URL` 登记 `https://<工作台地址>/api/auth/im/callback`。
+4. `权限管理` 开通「通讯录个人信息读权限」（`Contact.User.Read`），用于用 unionId 核对企业成员。
+5. `版本管理与发布 → 创建新版本`，确认「工作台显示的应用能力」包含网页应用和机器人，可见范围先设「仅我可见」，保存后发布；免审时确认全量发布。
+6. 打开工作台登录页，扫码后在手机确认；回调携带 `authCode`，服务端依次调用 `oauth2/userAccessToken → contact/users/me → oauth2/accessToken → topapi/user/getbyunionid` 核对身份。
+
+### 企业微信（自建应用）
+
+1. 管理后台创建自建应用，记录企业 ID（`corpId`）、应用 `agentId` 与 Secret（只注入本机环境，不入库）。
+2. 应用详情中开启「企业微信授权登录」，设置网页授权及 JS-SDK 的可信域名与可信回调域为工作台 HTTPS 域名。
+3. 将测试成员加入应用可见范围。
+4. 电脑浏览器扫码走 `login.work.weixin.qq.com/wwlogin/sso/login`（`login_type=CorpApp`），企业微信内打开走 `open.weixin.qq.com/connect/oauth2/authorize`；服务端用 `gettoken → auth/getuserinfo` 取得企业成员 `userid`。
 
 授权回调以短期浏览器凭证和一次性 state 关联。平台不持久化用于完成登录的第三方访问令牌。工作台角色、项目访问和资料授权继续由 Contractor 管理；飞书、钉钉、企微、GitHub、Figma 的应用和用户权限由各自源站管理。跳转到源站时，浏览器使用访问者自己的源站权限。
 
