@@ -1,6 +1,6 @@
-import { TextArea } from './components/input.tsx';
+import { Input, TextArea } from './components/input.tsx';
 import { useState } from 'react';
-import { ArrowRight, Bot, CheckCheck, ChevronRight, ClipboardCheck, GitPullRequest, Inbox, Link2, ListChecks, LockKeyhole, MessageSquare, Workflow } from 'lucide-react';
+import { ArrowRight, Bot, CheckCheck, ChevronRight, ClipboardCheck, GitPullRequest, Inbox, Link2, ListChecks, LockKeyhole, MessageSquare, ShieldCheck, Workflow } from 'lucide-react';
 import { api, useData, useTickets, type Decision, type Knowledge } from './api.ts';
 import { TicketPicker } from './components/ticket-picker.tsx';
 import { AgentOptions, MaterialPicker } from './creation.tsx';
@@ -9,11 +9,13 @@ import { Button } from './components/button.tsx';
 import { Markdown } from './markdown.tsx';
 import { date, Empty, Ext, Field, Modal, Section, Segments, short, TicketStatus, TopicOptions, useActions, useStored, Version } from './ui.tsx';
 
-const decisionVisual = {
+export const decisionVisual = {
   channel: [Link2, '确认归属'], intake: [Workflow, '确认分工'], discussion: [MessageSquare, '群反馈'],
   answer: [Bot, 'Agent 提问'], access: [LockKeyhole, '资料授权'], acceptance: [ClipboardCheck, '交付验收'],
   development: [GitPullRequest, '研发委托'], 'development-returned': [GitPullRequest, '研发退回'],
   delivery: [GitPullRequest, '交付证据'], blocked: [Workflow, '执行阻塞'], budget: [Workflow, '费用核对'],
+  feedback: [Workflow, '反馈改进'],
+  approval: [ShieldCheck, '项目审批'],
 } as const;
 const inboxScopes = [['all', '全部项目'], ['project', '当前项目']] as const;
 
@@ -86,6 +88,7 @@ export function InboxPage(props: PageProps) {
 }
 
 function DecisionModal({ workspace, decision, close }: PageProps & { decision: Decision; close: () => void }) {
+  if (decision.kind === 'feedback') return <FeedbackDecision workspace={workspace} decision={decision} close={close} />;
   const project = workspace.projects.find(p => p.id === decision.project)!;
   const channel = decision.kind === 'channel';
   const sourceTicket = decision.request && 'sourceTicket' in decision.request && typeof decision.request.sourceTicket === 'string'
@@ -172,6 +175,41 @@ function DecisionModal({ workspace, decision, close }: PageProps & { decision: D
         <span>这条消息需要单独开单</span>
       </label>}
     </details>}
+    <div className="form-actions"><Button type="submit" disabled={busy}>确认</Button></div>
+  </form></Modal>;
+}
+
+function FeedbackDecision({ workspace, decision, close }: { workspace: PageProps['workspace']; decision: Decision; close: () => void }) {
+  const project = workspace.projects.find(p => p.id === decision.project)!;
+  const agents = workspace.agents.filter(a => a.active && a.projects.includes(project.id));
+  const [action, setAction] = useState<'ticket' | 'dismiss'>('ticket');
+  const [title, setTitle] = useState('反馈改进');
+  const [request, setRequest] = useState('');
+  const [agent, setAgent] = useState('');
+  const { run, busy } = useActions();
+  return <Modal title={decision.title} close={close}><form className="form" onSubmit={async event => {
+    event.preventDefault();
+    const outcome = await run(() => api<{ ticket?: string }>('feedback/' + decision.subject + '/resolve',
+      action === 'dismiss' ? { action: 'dismiss' } : { action: 'ticket', title, request: request.trim() || undefined, agent: agent || undefined }),
+      '反馈已处理');
+    if (outcome) {
+      close();
+      if (outcome.ticket) go(project.id, 'work', outcome.ticket);
+    }
+  }}>
+    <div className="context-preview"><Markdown text={decision.detail ?? ''} /></div>
+    <Field label="处理方式"><select value={action} onChange={event => setAction(event.target.value as 'ticket' | 'dismiss')}>
+      <option value="ticket">转为改进工单</option><option value="dismiss">忽略本次反馈</option>
+    </select></Field>
+    {action === 'ticket' && <>
+      <Field label="工单标题"><Input value={title} maxLength={100} onChange={event => setTitle(event.target.value)} /></Field>
+      <Field label="改进要求" hint="留空则按差评汇总自动生成。"><TextArea rows={4} maxLength={3500} value={request}
+        onChange={event => setRequest(event.target.value)} /></Field>
+      <Field label="执行 Agent"><select value={agent} onChange={event => setAgent(event.target.value)}>
+        <option value="">按项目职责分派</option>
+        {agents.map(row => <option key={row.id} value={row.id}>{row.title} · {row.owner}</option>)}
+      </select></Field>
+    </>}
     <div className="form-actions"><Button type="submit" disabled={busy}>确认</Button></div>
   </form></Modal>;
 }

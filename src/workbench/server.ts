@@ -6,7 +6,7 @@ import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { z } from 'zod';
-import { root, runtime } from '../config.ts';
+import { requirePersistentStateDir, root, runtime } from '../config.ts';
 import { ConsoleAuth, CONSOLE_ROLES, consoleCookieName } from '../console-auth.ts';
 import { command } from '../commands.ts';
 import { sendFeishu } from '../upstream.ts';
@@ -46,9 +46,9 @@ import { configuredEnv, formerName } from './compatibility.ts';
 import { PluginHost } from './capabilities.ts';
 import { platformPlugins } from './platform-plugins.ts';
 import { ticketListStates } from './ticket-list-state.ts';
+import { projectTemplateSchema } from './project-templates.ts';
 
-const stateDir = process.env.COLLAB_STATE_DIR;
-if (!stateDir || !path.isAbsolute(stateDir)) throw new Error('请提供独立工作台的 COLLAB_STATE_DIR 绝对路径。');
+const stateDir = requirePersistentStateDir(process.env.COLLAB_STATE_DIR, '独立工作台');
 
 const auth = new ConsoleAuth();
 await mkdir(runtime(), { recursive: true, mode: 0o700 });
@@ -97,7 +97,7 @@ const discussionDecision = z.discriminatedUnion('action', [
 const settingsRoutes = {
   start: z.object({ project: id, title, request: prose, nonce, material: materials.default([]),
     resources: z.array(z.string().max(180)).max(12).default([]), target: z.string().max(180).optional(), topic: id.optional(),
-    priority: z.enum(['normal', 'urgent']).default('normal'), agent: id.optional(), function: id.optional(), parent: id.optional(), measure: measureSchema.optional(), reusedLesson: id.optional(),
+    priority: z.enum(['normal', 'urgent']).default('normal'), agent: id.optional(), function: id.optional(), parent: id.optional(), goal: id.optional(), measure: measureSchema.optional(), reusedLesson: id.optional(),
     recall: z.boolean().optional(), personal: z.boolean().optional(), device: z.uuid().optional(),
     reuseAcceptance: z.boolean().optional(), productCases: manualCasesInput.optional() }).strict(),
   answer: z.object({ card: z.number().int().positive(), choice: z.number().int().nonnegative().optional(), text: prose.optional(), nonce }).strict(),
@@ -109,6 +109,9 @@ const settingsRoutes = {
   access: z.object({ entry: id, reason: prose }).strict(),
   changeAccess: z.object({ state: z.enum(['granted', 'revoked']), hours: z.number().int().min(1).max(168).optional() }).strict(),
   publish: z.object({ revision: knowledgeRevision, replaces: knowledgeRef.optional() }).strict(),
+  trigger: z.object({ revision: z.string().min(1), keywords: z.array(z.string().trim().min(1).max(60)).max(20).default([]),
+    sensitivity: z.enum(['strict', 'balanced', 'open']).default('balanced'),
+    silenceMinutes: z.number().int().min(0).max(10080).default(0), mentionAlways: z.boolean().default(true) }).strict(),
 };
 
 function json(res: ServerResponse, status: number, body: unknown) {
@@ -161,6 +164,7 @@ function replyError(res: ServerResponse, error: unknown) {
 
 async function serve(release: () => void) {
   const config = await loadSettings();
+  auth.bindOrg(config.org?.id);
   const capabilities = platformPlugins(config);
   const checkKnowledge = async () => {
     try { return await capabilities.use('memory').health(); }
@@ -518,7 +522,8 @@ async function serve(release: () => void) {
       const account = actor ? auth.listAccounts().find(a => a.username === actor && !a.disabled) : undefined;
       if (get && view === 'session') {
         json(res, 200, { signedIn: !!account, recoveryUrl: work.imLogin.legacyPassword() ? recoveryUrl : undefined,
-          imLogin: work.imLogin.browser(browserOrigin, account) });
+          imLogin: work.imLogin.browser(browserOrigin, account),
+          org: config.org ? { id: config.org.id, name: config.org.name } : null });
         return;
       }
       if (!actor || !account) throw new WorkbenchError('请先登录。', 401);
@@ -675,11 +680,15 @@ async function serve(release: () => void) {
       else if (view === 'regression' && item && post && action === 'compare' && !reference)
         output = work.compareRegression(actor, id.parse(item), regressionCompareInput.parse(await body(req)));
       else if (get && view === 'ticket' && item && !action) output = work.detail(actor, item);
+      else if (get && view === 'ticket' && item && action === 'changes' && !reference) output = await work.ticketChanges(actor, item);
       else if (get && view === 'request' && item) output = { ticket: work.resolveStart(actor, item) };
       else if (view === 'octop' && item && get && !action) output = work.octopCatalog(actor, item);
       else if (view === 'octop' && item && get && action === 'recall') output = await work.octopRecall(actor, item, (url.searchParams.get('q') ?? '').slice(0, 240));
       else if (view === 'octop' && item && post && action === 'skill') output = work.publishOctopSkill(actor, item,
         z.object({ slug: octopSlug, title, markdown: z.string().trim().min(1).max(6000) }).strict().parse(await body(req)));
+      else if (view === 'octop' && item && post && action === 'skill-trial')
+        output = work.trialOctopSkill(actor, item, z.object({ skill: z.object({ id, revision: knowledgeRevision }).strict(),
+          sample: z.string().trim().min(1).max(2000), agent: id }).strict().parse(await body(req)));
       else if (view === 'octop' && item && post && action === 'share') output = work.shareOctop(actor, item,
         z.object({ id, member: id, active: z.boolean() }).strict().parse(await body(req)));
       else if (view === 'octop' && item && post && action === 'mount') {
@@ -718,6 +727,20 @@ async function serve(release: () => void) {
       else if (post && view === 'project' && item && action === 'delivery-setup' && !reference)
         output = work.attachDeliveryProfile(actor, item, z.object({ source: id, repository: z.string().regex(githubRepository),
           contributors: z.array(username).min(1).max(50) }).strict().parse(await body(req)));
+      else if (get && view === 'project' && item && action === 'plans' && !reference) output = work.projectPlansView(actor, item);
+      else if (post && view === 'project' && item && action === 'plans' && !reference)
+        output = work.setProjectPlans(actor, item, z.object({ revision: z.string().min(1),
+          goals: z.array(z.object({ id: id, title: title, done: z.boolean() }).strict()),
+          routines: z.array(z.object({ id: id, title: title, cron: z.string().max(80), actor: z.string().min(1),
+            action: z.discriminatedUnion('kind', [
+              z.object({ kind: z.literal('ticket'), title: title, request: z.string().trim().min(1).max(3000), topic: id.optional(), agent: id.optional() }).strict(),
+              z.object({ kind: z.literal('consultation'), topic: id, text: z.string().trim().min(1).max(3000), agent: id }).strict(),
+              z.object({ kind: z.literal('next-version'), ticket: id, reason: z.string().trim().min(1).max(1000) }).strict(),
+            ]),
+          }).strict()) }).strict().parse(await body(req)));
+      else if (get && view === 'project' && item && action === 'trigger') output = work.projectTrigger(actor, item);
+      else if (post && view === 'project' && item && action === 'trigger')
+        output = work.setProjectTrigger(actor, item, settingsRoutes.trigger.parse(await body(req)));
       else if (get && view === 'project' && item && action === 'dispatch-readiness' && !reference)
         output = await work.dispatchReadiness(actor, item, z.object({ topic: id.optional(), agent: id.optional(), function: id.optional(),
           target: z.string().max(180).optional(), device: z.uuid().optional(), personal: z.literal('1').transform(() => true).optional() })
@@ -770,7 +793,10 @@ async function serve(release: () => void) {
         work.transitionDevice(actor, z.uuid().parse(item), 'state' in input ? input.state : input.active ? 'active' : 'suspended');
       }
       else if (post && view === 'project' && !item) {
-        output = work.createProject(actor, z.object({ nonce, title, parent: id.optional(), firstTopic: title.optional() }).strict().parse(await body(req)));
+        output = work.createProject(actor, z.object({ nonce, title, parent: id.optional(), firstTopic: title.optional(),
+          template: projectTemplateSchema.optional() }).strict().parse(await body(req)));
+      } else if (get && view === 'project' && item && action === 'template' && !reference) {
+        output = work.exportProjectTemplate(actor, item);
       } else if (get && view === 'project' && item && action === 'access' && !reference) {
         output = work.projectAccess(actor, item);
       } else if (get && view === 'project' && item && action === 'knowledge-access' && !reference) {
@@ -838,6 +864,16 @@ async function serve(release: () => void) {
         output = await work.publishFeishuWork(actor, item, z.object({ chat: z.string().regex(/^oc_[a-zA-Z0-9_-]{1,128}$/) }).strict().parse(await body(req)).chat);
       else if (post && view === 'ticket' && item && action === 'publish-im' && !reference)
         output = work.publishIMWork(actor, item, z.object({ destination: id }).strict().parse(await body(req)).destination);
+      else if (post && view === 'ticket' && item && action === 'feedback')
+        output = work.voteFeedback(actor, item, z.object({ revision: knowledgeRevision, sentiment: z.enum(['up', 'down']),
+          note: z.string().trim().max(1000).optional() }).strict().parse(await body(req)));
+      else if (post && view === 'ticket' && item && action === 'approve')
+        output = work.approveTicket(actor, item, z.object({ note: z.string().trim().max(1000).optional() }).strict().parse(await body(req)));
+      else if (post && view === 'feedback' && item && action === 'resolve')
+        output = work.resolveFeedback(actor, item, z.discriminatedUnion('action', [
+          z.object({ action: z.literal('dismiss') }).strict(),
+          z.object({ action: z.literal('ticket'), title: title.optional(), request: prose.optional(), agent: id.optional() }).strict(),
+        ]).parse(await body(req)));
       else if (post && view === 'ticket' && action === 'answer') work.reply(actor, item, settingsRoutes.answer.parse(await body(req)));
       else if (post && view === 'ticket' && action === 'stop') work.stop(actor, item);
       else if (post && view === 'ticket' && action === 'handoff')

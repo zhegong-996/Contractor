@@ -1,9 +1,9 @@
-import { ArrowLeft, Bot, ChevronRight, Cpu, Laptop, Layers, ListChecks, MessageSquare, Play, ReceiptText, Route as Routing, ShieldCheck } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Bot, ChevronRight, Cpu, Laptop, Layers, ListChecks, MessageSquare, Play, ReceiptText, Route as Routing, ShieldCheck } from 'lucide-react';
 import { api, useData, useTickets, type Agent, type Usage } from './api.ts';
 import { agentSettingsRoute, go, routeFor, type PageProps } from './navigation.ts';
 import { TabsContent } from './components/page-tabs.tsx';
 import { Button } from './components/button.tsx';
-import { Avatar, Empty, Failure, Loading, PageTabs, Pill, SearchBox, Section, Segments, TicketStatus, useActions, useStored } from './ui.tsx';
+import { Avatar, date, Empty, Failure, Loading, PageTabs, Pill, SearchBox, Section, Segments, TicketStatus, useActions, useStored } from './ui.tsx';
 import { AgentMemory, AgentOperations } from './agent-operations.tsx';
 import { AgentLibrary } from './agent-library.tsx';
 import { WorkerHarness } from './worker-harness.tsx';
@@ -57,6 +57,11 @@ function ProjectAgentCatalog(props: PageProps) {
       {selected ? <AgentDetail key={selected.id} agent={selected} {...props} />
         : <div className="agent-overview"><div className="object-header"><div className="object-emblem"><Bot size={25} /></div><div><h1>项目 Agent</h1>
           <p className="muted-text">{all.filter(a => a.active).length} 位在岗 · {all.length} 位已登记</p></div></div>
+          <div className="agent-roles">
+            <div><ShieldCheck size={18} /><div><strong>平台 Router</strong><p>管理员配置。负责路由建议与知识提炼，不在具体设备上执行。</p></div></div>
+            <div><Bot size={18} /><div><strong>个人 Agent</strong><p>你自己配置。处理个人代办、沉淀个人经验，在「我的会话」与你对话。</p></div></div>
+            <div><Cpu size={18} /><div><strong>Worker 设备</strong><p>设备主人接入。项目里的执行 Agent 通过设备真正干活，可随时插拔。</p></div></div>
+          </div>
           {shown.length ? <div className="agent-cards">{shown.map(agent => <a key={agent.id} className="agent-card" href={routeFor(project.id, 'agents', agent.id)}>
             <div className="agent-card-top"><Avatar value={agent.title} kind="agent" /><Pill tone={agent.active ? 'green' : 'neutral'}>{agent.active ? '在岗' : '未启用'}</Pill></div>
             <h2>{agent.title}</h2><p>{agent.capability}</p><div className="agent-card-foot"><span>{agent.owner} · {engineName(agent.engine)}</span><ChevronRight size={16} /></div>
@@ -136,6 +141,11 @@ export function Receipts({ project, agent }: { project: string; agent?: string }
   const unknown = agent ? rows.filter(r => r.billing?.status !== 'reported').length : facts.unpriced;
   const amount = agent ? rows.reduce((sum, r) => sum + (r.billing?.amount ?? 0), 0) : facts.billing.knownAmount;
   return <Section title="用量回执">
+    {!!facts.alerts?.length && <div className="detail-stack">
+      {facts.alerts.slice(0, 8).map(alert => <div className="info-callout" key={alert.key}>
+        <AlertTriangle size={16} /> <span><strong>{alert.level === 'critical' ? '额度严重不足' : '额度提醒'} · {date(alert.at)}</strong><br />{alert.detail}</span>
+      </div>)}
+    </div>}
     <div className="receipt-stats">
       <div><small>已记录 Token</small><strong>{measured.toLocaleString('zh-CN')}</strong></div>
       <div><small>{unknown ? '已知金额小计' : '已回报金额'}</small><strong>{unknown && amount === 0 ? '未回报' : '$' + Number(amount.toFixed(6)).toLocaleString('en-US')}</strong></div>

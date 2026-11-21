@@ -6,6 +6,7 @@ import type { Agent, Project, Settings } from './config.ts';
 import { WorkbenchError } from './errors.ts';
 import type { ProjectTopic } from './project-resources.ts';
 import type { openMemberProfiles } from './member-profile.ts';
+import { exportProjectTemplate as buildProjectTemplate, materializeTemplate, type ProjectTemplate } from './project-templates.ts';
 
 export function loadProjectDirectory(store: SuperAgentStore, config: Settings) {
   store.db.exec(`
@@ -79,27 +80,40 @@ export function projectDirectory(store: SuperAgentStore, loaded: ReturnType<type
   const isProjectReader = (project: string, person: string) => projectReaders.has(projectReaderKey(project, person));
   const mayStart = (p: Project, actor: string) =>
     member(p, actor) && !projectReaders.has(projectReaderKey(p.id, actor)) && rbacEnforce('user:' + actor, 'task-control');
-  function createProject(actor: string, input: { nonce: string; title: string; parent?: string; firstTopic?: string }) {
+  function createProject(actor: string, input: { nonce: string; title: string; parent?: string; firstTopic?: string; template?: ProjectTemplate }) {
     if (input.parent && !maintain(projectFor(input.parent, actor), actor)) throw new WorkbenchError('由上级项目维护人建立子项目。', 403);
     if (!input.parent && !platformRight(actor, 'project-create')) throw new WorkbenchError('当前账号没有创建独立项目的权限。', 403);
     const id = 'project-' + key('project-create', actor, input.nonce);
     const first = input.firstTopic ? { id: 'topic-' + key('first-topic', id).slice(0, 12), title: input.firstTopic } : undefined;
+    const imported = input.template ? materializeTemplate(input.template, actor, new Set(agentById.keys()), id) : undefined;
     const prior = projectById.get(id);
     if (prior) {
-      if (prior.title !== input.title || prior.parent !== input.parent || prior.topics[0]?.title !== input.firstTopic)
+      if (prior.title !== input.title || prior.parent !== input.parent
+        || prior.topics[0]?.title !== (imported?.topics[0]?.title ?? input.firstTopic))
         throw new WorkbenchError('这次项目创建请求已被使用。', 409);
-      return { id, topic: first?.id };
+      return { id, topic: imported?.topics[0]?.id ?? first?.id };
     }
     const project: Project = { id, title: input.title, parent: input.parent, members: [actor], maintainers: [actor],
-      relatedProjects: [], delegations: [], dispatch: [], responsibilities: [], topics: first ? [first] : [], resources: [] };
+      relatedProjects: [], delegations: [], dispatch: [], responsibilities: [],
+      topics: imported?.topics.length ? imported.topics : first ? [first] : [], resources: [],
+      goals: imported?.goals ?? [], routines: imported?.routines ?? [],
+      ...(imported?.trigger ? { trigger: imported.trigger } : {}),
+      ...(imported?.approvals ? { approvals: imported.approvals } : {}),
+      ...(imported?.modelRoutes ? { modelRoutes: imported.modelRoutes } : {}) };
     store.atomic(() => {
       store.db.prepare('INSERT INTO workbench_created_project VALUES (?,?)').run(id, JSON.stringify(project));
-      audit(id, 'project.created', { actor, parent: input.parent });
+      audit(id, 'project.created', { actor, parent: input.parent, fromTemplate: !!input.template });
       if (first) audit(id, 'topic.created', { actor, topic: first.id });
+      for (const topic of project.topics.slice(first ? 1 : 0)) audit(id, 'topic.created', { actor, topic: topic.id, fromTemplate: true });
     });
     projectById.set(id, project);
     config.projects.push(project);
-    return { id, topic: first?.id };
+    return { id, topic: project.topics[0]?.id };
+  }
+
+  function exportProjectTemplate(actor: string, id: string) {
+    const project = projectFor(id, actor);
+    return buildProjectTemplate(project);
   }
 
   function addProjectMember(actor: string, id: string, person: string, role: 'collaborator' | 'reader' = 'collaborator') {
@@ -253,7 +267,7 @@ export function projectDirectory(store: SuperAgentStore, loaded: ReturnType<type
     });
   }
 
-  return { projectById, account, member, mayStart, maintain, platformRight, canManageAccounts, projectFor, createProject, addProjectMember,
+  return { projectById, account, member, mayStart, maintain, platformRight, canManageAccounts, projectFor, createProject, exportProjectTemplate, addProjectMember,
     removeProjectMember, setProjectMemberRole, guardAccountWithdrawal, projectAccess, withdrawAccountAuthority,
     transferProjectMaintainer, addProjectAgent, topicsFor, createTopic, isProjectReader };
 }

@@ -15,6 +15,7 @@ type ContextInput = {
   opening: Pick<Trigger, 'id' | 'at' | 'text'>;
   work: Pick<Work, 'source' | 'version' | 'resources' | 'developmentOffer' | 'handoff' | 'measure' | 'deliveryTemplate' | 'productCases'>;
   notes: { id: string; actor: string; text: string; at: string }[];
+  goal?: { id: string; title: string };
   topicHistory?: TopicMessage[];
   topicBasis?: { message: TopicMessage; confirmed: { actor: string; at: string } }[];
   confirmed: Confirmation[];
@@ -43,10 +44,12 @@ const workResultPrompt = [
 
 // The caller supplies authorized facts. This module only renders the exact input frozen for a run.
 export function assembleExecutionContext(input: ContextInput): Job['context'] {
-  const { context: native, assignment, ticket, opening, work, notes, confirmed, changes, priorOutput, topicHistory = [], topicBasis = [],
+  const { context: native, assignment, ticket, opening, work, notes, goal, confirmed, changes, priorOutput, topicHistory = [], topicBasis = [],
     continuation, followups, observations, knowledge } = input;
   const context = { ...native, events: [
     ...native.events,
+    ...(goal ? [{ id: 'goal:' + goal.id, type: 'task.goal' as const, source: 'contractor', sourceName: '项目目标',
+      subject: ticket.id, summary: '本工单对齐的项目目标', detail: goal.title, receivedAt: ticket.createdAt, link: '' }] : []),
     { id: opening.id, type: 'task.request', source: work.source, sourceName: '原始需求', subject: ticket.id, summary: ticket.title, detail: opening.text, receivedAt: opening.at, link: '' },
     ...notes.map(row => ({
       id: row.id, type: 'task.discussion', source: 'contractor', sourceName: '工单讨论', subject: ticket.id,

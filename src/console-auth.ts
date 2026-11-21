@@ -30,6 +30,7 @@ export type ConsoleAccount = {
   passwordHash?: string;
   salt: string;
   role: ConsoleRole;
+  org?: string;
   feishuOpenId?: string;
   displayName?: string;
   imProfile?: Pick<NonNullable<VerifiedIdentity['profile']>, 'provider' | 'avatar'>;
@@ -105,6 +106,16 @@ function updateIMProfile(account: ConsoleAccount, identity: VerifiedIdentity) {
 export class ConsoleAuth {
   private sessions = new Map<string, ConsoleSession & { credentialVersion: string; external?: ExternalIdentity }>();
   private failures = new Map<string, { count: number; lockedUntil: number }>();
+  private orgId?: string;
+
+  /** 工作台组织边界：之后的账号都会打上组织标记，跨组织账号一律拒绝登录。 */
+  bindOrg(org?: string): void {
+    this.orgId = org;
+  }
+
+  private belongsToOrg(account: ConsoleAccount): boolean {
+    return !this.orgId || !account.org || account.org === this.orgId;
+  }
 
   async ready(): Promise<void> {
     await initRbac();
@@ -169,6 +180,7 @@ export class ConsoleAuth {
     const salt = randomBytes(16).toString('hex');
     const account: ConsoleAccount = {
       username: name, salt, role, createdAt: new Date().toISOString(), createdBy,
+      ...(this.orgId ? { org: this.orgId } : {}),
       ...(password && { passwordHash: scryptSync(password, salt, 32).toString('hex') }),
       ...(feishuOpenId ? { feishuOpenId } : {}),
       ...(identity && { imLogins: [{ authority: identity.authority, subject: identity.subject }] }),
@@ -190,6 +202,7 @@ export class ConsoleAuth {
     const account = accounts.find(row => row.username === username && !row.disabled);
     const existing = this.externalOwner(identity, accounts);
     if (!account || existing && existing.username !== username) return false;
+    if (!this.belongsToOrg(account)) return false;
     const prior = account.imLogins?.find(row => row.authority === identity.authority);
     if (prior) {
       if (prior.subject !== identity.subject) return false;
@@ -259,7 +272,8 @@ export class ConsoleAuth {
     if (fail && fail.lockedUntil > Date.now())
       throw new Error(`连续失败次数过多，已锁定到 ${new Date(fail.lockedUntil).toLocaleTimeString('zh-CN')}`);
     const account = this.listAccounts().find(a => a.username === name);
-    const ok = account && !account.disabled && account.passwordHash && /^[a-f0-9]{64}$/.test(account.passwordHash)
+    const foreign = account && !this.belongsToOrg(account);
+    const ok = account && !foreign && !account.disabled && account.passwordHash && /^[a-f0-9]{64}$/.test(account.passwordHash)
       && timingSafeEqual(Buffer.from(account.passwordHash, 'hex'),
         scryptSync(String(password ?? ''), account.salt, 32));
     if (!ok) {
@@ -268,7 +282,7 @@ export class ConsoleAuth {
       if (entry.count >= 5) { entry.lockedUntil = Date.now() + 10 * 60 * 1000; entry.count = 0; }
       this.failures.set(name, entry);
       this.audit('login.failed', name, {});
-      throw new Error(account?.disabled ? '账号已被禁用' : '用户名或口令不正确');
+      throw new Error(foreign ? '该账号属于其他工作台组织。' : account?.disabled ? '账号已被禁用' : '用户名或口令不正确');
     }
     this.failures.delete(name);
     return account!;
@@ -281,7 +295,7 @@ export class ConsoleAuth {
   loginExternal(identity: VerifiedIdentity) {
     const accounts = this.listAccounts();
     const account = this.externalOwner(identity, accounts);
-    if (!account || account.disabled) return;
+    if (!account || account.disabled || !this.belongsToOrg(account)) return;
     if (updateIMProfile(account, identity)) this.saveAccounts(accounts);
     return this.createSession(account, { authority: identity.authority, subject: identity.subject });
   }

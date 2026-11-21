@@ -35,6 +35,28 @@ const discussion = z.object({
   history: feishuHistoryReader.optional(),
   documents: z.array(z.url({ protocol: /^https$/ })).max(4).default([]),
 }).strict();
+export const goalSchema = z.object({ id, title, done: z.boolean().default(false) }).strict();
+export const triggerPolicy = z.object({
+  keywords: z.array(z.string().trim().min(1).max(60)).max(20).default([]),
+  sensitivity: z.enum(['strict', 'balanced', 'open']).default('balanced'),
+  silenceMinutes: z.number().int().min(0).max(10080).default(0),
+  mentionAlways: z.boolean().default(true),
+}).strict();
+export type TriggerPolicy = z.infer<typeof triggerPolicy>;
+export const approvalStage = z.object({ id, title, members: z.array(member).min(1), requireAll: z.boolean().default(false) }).strict();
+export type ApprovalStage = z.infer<typeof approvalStage>;
+export const routineSchema = z.object({
+  id, title,
+  cron: z.string().max(80).refine(value => {
+    try { return digestSchedule(value).next(Date.now()) !== undefined; } catch { return false; }
+  }, '请输入能够触发的五段式 cron'),
+  actor: member,
+  action: z.discriminatedUnion('kind', [
+    z.object({ kind: z.literal('ticket'), title, request: z.string().trim().min(1).max(3000), topic: id.optional(), agent: id.optional() }).strict(),
+    z.object({ kind: z.literal('consultation'), topic: id, text: z.string().trim().min(1).max(3000), agent: id }).strict(),
+    z.object({ kind: z.literal('next-version'), ticket: id, reason: z.string().trim().min(1).max(1000) }).strict(),
+  ]),
+}).strict();
 const project = z.object({
   id, title, parent: id.optional(), members: z.array(member).min(1),
   maintainers: z.array(member).min(1),
@@ -58,6 +80,10 @@ const project = z.object({
   resources: z.array(resourceSchema).default([]),
   budget: z.number().positive().optional(),
   discussion: discussion.optional(),
+  goals: z.array(goalSchema).default([]),
+  routines: z.array(routineSchema).default([]),
+  trigger: triggerPolicy.optional(),
+  approvals: z.array(approvalStage).max(6).optional(),
 }).strict();
 const agent = runnerAgentSchema.extend({
   title, kind: z.enum(['personal', 'specialist']),
@@ -76,12 +102,19 @@ const octopSettings = z.object({ python: z.string().refine(path.isAbsolute),
   feishuGateway: z.boolean().default(false) }).strict().refine(item => new Set(item.profiles.map(row => row.owner)).size === item.profiles.length,
   '每位成员只能配置一个 Octop 执行身份');
 export type OctopSettings = z.infer<typeof octopSettings>;
+export const orgSettings = z.object({
+  id: z.string().regex(/^[a-z][a-z0-9-]{0,31}$/),
+  name: title,
+  domain: z.string().max(180).optional(),
+}).strict();
+export type OrgSettings = z.infer<typeof orgSettings>;
 export const settingsSchema = z.object({
   port: z.number().int().min(1024).max(65535).default(4280),
   executionRuntime: z.enum(['autoloop', 'contractor']).default('autoloop'),
   remoteRunnerPort: z.number().int().min(1024).max(65535).optional(),
   runnerConnectUrl: runnerEndpoint.optional(),
   workbenchPublicUrl: runnerEndpoint.refine(value => value.startsWith('https://'), '团队工作台地址须为 HTTPS').optional(),
+  org: orgSettings.optional(),
   imLogin: imLoginSettings.optional(),
   projects: z.array(project).min(1),
   functions: z.array(z.object({ id, title, lead: id.optional() }).strict()).min(1),
@@ -111,6 +144,7 @@ export const settingsSchema = z.object({
     if (new Set(entries.map(x => x.id)).size !== entries.length) flag('项目、职能或 Agent 标识重复');
   }
   const projectById = new Map(value.projects.map(x => [x.id, x]));
+  const itemAgents = (p: z.infer<typeof project>, topic: string) => p.consultations?.find(item => item.topic === topic)?.agents ?? [];
   const connectors = value.octop?.channels ?? [];
   if (new Set(connectors.map(row => row.id)).size !== connectors.length) flag('Octop IM 连接标识重复');
   for (const connector of connectors) {
@@ -190,6 +224,25 @@ export const settingsSchema = z.object({
     for (const topic of p.topics) {
       if (topic.parent && !p.topics.some(parent => parent.id === topic.parent && !parent.parent))
         flag('子主题须直属当前项目的一级主题');
+    }
+    if (new Set(p.goals.map(goal => goal.id)).size !== p.goals.length) flag('项目目标标识重复');
+    if (p.approvals && new Set(p.approvals.map(stage => stage.id)).size !== p.approvals.length) flag('审批阶段标识重复');
+    for (const stage of p.approvals ?? []) {
+      if (new Set(stage.members).size !== stage.members.length || stage.members.some(name => !p.members.includes(name)))
+        flag('审批人必须是项目成员且不能重复');
+    }
+    if (new Set(p.routines.map(routine => routine.id)).size !== p.routines.length) flag('例行任务标识重复');
+    for (const routine of p.routines) {
+      if (!p.members.includes(routine.actor)) flag('例行任务须由项目成员的名义执行');
+      const action = routine.action;
+      if (action.kind === 'consultation') {
+        if (!p.topics.some(topic => topic.id === action.topic) || !p.consultations?.some(item => item.topic === action.topic)
+          || !itemAgents(p, action.topic).some(row => row.agent === action.agent)) flag('例行咨询须使用已配置主题咨询中的 Agent');
+      } else if (action.kind === 'ticket') {
+        if (action.topic && !p.topics.some(topic => topic.id === action.topic)) flag('例行工单的主题须属于当前项目');
+        if (action.agent && !value.agents.some(agent => agent.id === action.agent && agent.projects.includes(p.id)
+          && p.members.includes(agent.owner))) flag('例行工单的 Agent 须属于当前项目成员');
+      }
     }
     const seen = new Set([p.id]);
     for (let parent = p.parent; parent; parent = projectById.get(parent)?.parent) {

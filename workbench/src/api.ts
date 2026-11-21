@@ -26,6 +26,8 @@ export type Imported = Awaited<ReturnType<Collaboration['importKnowledge']>>;
 export type StartResult = ReturnType<Collaboration['start']>;
 export type DispatchReadiness = Awaited<ReturnType<Collaboration['dispatchReadiness']>>;
 export type ProjectDeliverySetup = Awaited<ReturnType<Collaboration['projectDeliverySetup']>>;
+export type ProjectPlansView = Awaited<ReturnType<Collaboration['projectPlansView']>>;
+export type ProjectTemplate = ReturnType<Collaboration['exportProjectTemplate']>;
 export type Resource = Project['resources'][number];
 export type DeviceRow = ReturnType<Collaboration['projectDevices']>[number];
 export type DeviceRoute = ReturnType<Collaboration['projectDeviceRoutes']>[number];
@@ -47,7 +49,8 @@ export type PlatformMembers = ReturnType<ReturnType<typeof permissionAdmin>['lis
 export type PlatformAudit = ReturnType<ReturnType<typeof permissionAdmin>['changes']>;
 export type PersonalProfile = ReturnType<Collaboration['profiles']['own']>;
 export type LoginPolicy = ReturnType<IMLogin['view']>;
-export type Session = { signedIn: boolean; recoveryUrl?: string; imLogin?: ReturnType<IMLogin['browser']> };
+export type Session = { signedIn: boolean; recoveryUrl?: string; imLogin?: ReturnType<IMLogin['browser']>;
+  org?: { id: string; name: string } | null };
 export type { GitHubConnection } from '../../src/workbench/github-intake.ts';
 export type MemoryRow = ReturnType<Collaboration['memoryHome']>[number];
 export type MemoryUse = ReturnType<Collaboration['memoryUses']>[number];

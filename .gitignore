@@ -10,3 +10,7 @@ evidence/private/
 __pycache__/
 upstream/deepseek-harness/
 upstream/octop-harness/
+output/
+/admin-services.png
+/desktop-topic.png
+/mobile-topic.png

@@ -19,6 +19,7 @@ type AcceptancePorts = {
   pendingDelegation: (id: string, version: number) => boolean;
   missingRequiredDelegation: (id: string, work: Work) => boolean;
   delegationResultsCurrent: (id: string, work: Work) => boolean;
+  approvalComplete: (work: Work, project: Project) => boolean;
   readableOutput: (id: string) => Output | undefined;
   pullTarget: (project: Project, url: string) => ProjectResource;
   inspectPull: typeof inspectPull;
@@ -45,12 +46,13 @@ export function openTicketAcceptance(store: Pick<SuperAgentStore, 'atomic'>, hub
   iterations: Iterations, knowledge: Pick<ProjectKnowledge, 'get' | 'save'>, ports: AcceptancePorts) {
   const { ticketFor, mayStart, delegationAuthority, pendingDelegation, missingRequiredDelegation, delegationResultsCurrent,
     readableOutput, pullTarget, inspectPull, provenance, verifyCodeDelivery, review, product, storeDeliveryVersion, recordCheckAttempts, saveWork,
-    closeAcceptance, closeDeliveryIssues, manifestFor, knowledgeId, audit, stages } = ports;
+    closeAcceptance, closeDeliveryIssues, manifestFor, knowledgeId, audit, stages, approvalComplete } = ports;
 
   return async function accept(actor: string, id: string, revision: string, conditions: string, body: string, commit?: string, deployment?: DeploymentSelection) {
     const { ticket, work, project } = ticketFor(id, actor);
     if (work.consultation) throw new WorkbenchError('咨询已经回到主题讨论。', 409);
     if (!delegationAuthority(work)) throw new WorkbenchError('上游委托已失效，请重新确认验收范围。', 409);
+    if (!approvalComplete(work, project)) throw new WorkbenchError('请先完成本版的审批流程。', 409);
     if (acceptanceAssignee(work) !== actor || !mayStart(project, actor)) throw new WorkbenchError('由当前版本的验收人验收。', 403);
     if (!work.accepted && (pendingDelegation(id, work.version ?? 1) || missingRequiredDelegation(id, work) || !delegationResultsCurrent(id, work)))
       throw new WorkbenchError('必需子任务的验收结果尚未齐备或已失效。', 409);

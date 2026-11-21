@@ -55,12 +55,12 @@ export function RunnerConnectInstructions({ url, legacy = false }: { url: string
   const command = 'contractor connect ' + url + (legacy ? ' --bind-agent' : '');
   return <div className="runner-connect-instructions">
     <p>在要接单的电脑或云服务器运行这条命令。</p>
-    <div className="runner-command-row">
+    {url ? <div className="runner-command-row">
       <code className="connect-command">{command}</code>
       <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => void run(
         () => navigator.clipboard.writeText(command), '命令已复制',
       )}><Copy size={14} />复制命令</Button>
-    </div>
+    </div> : <p className="muted-text">连接地址尚未配置，命令暂不可用。</p>}
     <p>{legacy ? '打开终端给出的链接，登录后确认项目和 Agent。'
       : '打开终端给出的链接确认设备，然后到个人设置授权项目。'}重新连接时运行同一条命令。</p>
     <details className="minor-disclosure">

@@ -229,6 +229,8 @@ function PlatformDesk({ workspace, tab, returnTo, project }: { workspace: Overvi
     quota: <PlatformQuota mayViewModels={workspace.canManageServices} />, services: <ServiceStatus />,
   };
   return <div className="platform-workspace">
+    {workspace.org && <div className="platform-org-note"><ShieldCheck size={15} aria-hidden="true" />
+      <span>当前工作台组织：<strong>{workspace.org.name}</strong>（<code>{workspace.org.id}</code>）。成员登录与主 IM 渠道都校验到同一组织，跨组织账号会被拒绝。</span></div>}
     {available.length > 0 && <aside className="platform-nav">
       <nav aria-label="平台管理导航">{groups.map(group => {
         const pages = group.items.filter(item => item.allowed);

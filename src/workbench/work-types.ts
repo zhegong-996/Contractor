@@ -42,6 +42,7 @@ export type Work = {
     consultation?: { ticket: string; revision: string } };
   delegationRecovery?: { request: string; from: number };
   topic?: string;
+  goal?: string;
   consultation?: { message: string; name: string; feishu?: NonNullable<Trigger['channel']>; octopIM?: OctopIMAddress; account?: PlatformActor;
     requiredKnowledge?: KnowledgeRef; private?: true };
   related?: string[];
@@ -54,6 +55,8 @@ export type Work = {
   handoff?: { assignment: string; from: string; to: string; by: string; reason: string; runs: number[];
     requestedAt: string; completedAt?: string; cancelledAt?: string; accessRequests?: Record<string, string>; cause?: 'access' | 'resume';
     device?: string | null };
+  approvals?: { revision: string; stage: number; history: { stage: number; actor: string; at: string; note?: string }[];
+    completedAt?: string };
   delivery?: DeliveryEvidence;
   deliveryTemplate?: DeliveryTemplate;
   productCases?: ManualCase[];
@@ -95,6 +98,7 @@ export type Start = {
   resources?: string[];
   target?: string;
   topic?: string;
+  goal?: string;
   measure?: Measure; reusedLesson?: string;
   recall?: boolean; personal?: boolean; device?: string;
   productCases?: { title: string; expectation: string }[];

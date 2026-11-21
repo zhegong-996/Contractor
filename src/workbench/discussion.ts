@@ -6,6 +6,7 @@ import type { SuperAgentStore } from '../superagent-ports.ts';
 import type { ChannelRef, PlatformActor } from './channel-links.ts';
 import type { DiscussionInput, DiscussionThread, SourceFact } from './discussion-intake.ts';
 import { sensitiveFeishuText } from '../feishu-sources.ts';
+import type { TriggerPolicy } from './config.ts';
 
 export const discussionRule = (project: string) => '群消息整理 · ' + project;
 export const digestAgentId = (project: string) => 'discussion-worker-' + project;
@@ -21,6 +22,25 @@ export function discussionText(text: string) {
   if (!value || value.length > 3500 || value.startsWith('/') || sensitiveFeishuText.test(value) || casual.test(value)
     || offTopic.test(value) || /^[\p{P}\p{S}\s]+$/u.test(value)) return '';
   return value;
+}
+
+/**
+ * 触发策略裁决：关键词命中优先；strict 只收关键词或点名；open 只过滤敏感与空消息；
+ * 沉默期内非关键词消息被静默，避免同一话题重复唤醒。
+ */
+export function triggerVerdict(policy: TriggerPolicy | undefined, text: string, silence: boolean, mention = false): { text: string; keyword?: string } {
+  const value = text.trim();
+  if (!value) return { text: '' };
+  const keyword = policy?.keywords.find(term => value.toLocaleLowerCase().includes(term.toLocaleLowerCase()));
+  if (keyword) return { text: value.slice(0, 3500), keyword };
+  if (!policy) return { text: discussionText(value) };
+  if (policy.sensitivity === 'strict' && !(mention && policy.mentionAlways)) return { text: '' };
+  if (silence && policy.silenceMinutes > 0) return { text: '' };
+  if (policy.sensitivity === 'open') {
+    if (sensitiveFeishuText.test(value) || value.startsWith('/') || /^[\p{P}\p{S}\s]+$/u.test(value)) return { text: '' };
+    return { text: value.slice(0, 3500) };
+  }
+  return { text: discussionText(value) };
 }
 
 export type Observation = {

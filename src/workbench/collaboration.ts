@@ -40,7 +40,7 @@ import type { RunnerConnectInput } from './runner-connection.ts';
 import { WorkObservations, type ObservationInput } from './learning.ts';
 import { bundleHash } from './code-bundle.ts';
 import { executionCapabilities } from './execution-capabilities.ts';
-import { remoteEngine, runnerAgent, type Agent, type Project, type Settings } from './config.ts';
+import { remoteEngine, runnerAgent, triggerPolicy, type Agent, type Project, type Settings, type TriggerPolicy } from './config.ts';
 import { ChannelLinks, channelCommand, consultationReplyType, feishuConsultation, messageRef, type ChannelRef, type ChannelRequest, type PlatformActor, type Provider } from './channel-links.ts';
 import { canonicalResourceId, referenceResource, resourcePurpose, resourceView, routesEvents,
   type ProjectResource, type ReferenceInput } from './project-resources.ts';
@@ -48,7 +48,7 @@ import { deliveryStatus, openDeliveryEvidence } from './delivery-evidence.ts';
 import { DeliveryChangedError, deploymentState, referencesTicket,
   type GitHubIdentity, type GitHubIssue, type PullCheck } from './github-delivery.ts';
 import { checkpointAgent, entireCheckpoint } from './entire.ts';
-import { checkoutFor, commitDevelopment, developmentCheckout, developmentFolder, developmentChanges, developmentSourceStatus, type DevelopmentTarget } from './development.ts';
+import { checkoutFor, commitDevelopment, developmentCheckout, developmentDiff, developmentFolder, developmentChanges, developmentSourceStatus, type DevelopmentTarget } from './development.ts';
 import { Iterations } from './iterations.ts';
 import { ExecutionEvidence, type ModelSelection } from './execution-evidence.ts';
 import { processReview } from './process-review.ts';
@@ -58,6 +58,12 @@ import { assembleExecutionContext, executionPrompt, workResultType } from './exe
 import { workerClaims } from './worker-claims.ts';
 import { loadOperationsSettings, operationsSettings } from './operations-settings.ts';
 import { openPlatformAssistant } from './platform-assistant.ts';
+import { openRoutines } from './routines.ts';
+import { openProjectPlans, projectPlansSchema } from './project-plans.ts';
+import { openTriggerPolicies } from './trigger-policy.ts';
+import { openFeedback } from './feedback.ts';
+import { openBudgetAlerts } from './budget-alerts.ts';
+import { approvalSubject, approveStage, mayApprove } from './approvals.ts';
 import { openAssistantHarness } from './assistant-harness.ts';
 import { openWorkerHarness, type workerHarnessUpdate } from './worker-harness.ts';
 import { openPersonalAgents } from './personal-agent.ts';
@@ -81,7 +87,7 @@ import { feishuChatLink, feishuTriggerId } from '../upstream.ts';
 import { feishuTopicInput, feishuTopicUrl, openFeishuTopics, type FeishuTopicAddress, type FeishuTopicTransport } from './feishu-topics.ts';
 import { tokenize } from '../memory-projections.ts';
 import { Discussions, digestAgentId, digestProposals, discussionLookback, discussionRule, githubObjectPath, observation, observationVersion, previewLength,
-  type Destination, type DigestScope, type Observation, type Proposal } from './discussion.ts';
+  triggerVerdict, type Destination, type DigestScope, type Observation, type Proposal } from './discussion.ts';
 import { openDispatchWorkflow } from './dispatch-workflow.ts';
 import { openConversationIndex } from './conversation-index.ts';
 import { openChannelWorkflow } from './channel-workflow.ts';
@@ -235,7 +241,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     cancelRun: run => hub.cancel(run),
     reconcileProjectDecisions: (project, previous, successor) => reconcileProjectDecisions(project, previous, successor),
   });
-  const { projectById, account, member, mayStart, maintain, platformRight, canManageAccounts, projectFor, createProject,
+  const { projectById, account, member, mayStart, maintain, platformRight, canManageAccounts, projectFor, createProject, exportProjectTemplate,
     addProjectMember, removeProjectMember, setProjectMemberRole, guardAccountWithdrawal, projectAccess, withdrawAccountAuthority,
     transferProjectMaintainer, addProjectAgent, topicsFor, createTopic, isProjectReader } = directory;
 
@@ -304,7 +310,9 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     };
     return {
       skills: octop.skillVersions(id).filter(row => octop.authority(row.id, actor, row.owner) !== undefined)
-        .map(({ instructions: _body, ...row }) => ({ ...row, ...shares(row.id, row.owner) })),
+        .map(({ instructions, ...row }) => ({ ...row, ...(row.owner === actor ? { instructions } : {}),
+          uses: octop.uses(row.id), mountsBy: octop.mountsOf(row.id).map(agent => agentById.get(agent)?.title ?? agent),
+          ...shares(row.id, row.owner) })),
       experts: octop.experts(id).filter(row => octop.authority(row.id, actor, row.owner) !== undefined).map(row => {
         const template = octop.template(row.id);
         return { id: row.id, title: row.title, owner: row.owner, capability: row.capability, function: row.function, source: row.source,
@@ -327,6 +335,24 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       audit(project, 'octop.skill-published', { actor, skill: row.id, revision: row.revision });
       return { id: row.id, revision: row.revision };
     });
+  }
+
+  function trialOctopSkill(actor: string, project: string, input: { skill: SkillRef; sample: string; agent: string }) {
+    const scope = octopScope(actor, project);
+    const skill = octopSkillAllowed(project, actor, input.skill);
+    if (!skill) throw new WorkbenchError('找不到当前有权使用的技能版本。', 404);
+    const agent = agentById.get(input.agent);
+    const expert = agent && octop.expert(agent.id);
+    if (!agent || agent.engine !== 'octop' || !expert || !isActive(agent, scope))
+      throw new WorkbenchError('请选择当前项目在岗的只读专家。', 409);
+    if (expert.owner !== actor) throw new WorkbenchError('技能试跑请使用你自己的专家。', 403);
+    if (!octop.mounts(agent.id).some(ref => ref.id === skill.id && ref.revision === skill.revision))
+      throw new WorkbenchError('请先把该技能版本挂载到所选专家，再进行试跑。', 409);
+    const outcome = start(actor, { project, title: ('技能试跑 · ' + skill.title).slice(0, 100),
+      request: '这是一次技能试跑。只读执行下面这段样例，按已挂载的技能版本完成，给出结果并引用使用的资料。\n\n样例：\n' + input.sample.slice(0, 1800),
+      agent: agent.id, priority: 'normal', material: [], nonce: key('skill-trial', actor, skill.id, skill.revision, input.sample) }, undefined, true);
+    audit(project, 'octop.skill-trial', { actor, skill: skill.id, revision: skill.revision, agent: agent.id, ticket: outcome.ticket });
+    return { ticket: outcome.ticket };
   }
 
   function shareOctop(actor: string, project: string, input: { id: string; member: string; active: boolean }) {
@@ -1259,6 +1285,12 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
         ?? poolBlock(platformPool) ?? (agent && poolBlock(agentBudgetPool(project.id, agent.id)));
       return !!issue && decision.subject === key('budget', project.id, issue);
     }
+    if (decision.kind === 'feedback') {
+      const day = decision.subject.split(':').at(-1);
+      if (!maintain(project, actor) || !day || !/^\d{4}-\d{2}-\d{2}$/.test(day)) return false;
+      const cycle = feedback.cycle(project.id);
+      return cycle?.state === 'considered' && cycle.subject === decision.subject;
+    }
     if (decision.kind === 'channel') {
       const event = links.getPending(decision.subject);
       return !!event && mayReviewChannel(project, actor, event);
@@ -1271,6 +1303,14 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     const ticket = decision.ticket && store.tickets.get(decision.ticket);
     const work = decision.ticket && workOf(decision.ticket);
     if (!ticket || !work) return false;
+    if (decision.kind === 'approval') {
+      const approvals = work.approvals;
+      const output = readableOutput(ticket.id);
+      if (!approvals || !output || approvals.revision !== output.revision || approvals.completedAt) return false;
+      const stage = project.approvals?.[approvals.stage];
+      return !!stage && mayApprove(project, approvals, actor)
+        && decision.subject === approvalSubject(ticket.id, approvals.revision, approvals.stage);
+    }
     if (decision.kind === 'acceptance') {
       const output = readableOutput(ticket.id);
       if (acceptanceAssignee(work) !== actor || work.accepted || ticket.ended?.outcome !== 'completed' || !output) return false;
@@ -2540,10 +2580,24 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
         }
         if (work.development) notifyCodeDelivery(finished, work);
         else {
-          const acceptance = askHuman(projectById.get(work.project)!, { kind: 'acceptance', subject: acceptanceSubject(ticket.id),
-            title: '第 ' + (work.version ?? 1) + ' 版交付待验收', ticket: ticket.id }, acceptanceAssignee(work));
-          if (ticket.channels.length && !acceptance?.originalThread)
-            engine.reply({ purpose: 'result', ticketId: ticket.id, text: '专业意见已准备好。请在 Contractor 核对当前版本。' });
+          const project = projectById.get(work.project)!;
+          const approvals = project.approvals;
+          if (approvals?.length) {
+            const first = approvals[0]!;
+            saveWork(ticket.id, { ...work, approvals: { revision: result.revision, stage: 0, history: [] } });
+            for (const approver of first.members) {
+              askHuman(project, { kind: 'approval', subject: approvalSubject(ticket.id, result.revision, 0),
+                title: '第 ' + (work.version ?? 1) + ' 版等待审批 · ' + first.title, ticket: ticket.id,
+                detail: '审批通过后进入验收。' + (first.requireAll ? '本阶段需全部审批人同意。' : '任一审批人同意即通过本阶段。') }, approver);
+            }
+            if (ticket.channels.length)
+              engine.reply({ purpose: 'result', ticketId: ticket.id, text: '本版成果已就绪，等待项目审批。' });
+          } else {
+            const acceptance = askHuman(project, { kind: 'acceptance', subject: acceptanceSubject(ticket.id),
+              title: '第 ' + (work.version ?? 1) + ' 版交付待验收', ticket: ticket.id }, acceptanceAssignee(work));
+            if (ticket.channels.length && !acceptance?.originalThread)
+              engine.reply({ purpose: 'result', ticketId: ticket.id, text: '专业意见已准备好。请在 Contractor 核对当前版本。' });
+          }
         }
       }
       if (!store.tickets.get(ticket.id)?.ended) engine.turnEnded(ticket.id, assignment.id);
@@ -2981,6 +3035,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       const topicRefs = [...basis.map(row => row.message), ...history].map(({ id, source, topic, revision }) => ({ id, source, topic, revision }));
       const context = assembleExecutionContext({
         context: { ...job.context, events }, assignment: a.id, ticket, opening, work,
+        goal: work.goal ? { id: work.goal, title: project.goals.find(item => item.id === work.goal)?.title ?? work.goal } : undefined,
         notes: conversationRows(project.id, 'ticket:' + ticket.id, 16).filter(row => member(project, row.actor)),
         confirmed: confirmed.map(card => ({ ...card, version: manifestFor(card.run_id)?.version ?? 1 })),
         changes, priorOutput: priorAllowed && priorOutput || undefined, continuation, followups, observations, topicHistory: history, topicBasis: basis,
@@ -2991,6 +3046,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
         const skill = octop.skill(ref.id, ref.revision)!;
         return '\n已授权共享技能 ' + skill.title + ' · ' + ref.revision + '\n' + skill.instructions;
       }).join('\n');
+      for (const ref of work.octop?.skills ?? []) octop.recordUse(ref.id, ref.revision, ticket.id);
       const fullResult = !work.consultation && !development && (agent.engine === 'codex' || agent.engine === 'claude');
       const prompt = executionPrompt({ agent, skillText, consultation: !!work.consultation,
         required: work.consultation?.requiredKnowledge, continuation, development, retry, hasKnowledge: entries.length > 0, fullResult,
@@ -3277,7 +3333,8 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     const missing = charges.filter(row => row.run > 0 && row.settled !== null && visible.has(attemptKey(row)) && !posted.has(attemptKey(row))).length;
     return { ...usageSummary(receipts, missing), scope: manager ? 'project' as const : 'mine' as const,
       attempts: receipts.map(({ isolation: _host, ...row }) => row), pointAttempts,
-      pointBudget: manager ? points.view({ kind: 'project', subject: id }) : points.view({ kind: 'personal', subject: actor }) };
+      pointBudget: manager ? points.view({ kind: 'project', subject: id }) : points.view({ kind: 'personal', subject: actor }),
+      alerts: manager ? budgetAlerts.recent(id) : [] };
   }
 
   function poolBlock(pool: BudgetPool) {
@@ -3832,7 +3889,15 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     if (!gate.admissible) return;
     const record = observation(project.id, input, actor, topic);
     if (!Number.isFinite(record.at) || record.at < discussions.chat(project.id, chat)!.since) return;
-    store.atomic(() => discussions.remember(record));
+    const lastWake = triggerPolicies.lastWake(project.id, chat);
+    const verdict = triggerVerdict(project.trigger, trigger.text,
+      !!project.trigger && lastWake !== undefined && Date.now() - lastWake < project.trigger.silenceMinutes * 60_000);
+    if (!verdict.text) return;
+    store.atomic(() => {
+      if (verdict.keyword) triggerPolicies.wake({ project: project.id, chat, at: new Date(record.at).toISOString(),
+        message: record.message, text: verdict.text, keyword: verdict.keyword, member: actor ?? undefined });
+      discussions.remember({ ...record, text: verdict.text });
+    });
   }
 
   function discussionTicket(project: Project, candidate: string | undefined) {
@@ -4907,6 +4972,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       retryUnpublished: requester && mayStart(project, actor) && !!unpublishedCodeScope(ticket, work, output),
       revise: !consultation && requester && mayStart(project, actor) && ticket.ended?.outcome === 'completed' && !!output,
       accept: !consultation && reviewer && mayStart(project, actor) && ticket.ended?.outcome === 'completed' && !work.accepted && !!output
+        && (!project.approvals?.length || work.approvals?.revision === output.revision && !!work.approvals.completedAt)
         && (!work.development || delivery?.state === 'ready') && (!deploymentGate || !!deploymentGate.selection)
         && productVerification?.ready !== false,
     };
@@ -4916,6 +4982,10 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       acceptanceOwner: acceptanceAssignee(work), acceptanceChoices: maintainer && !work.accepted && !work.consultation && !work.personal
         && ticket.ended?.outcome === 'completed' ? project.members.filter(person => person !== acceptanceAssignee(work) && mayStart(project, person)
           && !!currentOutputView(person, id, work).output) : [],
+      approval: work.approvals && project.approvals?.length ? { revision: work.approvals.revision, stage: work.approvals.stage,
+        completedAt: work.approvals.completedAt, history: work.approvals.history,
+        stages: project.approvals.map(stage => ({ title: stage.title, members: stage.members })),
+        mine: !!output && work.approvals.revision === output.revision && mayApprove(project, work.approvals, actor) } : undefined,
       canReplyInFeishu: !!send && mayStart(project, actor) && !!feishuDiscussionThread(id, project),
       device: selectedDevice && { id: selectedDevice.id, name: selectedDevice.name, online: devices.online(selectedDevice), claimsPaused: devices.claimsPaused(selectedDevice),
         active: selectedDevice.active, state: selectedDevice.state },
@@ -4939,6 +5009,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       deliveryStatus: delivery && { state: delivery.state, detail: delivery.detail, version: delivery.output.version ?? 1 },
       publishStatus, imPublications: publishableWork(work) ? imTopics.catalog(project.id, false).filter(row => row.canPublish && row.topic === work.topic)
         .map(({ id: destination, kind, label, tag }) => ({ destination, kind, label, tag, state: store.replyStatus(key('ticket-im-publish', id, destination)) })) : [],
+      feedback: feedback.list(id),
       deliveryVerification: work.deliveryTemplate && work.delivery && output && matchesCodeDelivery(ticket, work, output, work.delivery) ? {
         template: work.deliveryTemplate.id, version: work.deliveryTemplate.version, head: work.delivery.headSha,
         checks: templateChecks(work.deliveryTemplate, work.delivery), review: independentReview(work, output, work.delivery),
@@ -4960,6 +5031,21 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       observations: output ? observations.list(id).filter(record => readableRevisions.has(record.revision)).map(({ candidate, ...record }) => ({
         ...record, candidate: work.requester === actor ? candidate : undefined,
       })) : [] };
+  }
+
+  async function ticketChanges(actor: string, id: string) {
+    const { work, project } = ticketFor(id, actor);
+    const delivery = work.delivery;
+    if (!work.development) return { available: false as const, reason: '本工单不是代码交付工单。' };
+    if (!delivery?.baseSha || !delivery?.headSha) return { available: false as const, reason: '请先关联本版交付记录。' };
+    if (!checkoutFor(config.attribution, work.development.repository))
+      return { available: false as const, reason: '当前工作台没有该仓库的执行工作区，请在研发设备或 GitHub 查看改动。' };
+    try {
+      return await developmentDiff(id, delivery.baseSha, delivery.headSha);
+    } catch (error) {
+      audit(id, 'delivery.diff-failed', { reason: String(error) });
+      return { available: false as const, reason: '本地工作区读取改动失败，可先到 GitHub 查看。' };
+    }
   }
 
   function canReadAssembly(actor: string, id: string, work: Work, manifest: Assembled) {
@@ -5692,12 +5778,15 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       || recovery?.kind === 'stage-verification' && actor === acceptanceAssignee(work),
       work: { project: projectId, agent, requester, topic, parent, priority, source, version, personal,
         accepted: accepted && { revision: accepted.revision }, handoff: handoff && { completedAt: handoff.completedAt, cancelledAt: handoff.cancelledAt },
-        consultation: !!work.consultation, development: !!work.development, developmentResponse: !!work.developmentResponse,
+        goal: work.goal, consultation: !!work.consultation, development: !!work.development, developmentResponse: !!work.developmentResponse,
         approvalRequired: !!work.approvalRequired, developmentApproval: !!work.developmentApproval },
       result: !!output, deliveryStatus: delivery && { state: delivery.state }, needsObservation,
       endReason: ticket.ended?.outcome, materialHidden, recoveryKind: recovery?.kind, runState: runs.at(-1)?.state,
       productChecksPending: productVerification?.ready === false, waitingAccess: !ticket.ended && needed(id, work),
-      blocked: ticket.assignments.at(-1)?.report?.state === 'blocked' };
+      blocked: ticket.assignments.at(-1)?.report?.state === 'blocked',
+      progress: { runState: runs.at(-1)?.state, attempts: runs.at(-1)?.attempts ?? 0,
+        summary: runs.at(-1)?.summary ?? undefined,
+        device: work.device ? devices.list().find(device => device.id === work.device)?.name : undefined } };
   }
 
   const readableProjects = (actor: string, id?: string) => id ? [projectFor(id, actor)] : config.projects.filter(project => member(project, actor));
@@ -5722,6 +5811,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       || Number(b.work.priority === 'urgent') - Number(a.work.priority === 'urgent') || b.updatedAt.localeCompare(a.updatedAt));
     const canCreateRootProject = platformRight(actor, 'project-create');
     return { actor, actorProfile: profiles.view(account(actor)), platformRole: account(actor)?.role, crossChannel: !!config.crossChannel, needsYou: pending,
+      org: config.org ? { id: config.org.id, name: config.org.name } : null,
       canCreateRootProject, canCreateProject: canCreateRootProject || projects.some(project => maintain(project, actor)),
       canManagePointPolicy: canManagePointPolicy(actor), canManageAccounts: canManageAccounts(actor), canManageServices: canManageServices(actor),
       assistantEnabled: assistant.enabled(),
@@ -5743,6 +5833,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
           .map(person => ({ name: person, ...profiles.view(account(person)), responsibilities: p.responsibilities.filter(r => r.member === person).map(r => r.function),
             maintain: maintain(p, person), mayCollaborate: mayStart(p, person),
             projectRole: isProjectReader(p.id, person) ? 'reader' as const : 'collaborator' as const })),
+        goals: p.goals,
         deliveryTargets: deliveryTargets(p).filter(ref => mayStart(p, actor) && ref.execution && checkoutFor(config.attribution, ref.externalId))
           .map(ref => ({ ...resourceView(p.id, ref), product: ref.execution?.deliveryTemplate?.product && {
             cases: [...(ref.execution.deliveryTemplate.product.browser?.cases ?? []), ...(ref.execution.deliveryTemplate.product.manual ?? [])],
@@ -5766,6 +5857,132 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     if (binding && feishuCards.inbox(inboxKey(binding.id))) queueFeishuInbox(actor.username);
   }
   effects.start();
+  const routinesLedger = openRoutines(store);
+  const projectPlans = openProjectPlans(store, config.projects);
+  const triggerPolicies = openTriggerPolicies(store, config.projects);
+  const feedback = openFeedback(store);
+  const budgetAlerts = openBudgetAlerts(store);
+  let lastRoutineAt = 0;
+  async function runRoutines(now: number) {
+    for (const project of config.projects) {
+      for (const routine of project.routines ?? []) {
+        const occurrence = routinesLedger.due(routine, now);
+        if (occurrence === undefined || routinesLedger.ran(routine.id, occurrence)) continue;
+        const action = routine.action;
+        try {
+          if (action.kind === 'ticket') {
+            if (!mayStart(project, routine.actor)) { audit(project.id, 'routine.blocked', { routine: routine.id, reason: 'actor-permission' }); continue; }
+            await start(routine.actor, { project: project.id, title: action.title, request: action.request,
+              nonce: key('routine', routine.id, String(occurrence)), topic: action.topic, agent: action.agent,
+              material: [], priority: 'normal' }, undefined, true);
+          } else if (action.kind === 'consultation') {
+            if (!mayStart(project, routine.actor)) { audit(project.id, 'routine.blocked', { routine: routine.id, reason: 'actor-permission' }); continue; }
+            await consultTopic(routine.actor, project.id, { topic: action.topic, text: action.text,
+              nonce: key('routine', routine.id, String(occurrence)), agents: [action.agent] });
+          } else {
+            const work = workOf(action.ticket);
+            const output = readableOutput(action.ticket);
+            if (!work || work.accepted || !output) { audit(project.id, 'routine.blocked', { routine: routine.id, reason: 'ticket-not-ready' }); continue; }
+            await revise(routine.actor, action.ticket, { revision: output.revision, kind: 'continued', reason: action.reason });
+          }
+          routinesLedger.mark(routine.id, occurrence);
+          audit(project.id, 'routine.ran', { routine: routine.id, occurrence, kind: action.kind });
+        } catch (error) {
+          audit(project.id, 'routine.failed', { routine: routine.id, occurrence, reason: String(error) });
+        }
+      }
+    }
+  }
+  function projectPlansView(actor: string, id: string) {
+    const project = projectFor(id, actor);
+    if (!mayStart(project, actor)) throw new WorkbenchError('当前角色没有查看项目目标的权限。', 403);
+    return { ...projectPlans.current(project), runs: projectPlans.runs(project), members: project.members,
+      topics: topicsFor(project), consultations: project.consultations ?? [] };
+  }
+  function setProjectPlans(actor: string, id: string, input: { revision: string; goals: Project['goals']; routines: Project['routines'] }) {
+    const project = projectFor(id, actor);
+    if (!maintain(project, actor)) throw new WorkbenchError('由项目维护人管理目标与例行任务。', 403);
+    const known = projectPlans.current(project);
+    const parsed = projectPlansSchema.parse(input);
+    projectPlans.assert(actor, project, parsed, known);
+    const next = projectPlans.next(project, parsed);
+    store.atomic(() => {
+      projectPlans.save(project, next);
+      audit(id, 'project.plans-changed', { actor, previous: known.revision, revision: next.revision });
+    });
+    return { ...next, runs: projectPlans.runs(project) };
+  }
+  function projectTrigger(actor: string, id: string) {
+    const project = projectFor(id, actor);
+    if (!maintain(project, actor)) throw new WorkbenchError('由项目维护人配置唤醒策略。', 403);
+    return { ...triggerPolicies.current(project), wakes: triggerPolicies.recent(project.id) };
+  }
+  function setProjectTrigger(actor: string, id: string, input: { revision: string } & TriggerPolicy) {
+    const project = projectFor(id, actor);
+    if (!maintain(project, actor)) throw new WorkbenchError('由项目维护人配置唤醒策略。', 403);
+    const known = triggerPolicies.current(project);
+    if (known.revision !== input.revision) throw new WorkbenchError('唤醒策略已被更新，请刷新后重试。', 409);
+    const policy = triggerPolicy.parse({ keywords: input.keywords, sensitivity: input.sensitivity,
+      silenceMinutes: input.silenceMinutes, mentionAlways: input.mentionAlways });
+    store.atomic(() => {
+      triggerPolicies.save(project, policy);
+      audit(id, 'project.trigger-changed', { actor, previous: known.revision });
+    });
+    return { ...triggerPolicies.current(project), wakes: triggerPolicies.recent(project.id) };
+  }
+  function voteFeedback(actor: string, id: string, input: { revision: string; sentiment: 'up' | 'down'; note?: string }) {
+    const { ticket, work, project } = ticketFor(id, actor);
+    if (work.consultation?.private) throw new WorkbenchError('私有咨询不参与公开反馈。', 409);
+    if (!member(project, actor)) throw new WorkbenchError('只有项目成员可以给出反馈。', 403);
+    const output = readableOutput(id);
+    if (!output || output.revision !== input.revision) throw new WorkbenchError('反馈须对应本版成果。', 409);
+    feedback.vote(id, work, actor, input.revision, input.sentiment, input.note);
+    audit(id, 'feedback.voted', { actor, sentiment: input.sentiment, revision: input.revision });
+    return { ok: true, feedback: feedback.list(id) };
+  }
+  function resolveFeedback(actor: string, subject: string, input: { action: 'dismiss' } | { action: 'ticket'; title?: string; request?: string; agent?: string }) {
+    const open = decisions.subject('feedback', subject).find(decision => decision.member === actor);
+    const project = open && projectById.get(open.project);
+    if (!project || !open || !maintain(project, actor)) throw new WorkbenchError('这项反馈已处理或不属于你。', 409);
+    let ticket: string | undefined;
+    if (input.action === 'ticket') {
+      const request = input.request?.trim()
+        || '根据最近的差评反馈，核查并改进执行方式。改进后在本单记录结论与出处，供下一版沿用。\n\n' + (open.detail ?? '');
+      const outcome = start(actor, { project: project.id, title: (input.title?.trim() || '反馈改进').slice(0, 100),
+        request: request.slice(0, 3500), priority: 'normal', nonce: key('feedback-action', subject),
+        agent: input.agent, material: [], recall: true }, undefined, true);
+      ticket = outcome.ticket ?? undefined;
+    }
+    store.atomic(() => {
+      closeDecision('feedback', subject);
+      audit(project.id, 'feedback.resolved', { actor, subject, action: input.action, ticket });
+    });
+    return { ticket };
+  }
+  function approveTicket(actor: string, id: string, input: { note?: string }) {
+    const { ticket, work, project } = ticketFor(id, actor);
+    if (!project.approvals?.length) throw new WorkbenchError('当前项目未配置审批流程。', 409);
+    const approvals = work.approvals;
+    const output = readableOutput(id);
+    if (!approvals || !output || approvals.revision !== output.revision || approvals.completedAt)
+      throw new WorkbenchError('当前版本没有待处理的审批阶段。', 409);
+    const subject = approvalSubject(id, approvals.revision, approvals.stage);
+    if (!decisions.subject('approval', subject).some(decision => decision.member === actor && decisionAllowed(decision, actor)))
+      throw new WorkbenchError('当前阶段不归你审批或已处理。', 409);
+    const stage = approvals.stage;
+    const next = { ...work, approvals: approveStage(project,
+      { ...approvals, history: approvals.history.map(row => ({ ...row })) }, actor, input.note) };
+    store.atomic(() => {
+      saveWork(id, next);
+      closeDecision('approval', subject);
+      audit(id, 'approval.advanced', { actor, stage, completed: !!next.approvals?.completedAt });
+      if (next.approvals?.completedAt) {
+        askHuman(project, { kind: 'acceptance', subject: acceptanceSubject(id),
+          title: '第 ' + (work.version ?? 1) + ' 版交付待验收', ticket: id }, acceptanceAssignee(work));
+      }
+    });
+    return { stage: next.approvals?.stage, completedAt: next.approvals?.completedAt };
+  }
   let tick = Promise.resolve();
   let busy = false;
   const timer = setInterval(() => {
@@ -5776,6 +5993,33 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       hub.tick();
       engine.evaluateDue();
       effects.kick();
+      const now = Date.now();
+      if (now - lastRoutineAt > 30_000) {
+        lastRoutineAt = now;
+        await runRoutines(now);
+      }
+      for (const project of config.projects) {
+        const cycle = feedback.consider(project.id, now);
+        if (cycle?.state === 'considered' && cycle.subject && cycle.summary)
+          askHuman(project, { kind: 'feedback', subject: cycle.subject, title: '今日差评反馈待处理',
+            detail: cycle.summary });
+        const projectPoints = points.view({ kind: 'project', subject: project.id });
+        if (projectPoints.limit !== null) budgetAlerts.consider(project.id, 'project-points', '项目总积分', '积分',
+          projectPoints.period, projectPoints.limit, projectPoints.used, projectPoints.remaining, now);
+        const minutes = budgets.view({ kind: 'execution', subject: project.id });
+        if (minutes.limit !== null) budgetAlerts.consider(project.id, 'execution-attempts', '项目执行调用额度', '次',
+          minutes.period as 'day' | 'month', minutes.limit, minutes.used, minutes.remaining, now);
+        for (const agent of config.agents) {
+          if (!isActive(agent, project)) continue;
+          const pool = agentBudgetPool(project.id, agent.id);
+          const view = budgets.view(pool);
+          if (view.limit !== null) budgetAlerts.consider(project.id, 'agent-' + agent.id, agent.title + ' 额度', '次',
+            view.period as 'day' | 'month', view.limit, view.used, view.remaining, now);
+        }
+      }
+      const platform = points.view({ kind: 'platform', subject: 'platform' });
+      if (platform.limit !== null) budgetAlerts.consider('platform', 'platform-points', '平台整理积分', '积分',
+        platform.period, platform.limit, platform.used, platform.remaining, now);
       for (const entry of worker.entries()) trackWorkerProcesses(entry.run, false, executionHome);
       advanceDelegations();
       await worker.tick();
@@ -5788,6 +6032,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     pendingDelegation: (id, version) => delegations.pending(id, version), readableOutput, pullTarget, provenance,
     verifyCodeDelivery, inspectPull, review: independentReview, product: product.state,
     storeDeliveryVersion, recordCheckAttempts, saveWork, closeAcceptance, closeDeliveryIssues, manifestFor, knowledgeId, audit,
+    approvalComplete: (work, project) => !project.approvals?.length || !!work.approvals?.completedAt,
     stages: (ticket, work, output, verification) => readDeliveryStages(ticket, { ...work,
       accepted: { actor: acceptanceAssignee(work), revision: output.revision, at: new Date().toISOString() } }, output, verification),
   });
@@ -5908,13 +6153,13 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       return historySources(project).map(ref => ({ resource: resourceView(id, ref).ref,
         ...historyStatus.get(key('discussion-history', id, ref.externalId)) }));
     },
-    start, dispatchReadiness, projectDeliverySetup, attachDeliveryProfile, reply, resume, revise, retryUnpublishedCode, approveDevelopment, respondDevelopment, reofferDevelopment, overview, ticketPage, detail, executionSnapshot, boundProject, recordObservation,
+    start, dispatchReadiness, projectDeliverySetup, attachDeliveryProfile, projectPlansView, setProjectPlans, projectTrigger, setProjectTrigger, voteFeedback, resolveFeedback, approveTicket, reply, resume, revise, retryUnpublishedCode, approveDevelopment, respondDevelopment, reofferDevelopment, overview, ticketPage, detail, ticketChanges, executionSnapshot, boundProject, recordObservation,
     regressionList: (actor: string, id: string) => regression.list(actor, regressionProject(actor, id)),
     createRegressionCase: (actor: string, id: string, input: z.infer<typeof regressionCaseInput>) =>
       regression.create(actor, regressionProject(actor, id, true), input),
     compareRegression: (actor: string, id: string, input: z.infer<typeof regressionCompareInput>) =>
       regression.compare(actor, regressionProject(actor, id, true), input),
-    createProject, addProjectMember, removeProjectMember, setProjectMemberRole, transferProjectMaintainer, addProjectAgent,
+    createProject, exportProjectTemplate, addProjectMember, removeProjectMember, setProjectMemberRole, transferProjectMaintainer, addProjectAgent,
     canManageAccounts, guardAccountWithdrawal, withdrawAccountAuthority, projectAccess, projectKnowledgeAccess, setProjectKnowledgeAccess, platformPointBudgets,
     activation, imLogin, profiles, memberAvatar,
     loginChannelBinding(sender: PlatformActor): { member?: string; conflict?: boolean } {
@@ -5945,7 +6190,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     rememberDiscussion, trackFeishuThread, refreshFeishuHistory, discussionView, discussionRevisions, resolveDiscussion, needsYou, answerDecision, resolveIntake, handoff,
     memoryHome, memoryUses, projectKnowledgeGraph, setMemoryPin, budgetPools, agentBudgets, setBudget, setAgentBudget,
     projectUsage, projectPointBudgets, pointLimit, setPointLimit, setPointPolicy, pointPolicy, pointControl: () => points.status(),
-    octopCatalog, publishOctopSkill, shareOctop, mountOctop, createOctop, publishOctopTemplate, normalizeOctopFeishu,
+    octopCatalog, publishOctopSkill, trialOctopSkill, shareOctop, mountOctop, createOctop, publishOctopTemplate, normalizeOctopFeishu,
     cloneOctop(actor: string, id: string, input: { title: string; nonce: string; agent: string; revision: string }) {
       const { title, nonce, agent, revision } = input;
       return createOctop(actor, id, nonce, { title, capability: '', function: '', instructions: '' }, { agent, revision });

@@ -5,7 +5,8 @@ import type { CapabilityProvider } from '../../src/workbench/capabilities.ts';
 import { api, part, useData, type DeviceRoute, type DeviceRow, type ModelService, type ProjectRouting } from './api.ts';
 import { Button } from './components/button.tsx';
 import { SettingsDrawer } from './components/settings-drawer.tsx';
-import { date, Failure, Field, Loading, Modal, Pill, Section, useActions } from './ui.tsx';
+import { Input } from './components/input.tsx';
+import { date, Failure, Field, Loading, Modal, Pill, Section, useActions, useStored } from './ui.tsx';
 
 const modelProviders = {
   openai: { name: 'OpenAI', engine: 'Codex', icon: Cloud },
@@ -317,4 +318,70 @@ function RoutingDialog({ endpoint, editor, close }: { endpoint: string; editor: 
       <Button disabled={busy || section === 'modelRoutes' && (!models[0] || models.some(model => !allowed.includes(model)))} type="submit">保存</Button>
     </div>
   </form></Modal>;
+}
+
+type ProjectTriggerView = {
+  revision: string; keywords: string[]; sensitivity: 'strict' | 'balanced' | 'open';
+  silenceMinutes: number; mentionAlways: boolean;
+  wakes: { project: string; chat: string; at: string; message: string; text: string; keyword: string; member?: string }[];
+};
+const sensitivityNames: Record<ProjectTriggerView['sensitivity'], string> = {
+  strict: '只收关键词与点名', balanced: '过滤闲聊与无关消息', open: '全部接收（仍过滤敏感信息）',
+};
+export function ProjectTriggerPanel({ project }: { project: string }) {
+  const data = useData<ProjectTriggerView>('project/' + part(project) + '/trigger');
+  const [draft, setDraft] = useStored<ProjectTriggerView | undefined>('trigger:' + project, undefined);
+  const [keyword, setKeyword] = useState('');
+  const { run, busy } = useActions();
+  if (data.error) return <Failure error={data.error} retry={() => void data.refetch()} />;
+  if (!data.data) return <Loading />;
+  const current = draft ?? data.data;
+  const set = (patch: Partial<ProjectTriggerView>) => setDraft({ ...current, ...patch });
+  const dirty = draft !== undefined;
+  const save = async () => {
+    if (!await run(() => api('project/' + part(project) + '/trigger', {
+      revision: current.revision, keywords: current.keywords, sensitivity: current.sensitivity,
+      silenceMinutes: current.silenceMinutes, mentionAlways: current.mentionAlways,
+    }), '唤醒策略已保存')) return;
+    setDraft(undefined);
+    await data.refetch();
+  };
+  const addKeyword = () => {
+    const value = keyword.trim();
+    if (!value || current.keywords.includes(value)) return;
+    set({ keywords: [...current.keywords, value] });
+    setKeyword('');
+  };
+  return <div className="detail-stack">
+    <Section title="唤醒关键词" action={<span className="muted-text">{current.keywords.length} 条</span>}>
+      {current.keywords.length ? <div className="workbench-table-scroll" role="region" aria-label="唤醒关键词">
+        <table className="workbench-table admin-data-table"><thead><tr><th scope="col">关键词</th><th scope="col">命中行为</th><th scope="col" /></tr></thead>
+          <tbody>{current.keywords.map(term => <tr key={term}><td><code>{term}</code></td><td>命中即保留并记录一次唤醒</td>
+            <td><Button size="sm" variant="ghost" onClick={() => set({ keywords: current.keywords.filter(row => row !== term) })}>移除</Button></td></tr>)}
+          </tbody></table>
+      </div> : <p className="muted-text">未配置关键词时按灵敏度接收。</p>}
+      <div className="actions"><Field label="新增关键词"><Input aria-label="新增唤醒关键词" value={keyword} maxLength={60}
+        onChange={event => setKeyword(event.target.value)} placeholder="例如：紧急、上线、验收" /></Field>
+        <Button size="sm" type="button" onClick={addKeyword} disabled={!keyword.trim()}>添加</Button></div>
+    </Section>
+    <Section title="接收策略">
+      <Field label="灵敏度" hint={sensitivityNames[current.sensitivity]}><select aria-label="灵敏度" value={current.sensitivity}
+        onChange={event => set({ sensitivity: event.target.value as ProjectTriggerView['sensitivity'] })}>
+        {(Object.keys(sensitivityNames) as ProjectTriggerView['sensitivity'][]).map(value => <option key={value} value={value}>{sensitivityNames[value]}</option>)}
+      </select></Field>
+      <Field label="唤醒后沉默期（分钟）" hint="唤醒后这段时间内的非关键词消息不再触发整理，0 表示不沉默。">
+        <Input type="number" min={0} max={10080} aria-label="唤醒后沉默期" value={current.silenceMinutes}
+          onChange={event => set({ silenceMinutes: Math.max(0, Math.min(10080, Number(event.target.value) || 0)) })} /></Field>
+      <label className="check-row"><input type="checkbox" checked={current.mentionAlways}
+        onChange={event => set({ mentionAlways: event.target.checked })} />严格模式下被点名的消息仍然接收</label>
+      <div className="form-actions"><Button type="button" onClick={() => void save()} disabled={busy || !dirty}>保存策略</Button></div>
+    </Section>
+    <Section title="唤醒记录" action={<span className="muted-text">{data.data.wakes.length} 条</span>}>
+      {data.data.wakes.length ? data.data.wakes.slice(0, 30).map(row => <div className="revision-note" key={row.message}>
+        <div className="inline-meta"><Pill tone="green">{row.keyword}</Pill><span>{row.member ?? '未绑定成员'}</span>
+          <time>{date(new Date(row.at).toISOString(), true)}</time></div>
+        <p>{row.text}</p>
+      </div>) : <p className="muted-text">尚无唤醒记录。命中关键词的群消息会出现在这里，整理过程可按原消息回放。</p>}
+    </Section>
+  </div>;
 }

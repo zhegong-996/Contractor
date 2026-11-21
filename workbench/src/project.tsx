@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ArrowRight, BookOpen, Clipboard, FolderKanban, GitBranch, Link2, MessageSquare, Plus, Plug2 } from 'lucide-react';
+import { ArrowRight, BookOpen, Clipboard, Download, FolderKanban, GitBranch, Link2, MessageSquare, Plus, Plug2 } from 'lucide-react';
 import { ProjectPermissions } from './access-settings.tsx';
 import { roleLabel } from './platform-access.tsx';
 import { api, uid, useData, useTickets, type Channels, type Discussion, type FigmaSourceStatus, type GitHubConnection, type Imported, type ProjectChannels, type Resource } from './api.ts';
@@ -7,10 +7,11 @@ import { TicketPicker } from './components/ticket-picker.tsx';
 import { go, projectWorkRoute, routeFor, type PageProps } from './navigation.ts';
 import { AgentOptions } from './creation.tsx';
 import { Receipts } from './agents.tsx';
-import { ProjectRoutingPanel } from './operations-settings.tsx';
+import { ProjectRoutingPanel, ProjectTriggerPanel } from './operations-settings.tsx';
 import { ProjectRegression } from './project-regression.tsx';
 import { FeishuTopics, IMTopics, TopicContactSettings } from './project-channels.tsx';
 import { DeliverySetup } from './project-delivery-setup.tsx';
+import { ProjectPlansPanel } from './project-plans.tsx';
 import { Button } from './components/button.tsx';
 import { Input } from './components/input.tsx';
 import { TabsContent } from './components/page-tabs.tsx';
@@ -18,11 +19,11 @@ import { Markdown } from './markdown.tsx';
 import { Avatar, date, Empty, Ext, Failure, Field, Loading, MaterialIcon, Modal, PageTabs, Pill, Section, short, Source,
   TicketStatus, TopicOptions, topicName, useActions, useStored, Version } from './ui.tsx';
 
-const tabs = [['structure', '项目结构'], ['sources', '资料与连接'], ['discussion', '群反馈'], ['regression', '回归评估'], ['usage', '用量'],
-  ['settings', '项目设置'], ['routing', '职责与路由']] as const;
+const tabs = [['structure', '项目结构'], ['sources', '资料与连接'], ['plans', '目标与例行'], ['template', '项目模板'], ['discussion', '群反馈'], ['regression', '回归评估'], ['usage', '用量'],
+  ['settings', '项目设置'], ['routing', '职责与路由'], ['trigger', '唤醒与触发']] as const;
 export function ProjectPage(props: PageProps) {
   const { project, route } = props;
-  const shown = tabs.filter(([id]) => (id !== 'discussion' || !!project.discussion) && (!['settings', 'routing'].includes(id) || project.maintain));
+  const shown = tabs.filter(([id]) => (id !== 'discussion' || !!project.discussion) && (!['settings', 'routing', 'trigger'].includes(id) || project.maintain));
   const tab = shown.find(([id]) => id === route.tab)?.[0] ?? 'structure';
   return <div className="page-scroll"><div className="project-page">
     <header className="object-header"><div className="object-emblem"><FolderKanban size={25} /></div>
@@ -32,18 +33,40 @@ export function ProjectPage(props: PageProps) {
         <a className="text-button" href={routeFor(project.id, 'chat', undefined, 'project')}><MessageSquare size={16} />项目讨论</a>
       </div>
     </header>
-    {['settings', 'routing'].includes(route.tab ?? '') && !project.maintain && <Failure error={new Error('当前账号没有项目设置权限。')} />}
+    {['settings', 'routing', 'trigger'].includes(route.tab ?? '') && !project.maintain && <Failure error={new Error('当前账号没有项目设置权限。')} />}
     <PageTabs label="项目详情" value={tab} items={shown} onChange={value => go(project.id, 'project', undefined, value)}>
       <TabsContent value="structure" className="detail-stack"><Structure {...props} /></TabsContent>
       <TabsContent value="sources" className="detail-stack"><Sources {...props} /></TabsContent>
+      <TabsContent value="plans" className="detail-stack"><ProjectPlansPanel project={project.id} maintain={project.maintain} /></TabsContent>
+      <TabsContent value="template" className="detail-stack"><ProjectTemplatePanel project={project} /></TabsContent>
       {project.discussion && <TabsContent value="discussion" className="detail-stack"><GroupFeedback {...props} /></TabsContent>}
       <TabsContent value="regression" className="detail-stack"><ProjectRegression project={project} /></TabsContent>
       <TabsContent value="usage" className="detail-stack"><Receipts project={project.id} /></TabsContent>
       {project.maintain && <TabsContent value="settings" className="detail-stack"><ProjectPermissions project={project.id} actor={props.workspace.actor}
         afterTransfer={() => go(project.id, 'project', undefined, 'structure')} /></TabsContent>}
       {project.maintain && <TabsContent value="routing" className="detail-stack"><ProjectRoutingPanel project={project.id} /></TabsContent>}
+      {project.maintain && <TabsContent value="trigger" className="detail-stack"><ProjectTriggerPanel project={project.id} /></TabsContent>}
     </PageTabs>
   </div></div>;
+}
+
+function ProjectTemplatePanel({ project }: { project: PageProps['project'] }) {
+  const { run, busy } = useActions();
+  return <Section title="项目模板">
+    <p className="muted-text">模板包含目标、主题结构、审批阶段、例行任务、唤醒策略与模型路线。成员、凭据、渠道绑定、交付仓库和额度策略不会导出，导入者自动成为新项目维护人与审批人。</p>
+    <div className="actions">
+      <Button variant="outline" disabled={busy} onClick={() => void run(async () => {
+        const data = await api<{ title?: string; kind: string } & object>('project/' + project.id + '/template');
+        if (!data) return;
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement('a');
+        anchor.href = url; anchor.download = project.id + '-template.json';
+        anchor.click(); URL.revokeObjectURL(url);
+      }, '模板已导出')}><Download size={15} />导出模板</Button>
+    </div>
+    <p className="muted-text">导出文件可在「新建项目」时导入，按模板生成目标、主题与配置。</p>
+  </Section>;
 }
 
 function Structure({ workspace, project, openTask }: PageProps) {

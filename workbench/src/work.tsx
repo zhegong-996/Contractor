@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, useState } from 'react';
-import { ArrowLeft, ArrowRight, Bot, Check, ChevronRight, CircleCheck, FileCheck2, GitBranch, GitPullRequest, History, Link2, ListChecks, LockKeyhole, MessageSquare, PanelRightClose, PanelRightOpen, Plus, ShieldCheck } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Bot, Check, ChevronRight, CircleCheck, FileCheck2, GitBranch, GitPullRequest, History, Link2, ListChecks, LockKeyhole, MessageSquare, PanelRightClose, PanelRightOpen, Plus, ShieldCheck, ThumbsDown, ThumbsUp } from 'lucide-react';
 import { api, uid, useData, useTickets, type Knowledge, type Ticket, type TicketRow, type TicketTopicContext } from './api.ts';
 import { AgentOptions, MaterialPicker } from './creation.tsx';
 import { Conversation } from './conversation.tsx';
@@ -197,6 +197,7 @@ function TicketDetail(props: PageProps & { ticket: Ticket; tab: WorkTab }) {
   const { busy, run } = useActions();
   const agent = workspace.agents.find(a => a.id === ticket.work.agent);
   const topic = project.topics.find(item => item.id === ticket.work.topic);
+  const goalTitle = project.goals.find(item => item.id === ticket.work.goal)?.title;
   const discussion = topic
     ? { name: topic.title, href: routeFor(project.id, 'chat', topic.id) }
     : !ticket.work.topic ? { name: '项目讨论', href: routeFor(project.id, 'chat', undefined, 'project') } : undefined;
@@ -333,6 +334,7 @@ function TicketDetail(props: PageProps & { ticket: Ticket; tab: WorkTab }) {
           <dt>当前版本</dt><dd><Version version={ticket.work.version ?? 1} /></dd>
           <dt>项目</dt><dd><a href={routeFor(project.id, 'project')}>{project.title}</a></dd>
           <dt>主题</dt><dd>{discussion ? <a href={discussion.href}>{discussion.name}</a> : ticket.topicTitle ?? '未归入主题'}</dd>
+          {ticket.work.goal && <><dt>所属目标</dt><dd>{goalTitle ?? ticket.work.goal}</dd></>}
           <dt>发起人</dt><dd>{memberName(ticket.work.requester)}</dd>
           {!ticket.work.consultation && <><dt>验收人</dt><dd>{memberName(ticket.acceptanceOwner)}</dd></>}
           <dt>负责 Agent</dt><dd>{agent?.title ?? ticket.work.agent}</dd>
@@ -345,6 +347,11 @@ function TicketDetail(props: PageProps & { ticket: Ticket; tab: WorkTab }) {
         {ticket.candidate && <a className="inspector-link" href={routeFor(project.id, 'knowledge', ticket.candidate, ticket.candidateTab)}>
           <FileCheck2 size={16} /><span>{ticket.candidateTab === 'review' ? '核对知识候选' : '查看关联知识'}</span><ChevronRight size={15} /></a>}
         {ticket.work.parent && <a className="inspector-link" href={routeFor(project.id, 'work', ticket.work.parent)}><Link2 size={16} /><span>上游工单</span></a>}
+        {ticket.children.length > 0 && <div className="inspector-group">
+          <span className="inspector-caption">{ticket.children.length} 张子工单</span>
+          {ticket.children.map(child => <a key={child.id} className="inspector-link" href={routeFor(project.id, 'work', child.id)}>
+            <Link2 size={16} /><span>{child.title}</span><ChevronRight size={15} /></a>)}
+        </div>}
       </aside>}
     </div>
     {dialog && <TicketCommand {...props} name={dialog} agentChoices={dialog === 'handoff' ? handoffChoices : agentChoices}
@@ -447,6 +454,82 @@ function TicketCommand({ name, ticket, close, project, workspace, nextVersion, a
   </form></Modal>;
 }
 
+type TicketChanges = { available: false; reason: string } | { available: true; base: string; head: string;
+  files: string[]; diff: string; truncated: boolean };
+
+function DeliveryChanges({ ticket }: { ticket: Ticket }) {
+  const data = useData<TicketChanges>('ticket/' + ticket.id + '/changes');
+  const changes = data.data;
+  const [file, setFile] = useState<string>();
+  if (data.isFetching && !changes) return <Loading />;
+  if (data.error) return <Failure error={data.error} retry={() => void data.refetch()} />;
+  if (!changes) return null;
+  if (!changes.available) return <Section title="本版改动"><p className="muted-text">{changes.reason}</p></Section>;
+  const selected = changes.files.includes(file ?? '') ? file : changes.files[0];
+  const blocks = [...changes.diff.matchAll(/^diff --git a\/(.*?) b\/(.*?)$/gm)]
+    .map((match, index, all) => ({ file: match[1], start: match.index, end: all[index + 1]?.index ?? changes.diff.length }));
+  const block = selected && blocks.find(item => item.file === selected);
+  const view = block ? changes.diff.slice(block.start, block.end) : changes.diff;
+  return <Section title="本版改动" action={<span className="muted-text">{changes.files.length} 个文件 · <code>{short(changes.base, 8)}..{short(changes.head, 8)}</code></span>}>
+    <div className="changes-layout">
+      <nav className="changes-files" aria-label="改动文件">
+        {changes.files.map(name => <button key={name} type="button" className={name === selected ? 'changes-file selected' : 'changes-file'}
+          onClick={() => setFile(name)}>{name}</button>)}
+      </nav>
+      <pre className="changes-diff"><code>{view || '（该文件没有文本差异）'}</code></pre>
+    </div>
+    {changes.truncated && <p className="muted-text">差异内容较长，仅显示前 40000 字符。</p>}
+  </Section>;
+}
+
+function TicketFeedback({ ticket, revision, actor }: { ticket: Ticket; revision?: string; actor: string }) {
+  const { run, busy } = useActions();
+  const [note, setNote] = useState('');
+  const mine = revision ? ticket.feedback.find(row => row.revision === revision && row.actor === actor) : undefined;
+  if (!revision) return null;
+  const ups = ticket.feedback.filter(row => row.sentiment === 'up').length;
+  const downs = ticket.feedback.filter(row => row.sentiment === 'down').length;
+  const vote = (sentiment: 'up' | 'down') => {
+    if (busy) return;
+    void run(() => api('ticket/' + ticket.id + '/feedback', { revision, sentiment, note }), '反馈已记录');
+  };
+  return <div className="feedback-line">
+    <span className="muted-text">本版反馈</span>
+    <Button size="sm" variant="ghost" aria-pressed={mine?.sentiment === 'up'} onClick={() => vote('up')}>
+      <ThumbsUp size={14} />{ups || ''}</Button>
+    <Button size="sm" variant="ghost" aria-pressed={mine?.sentiment === 'down'} onClick={() => vote('down')}>
+      <ThumbsDown size={14} />{downs || ''}</Button>
+    <Input className="feedback-note" aria-label="反馈补充说明" placeholder="补充一句改进建议（可选）" value={note} maxLength={1000}
+      onChange={event => setNote(event.target.value)} />
+    {downs > 0 && <small className="muted-text">差评会汇总给项目维护人决定改进动作。</small>}
+  </div>;
+}
+
+function ApprovalPanel({ ticket }: { ticket: Ticket }) {
+  const approval = ticket.approval;
+  const [note, setNote] = useState('');
+  const { run, busy } = useActions();
+  if (!approval) return null;
+  const current = approval.stages[approval.stage];
+  return <Section title="审批进度" action={approval.completedAt
+    ? <Pill tone="green">已通过</Pill> : <Pill tone="amber">第 {approval.stage + 1} / {approval.stages.length} 阶段</Pill>}>
+    <ol className="approval-stages">
+      {approval.stages.map((stage, index) => <li key={stage.title} className={index < approval.stage || approval.completedAt ? 'done' : index === approval.stage ? 'current' : ''}>
+        <span>{stage.title}</span><small>{stage.members.join('、')}</small></li>)}
+    </ol>
+    {!!approval.history.length && <div className="detail-stack">{approval.history.map(row => <div className="record-row" key={row.actor + ':' + row.at}>
+      <strong>{row.actor} 已同意第 {row.stage + 1} 阶段</strong><time>{date(row.at, true)}</time>
+      {row.note && <p className="muted-text">{row.note}</p>}</div>)}</div>}
+    {approval.mine && current && <form className="form approval-form" onSubmit={event => {
+      event.preventDefault();
+      void run(() => api('ticket/' + ticket.id + '/approve', { note: note.trim() || undefined }), '本阶段已同意');
+    }}>
+      <Input aria-label="审批意见" placeholder="审批意见（可选）" value={note} maxLength={1000} onChange={event => setNote(event.target.value)} />
+      <Button type="submit" disabled={busy}>同意「{current.title}」</Button>
+    </form>}
+  </Section>;
+}
+
 function Delivery(props: PageProps & { ticket: Ticket }) {
   const { ticket, project, workspace } = props;
   const { run, busy } = useActions();
@@ -468,6 +551,10 @@ function Delivery(props: PageProps & { ticket: Ticket }) {
         : <p className="muted-text">尚未提交本版成果。</p>}
       {accepted && <div className="acceptance-line"><CircleCheck size={17} /><span>{accepted.actor} 已验收 · {date(accepted.at, true)}</span>
         {accepted.commit && <code>{short(accepted.commit, 12)}</code>}</div>}
+      {result && !ticket.materialHidden && <TicketFeedback ticket={ticket} revision={result.revision} actor={workspace.actor} />}
+      <ApprovalPanel ticket={ticket} />
+      {accepted && ticket.work.topic && <a className="text-button self-start" href={routeFor(project.id, 'chat', ticket.work.topic)}>
+        <MessageSquare size={15} />回到发起对话<ArrowRight size={15} /></a>}
       {ticket.channelReturn && <ChannelReceipt receipt={ticket.channelReturn} />}
       {ticket.candidate && <a className="text-button" href={routeFor(project.id, 'knowledge', ticket.candidate, ticket.candidateTab)}>
         {ticket.candidateTab === 'review' ? '查看知识候选' : '查看关联知识'} <ArrowRight size={15} /></a>}
@@ -478,6 +565,7 @@ function Delivery(props: PageProps & { ticket: Ticket }) {
         {citation.acceptedSource && <AcceptedEvidence source={citation.acceptedSource} project={project.id} />}
       </article>)}
     </Section>}
+    {ticket.work.development && <DeliveryChanges ticket={ticket} />}
     {(scope || delivery || ticket.mayLinkDelivery || ticket.githubIssues.length > 0 || ticket.work.branches?.length) && <div className="decision-focus" data-decision-focus="delivery-evidence" tabIndex={-1}><Section title="GitHub 交付"
       action={ticket.mayLinkDelivery ? <Button variant="outline" size="sm" onClick={() => setAction('pull')}><GitPullRequest />{delivery ? '更新 PR 关联' : '关联 PR'}</Button> : undefined}>
       {scope && <dl className="facts">

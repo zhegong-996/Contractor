@@ -4,7 +4,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { z } from 'zod';
 import type { WorkerFactory, WorkerHub } from './execution/protocol.ts';
 import { parseResult } from './execution/protocol.ts';
-import { runtime } from '../config.ts';
+import { requirePersistentStateDir, runtime } from '../config.ts';
 import { trackWorkerProcesses } from './worker-process.ts';
 import { checkClaudeRunnerModel, remoteEngine, runnerAgentSchema } from './runner-profile.ts';
 import { deviceHome, type DeviceJob, type ReleasedLease } from './devices.ts';
@@ -13,8 +13,7 @@ import { runnerEndpoint, runnerWorkerSchema, workerCredential } from './runner-c
 import { expiredCodexLogin, readPrivateRunnerFile } from './runner-credentials.ts';
 import { sandboxProvider } from './sandbox-provider.ts';
 
-if (!process.env.COLLAB_STATE_DIR || !path.isAbsolute(process.env.COLLAB_STATE_DIR))
-  throw new Error('请使用工作台的 COLLAB_STATE_DIR 绝对路径。');
+requirePersistentStateDir(process.env.COLLAB_STATE_DIR, '执行端客户端');
 const portSchema = z.coerce.number().int().min(1024).max(65535);
 const fields = { driver: z.literal('contractor').optional(), id: z.uuid(), token: z.string().regex(/^[A-Za-z0-9_-]{43}$/) };
 const endpointSchema = runnerEndpoint;

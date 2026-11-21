@@ -1,9 +1,16 @@
 import { createServer, request } from 'node:http';
 import { readFileSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
 const state = process.env.COLLAB_STATE_DIR;
 if (!state || !path.isAbsolute(state)) throw new Error('请设置 COLLAB_STATE_DIR 的绝对路径。');
+if (process.env.COLLAB_ALLOW_TMP_STATE !== '1') {
+  const temporary = path.resolve(os.tmpdir());
+  const relative = path.relative(temporary, path.resolve(state));
+  if (relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative)))
+    throw new Error('COLLAB_STATE_DIR 不能指向系统临时目录。请改用持久目录，临时联调可设 COLLAB_ALLOW_TMP_STATE=1。');
+}
 const config = JSON.parse(readFileSync(path.join(state, 'workbench.json'), 'utf8'));
 const base = new URL(config.runnerConnectUrl);
 const ports = [Number(base.port), config.port, config.remoteRunnerPort];

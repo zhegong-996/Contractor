@@ -163,3 +163,17 @@ export async function developmentChanges(ticket: string, work: Development) {
     files, untracked: hashes, diffHash: createHash('sha256').update(diff).digest('hex'),
     diff: diff.slice(0, 20000), truncated: diff.length > 20000 };
 }
+
+export async function developmentDiff(ticket: string, base: string, head: string) {
+  const folder = developmentFolder(ticket);
+  if (!(await lstat(path.join(folder, '.git')).then(() => true, () => false)))
+    return { available: false as const, reason: '当前工作台没有这张代码工单的本地工作区。' };
+  const [nameOutput, diff] = await Promise.all([
+    git(folder, 'diff', '--name-only', '--no-renames', '-z', base, head).catch(() => ''),
+    git(folder, 'diff', '--no-ext-diff', '--no-textconv', base, head).catch(() => null),
+  ]);
+  const files = nameOutput.split('\0').filter(Boolean);
+  if (diff === null || !files.length) return { available: false as const, reason: '本地工作区缺少这两个提交，或两个提交之间没有改动。' };
+  return { available: true as const, base, head, files,
+    diff: diff.slice(0, 40000), truncated: diff.length > 40000 };
+}

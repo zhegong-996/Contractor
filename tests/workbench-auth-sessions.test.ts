@@ -32,3 +32,4 @@ test('改口令跨进程失效原会话，不影响其他成员，新口令可�
   auth.changePassword('owner', 'third-test-password');
   assert.equal(auth.sessionFromRequest(next.cookie), null);
 });
+

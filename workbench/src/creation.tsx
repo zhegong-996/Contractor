@@ -25,7 +25,7 @@ export function MaterialPicker({ entries, values, onChange }: {
 }
 
 type Draft = {
-  title: string; request: string; topic: string; agent: string; target: string; material: string[]; resources: string[];
+  title: string; request: string; topic: string; agent: string; target: string; goal: string; material: string[]; resources: string[];
   priority: 'normal' | 'urgent'; nonce: string; metric: string; unit: string; baseline: string; targetValue: string;
   recall: boolean; device: string;
   productCases?: { title: string; expectation: string }[];
@@ -33,7 +33,7 @@ type Draft = {
 };
 function initialDraft(preset: TaskPreset): Draft {
   return { title: preset.lesson ? preset.lesson.title.slice(0, 94) + ' · 复查' : preset.request?.split('\n')[0]?.slice(0, 100) ?? '', request: preset.request ?? '', topic: preset.topic ?? '',
-    agent: preset.agent ?? '', target: '', material: preset.material ?? (preset.lesson ? [preset.lesson.id] : []), resources: [],
+    agent: preset.agent ?? '', target: '', goal: '', material: preset.material ?? (preset.lesson ? [preset.lesson.id] : []), resources: [],
     priority: 'normal', nonce: uid(), metric: preset.lesson?.metric ?? '', unit: preset.lesson?.unit ?? '',
     baseline: preset.lesson ? String(preset.lesson.baseline) : '', targetValue: '', recall: !!preset.personal, device: preset.device ?? '' };
 }
@@ -54,6 +54,7 @@ export function Composer({ project, workspace, route, preset, close }: PageProps
   const codeTargets = project.deliveryTargets.filter(ref => ref.eligibleAgents.some(id => options.some(agent => agent.id === id)));
   const deliveryTarget = codeTargets.find(ref => ref.ref === draft.target);
   const agentOptions = deliveryTarget ? options.filter(agent => deliveryTarget.eligibleAgents.includes(agent.id)) : options;
+  const openGoals = project.goals.filter(goal => !goal.done);
   const parent = preset.lesson?.ticket ?? preset.parent;
   const topicRequired = !!deliveryTarget?.stages?.requireTopicBasis && !parent;
   const product = deliveryTarget?.product;
@@ -83,7 +84,7 @@ export function Composer({ project, workspace, route, preset, close }: PageProps
         agent: draft.agent.startsWith('function:') ? undefined : draft.agent || 'auto',
         function: draft.agent.startsWith('function:') ? draft.agent.slice('function:'.length) : undefined,
         topic: draft.topic || undefined, target: draft.target || undefined, material: draft.material, resources: draft.resources,
-        priority: draft.priority, parent, measure, reusedLesson: preset.lesson?.id,
+        priority: draft.priority, parent, goal: draft.goal || undefined, measure, reusedLesson: preset.lesson?.id,
         personal: preset.personal, recall: draft.recall, device: draft.device || undefined,
         productCases: draft.productCases, reuseAcceptance: draft.reuseAcceptance,
       });
@@ -121,6 +122,12 @@ export function Composer({ project, workspace, route, preset, close }: PageProps
           </select>
         </Field>
       </div>
+      {openGoals.length > 0 && <Field label="所属目标" hint="选择本项目尚未完成的目标，执行与验收会沿用该目标。">
+        <select aria-label="所属目标" value={draft.goal} onChange={e => change('goal', e.target.value)}>
+          <option value="">不挂目标</option>
+          {openGoals.map(goal => <option key={goal.id} value={goal.id}>{goal.title}</option>)}
+        </select>
+      </Field>}
       {chosenAgent && <ExecutionEnvironment project={project.id} agent={chosenAgent} targets={targets} value={draft.device}
         connectUrl={chosenAgent.owner === workspace.actor && chosenAgent.executionCapabilities.remote ? workspace.runnerConnectUrl : undefined}
         onChange={id => change('device', id)} />}

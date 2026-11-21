@@ -61,6 +61,7 @@ export function openDispatchWorkflow(store: Pick<SuperAgentStore, 'db' | 'atomic
     if (parent && parent.project.id !== project.id) throw new WorkbenchError('父工单属于其他项目。');
     const topic = input.topic ?? parent?.work.topic;
     if (topic && !topicsFor(project).some(item => item.id === topic)) throw new WorkbenchError('该主题不属于当前项目。', 400);
+    if (input.goal && !project.goals.some(goal => goal.id === input.goal)) throw new WorkbenchError('请选择当前项目的目标。', 400);
     const agent = selectAgent(project, topic, input.agent, input.function);
     const material = selectMaterials(project.id, actor, input.material);
     if (input.personal && (!agent || agent.kind !== 'personal' || agent.owner !== actor || input.target))
@@ -125,7 +126,7 @@ export function openDispatchWorkflow(store: Pick<SuperAgentStore, 'db' | 'atomic
       deliveryTemplate: template ?? null, productCases: productCases.length ? productCases : undefined,
       reusedAcceptance, priority: input.priority, parent: input.parent,
       measure: input.measure, reusedLesson: input.reusedLesson, topic, recall: recalled.map(entry => entry.id),
-      personal: input.personal, device, consultation, ...(consultation?.account && { channelActor: consultation.account }),
+      personal: input.personal, device, goal: input.goal, consultation, ...(consultation?.account && { channelActor: consultation.account }),
       ...(octopGrant && { octop: octopGrant }),
     } };
     engine.receive(trigger);

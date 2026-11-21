@@ -17,7 +17,7 @@
     "package:runner": "node scripts/package-runner.mjs",
     "package:source": "node scripts/package-source.mjs",
     "audit:upstream": "node --import tsx scripts/audit-upstream.ts",
-    "test": "node --import tsx --test tests/*.test.ts",
+    "test": "COLLAB_ALLOW_TMP_STATE=1 node --import tsx --test tests/*.test.ts",
     "typecheck": "tsc --noEmit",
     "build": "npm run typecheck && npm run build:ui",
     "build:ui": "vite build --config workbench/vite.config.ts"

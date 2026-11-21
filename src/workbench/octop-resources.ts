@@ -27,6 +27,9 @@ export class OctopResources {
       CREATE TABLE IF NOT EXISTS workbench_octop_mount (
         agent TEXT NOT NULL, skill TEXT NOT NULL, revision TEXT NOT NULL, PRIMARY KEY(agent,skill)
       );
+      CREATE TABLE IF NOT EXISTS workbench_octop_skill_use (
+        skill TEXT NOT NULL, revision TEXT NOT NULL, ticket TEXT NOT NULL, at TEXT NOT NULL, PRIMARY KEY(skill,revision,ticket)
+      );
     `);
   }
 
@@ -36,6 +39,17 @@ export class OctopResources {
     const skill: Skill = { ...value, id, revision, project, owner };
     this.db.prepare('INSERT OR IGNORE INTO workbench_octop_skill VALUES (?,?,?,?,?)').run(id, revision, project, owner, JSON.stringify(skill));
     return skill;
+  }
+
+  recordUse(skill: string, revision: string, ticket: string) {
+    this.db.prepare('INSERT OR IGNORE INTO workbench_octop_skill_use VALUES (?,?,?,?)')
+      .run(skill, revision, ticket, new Date().toISOString());
+  }
+
+  uses(skill: string) {
+    const rows = this.db.prepare('SELECT revision, ticket, at FROM workbench_octop_skill_use WHERE skill=? ORDER BY at DESC LIMIT 100')
+      .all(skill).map(row => ({ revision: String(row.revision), ticket: String(row.ticket), at: String(row.at) }));
+    return { count: rows.length, latest: rows[0]?.at, tickets: rows.map(row => row.ticket) };
   }
 
   skill(id: string, revision?: string): Skill | undefined {
@@ -86,6 +100,11 @@ export class OctopResources {
 
   mounts(agent: string): SkillRef[] {
     return this.db.prepare('SELECT skill AS id,revision FROM workbench_octop_mount WHERE agent=? ORDER BY skill').all(agent) as SkillRef[];
+  }
+
+  mountsOf(skill: string): string[] {
+    return this.db.prepare('SELECT agent FROM workbench_octop_mount WHERE skill=? ORDER BY agent').all(skill)
+      .map(row => String(row.agent));
   }
 
   setMount(agent: string, ref: SkillRef, active: boolean) {

@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto';
-import path from 'node:path';
 import { z } from 'zod';
 import { channelCommand, feishuCommandText } from './channel-links.ts';
 import { loadSettings } from './config.ts';
@@ -8,9 +7,10 @@ import { openFeishuInbox } from './feishu-inbox.ts';
 import { feishuIngressCard, feishuIngressMessage } from './feishu-ingress-envelope.ts';
 import { routesEvents } from './project-resources.ts';
 import { acquireStateLease } from './state-lease.ts';
+import { requirePersistentStateDir } from '../config.ts';
 
 async function serve(release: () => void) {
-  if (!path.isAbsolute(process.env.COLLAB_STATE_DIR ?? '')) throw new Error('请提供独立工作台的 COLLAB_STATE_DIR 绝对路径。');
+  const directory = requirePersistentStateDir(process.env.COLLAB_STATE_DIR, '独立飞书入口');
   const settings = await loadSettings();
   const config = settings.feishu;
   if (!config?.separateIngress) throw new Error('请先开启 feishu.separateIngress。');
@@ -82,8 +82,7 @@ async function serve(release: () => void) {
   process.once('SIGINT', () => void close());
 }
 
-const directory = process.env.COLLAB_STATE_DIR ?? '';
-if (!path.isAbsolute(directory)) throw new Error('请提供独立工作台的 COLLAB_STATE_DIR 绝对路径。');
+const directory = requirePersistentStateDir(process.env.COLLAB_STATE_DIR, '独立飞书入口');
 const release = acquireStateLease(directory, 'feishu-ingress');
 try { await serve(release); }
 catch (error) { release(); throw error; }

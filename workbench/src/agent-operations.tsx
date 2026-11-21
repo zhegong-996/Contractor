@@ -34,7 +34,7 @@ function DevicePane({ workspace, project }: PageProps) {
   const { run, busy } = useActions();
   return <Section title="可用设备" action={<div className="actions">
     {project.maintain && <a className="text-button" href={routeFor(project.id, 'project', undefined, 'routing')}>主备设备配置</a>}
-    {workspace.executionRuntime !== 'contractor' && (remote || canPair)
+    {project.mayStart && (remote || canPair || workspace.executionRuntime === 'contractor')
       && <Button size="sm" onClick={() => show(true)}><Plus />连接设备</Button>}
   </div>}>
     {data.error ? <Failure error={data.error} retry={() => void data.refetch()} /> : !data.data ? <Loading />
@@ -71,9 +71,15 @@ function DevicePane({ workspace, project }: PageProps) {
         }}>确认</Button></div>
       </div>
     </Modal>}
-    {pair && (remote ? <Modal title="连接设备" close={() => show(false)}>
-      <RunnerConnectInstructions url={remote} legacy={workspace.executionRuntime !== 'contractor'} />
-    </Modal> : <LocalWorkerPair project={project.id} workspace={workspace} close={() => show(false)} />)}
+    {pair && <Modal title="连接执行设备" close={() => show(false)}>
+      {workspace.executionRuntime !== 'contractor' ? (remote
+        ? <RunnerConnectInstructions url={remote} legacy />
+        : <LocalWorkerPair project={project.id} workspace={workspace} close={() => show(false)} />)
+        : remote ? <RunnerConnectInstructions url={remote} legacy={false} />
+          : <div className="detail-stack"><p>当前工作台尚未配置执行端连接地址，请部署者在工作台配置中登记
+            <code>runnerConnectUrl</code> 与远程执行端口，再回到这里登记设备。</p>
+            <RunnerConnectInstructions url={workspace.runnerConnectUrl ?? ''} legacy={false} /></div>}
+    </Modal>}
   </Section>;
 }
 

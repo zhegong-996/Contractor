@@ -3,8 +3,8 @@ import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query';
 import { Breadcrumb, ConfigProvider, Drawer, Layout, Menu as NavigationMenu, Tabs, type ConfigProviderProps } from 'antd';
 import zhCN from 'antd/es/locale/zh_CN.js';
-import { ArrowRight, BookOpen, Bot, ChevronDown, ChevronRight, CircleCheck, FolderKanban, Inbox, ListChecks, LogOut, Menu, MessageSquare, PanelLeftClose, PanelLeftOpen, Plus, ShieldCheck, UserRound } from 'lucide-react';
-import { api, mayKeepStale, uid, useData, type Overview, type Session } from './api.ts';
+import { ArrowRight, BookOpen, Bot, ChevronDown, ChevronRight, CircleCheck, FileUp, FolderKanban, Inbox, ListChecks, LogOut, Menu, MessageSquare, PanelLeftClose, PanelLeftOpen, Plus, ShieldCheck, UserRound } from 'lucide-react';
+import { api, mayKeepStale, uid, useData, type Overview, type ProjectTemplate, type Session } from './api.ts';
 import { ActionContext, Avatar, Failure, Field, IconButton, Loading, Logo, Modal, useActions, useStored } from './ui.tsx';
 import { Button } from './components/button.tsx';
 import { Input } from './components/input.tsx';
@@ -26,6 +26,7 @@ const AgentsPage = lazy(() => import('./agents.tsx').then(page => ({ default: pa
 const ProjectPage = lazy(() => import('./project.tsx').then(page => ({ default: page.ProjectPage })));
 const AccountsPage = lazy(() => import('./project.tsx').then(page => ({ default: page.AccountsPage })));
 const GlobalSettings = lazy(() => import('./access-settings.tsx').then(page => ({ default: page.GlobalSettings })));
+const HomePage = lazy(() => import('./home.tsx').then(page => ({ default: page.HomePage })));
 
 const nav = [
   { key: 'inbox', icon: Inbox }, { key: 'work', icon: ListChecks },
@@ -64,7 +65,7 @@ function Login({ session }: { session?: Session }) {
     : <p className="login-notice" role="status">{imNames[imLogin.provider]}登录暂不可用，请联系平台管理员。</p>);
   return <main className="login-wrap">
     <section className="login-sheet" aria-labelledby="login-title">
-      <div className="login-brand"><Logo /><span>Contractor</span></div>
+      <div className="login-brand"><Logo /><span>Contractor</span>{session?.org && <small className="login-org">{session.org.name}</small>}</div>
       <h1 id="login-title">{pending ? '等待开通' : '登录工作台'}</h1>
       {notice.text && <p className="login-notice" role={pending ? 'status' : 'alert'}>{notice.text}</p>}
       {enterprise && passwordAllowed ? <Tabs className="login-modes" aria-label="登录方式" activeKey={method} onChange={setMethod} items={[
@@ -196,6 +197,9 @@ function ProjectBranch({ branch, current, route, close }: { branch: Branch<PageP
 function NewProject({ workspace, close }: { workspace: Overview; close: () => void }) {
   const { run, busy } = useActions();
   const [nonce] = useState(uid);
+  const [template, setTemplate] = useState<ProjectTemplate>();
+  const [templateName, setTemplateName] = useState('');
+  const [templateError, setTemplateError] = useState('');
   const parents = workspace.projects.filter(project => project.maintain);
   return <Modal title="新建项目" close={close}><form className="form" onSubmit={async event => {
     event.preventDefault();
@@ -203,11 +207,33 @@ function NewProject({ workspace, close }: { workspace: Overview; close: () => vo
     const result = await run(() => api<{ id: string }>('project', {
       nonce, title: String(form.get('title')).trim(), parent: form.get('parent') || undefined,
       firstTopic: String(form.get('firstTopic')).trim() || undefined,
+      ...(template ? { template } : {}),
     }), '项目已创建');
     if (result) { go(result.id, 'project', undefined, 'structure'); close(); }
   }}>
     <Field label="项目名称"><Input name="title" autoFocus maxLength={100} required /></Field>
     <Field label="首个主题（选填）"><Input name="firstTopic" maxLength={100} /></Field>
+    <Field label="项目模板（选填）">
+      <label className="upload-row">
+        <input type="file" accept="application/json,.json" onChange={event => {
+          const file = event.target.files?.[0];
+          setTemplate(undefined); setTemplateName(''); setTemplateError('');
+          if (!file) return;
+          void file.text().then(text => {
+            try {
+              const parsed = JSON.parse(text) as ProjectTemplate;
+              if (parsed.kind !== 'contractor-project-template' || parsed.version !== 1) {
+                setTemplateError('这不是 Contractor 项目模板文件。'); return;
+              }
+              setTemplate(parsed); setTemplateName(file.name);
+            } catch { setTemplateError('无法读取模板文件，请检查 JSON 内容。'); }
+          });
+        }} />
+        <FileUp size={15} />
+        <span>{template ? '已载入 ' + templateName : '选择模板 JSON 文件'}</span>
+      </label>
+      {templateError && <p className="form-error">{templateError}</p>}
+    </Field>
     {!!parents.length && <Field label="上级项目"><select name="parent" required={!workspace.canCreateRootProject}>
       {workspace.canCreateRootProject && <option value="">独立项目</option>}
       {parents.map(project => <option value={project.id} key={project.id}>{project.title}</option>)}
@@ -239,7 +265,7 @@ function Workspace() {
       connections={requested.global === 'account' ? <AccountsPage workspace={workspace} embedded /> : undefined} />
   </Suspense>;
   const targetProject = workspace.projects.find(p => p.id === requested.project);
-  if (!requested.personalChat && (requested.project || requested.reply) && !targetProject) return <div className="app-placeholder">
+  if (!requested.personalChat && (requested.project || requested.reply) && !targetProject && requested.view !== 'home') return <div className="app-placeholder">
     <Failure error={new Error(requested.reply ? '当前账号无权打开这条主题回复。' : '当前账号无权打开此项目。')} />
     <a className="text-button" href="#/">返回工作台</a>
   </div>;
@@ -259,7 +285,7 @@ function Workspace() {
   </div>;
   const route = { ...requested, project: project.id, item: requested.item };
   const props = { workspace, project, route, openTask: (preset: TaskPreset = {}) => { clearError(); setComposer(preset); } };
-  const Page = { chat: ChatPage, inbox: InboxPage, work: WorkPage, knowledge: KnowledgePage, agents: AgentsPage, project: ProjectPage, accounts: AccountsPage }[route.view];
+  const Page = { home: HomePage, chat: ChatPage, inbox: InboxPage, work: WorkPage, knowledge: KnowledgePage, agents: AgentsPage, project: ProjectPage, accounts: AccountsPage }[route.view];
   const chat = route.view === 'chat';
   const page = <Suspense fallback={<Loading />}>{route.personalChat
     ? <PersonalChatPage workspace={workspace} project={project.id} conversation={route.item} />
@@ -306,7 +332,16 @@ function App() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
-  const [stored, setStored] = useState<Record<string, unknown>>({});
+  const [stored, setStored] = useState<Record<string, unknown>>(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('contractor-drafts') ?? '{}') as unknown;
+      return saved && typeof saved === 'object' ? saved as Record<string, unknown> : {};
+    } catch { return {}; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem('contractor-drafts', JSON.stringify(stored)); }
+    catch { localStorage.removeItem('contractor-drafts'); }
+  }, [stored]);
   const [scrollPositions] = useState(() => new Map<string, { top: number; left: number }>());
   useEffect(() => {
     const expired = () => {
@@ -314,6 +349,7 @@ function App() {
       client.clear();
       client.setQueryData<Session>(['session'], { ...prior, signedIn: false });
       setStored({});
+      try { localStorage.removeItem('contractor-drafts'); } catch { /* 忽略存储不可用 */ }
       scrollPositions.clear();
       setNotice('');
     };

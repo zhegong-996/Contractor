@@ -11,6 +11,7 @@ type Expert = AgentResources['experts'][number];
 type Dialog =
   | { kind: 'create' }
   | { kind: 'skill'; previous?: Skill }
+  | { kind: 'studio'; skill: Skill }
   | { kind: 'share'; resource: Skill | Expert }
   | { kind: 'mount'; skill: Skill }
   | { kind: 'clone'; expert: Expert }
@@ -24,6 +25,8 @@ export function AgentLibrary({ project, workspace }: PageProps) {
   const close = () => setDialog(undefined);
   const owned = data.data?.experts.filter(expert => expert.owner === workspace.actor) ?? [];
   const latest = [...new Map(data.data?.skills.slice().reverse().map(skill => [skill.id, skill])).values()];
+  const trialAgents = dialog?.kind === 'studio' ? owned.filter(expert => expert.mounts?.some(ref =>
+    ref.id === dialog.skill.id && ref.revision === dialog.skill.revision)) : [];
   return <div className="page-scroll"><div className="project-page agent-library">
     <header className="object-header"><div className="object-emblem"><Layers size={22} /></div>
       <div><h1>专家与技能</h1><p className="muted-text">{project.title}</p></div>
@@ -61,7 +64,10 @@ export function AgentLibrary({ project, workspace }: PageProps) {
             {!!owned.length && project.mayStart && <Button size="sm" variant="outline" onClick={() => setDialog({ kind: 'mount', skill })}>挂载技能</Button>}
             {skill.mayShare && <Button size="sm" variant="outline" onClick={() => setDialog({ kind: 'share', resource: skill })}>共享</Button>}
             {skill.owner === workspace.actor && project.mayStart && <Button size="sm" variant="outline" onClick={() => setDialog({ kind: 'skill', previous: skill })}>发布下一版</Button>}
+            {skill.instructions && <Button size="sm" variant="outline" onClick={() => setDialog({ kind: 'studio', skill })}>技能工作台</Button>}
           </div>
+          {skill.uses?.count ? <p className="muted-text">已随 {skill.uses.count} 次执行加载
+            {skill.mountsBy?.length ? ' · 挂载于 ' + skill.mountsBy.join('、') : ''}</p> : null}
           {data.data!.skills.some(item => item.id === skill.id && item.revision !== skill.revision) && <details className="minor-disclosure">
             <summary>技能版本</summary>{data.data!.skills.filter(item => item.id === skill.id).map(item =>
               <div className="record-row" key={item.revision}><code>{short(item.revision, 16)}</code><span>{item.title}</span>
@@ -71,12 +77,51 @@ export function AgentLibrary({ project, workspace }: PageProps) {
         </article>) : <Empty title="还没有可用的项目技能" icon={<Layers />} />}
       </Section>
     </div>}
-    {dialog && <LibraryDialog key={dialog.kind} dialog={dialog} project={project} workspace={workspace} owned={owned} close={close} />}
+    {dialog && (dialog.kind === 'studio'
+      ? <SkillStudio skill={dialog.skill} project={project} trialAgents={trialAgents} close={close} />
+      : <LibraryDialog key={dialog.kind} dialog={dialog} project={project} workspace={workspace} owned={owned} close={close} />)}
   </div></div>;
 }
 
+function SkillStudio({ skill, project, trialAgents, close }: {
+  skill: Skill; project: PageProps['project']; trialAgents: Expert[]; close: () => void;
+}) {
+  const [body, setBody] = useState(skill.instructions ?? '');
+  const [sample, setSample] = useState('');
+  const [agent, setAgent] = useState(trialAgents[0]?.id ?? '');
+  const { run, busy } = useActions();
+  const save = async () => {
+    const markdown = '---\nname: ' + skill.slug + '\ndescription: ' + JSON.stringify(skill.title) + '\n---\n\n' + body.trim();
+    if (await run(() => api('octop/' + project.id + '/skill', { slug: skill.slug, title: skill.title, markdown }),
+      '已发布新技能版本')) close();
+  };
+  const trial = async () => {
+    const outcome = await run(() => api<{ ticket?: string }>('octop/' + project.id + '/skill-trial',
+      { skill: { id: skill.id, revision: skill.revision }, sample: sample.trim(), agent }), '试跑已派发');
+    if (outcome?.ticket) { close(); go(project.id, 'work', outcome.ticket); }
+  };
+  return <Modal title={'技能工作台 · ' + skill.title} close={close}>
+    <div className="inline-meta">现行版本 <code>{short(skill.revision, 16)}</code> · 随 {skill.uses?.count ?? 0} 次执行加载
+      {skill.mountsBy?.length ? ' · 挂载于 ' + skill.mountsBy.join('、') : ''}</div>
+    <div className="detail-stack">
+      <Field label="技能正文" hint="保存后生成新版本，旧版本与挂载记录留痕。">
+        <TextArea value={body} rows={11} maxLength={5500} onChange={event => setBody(event.target.value)} /></Field>
+      <div className="form-actions"><Button disabled={busy || !body.trim()} onClick={() => void save()}>保存新版本</Button></div>
+    </div>
+    {trialAgents.length ? <Section title="试跑">
+      <Field label="样例输入"><TextArea value={sample} rows={4} maxLength={2000} placeholder="给技能一段真实样例，试跑结果回原工单。"
+        onChange={event => setSample(event.target.value)} /></Field>
+      <Field label="用哪个专家试跑"><select aria-label="试跑专家" value={agent} onChange={event => setAgent(event.target.value)}>
+        {trialAgents.map(expert => <option key={expert.id} value={expert.id}>{expert.title}</option>)}
+      </select></Field>
+      <div className="form-actions"><Button disabled={busy || !sample.trim() || !agent} onClick={() => void trial()}>派发试跑工单</Button></div>
+    </Section> : <p className="muted-text">你的专家还没有挂载这个技能版本。先在技能列表挂载，再回来试跑。</p>}
+  </Modal>;
+}
+
 function LibraryDialog({ dialog, project, workspace, owned, close }: {
-  dialog: Dialog; project: PageProps['project']; workspace: PageProps['workspace']; owned: Expert[]; close: () => void;
+  dialog: Exclude<Dialog, { kind: 'studio' }>;
+  project: PageProps['project']; workspace: PageProps['workspace']; owned: Expert[]; close: () => void;
 }) {
   const { run, busy } = useActions();
   const [nonce] = useState(uid);

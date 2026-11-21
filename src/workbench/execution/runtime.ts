@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { root, runtime } from '../../config.ts';
+import { requirePersistentStateDir, root, runtime } from '../../config.ts';
 import type { Agent, Project } from '../config.ts';
 import { digestAgentId, discussionRule } from '../discussion.ts';
 import { assignmentEvent, executionSource, ruleName, workerName, type ExecutionDriver } from './contract.ts';
@@ -9,6 +9,7 @@ import { workerFactory } from './worker.ts';
 
 export function pinExecutionDirectory(driver: ExecutionDriver) {
   const current = runtime('execution-driver');
+  if (process.env.COLLAB_STATE_DIR) requirePersistentStateDir(process.env.COLLAB_STATE_DIR, '执行调度');
   if (driver === 'autoloop') {
     if (existsSync(current) || existsSync(runtime('dispatch', 'hub.sqlite')))
       throw new Error('不能在自研调度数据目录启动旧调度器');

@@ -46,6 +46,13 @@ function BoardCard({ ticket, home, workspace, mine, group, origin }: { ticket: T
       <Pill tone={state.tone}>{state.id === 'waiting' && label === '待验收' ? state.title : label}</Pill>
     </div>}
     {location && <span className="work-card-location" title={location}>{location}</span>}
+    {state.id === 'running' && <span className="work-card-progress" title={ticket.progress?.summary ?? ''}>
+      正在执行{!!ticket.progress?.attempts && ticket.progress.attempts > 1 ? ' · 第 ' + ticket.progress.attempts + ' 轮' : ''}
+      {ticket.progress?.device ? ' · ' + ticket.progress.device : ''}
+      {ticket.progress?.summary ? ' · ' + ticket.progress.summary : ''}
+    </span>}
+    {state.id === 'waiting' && ticket.progress?.summary && <span className="work-card-progress" title={ticket.progress.summary}>
+      {ticket.progress.device ? ticket.progress.device + ' · ' : ''}{ticket.progress.summary}</span>}
     <div className="work-card-footer"><span title={assigned ? 'Agent · ' + assigned.title + ' · ' + assigned.owner : '发起人 · ' + name}>
       <Avatar avatar={requester?.avatar} value={assigned?.title ?? ticket.work.requester} kind={assigned ? 'agent' : 'person'} />
       <span>{name}</span>
