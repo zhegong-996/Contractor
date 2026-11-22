@@ -1,10 +1,10 @@
 # 参与 Contractor 开发
 
-从 [README](README.md) 启动本机工作台。功能入口见 [文档索引](docs/README.md)，模块边界见 [系统架构](docs/ARCHITECTURE.md)。
+从 [README](README.md) 启动本机工作台。功能入口见 [文档索引](docs/README.md)，模块边界见 [系统架构](docs/ARCHITECTURE.md)，分支命名与合并方式见 [分支与协作方式](docs/BRANCHING.md)。
 
 ## 开发与验证
 
-1. 从 `main` 新建分支，使用独立的 `COLLAB_STATE_DIR` 和示例配置。
+1. 从最新 `main` 新建短期任务分支，使用独立的 `COLLAB_STATE_DIR` 和示例配置。不要按模块建立长期分支。
 2. 在已有适配接口内实现模型、渠道、资料或执行变更，注明受影响的业务状态和权限。
 3. 执行 `npm run check:docs`、`npm test`、`npm run typecheck`、`npm run build:ui` 和 `npm run audit:upstream -- --browser`。有 Node 24 与 Linux 沙箱工具的环境可按 [CI](.github/workflows/ci.yml) 验证远端包装和隔离。
 4. 提交 PR 时说明可复现的场景、验证范围和证据。线上连接和模型实跑结果使用测试账号与脱敏数据。

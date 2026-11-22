@@ -21,6 +21,7 @@
 | [插件架构](PLUGIN-ARCHITECTURE.md) | 稳定业务核心与可替换适配器的边界 |
 | [项目组织方式](WORKBENCH-PROJECT-ARCHITECTURE.md) | 项目、子项目、主题、工单和来源如何关联 |
 | [成员执行隔离](MEMBER-EXECUTION-ISOLATION.md) | 成员、设备、代码路径和运行时数据的隔离规则 |
+| [分支与协作方式](BRANCHING.md) | 主干、短期任务分支、发布分支和多人协作规则 |
 
 ## 模块说明
 
