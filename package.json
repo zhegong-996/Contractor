@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Contractor · 项目协作、Agent 执行与版本验收",
+  "description": "Contractor · 面向团队的 Agent 协作、交付验收与知识回流工作台",
   "engines": {
     "node": ">=24.11.0"
   },
@@ -16,6 +16,7 @@
     "ledger": "node --import tsx scripts/ledger.mjs",
     "package:runner": "node scripts/package-runner.mjs",
     "package:source": "node scripts/package-source.mjs",
+    "check:docs": "node scripts/check-docs.mjs",
     "audit:upstream": "node --import tsx scripts/audit-upstream.ts",
     "test": "COLLAB_ALLOW_TMP_STATE=1 node --import tsx --test tests/*.test.ts",
     "typecheck": "tsc --noEmit",

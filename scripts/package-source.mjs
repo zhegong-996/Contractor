@@ -13,17 +13,10 @@ const destination = path.resolve(args.find(value => value !== '--committed') ?? 
 const stage = mkdtempSync(path.join(os.tmpdir(), 'contractor-source-'));
 
 const publicPaths = [
-  '.gitignore', '.gitmodules', '.github/workflows/ci.yml', 'AGENTS.md', 'CONTRIBUTING.md', 'LICENSE', 'README.md',
-  'THIRD_PARTY_NOTICES.md', 'package.json', 'package-lock.json', 'sources.lock.json', 'tsconfig.json',
+  '.gitignore', '.gitmodules', '.github', 'AGENTS.md', 'CONTRIBUTING.md', 'DESIGN.md', 'LICENSE', 'PRODUCT.md', 'README.md',
+  'SECURITY.md', 'THIRD_PARTY_NOTICES.md', 'package.json', 'package-lock.json', 'sources.lock.json', 'tsconfig.json',
   'bin', 'fixtures', 'integrations', 'licenses', 'scripts', 'src', 'tests', 'workbench',
-  'docs/ARCHITECTURE.md', 'docs/CONFIGURATION.md', 'docs/KNOWLEDGE-VERSIONS.md', 'docs/MEMBER-EXECUTION-ISOLATION.md',
-  'docs/PLUGIN-ARCHITECTURE.md', 'docs/PRODUCT-CAPABILITY-MAP.md', 'docs/QUICKSTART-RUNNER.md', 'docs/RUNTIME-MIGRATION.md', 'docs/SOURCES.md',
-  'docs/WORKBENCH-OCTOP.md',
-  'docs/WORKBENCH-IM-LOGIN.md', 'docs/WORKBENCH-IM-PROJECTS.md', 'docs/WORKBENCH-PROJECT-ARCHITECTURE.md',
-  'docs/WORKBENCH-DELIVERY-TEMPLATE.md', 'docs/WORKBENCH-FRONTEND-WORKSPACE.md', 'docs/WORKBENCH-REMOTE-RUNNER.md',
-  'docs/images/task-center.png', 'docs/images/regression-review.png',
-  ...['inbox', 'board', 'conversation', 'delivery', 'knowledge', 'agents', 'platform', 'mobile']
-    .map(page => 'docs/images/workflow-' + page + '.png'),
+  'docs',
 ];
 const upstreamPaths = {
   superagent: ['LICENSE', 'README.md', 'package.json', 'locale', 'prompts', 'skills', 'src'],

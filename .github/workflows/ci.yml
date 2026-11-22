@@ -27,6 +27,7 @@ jobs:
           npm ci --ignore-scripts --prefix "$RUNNER_TEMP/contractor-sandbox"
           printf '%s\n' "CONTRACTOR_SANDBOX_ROOT=$RUNNER_TEMP/contractor-sandbox/node_modules/@anthropic-ai/sandbox-runtime" >> "$GITHUB_ENV"
       - run: npm ci
+      - run: npm run check:docs
       - run: npm run audit:upstream
       - name: Verify Linux sandbox startup
         run: node --import tsx --test tests/workbench-linux-sandbox.test.ts
