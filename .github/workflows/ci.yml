@@ -35,6 +35,7 @@ jobs:
       - name: Verify Contractor execution
         env:
           CONTRACTOR_TEST_EXECUTION: contractor
+          COLLAB_ALLOW_TMP_STATE: '1'
         run: |
           node --import tsx --test tests/workbench-owned-scheduler.test.ts tests/workbench-required-answers.test.ts tests/workbench-remote-runner.test.ts tests/workbench-platform-agent.test.ts tests/workbench-ticket-recovery.test.ts tests/workbench-task-center.test.ts
       - run: npm run typecheck
