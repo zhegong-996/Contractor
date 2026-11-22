@@ -1,6 +1,6 @@
 # Contractor 架构
 
-[从业务流程读起](../README.md#一件工作怎样走完) · [各模块规则与入口](PRODUCT-CAPABILITY-MAP.md) · [核心界面](WORKBENCH-FRONTEND-WORKSPACE.md)
+[从业务流程读起](../README.md#一件工作怎样走完) · [各模块时序](BUSINESS-FLOWS.md) · [数据模型](DATA-MODEL.md) · [各模块规则与入口](PRODUCT-CAPABILITY-MAP.md) · [核心界面](WORKBENCH-FRONTEND-WORKSPACE.md)
 
 ## 输入、处理与输出
 

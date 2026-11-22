@@ -2,7 +2,7 @@
 
 Contractor 是一个自托管的团队 Agent 协作工作台。团队把 IM、GitHub、Figma 和文档接到项目，在会话里讨论，在工单里推进交付。Agent 负责整理反馈、查资料和执行已获准的任务。需要定范围、授予访问权或验收时，系统把决定交给对应的人。
 
-[快速开始](#快速开始) · [功能与模块手册](docs/PRODUCT-CAPABILITY-MAP.md) · [截图与操作手册](docs/WORKBENCH-FRONTEND-WORKSPACE.md) · [系统架构](docs/ARCHITECTURE.md) · [实现来源与分发](docs/SOURCES.md)
+[快速开始](#快速开始) · [功能与模块手册](docs/PRODUCT-CAPABILITY-MAP.md) · [各模块业务流程](docs/BUSINESS-FLOWS.md) · [系统架构](docs/ARCHITECTURE.md) · [数据模型](docs/DATA-MODEL.md) · [截图与操作手册](docs/WORKBENCH-FRONTEND-WORKSPACE.md) · [实现来源与分发](docs/SOURCES.md)
 
 ![Contractor 任务看板中，文案工单等待答复，小屏工单已完成验收](docs/images/workflow-board.png)
 
