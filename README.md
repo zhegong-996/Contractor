@@ -8,7 +8,11 @@
 
 Contractor 是给团队使用的自托管 Agent 协作工作台。讨论可以来自飞书、钉钉、企业微信或 Web；系统把内容归到项目和主题，由平台 Router 派给个人 Agent 或 Worker。执行结束后，结果还要经过提交、CI、部署和人工验收，确认有效的做法才会进入知识库。
 
-[它解决什么](#它解决什么问题) · [怎么运转](#一条工作怎样走完) · [三类角色](#三类执行角色) · [插件边界](#稳定核心可插拔边缘) · [上手](#上手) · [文档](docs/README.md)
+它把 DeepSeek 开源的 `dsh-superagent` 所表达的 Super Agent 工作方式落到团队系统：消息先成为可审计事件，经准入、过滤和研判后才形成有授权范围的工单；Router、个人 Agent 和 Worker 分工执行；结果回到原会话，由人按版本验收。核心原则是**尽可能少占用人的注意力，尽可能给出有效价值**。
+
+产品名 **Contractor** 取“包工头”的角色含义：不替团队发明需求，也不替人签字验收；它组织职责、资源、权限、执行、验工和出处，对一项交付的完整闭环负责。[完整 Super Agent 运行模型](docs/SUPER-AGENT-OPERATING-MODEL.md)
+
+[Super Agent 思路](docs/SUPER-AGENT-OPERATING-MODEL.md) · [它解决什么](#它解决什么问题) · [怎么运转](#一条工作怎样走完) · [三类角色](#三类执行角色) · [插件边界](#稳定核心可插拔边缘) · [上手](#上手) · [文档](docs/README.md)
 
 ![Contractor 输入、处理与输出架构](docs/images/contractor-architecture.svg)
 
