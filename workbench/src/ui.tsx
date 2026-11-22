@@ -1,4 +1,4 @@
-import { createContext, useContext, useLayoutEffect, useRef, type ComponentProps, type ReactNode, type UIEvent } from 'react';
+import { createContext, useContext, useEffect, useLayoutEffect, useRef, type ComponentProps, type ReactNode, type UIEvent } from 'react';
 import { Alert, Card, Empty as DesignEmpty, Modal as DesignModal, Spin } from 'antd';
 import { ArrowUpRight, FileText, FolderOpen, HardHat, Search } from 'lucide-react';
 import { Badge } from './components/badge.tsx';
@@ -15,6 +15,7 @@ type Actions = {
   stored: Record<string, unknown>;
   store: (key: string, value: unknown) => void;
   scrollPositions: Map<string, { top: number; left: number }>;
+  dialogTrigger: { current: HTMLElement | null };
 };
 export const ActionContext = createContext<Actions | null>(null);
 export const useActions = () => useContext(ActionContext)!;
@@ -72,9 +73,18 @@ export function FormError() {
 }
 
 export function Modal({ title, children, close }: { title: string; children: ReactNode; close: () => void }) {
-  const { busy, clearError } = useActions();
+  const { busy, clearError, dialogTrigger } = useActions();
+  useEffect(() => () => {
+    const trigger = dialogTrigger.current;
+    window.setTimeout(() => {
+      if (trigger?.isConnected) trigger.focus({ preventScroll: true });
+    });
+  }, [dialogTrigger]);
   const dismiss = () => { if (!busy) { clearError(); close(); } };
   return <DesignModal className="contractor-dialog" open title={<h2>{title}</h2>} onCancel={dismiss}
+    afterClose={() => {
+      if (dialogTrigger.current?.isConnected) dialogTrigger.current.focus({ preventScroll: true });
+    }}
     getContainer="#app" width={620} footer={null} keyboard={!busy} closable={!busy} mask={{ closable: false }}>
     <div className="modal-body"><FormError />{children}</div>
   </DesignModal>;

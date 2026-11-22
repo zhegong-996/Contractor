@@ -12,7 +12,7 @@ export function ConversationDirectory({ workspace, project, route }: PageProps) 
   const { busy, run } = useActions();
   return <aside className="split-list conversation-directory" aria-label="会话列表">
     <div className="list-header">
-      <div className="list-title"><h2>会话</h2>
+      <div className="list-title"><h1>会话</h1>
         <IconButton label={filters.archived ? '查看最近会话' : '查看已归档会话'}
           aria-pressed={filters.archived} onClick={() => setFilters({ ...filters, archived: !filters.archived })}><Archive size={16} /></IconButton>
       </div>

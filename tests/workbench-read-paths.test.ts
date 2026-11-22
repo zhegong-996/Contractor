@@ -104,6 +104,8 @@ test('门店推荐理由的分页、详情、运行和健康检查独立于失�
   assert.equal((await fetch(origin + '/health')).status, 200);
   const catalog = await api<ReturnType<Collaboration['overview']>>('overview?catalog=1');
   assert.deepEqual(catalog.tickets, []);
+  assert.equal((await api<ReturnType<Collaboration['overview']>>('overview')).tickets.length, 5,
+    '首页在目录请求之外读取真实工单，检索失效不能把工单数误报为零');
   type TicketPage = ReturnType<Collaboration['ticketPage']>;
   const page = await api<TicketPage>('tickets?project=store&limit=2');
   const next = await api<TicketPage>('tickets?project=store&limit=3&after=' + page.next);

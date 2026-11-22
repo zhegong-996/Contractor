@@ -41,7 +41,7 @@ export function InboxPage(props: PageProps) {
     if (d.kind === 'budget') return routeFor(d.project, 'project', undefined, 'usage');
   }
   return <div className="page-scroll"><div className="dashboard">
-    <div className="dashboard-heading"><div className="heading-icon"><Inbox size={23} /></div>
+    <div className="dashboard-heading">
       <div><h1>待我处理 {!!decisions.length && <span className="heading-count">{decisions.length}</span>}</h1>
         <p>{decisions.length ? decisions.length + ' 项需要你的决定' : '当前没有待你决定的事项'}</p></div>
       <Segments value={scope} onChange={setScope} items={inboxScopes} label="待办范围" />

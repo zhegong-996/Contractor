@@ -16,6 +16,7 @@ import { workbenchTheme } from './components/theme.ts';
 import { IMLoginEntry, imNames, useIMNotice } from './im-login.tsx';
 import 'virtual:workbench-antd.css';
 import './style.css';
+import './saas.css';
 
 const WorkPage = lazy(() => import('./work.tsx').then(page => ({ default: page.WorkPage })));
 const InboxPage = lazy(() => import('./inbox.tsx').then(page => ({ default: page.InboxPage })));
@@ -329,6 +330,7 @@ function App() {
   const client = useQueryClient();
   const session = useData<Session>('session');
   const busyRef = useRef(false);
+  const dialogTrigger = useRef<HTMLElement | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -361,6 +363,20 @@ function App() {
     const timer = window.setTimeout(() => setNotice(''), 3500);
     return () => window.clearTimeout(timer);
   }, [notice]);
+  useEffect(() => {
+    const remember = (event: PointerEvent | KeyboardEvent) => {
+      if (event instanceof KeyboardEvent && !['Enter', ' '].includes(event.key)) return;
+      const target = event.target instanceof Element ? event.target : null;
+      const trigger = target?.closest<HTMLElement>('button, a[href], [role="button"]');
+      if (trigger && !trigger.closest('[role="dialog"]')) dialogTrigger.current = trigger;
+    };
+    document.addEventListener('pointerdown', remember, true);
+    document.addEventListener('keydown', remember, true);
+    return () => {
+      document.removeEventListener('pointerdown', remember, true);
+      document.removeEventListener('keydown', remember, true);
+    };
+  }, []);
   async function run<T>(task: () => Promise<T>, message?: string) {
     if (busyRef.current) return;
     busyRef.current = true;
@@ -379,7 +395,7 @@ function App() {
       setBusy(false);
     }
   }
-  return <ActionContext.Provider value={{ busy, run, error, clearError: () => setError(''), stored, scrollPositions,
+  return <ActionContext.Provider value={{ busy, run, error, clearError: () => setError(''), stored, scrollPositions, dialogTrigger,
     store: (key, value) => setStored(previous => ({ ...previous, [key]: value })) }}>
     {session.error ? <div className="app-placeholder"><Failure error={session.error} retry={() => void session.refetch()} /></div>
       : session.isPending ? <Loading /> : session.data?.signedIn ? <Workspace /> : <Login session={session.data} />}
