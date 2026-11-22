@@ -1,0 +1,70 @@
+name: "Bug report · 故障报告"
+description: "报告可复现的功能、恢复、权限、交付或部署问题"
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        请先移除令牌、企业消息、客户资料和运行数据库中的私密内容。
+        安全漏洞不要在这里提交，请使用仓库的 Security → Report a vulnerability。
+  - type: textarea
+    id: summary
+    attributes:
+      label: 问题
+      description: 一句话说明发生了什么。
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: 最小复现
+      description: 列出步骤、测试单和运行方式，尽量使用合成数据。
+      placeholder: |
+        1. 启动...
+        2. 创建...
+        3. 观察到...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望行为
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际行为
+      description: 包含错误码和脱敏日志；不要粘贴凭据或完整私有消息。
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: 版本或提交
+      placeholder: "v0.1.0 / commit SHA"
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: 受影响范围
+      multiple: true
+      options:
+        - 安装或部署
+        - 登录、身份或权限
+        - 项目、主题、工单或会话
+        - Router、Agent 或 Worker
+        - 交付、CI 或验收
+        - 知识、资料或记忆
+        - IM 或插件
+        - 前端或 API
+        - 其他
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: 验证与恢复信息
+      description: 说明是否重启、重复消息、断线、换执行端，以及哪些结果已确认或仍未验证。

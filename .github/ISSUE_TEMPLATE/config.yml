@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: "使用问答与安装问题"
+    url: "https://github.com/zhegong-996/Contractor/discussions/categories/q-a"
+    about: "讨论配置、安装、接入和使用方式"
+  - name: "想法与实践分享"
+    url: "https://github.com/zhegong-996/Contractor/discussions/categories/ideas"
+    about: "在形成具体任务前交流场景、插件和工作流"
+  - name: "私密报告安全漏洞"
+    url: "https://github.com/zhegong-996/Contractor/security/advisories/new"
+    about: "不要在公开 Issue 中披露漏洞、凭据或私密数据"

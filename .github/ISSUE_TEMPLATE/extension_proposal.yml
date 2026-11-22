@@ -1,0 +1,56 @@
+name: "Extension proposal · 插件或连接器提案"
+description: "提出新的 Agent、IM、模型、Worker、资料源或场景扩展"
+title: "[Extension]: "
+labels: ["extension"]
+body:
+  - type: input
+    id: target
+    attributes:
+      label: 要接入的系统或能力
+      placeholder: "例如：飞书文档、内部模型网关、远程 macOS Worker"
+    validations:
+      required: true
+  - type: dropdown
+    id: kind
+    attributes:
+      label: 扩展类型
+      options:
+        - IM 或消息渠道
+        - Agent 或执行端
+        - 模型服务
+        - 资料或知识源
+        - 交付或验收工具
+        - Worker 或设备管理
+        - 场景模板
+        - 其他
+    validations:
+      required: true
+  - type: textarea
+    id: contract
+    attributes:
+      label: 接入契约
+      description: 需要读取什么、输出什么、哪些动作有副作用、权限和重试如何定义？
+    validations:
+      required: true
+  - type: textarea
+    id: isolation
+    attributes:
+      label: 凭据与数据边界
+      description: 凭据保存在哪里，哪些数据会离开本机或进入模型上下文？
+    validations:
+      required: true
+  - type: textarea
+    id: verification
+    attributes:
+      label: 可验证范围
+      description: 是否已有测试账号、样例、失败场景和不需要真实私密数据的最小验证方式？
+  - type: dropdown
+    id: placement
+    attributes:
+      label: 计划放置位置
+      options:
+        - 本仓库内置插件
+        - 独立第三方仓库
+        - 尚不确定
+    validations:
+      required: true
