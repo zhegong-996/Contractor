@@ -15,6 +15,7 @@
 
 | 文档 | 用途 |
 | --- | --- |
+| [Super Agent 思路与 Contractor](SUPER-AGENT-OPERATING-MODEL.md) | 产品哲学、过滤与研判、飞书确认、前后差异、角色分工和“包工头”命名 |
 | [系统架构](ARCHITECTURE.md) | 输入、处理、输出、核心模块和部署边界 |
 | [业务流程](BUSINESS-FLOWS.md) | 登录、渠道、路由、Worker、交付、验收和恢复时序 |
 | [数据模型](DATA-MODEL.md) | 账号、项目、主题、工单、版本、运行和知识的关系 |
