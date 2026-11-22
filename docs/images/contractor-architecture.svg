@@ -1,0 +1,134 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 760" role="img" aria-labelledby="title desc">
+  <title id="title">Contractor 架构：输入、业务核心、执行与输出</title>
+  <desc id="desc">IM、Web、GitHub、Figma 和文档进入统一入口，经项目权限与路由后交给 Agent 和 Worker，执行成果经过交付证据和人工验收，再进入知识库并被下一项任务复用。</desc>
+  <defs>
+    <style>
+      svg{--bg:#f6f9fe;--ink:#17243b;--muted:#60728a;--line:#cfdbeb;--panel:#edf4fc;--card:#fff;--accent:#2676e8;--accent-soft:#e8f1ff;--navy:#173454;--green:#16866f;--green-soft:#e6f6f1;--amber:#c77710;--amber-soft:#fff4df}
+      @media (prefers-color-scheme:dark){svg{--bg:#0d1928;--ink:#eef5ff;--muted:#9eb0c7;--line:#29415d;--panel:#112238;--card:#162940;--accent:#67a2ff;--accent-soft:#17365f;--navy:#dcecff;--green:#58d0ad;--green-soft:#153b33;--amber:#ffbd5b;--amber-soft:#3b2c16}}
+      text{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Noto Sans CJK SC","Microsoft YaHei",sans-serif;fill:var(--ink)}
+      .bg{fill:var(--bg)}
+      .panel{fill:var(--panel);stroke:var(--line);stroke-width:1.2}
+      .card{fill:var(--card);stroke:var(--line);stroke-width:1.4}
+      .accent-card{fill:var(--accent-soft);stroke:var(--accent);stroke-width:1.8}
+      .green-card{fill:var(--green-soft);stroke:var(--green);stroke-width:1.8}
+      .amber-card{fill:var(--amber-soft);stroke:var(--amber);stroke-width:1.5}
+      .title{font-size:26px;font-weight:750}
+      .sub{font-size:14px;fill:var(--muted)}
+      .zone{font-size:14px;font-weight:700;fill:var(--muted);letter-spacing:.12em}
+      .h{font-size:18px;font-weight:700}
+      .body{font-size:14px;fill:var(--muted)}
+      .small{font-size:12.5px;fill:var(--muted)}
+      .num{font-size:13px;font-weight:750;fill:#fff}
+      .badge{fill:var(--accent)}
+      .green-badge{fill:var(--green)}
+      .amber-badge{fill:var(--amber)}
+      .flow{fill:none;stroke:var(--accent);stroke-width:2.2;marker-end:url(#arrow)}
+      .soft-flow{fill:none;stroke:var(--muted);stroke-width:1.8;marker-end:url(#arrow-muted)}
+      .loop{fill:none;stroke:var(--green);stroke-width:2.2;stroke-dasharray:7 5;marker-end:url(#arrow-green)}
+      .rule{fill:none;stroke:var(--line);stroke-width:1}
+    </style>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" style="fill:var(--accent)"/>
+    </marker>
+    <marker id="arrow-muted" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" style="fill:var(--muted)"/>
+    </marker>
+    <marker id="arrow-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" style="fill:var(--green)"/>
+    </marker>
+  </defs>
+
+  <rect class="bg" width="1200" height="760" rx="24"/>
+  <text x="48" y="52" class="title">Contractor 怎样把一件事做完</text>
+  <text x="48" y="80" class="sub">消息保留原位置，业务状态只有一个版本，执行和知识都沿原工单追溯</text>
+  <rect x="956" y="29" width="196" height="40" rx="20" fill="none" stroke="var(--line)"/>
+  <text x="1054" y="55" text-anchor="middle" class="body">稳定核心 · 可插拔边缘</text>
+
+  <rect class="panel" x="40" y="112" width="260" height="488" rx="20"/>
+  <text x="64" y="148" class="zone">输入</text>
+  <text x="64" y="176" class="sub">团队在哪里说，任务就从哪里开始</text>
+
+  <rect class="card" x="62" y="202" width="216" height="104" rx="14"/>
+  <circle class="badge" cx="86" cy="228" r="13"/>
+  <text x="86" y="233" text-anchor="middle" class="num">1</text>
+  <text x="108" y="234" class="h">IM 与工作台</text>
+  <text x="82" y="264" class="body">飞书 · 钉钉 · 企业微信</text>
+  <text x="82" y="287" class="small">保留群、话题、消息和发送人</text>
+
+  <rect class="card" x="62" y="326" width="216" height="104" rx="14"/>
+  <text x="82" y="357" class="h">研发与设计</text>
+  <text x="82" y="386" class="body">GitHub · PR · CI · Figma</text>
+  <text x="82" y="409" class="small">提交、截图、原型和部署版本</text>
+
+  <rect class="card" x="62" y="450" width="216" height="112" rx="14"/>
+  <text x="82" y="481" class="h">项目资料</text>
+  <text x="82" y="510" class="body">文档 · 知识 · 已验收依据</text>
+  <text x="82" y="533" class="small">按成员和项目授权后再读取</text>
+
+  <path class="flow" d="M278 254H322"/>
+  <path class="soft-flow" d="M278 378H322"/>
+  <path class="soft-flow" d="M278 506H322"/>
+
+  <rect class="panel" x="328" y="112" width="506" height="488" rx="20"/>
+  <text x="352" y="148" class="zone">处理</text>
+  <text x="352" y="176" class="sub">业务核心决定这件事属于谁、能不能做</text>
+
+  <rect class="accent-card" x="350" y="202" width="462" height="92" rx="14"/>
+  <text x="372" y="235" class="h">统一入口与持久入站</text>
+  <text x="372" y="263" class="body">校验 · 去重 · 身份绑定 · 归到原项目、主题和引用</text>
+  <text x="792" y="254" text-anchor="end" class="small">Gateway</text>
+
+  <rect class="card" x="350" y="318" width="462" height="104" rx="14"/>
+  <text x="372" y="351" class="h">项目业务核心</text>
+  <text x="372" y="379" class="body">成员权限 · 工单版本 · 交付证据 · 积分 · 人审</text>
+  <text x="372" y="404" class="small">聊天内容不能改写目录、身份、资料范围或预算</text>
+
+  <rect class="card" x="350" y="446" width="462" height="116" rx="14"/>
+  <text x="372" y="479" class="h">路由与当轮上下文</text>
+  <text x="372" y="507" class="body">Router + 个人 Agent + Worker + 模型 + 积分</text>
+  <text x="372" y="532" class="small">每次领取、接续和换端都重新核对授权与版本</text>
+  <text x="792" y="507" text-anchor="end" class="small">单一调度器</text>
+
+  <path class="flow" d="M834 254H876"/>
+  <path class="soft-flow" d="M834 378H876"/>
+  <path class="flow" d="M834 506H876"/>
+
+  <rect class="panel" x="882" y="112" width="278" height="488" rx="20"/>
+  <text x="906" y="148" class="zone">执行与输出</text>
+  <text x="906" y="176" class="sub">做完只算一轮，证据和验收才把工作收口</text>
+
+  <rect class="card" x="904" y="202" width="234" height="104" rx="14"/>
+  <circle class="badge" cx="928" cy="228" r="13"/>
+  <text x="928" y="233" text-anchor="middle" class="num">2</text>
+  <text x="950" y="234" class="h">Worker 执行</text>
+  <text x="924" y="264" class="body">本机 · 云主机 · CLI Agent</text>
+  <text x="924" y="287" class="small">等待授权或确认时释放进程</text>
+
+  <rect class="amber-card" x="904" y="326" width="234" height="104" rx="14"/>
+  <text x="924" y="357" class="h">有人工介入</text>
+  <text x="924" y="386" class="body">卡片回到原会话</text>
+  <text x="924" y="409" class="small">答完继续原工单，不重复派活</text>
+
+  <rect class="green-card" x="904" y="450" width="234" height="112" rx="14"/>
+  <circle class="green-badge" cx="928" cy="476" r="13"/>
+  <text x="928" y="481" text-anchor="middle" class="num">3</text>
+  <text x="950" y="482" class="h">验收与知识</text>
+  <text x="924" y="512" class="body">提交 · PR · CI · 部署 · 人审</text>
+  <text x="924" y="536" class="small">采用后进入下一项可读取知识</text>
+
+  <path class="flow" d="M1021 306V322"/>
+  <path class="flow" d="M1021 430V446"/>
+  <path class="loop" d="M904 506H852V570H581V562"/>
+  <rect x="686" y="552" width="204" height="35" rx="17" fill="var(--bg)" stroke="var(--green)"/>
+  <text x="788" y="575" text-anchor="middle" class="small" style="fill:var(--green);font-weight:650">人工采用后，知识回到下一次任务</text>
+
+  <path class="loop" d="M904 254H852V92H581V108"/>
+  <rect x="670" y="74" width="184" height="35" rx="17" fill="var(--bg)" stroke="var(--green)"/>
+  <text x="762" y="97" text-anchor="middle" class="small" style="fill:var(--green);font-weight:650">进度、待办和结果回到原入口</text>
+
+  <rect x="40" y="632" width="1120" height="88" rx="18" fill="var(--navy)"/>
+  <text x="68" y="667" class="h" style="fill:var(--bg)">一条状态链贯穿到底</text>
+  <text x="68" y="695" class="body" style="fill:var(--bg);opacity:.78">原始消息 → 项目/主题 → 工单版本 → Agent/Worker → 交付证据 → 人工验收 → 知识采用</text>
+  <rect x="816" y="651" width="316" height="48" rx="12" fill="none" stroke="var(--green)" stroke-width="1.5"/>
+  <text x="974" y="681" text-anchor="middle" class="body" style="fill:var(--bg)">重复回执不重复派工 · 不重复扣分</text>
+</svg>
