@@ -51,7 +51,7 @@
 
 ## 参与开发
 
-开发、测试、提交和第三方源码引入规则见 [CONTRIBUTING](../CONTRIBUTING.md)。安全漏洞按 [Security policy](../SECURITY.md) 私密报告。当前回归命令包括：
+贡献入口、测试、提交和第三方源码引入规则见 [CONTRIBUTING](../CONTRIBUTING.md)。社区贡献如何评审和合入见 [治理与决策](../GOVERNANCE.md)，代码、名称、Logo 与官方发布的边界见 [商标与官方发行](../TRADEMARKS.md)。安全漏洞按 [Security policy](../SECURITY.md) 私密报告。当前回归命令包括：
 
 ```sh
 npm run check:docs

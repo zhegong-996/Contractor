@@ -232,6 +232,14 @@ npm run build:ui
 
 [贡献指南](CONTRIBUTING.md) · [分支与协作方式](docs/BRANCHING.md) · [完整文档](docs/README.md) · [CI](.github/workflows/ci.yml)
 
+## 开放共建
+
+Contractor 采用 MIT 全仓开源和单一 `main` 主干。外部 Pull Request 可以直接提交连接器、插件、Worker、模型适配器、场景模板、测试、文档和核心改进；共享协议、权限、验收、版本和知识模型的改动需要维护者复核与兼容说明。
+
+扩展优先落在稳定的插件边界内。核心业务状态由 Contractor 统一掌管，第三方 Agent、IM、模型和 Worker 通过注册接口接入，不要求修改整套业务代码。外部实现可以独立发布，并为自己的仓库添加 `contractor-plugin` 或 `contractor-connector` 话题。
+
+[参与贡献](CONTRIBUTING.md) · [治理与决策](GOVERNANCE.md) · [商标与官方发行](TRADEMARKS.md) · [插件架构](docs/PLUGIN-ARCHITECTURE.md)
+
 ## 开源与分发
 
 当前代码级复用均有固定提交和许可记录。只在产品分析中比较过思路、没有复制源码或资产的项目不进入许可清单。
@@ -256,4 +264,4 @@ Contractor 当前为 `0.1.x`，核心链路和本地/远程执行已经过集成
 
 ## License
 
-Contractor 原创代码使用 [MIT](LICENSE)。随附上游源码、适配组件、浏览器构建和可选执行工具继续适用各自的许可证。
+Contractor 原创代码使用 [MIT](LICENSE)，可自由使用、修改、分发和商业使用。随附上游源码、适配组件、浏览器构建和可选执行工具继续适用各自的许可证。`Contractor` 名称、Logo 和官方发行身份的边界见 [商标与官方发行规范](TRADEMARKS.md)。

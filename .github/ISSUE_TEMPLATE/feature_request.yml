@@ -1,0 +1,42 @@
+name: "Feature request · 功能建议"
+description: "提出有明确使用场景的产品或工程改进"
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: scenario
+    attributes:
+      label: 使用场景
+      description: 谁在什么情况下遇到什么问题？请使用可以验证的具体流程。
+    validations:
+      required: true
+  - type: textarea
+    id: current
+    attributes:
+      label: 当前做法
+      description: 现有版本如何完成，或为什么无法完成。
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 期望行为
+      description: 说明输入、处理、输出、权限和失败恢复。
+    validations:
+      required: true
+  - type: dropdown
+    id: boundary
+    attributes:
+      label: 预期落点
+      options:
+        - 独立插件或连接器
+        - 场景模板或文档
+        - 共享协议或核心能力
+        - 不确定
+    validations:
+      required: true
+  - type: textarea
+    id: compatibility
+    attributes:
+      label: 兼容与迁移
+      description: 是否影响既有工单、权限、回执、版本、知识或插件协议？

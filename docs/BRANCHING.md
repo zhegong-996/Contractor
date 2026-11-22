@@ -32,11 +32,12 @@ DeepSeek Harness 的公开仓库目前同样以单个受保护的默认分支为
 ## 一次改动怎样进入主分支
 
 1. 从最新 `main` 建立一个只处理一件事的短期分支。
-2. 在同一个 Pull Request 中提交实现、迁移、测试和必要文档。跨模块改动必须在同一处展示契约变化。
-3. 本地运行 `npm run check:docs`、`npm test`、`npm run typecheck`、`npm run build:ui`；涉及上游源码时再运行 `npm run audit:upstream -- --browser`。
-4. 按 [Pull Request 模板](../.github/pull_request_template.md) 说明用户行为、受影响模块、权限或状态变化、迁移与回滚方式，以及真实和模拟验证的边界。
-5. 合并后删除短期分支，提交进入 `main`。默认使用 Squash Merge，让一个 Pull Request 对应一条可回退的主线提交。
-6. 需要发布时，从已通过检查的 `main` 打不可变版本标签，例如 `v0.1.0`。标签用于识别制品，不用一条移动的分支冒充发布版本。
+2. 外部贡献者从 fork 提交 Pull Request；维护者在同一仓库内使用短期任务分支。分支只是权限和审查边界，不代表模块所有权。
+3. 在同一个 Pull Request 中提交实现、迁移、测试和必要文档。跨模块改动必须在同一处展示契约变化。
+4. 本地运行 `npm run check:docs`、`npm test`、`npm run typecheck`、`npm run build:ui`；涉及上游源码时再运行 `npm run audit:upstream -- --browser`。
+5. 按 [Pull Request 模板](../.github/pull_request_template.md) 说明用户行为、受影响模块、权限或状态变化、迁移与回滚方式，以及真实和模拟验证的边界。
+6. 维护者审查并确认完整 CI 后，使用 Squash Merge 将提交送入 `main`，再删除短期分支。一个 Pull Request 对应一条可回退的主线提交。
+7. 需要发布时，从已通过检查的 `main` 打不可变版本标签，例如 `v0.1.0`。标签用于识别制品，不用一条移动的分支冒充发布版本。
 
 仓库公开并获得更多维护者后，应对 `main` 启用以下 GitHub 规则：
 
@@ -46,7 +47,7 @@ DeepSeek Harness 的公开仓库目前同样以单个受保护的默认分支为
 - 关键核心目录和第三方来源文件使用 `CODEOWNERS` 指定复核人。
 - 合并后自动删除已合并的短期分支。
 
-当前仓库为 Private，部分 GitHub 分支保护能力受账户方案限制。规则不因此改变；接入更多成员前先完成仓库公开或升级所需的保护配置。
+在仓库正式开放外部贡献前，先完成 Issues、Discussions、Issue 模板、PR 模板和可用的分支保护配置。外部贡献的评审标准与内部改动一致，不因为来自 fork 就降低测试、权限或兼容要求。
 
 ## 兼容性与迁移
 
