@@ -9,7 +9,7 @@
 **飞书、钉钉、企业微信或 Web 发起，Super Agent 过滤与派工，本机和云端 Worker 执行，<br>
 结果绑定 PR、CI 和人工验收，确认有效的做法再进入知识库。**
 
-[![CI](https://github.com/zhegong-996/suitme-collab/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/zhegong-996/suitme-collab/actions/workflows/ci.yml)
+[![CI](https://github.com/zhegong-996/Contractor/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/zhegong-996/Contractor/actions/workflows/ci.yml)
 [![MIT](https://img.shields.io/badge/license-MIT-2563eb.svg)](LICENSE)
 [![Node.js](https://img.shields.io/badge/node-%E2%89%A524.11-339933.svg)](package.json)
 [![Self-hosted](https://img.shields.io/badge/deploy-self--hosted-0f766e.svg)](#quick-start)
@@ -78,7 +78,7 @@ Contractor 是给团队使用的自托管 Agent 协作工作台。它把 DeepSee
 环境要求：Git、Node.js 24.11+、npm。如果仓库尚未公开，需要对应的 GitHub 访问权限。
 
 ```sh
-git clone --recurse-submodules https://github.com/zhegong-996/suitme-collab.git contractor
+git clone --recurse-submodules https://github.com/zhegong-996/Contractor.git contractor
 cd contractor
 npm ci
 
