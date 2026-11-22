@@ -27,7 +27,7 @@
 - 「项目 → 职责与路由」由项目维护人分配现有职责、选主题牵头 Agent 和决定人，并按用途配置已获准的本机 Codex 主备模型。项目和平台设置存入工作台账本，保存时检查所编辑的修订。已有派工、历史工单及执行证据按原记录查阅。
 - 「资料与连接」显示当前项目的 GitHub 和 IM 状态。可配置补读的飞书来源向维护人显示最近核对结果。Figma 资料负责人可核对源站状态与修订，进入对应知识候选。「平台管理 → 服务状态」显示飞书收件与回调、知识索引和待补写回执的汇总。公开 `/health` 仅列 GitHub 连接状态，仓库明细从项目读取。
 
-侧栏、基础控件与状态视图使用 Ant Design 和 Contractor 组件。列表与详情联动、Agent 档案及同一工单内查看证据采用 LobeHub 的交互思路。页面使用同一套 Contractor 登录和后端接口。[组件来源](SOURCES.md)
+侧栏、基础控件与状态视图使用 Ant Design 和 Contractor 组件。列表与详情联动、Agent 档案及工单证据使用同一套 Contractor 登录和后端接口。[组件来源](SOURCES.md)
 
 ## 本机启动
 
@@ -92,7 +92,7 @@ npm run ledger -- restore /absolute/path/new-backup /absolute/path/restored-stat
 
 维护人可通过 `GET /api/discussion/<项目>/revisions/<消息ID>` 查看当前仍可核对的飞书版本。 `POST /api/discussion/<整理记录ID>/resolve` 接受可选的 `message` 字段来决定单条来源，省略时继续处理整条待确认归纳。
 
-Super-agent 复用了原版消息归一、话题根、来源准入策略和人工确认后的建单。分批、防重复与失败后的恢复参考 [LobeHub 的定时整理](https://github.com/lobehub/lobehub/blob/a8424d204a7ed1eb36985ebdfa6eac8041615392/apps/server/src/services/agentIdentity/wake/digest.ts)，按现有 AutoLoop 原版调度和 Contractor 项目授权实现。
+Super-agent 复用了原版消息归一、话题根、来源准入策略和人工确认后的建单。分批、防重复与失败后的恢复由 Contractor 按项目授权、持久入站游标和现有调度器实现。
 
 ## 派工与人工决定
 

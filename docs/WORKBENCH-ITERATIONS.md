@@ -74,8 +74,6 @@ flowchart TD
 | --- | --- |
 | [Super-agent Engine](https://github.com/deepseek-ai/dsh-superagent-prototype/blob/8c32a9dc5d72c033816c6a8110b37f40cf94fba4/src/core/engine.ts) | 直接调用现有导入的原版 `receive`、`attach`、`retryTicket`、`report` 与原版事务 Store／Effects。下一版用独立内部触发器 attach 到指定 Ticket，避免共享群话题扇出唤醒其他工单 |
 | [AutoLoop](https://github.com/KKKKhazix/agent-autoloop/tree/ba8cf6d8cf24f9ce005958c15d88f2d9cff7f05d) | 继续直接用原版 Runtime、worker、cards、事件合并、取消和重试。交接包从原生卡片及执行记录装配，无新增执行队列 |
-| [LobeHub ServerContextBuilder](https://github.com/lobehub/lobehub/blob/a8424d204a7ed1eb36985ebdfa6eac8041615392/apps/server/src/modules/AgentRuntime/adapters/ServerContextBuilder.ts) | 借鉴按当前运行输入重新装配上下文的机制，适配到 Contractor 的资料授权与原生 AutoLoop context；没有导入 LobeHub 第二套 runtime |
-| [Acceptance](https://github.com/lobehub/acceptance/tree/f720feb862bdbe3acc653bdedc297e20e08be1ae) | 参考多轮验收与历史证据的契约。Contractor 的 review 表记录本平台的人工验收事实 |
 
 ## 验证与边界
 

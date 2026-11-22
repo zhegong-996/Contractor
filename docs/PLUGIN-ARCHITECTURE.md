@@ -69,6 +69,6 @@ flowchart LR
 
 入口与 Figma 修订服务使用统一生命周期管理，工作台关闭时先结束这些任务，再关闭协作账本。既有 AutoLoop 运行目录继续由原运行时恢复。独立 Contractor 环境使用 `dispatch/hub.sqlite`。旧版设备配对、队列标记和历史验收报告通过兼容层读取，新页面、命令和配置使用 Contractor 名称。
 
-DeepSeek Harness 按作用域注册提示词段、工具和运行上下文。Co-Sight Harness 把模型配置、插件清单与流程门禁分别维护。Octop 将专家配置和技能生命周期接到指定 Agent。Contractor 借鉴这些设计，独立实现配置表单和模型装配。 [DeepSeek 提示词装配](https://github.com/deepseek-ai/deepseek-harness/blob/fcc0ad462172522aaf5c93a7b2e01f6b9f0b0159/docs/subsystems/system-prompt.md) · [Co-Sight 插件清单](https://github.com/ZTE-AICloud/Co-Sight/blob/01b93a40647c2999558cc130f149632dd75cbe1e/Co-Sight%20Harness/framework/docs/plugin-install.md) · [Octop 技能管理](https://github.com/TencentCloud/Octop/blob/30f4aecd2e14e7eeee639b8c6c33c9f404463df8/src/octop/api/routers/skills.py)
+Contractor 在启动时按作用域装配提示词、工具、模型、技能和运行上下文。配置页只展示当前部署已注册且有权使用的组件；每次调用保存配置指纹和实际组件版本。
 
 CI 同时运行 Node 和 Python 原生适配器回归。`npm run package:source -- --committed` 检查发布范围与当前提交一致，再从已跟踪文件打包。默认命令可生成本地联调包。

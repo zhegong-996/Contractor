@@ -1,5 +1,4 @@
-// Group-chat style @mention UI. Layout ideas follow LobeHub's assistant select and
-// TencentCloud/Octop's team member picker (MIT), adapted to Contractor's topic roster.
+// Group-chat style @mention UI for Contractor's Agent roster.
 import { useEffect } from 'react';
 import { Check, X } from 'lucide-react';
 import type { Agent } from '../api.ts';

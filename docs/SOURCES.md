@@ -2,6 +2,14 @@
 
 Contractor 原创代码采用 [MIT](../LICENSE)。第三方代码仍采用其各自许可。npm 锁文件固定包版本和完整性校验，源码子模块固定提交。分发时按实际交付的文件保留 [第三方声明](../THIRD_PARTY_NOTICES.md)。
 
+## 当前核对结论
+
+- **源码子模块：4 个。** Super-agent、Agent AutoLoop、Octop Gateway 和 Octop Memory 都是固定在 `sources.lock.json` 中的 MIT 提交；仓库不直接修改子模块内容。
+- **适配组件：2 个。** `TopicMemberPicker.tsx` 与 `SignedTopicReply.tsx` 改编自 Octop Web 的 MIT 源码，文件头和锁文件都保留提交与上游路径。
+- **其他 npm 依赖：按实际制品审核。** 根工作台、验收示例和外置沙箱分别使用独立锁文件；浏览器构建随包生成模块许可清单。
+
+`npm run audit:upstream -- --browser` 会同时核对上述边界。2026-11-22 的当前结果：4 个 MIT 子模块、2 个 Octop 适配组件、327 个根锁文件包、2 个验收示例包、5 个外置沙箱包和 114 条浏览器依赖声明，未发现来源锁或许可冲突。
+
 ## 仓库复用了多少源码
 
 | 统计范围 | 当前数量 | 核对依据 |
@@ -11,7 +19,7 @@ Contractor 原创代码采用 [MIT](../LICENSE)。第三方代码仍采用其各
 | 根项目 npm 直接依赖 | **13 个运行依赖、10 个开发依赖**。根锁文件共有 **327 条包记录**，包括传递依赖和不同平台的可选构建包。 | [安装清单](../package.json) · [根锁文件](../package-lock.json) |
 | 独立示例与外置执行隔离 | 验收示例锁 **2 条**，外置沙箱锁 **5 条** | [验收示例](../integrations/github/store-small-screen/.github/contractor-store-small-screen/package-lock.json) · [沙箱锁](../fixtures/sandbox-provider/package-lock.json) |
 
-源码的直接复用合计来自 **5 个上游项目**。子模块、两处适配代码和 npm 包按不同口径列出。浏览器产物的实际模块以当次构建生成的许可清单为准。
+源码直接复用为 **4 个固定提交的子模块，加上来自第 5 个上游项目的两处适配组件**。npm 包按安装和构建范围另行列示；浏览器产物的实际模块以当次构建生成的许可清单为准。只在产品分析中比较过思路、没有复制源码或资产的项目不进入许可清单。
 
 ## 实际保留的源码与依赖
 
@@ -27,7 +35,7 @@ Contractor 原创代码采用 [MIT](../LICENSE)。第三方代码仍采用其各
 
 Backstage 资料引用和 Casbin 角色判定已由 [资料引用](../src/workbench/catalog-reference.ts) 和 [角色策略](../src/rbac.ts) 接手。现行锁文件不再安装这两个包。旧资料标识、知识关系和角色策略文件格式仍可读取。历史提交保有当时的来源与许可。
 
-## 自研范围与设计参考
+## 自研范围
 
 | 能力 | Contractor 实现 |
 | --- | --- |
@@ -35,13 +43,6 @@ Backstage 资料引用和 Casbin 角色判定已由 [资料引用](../src/workbe
 | 调度与运行恢复 | [调度器](../src/workbench/execution/scheduler.ts)、[CLI worker](../src/workbench/execution/worker.ts)、[回执恢复](../src/workbench/execution-receipts.ts)。共用工作台的业务授权、额度、审计与验收。 |
 | 知识、权限与上下文 | [知识与版本](../src/workbench/knowledge.ts)、[授权复核](../src/workbench/knowledge-authority.ts)、[知识图谱](../src/workbench/knowledge-graph.ts)、[平台策略](../src/rbac.ts)。 |
 | 交付、验收、回归评估与前端 | [证据](../src/workbench/delivery-evidence.ts)、[逐项验证](../src/workbench/product-verification.ts)、[人工验收](../src/workbench/ticket-acceptance.ts)、[回归](../src/workbench/regression-review.ts)、[工作台](../workbench/src)。 |
-
-| 设计参考 | 本项目中的实现 |
-| --- | --- |
-| DeepSeek Harness 的生命周期和能力分层 | 启动时组装插件与业务核心。Router 和个人 Agent 通过注册的模型、技能与上下文组件组装调用。Super-agent 源码与 npm 的 DeepSeek 通用包另外按上表登记。 [插件模块](PLUGIN-ARCHITECTURE.md) |
-| LobeHub、Paperclip、Co-Sight 的任务和会话组织 | 自建工作台的会话目录、看板、角色入口、工单和执行记录。 [工作台源码](../workbench/src) |
-| Acceptance、LoopForge 的逐项检查和回归 | 自研产品检查、按版验收、GitHub 工作流证据和回归对照。 [验收模块](WORKBENCH-DELIVERY-TEMPLATE.md) |
-| Octop 的专家共享、技能与记忆组织 | Contractor 实现专家共享、技能版本及只读模型适配。借鉴 Octop 的专家配置和 Co-Sight 的控制资产设计，独立实现 Router 与个人 Agent 配置。执行侧使用本项目的 [只读模型入口](../src/workbench/deepseek_readonly.py)，源码复用集中在上表的 Gateway、Memory 和两处界面组件。 |
 
 ## 许可检查与制品
 

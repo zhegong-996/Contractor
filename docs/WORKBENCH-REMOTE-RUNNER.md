@@ -41,7 +41,7 @@ Claude Code 的运行检查依据本轮登记的服务商。DeepSeek 读取执�
 
 在主题会话选择咨询 Agent 后，可以为每位 Agent 指定本次的执行设备，也可以沿用项目路由。设备范围由当前项目和该 Agent 的授权决定。发起工单时也可指定设备。在线、离线和暂不接单来自 Runner 的状态更新。指定已授权的离线设备时，任务等待该设备恢复。设备和实际模型可以在工单的执行记录核对。
 
-连接指引和会话入口参考设备与 Agent 分离的交互。项目授权沿用 Contractor 的项目与设备登记。 [LobeHub 执行设备](https://landing-staging.lobehub.com/ja/docs/usage/agent/execution-devices) · [GitHub 自托管 Runner 访问范围](https://docs.github.com/en/actions/how-tos/manage-runners/self-hosted-runners/manage-access)
+连接指引把设备接入与 Agent 授权分开处理。项目授权沿用 Contractor 的项目、Agent 和设备登记。 [GitHub 自托管 Runner 访问范围](https://docs.github.com/en/actions/how-tos/manage-runners/self-hosted-runners/manage-access)
 
 浏览器验收通过项目仓库配置的 GitHub Actions 工作流执行。可以由该工作流指定团队的验证 runner。工作台显示验证运行及 runner 标签，并按本单版本核对证据。
 

@@ -33,7 +33,7 @@
 
 浏览器实跑的主链为「发起门店推荐理由工单 → 原版 AutoLoop 领取并回传 → 产品按版验收 → 生成知识候选 → 人工采用 → 在工作台检索并追溯原工单」。浏览器另走了两人原主题讨论、资料授权后撤权、代码委托转研发待办。真实账本副本补充跨团队、既有工单、历史 PR 来源、派生知识和重启恢复的检查。
 
-GitHub 当前只读核对显示，测试 PR #18 的头提交仍是 `41abe3272ea7f231a9ae8d428d30ab9244957aaa`，`collab-pilot` 检查成功。两项证据可在 [PR #18](https://github.com/zhegong-996/desktop-tutorial/pull/18) 和 [该提交对应的 CI](https://github.com/zhegong-996/desktop-tutorial/actions/runs/43878499972/job/133338037889) 核对。
+GitHub 当前只读核对显示，测试 PR #18 的头提交仍是 `41abe3272ea7f231a9ae8d428d30ab9244957aaa`，`collab-pilot` 检查成功。PR #18 和该提交对应的 CI 证据保留在受保护的私有测试环境。
 
 ## 待修问题和边界
 

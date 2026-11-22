@@ -101,4 +101,4 @@ node --import tsx --test tests/workbench-runtime-migration.test.ts
 | 交付和验收 | 基线 CI 在 280px 处测得正文仅 228px。新提交的浏览器 CI 测得 280px、320px、360px 下正文分别为 244px、268px、308px，三档均能换行且无横向溢出。使用旧 SHA 的核对和验收请求被拒绝。产品测试成员按新提交验收原单第 1 版。 |
 | 回滚和回执 | 原设备再次用原配对上线。回滚保留原单第 1 版、验收人、PR、CI、代码提交与两个原运行编号。两份真实回执重放后仍为两条结算，共 85,884 Token 和 85.884 积分，分两轮计 43.894 和 41.990 积分。 |
 
-本轮保留了专用测试 PR 及证据，现有测试工作台继续运行原配置。 [测试 PR #20](https://github.com/zhegong-996/desktop-tutorial/pull/20) · [基线 CI](https://github.com/zhegong-996/desktop-tutorial/actions/runs/44646201912) · [验收对应的 CI](https://github.com/zhegong-996/desktop-tutorial/actions/runs/44647182529)
+本轮保留了专用测试 PR 及证据，现有测试工作台继续运行原配置。PR #20、基线 CI 和验收对应的 CI 留在受保护的私有测试环境。
