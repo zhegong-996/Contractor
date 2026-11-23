@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { protocolMatches } from './workbench/compatibility.ts';
 import { runtime } from './config.ts';
@@ -95,6 +95,7 @@ export async function initRbac(): Promise<void> {
   if (!readyPromise) {
     readyPromise = (async () => {
       const file = policyPath();
+      mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
       if (!existsSync(file)) writeFileSync(file, seedPolicy(), { mode: 0o600 });
       else migrateWorkbenchPolicy(file);
       permissions = readPolicy(readFileSync(file, 'utf8'));

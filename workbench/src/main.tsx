@@ -5,7 +5,7 @@ import { Breadcrumb, ConfigProvider, Drawer, Layout, Menu as NavigationMenu, Tab
 import zhCN from 'antd/es/locale/zh_CN.js';
 import { ArrowRight, BookOpen, Bot, ChevronDown, ChevronRight, CircleCheck, FileUp, FolderKanban, Inbox, ListChecks, LogOut, Menu, MessageSquare, PanelLeftClose, PanelLeftOpen, Plus, ShieldCheck, UserRound } from 'lucide-react';
 import { api, mayKeepStale, uid, useData, type Overview, type ProjectTemplate, type Session } from './api.ts';
-import { ActionContext, Avatar, Failure, Field, IconButton, Loading, Logo, Modal, useActions, useStored } from './ui.tsx';
+import { ActionContext, Avatar, Empty, Failure, Field, IconButton, Loading, Logo, Modal, useActions, useStored } from './ui.tsx';
 import { Button } from './components/button.tsx';
 import { Input } from './components/input.tsx';
 import { preference, WorkspaceSidebar } from './components/workspace-sidebar.tsx';
@@ -278,11 +278,16 @@ function Workspace() {
     <Suspense fallback={<Loading />}><PersonalChatPage workspace={workspace} conversation={requested.item} /></Suspense>
   </div>;
   if (!project) return <div className="app-placeholder">
-    <Failure error={new Error('当前账号尚未加入项目。')} />
-    <div className="actions mt-4">{workspace.canCreateProject && <Button onClick={newProject}>新建项目</Button>}
-      {(workspace.canManageAccounts || workspace.canManagePointPolicy || workspace.canManageServices) && <a className="text-button" href="#/platform">平台管理</a>}
-      <a className="text-button" href={personalChatRoute()}>会话</a><a className="text-button" href="#/account">个人设置</a>
-      <Button variant="ghost" onClick={signOut}>退出登录</Button></div>{projectModal}
+    <Empty icon={<FolderKanban />} title={workspace.canCreateProject ? '创建第一个项目' : '暂无可访问项目'}
+      description={workspace.canCreateProject ? '项目用来组织主题、工单、成员、Agent 和执行设备。'
+        : '请联系项目维护人添加成员权限，或由平台管理员分配项目。'}
+      action={<div className="actions">
+        {workspace.canCreateProject && <Button onClick={newProject}><Plus />新建项目</Button>}
+        {(workspace.canManageAccounts || workspace.canManagePointPolicy || workspace.canManageServices) && <a className="text-button" href="#/platform">平台管理</a>}
+        <a className="text-button" href={personalChatRoute()}>会话</a><a className="text-button" href="#/account">个人设置</a>
+        <Button variant="ghost" onClick={signOut}>退出登录</Button>
+      </div>} />
+    {projectModal}
   </div>;
   const route = { ...requested, project: project.id, item: requested.item };
   const props = { workspace, project, route, openTask: (preset: TaskPreset = {}) => { clearError(); setComposer(preset); } };

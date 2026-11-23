@@ -14,7 +14,7 @@
 
 ## 登记 Agent 和执行端
 
-Agent 档案记录负责人、职责、可服务的项目、模型和凭据引用。维护实例配置的人把档案写入 `COLLAB_STATE_DIR/workbench.json` 的 `agents`，在实例目录按成员配置凭据，并把可上岗的档案设为 `active: true`。修改配置后重启工作台。档案所有者可以在页面暂停或恢复接单。[Agent 配置样例](../fixtures/workbench.example.json) · [成员凭据配置](MEMBER-EXECUTION-ISOLATION.md)
+Agent 档案记录负责人、职责、可服务的项目、模型和凭据引用。维护实例配置的人把档案写入 `COLLAB_STATE_DIR/workbench.json` 的 `agents`，在实例目录按成员配置凭据，并把可上岗的档案设为 `active: true`。修改配置后重启工作台。档案所有者可以在页面暂停或恢复接单。新安装的样例配置不预置 Agent，字段和项目关系见 [配置 Contractor](CONFIGURATION.md) · [成员凭据配置](MEMBER-EXECUTION-ISOLATION.md)
 
 | 用途 | 配置与入口 |
 | --- | --- |

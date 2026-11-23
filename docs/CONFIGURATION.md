@@ -1,6 +1,6 @@
 # 配置 Contractor
 
-工作台从 `COLLAB_STATE_DIR/workbench.json` 读取部署配置。第一次启动可复制 [工作台样例](../fixtures/workbench.example.json)。管理页面保存的项目职责、模型和额度政策写入业务账本，重启后继续使用。连接密钥和成员模型凭据由部署者在服务端配置。
+工作台从 `COLLAB_STATE_DIR/workbench.json` 读取部署配置。第一次启动可复制 [工作台样例](../fixtures/workbench.example.json)。样例从空工作台开始，不含预置项目、职责或 Agent；完成所有者初始化后，在页面创建第一个项目。项目、职责、模型和额度政策写入业务账本，重启后继续使用。连接密钥和成员模型凭据由部署者在服务端配置。
 
 ## 谁能改什么
 
