@@ -38,10 +38,10 @@ export COLLAB_STATE_DIR="$PWD/.runtime/workbench"
 mkdir -p "$COLLAB_STATE_DIR"
 cp -n fixtures/workbench.example.json "$COLLAB_STATE_DIR/workbench.json"
 npm run workbench -- init-owner product
-npm run workbench -- add-member design operator
-npm run workbench -- add-member engineering operator
 npm run workbench
 ```
+
+样例配置不包含业务项目、职责或 Agent。使用所有者账号登录后先创建项目，再按需要配置项目成员、职责、Agent、模型和 Worker。需要额外测试账号时，可运行 `npm run workbench -- add-member <username> <role>` 创建。
 
 账号初始化命令用于本机引导和测试，从标准输入读取口令，直接在终端执行时输入口令后按 Ctrl+D 结束输入。团队在网页登录页选择「开通账号」，用企内飞书单聊应用机器人发送验证命令。平台管理员在「平台管理 → 账号开通申请」核对飞书姓名并批准角色，申请人回到发起页自行设置口令，飞书身份随首次开通绑定。账号开通后，由项目维护人另行授予项目权限。
 

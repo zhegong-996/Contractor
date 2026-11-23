@@ -90,7 +90,7 @@ node --import tsx src/workbench/server.ts init-owner product
 npm start
 ```
 
-打开 [http://127.0.0.1:4280/](http://127.0.0.1:4280/)，使用初始化时创建的 `product` 账号登录。示例项目中的 Agent 默认停用；按需配置模型凭据和执行端。
+打开 [http://127.0.0.1:4280/](http://127.0.0.1:4280/)，使用初始化时创建的账号登录。首次进入是空工作台，创建项目后再配置主题、成员、Agent 和 Worker；仓库不会替你预置业务项目。
 
 **[第一次用执行端接单](docs/QUICKSTART-RUNNER.md)** · **[配置 Contractor](docs/CONFIGURATION.md)** · **[独立工作台说明](docs/WORKBENCH.md)**
 
