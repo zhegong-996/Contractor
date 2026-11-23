@@ -75,6 +75,8 @@ Contractor 是给团队使用的自托管 Agent 协作工作台。它把 DeepSee
 
 ## Quick start
 
+要从零创建项目、连接 Worker 并验收第一张工单，可直接按[首张工单教程](docs/QUICKSTART-RUNNER.md)操作。下面的命令用于先启动空工作台。
+
 环境要求：Git、Node.js 24.11+、npm。如果仓库尚未公开，需要对应的 GitHub 访问权限。
 
 ```sh
@@ -86,6 +88,7 @@ export COLLAB_STATE_DIR="$PWD/.runtime/workbench"
 mkdir -p "$COLLAB_STATE_DIR"
 cp -n fixtures/workbench.example.json "$COLLAB_STATE_DIR/workbench.json"
 
+# 按终端提示设置口令
 node --import tsx src/workbench/server.ts init-owner product
 npm start
 ```

@@ -88,7 +88,7 @@ const project = z.object({
 const agent = runnerAgentSchema.extend({
   title, kind: z.enum(['personal', 'specialist']),
   capability: z.string().trim().min(1).max(400), function: id,
-  projects: z.array(id).min(1),
+  projects: z.array(id),
   command: z.array(z.string().min(1)).min(1).optional(),
   allowedModels: modelNames.optional(),
   skill: z.string().trim().min(1).max(5000),
