@@ -13,6 +13,8 @@ export async function configureDeviceWorker(home: string, profile?: RunnerAgent)
   const adapter = profile?.engine === 'claude' ? 'contractor-remote-claude' : 'contractor-isolated';
   const entry = path.join(home, 'plugins', adapter, 'agent.ts');
   await mkdir(path.dirname(entry), { recursive: true, mode: 0o700 });
+  // The device state directory may be outside any Node.js package. Load generated adapters as ESM.
+  await writeFile(path.join(home, 'plugins', 'package.json'), '{"type":"module"}\n', { mode: 0o600 });
   if (profile) {
     const source = profile.engine === 'claude' ? 'claude-runner-adapter.ts' : 'isolated-adapter.ts';
     const module = JSON.stringify(pathToFileURL(path.join(root, 'src/workbench', source)).href);

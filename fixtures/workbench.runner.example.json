@@ -2,12 +2,7 @@
   "port": 4280,
   "remoteRunnerPort": 4281,
   "runnerConnectUrl": "http://127.0.0.1:4282",
-  "projects": [{
-    "id": "runner-demo",
-    "title": "示例协作项目",
-    "members": ["product"],
-    "maintainers": ["product"]
-  }],
+  "projects": [],
   "functions": [{ "id": "review", "title": "整理验收清单" }],
   "agents": [{
     "id": "first-review",
@@ -15,7 +10,7 @@
     "kind": "personal",
     "owner": "product",
     "function": "review",
-    "projects": ["runner-demo"],
+    "projects": [],
     "engine": "claude",
     "model": "deepseek-flash",
     "execution": { "kind": "remote", "provider": "deepseek" },

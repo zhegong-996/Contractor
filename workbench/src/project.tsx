@@ -109,7 +109,7 @@ function Structure({ workspace, project, openTask }: PageProps) {
     </Section>
     <Section title="项目 Agent" action={project.mayStart && own.length ? <Button variant="outline" size="sm" onClick={() => setAgentForm(true)}><Plus />加入我的 Agent</Button> : undefined}>
       {projectAgents.map(agent => <div className="record-row" key={agent.id}><strong>{agent.title}</strong><span>{agent.owner}</span></div>)}
-      {!projectAgents.length && <p className="muted-text">暂无已加入的 Agent。</p>}
+      {!projectAgents.length && <p className="muted-text">{own.length ? '选择「加入我的 Agent」授权本项目使用。' : project.mayStart ? '请先由部署者在 workbench.json 登记执行 Agent，再由 Agent 所有者加入项目。' : '暂无已加入的 Agent。'}</p>}
     </Section>
     {agentForm && <Modal title="加入我的 Agent" close={() => setAgentForm(false)}><form className="form" onSubmit={async event => {
       event.preventDefault(); const form = new FormData(event.currentTarget);

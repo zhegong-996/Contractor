@@ -1,6 +1,8 @@
 import { codeDeltaSchema } from './code-bundle.ts';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { readFileSync } from 'node:fs';
+import { createInterface } from 'node:readline';
+import { Writable } from 'node:stream';
 import { mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { tmpdir } from 'node:os';
@@ -290,7 +292,8 @@ async function serve(release: () => void) {
           const nonce = randomBytes(18).toString('base64');
           res.setHeader('content-security-policy', "default-src 'none'; style-src 'nonce-" + nonce + "'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'");
           res.writeHead(status, { 'content-type': 'text/html; charset=utf-8' }).end(runnerConnectPage(nonce, view, error, {
-            oauth, password: login.legacyPassword, workbench: publicWorkbench?.href ?? runnerOrigin.href,
+            oauth, password: login.legacyPassword, workbench: publicWorkbench?.href ??
+              (runnerOrigin.protocol === 'http:' ? 'http://127.0.0.1:' + config.port + '/' : runnerOrigin.href),
             expired: status === 404,
           }));
         };
@@ -1042,11 +1045,22 @@ async function body(req: IncomingMessage, limit = 65000) {
 }
 
 const argv = process.argv.slice(2);
+async function initialPassword() {
+  if (!process.stdin.isTTY) return readFileSync(0, 'utf8').trimEnd();
+  process.stderr.write('设置工作台口令（输入隐藏，回车确认）：');
+  const muted = new Writable({ write(_chunk, _encoding, done) { done(); } });
+  const input = createInterface({ input: process.stdin, output: muted, terminal: true });
+  input.once('SIGINT', () => input.close());
+  try {
+    for await (const line of input) return line;
+    throw new Error('已取消口令设置。');
+  } finally { input.close(); process.stderr.write('\n'); }
+}
 const release = acquireStateLease(stateDir, 'workbench');
 try {
   if (argv[0] === 'init-owner' || argv[0] === 'add-member') {
     await prepareAuth();
-    const password = readFileSync(0, 'utf8').trimEnd();
+    const password = await initialPassword();
     if (argv[0] === 'init-owner') await auth.bootstrapOwner(argv[1] ?? '', password);
     else {
       const owner = auth.listAccounts().find(a => a.role === 'owner' && !a.disabled);
