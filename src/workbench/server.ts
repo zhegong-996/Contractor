@@ -590,7 +590,11 @@ async function serve(release: () => void) {
         output = work.setPlatformAssistant(actor, assistantUpdate.parse(await body(req)));
       else if ((get || post) && view === 'admin' && item === 'platform-assistant' && action === 'skills' && !reference)
         output = get ? work.assistantSkills(actor, 'team') : work.changeAssistantSkill(actor, 'team', assistantSkillChange.parse(await body(req)));
-      else if (post && view === 'admin' && item === 'model-services' && action && !reference)
+      else if (post && view === 'admin' && item === 'model-services' && action === 'deepseek' && reference === 'connect') {
+        work.assertServices(actor);
+        output = await work.connectDeepSeek(actor, z.object({ model: z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,99}$/),
+          key: z.string().trim().regex(/^[!-~]{1,512}$/).optional(), revision: z.string().max(64) }).strict().parse(await body(req, 2048)));
+      } else if (post && view === 'admin' && item === 'model-services' && action && !reference)
         output = work.setModelService(actor, modelProvider.parse(action), modelServiceUpdate.parse(await body(req)));
       else if (get && view === 'admin' && item === 'service-status' && !action) {
         work.assertServices(actor);

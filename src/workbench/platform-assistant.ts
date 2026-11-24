@@ -49,6 +49,10 @@ const receipt = z.object({
 });
 export type AssistantService = {
   available: (provider: Selection['provider']) => boolean;
+  connection?: {
+    status(): { model?: string; environmentKey: boolean; revision: string };
+    verify(model: string, key?: string): Promise<() => void>;
+  };
   complete: (input: Selection & { system: string; evidence: string }) => Promise<unknown>;
 };
 type Prepared = { system: string; evidence: object; stamp: AssistantHarnessStamp };
@@ -76,8 +80,13 @@ export function openPlatformAssistant(store: Pick<SuperAgentStore, 'db' | 'atomi
     const saved = row ? JSON.parse(String(row.value)) as Partial<Setting> : {};
     return { selection: saved.selection ?? null, dailyLimit: saved.dailyLimit ?? 100, harness: saved.harness ?? defaultHarness() };
   };
-  const choices = () => profiles.flatMap(row => row.models.map(model => ({ provider: row.provider, model,
-    available: service.available(row.provider) && ports.allowed(row.provider, model) })));
+  const choices = () => {
+    const saved = service.connection?.status().model;
+    const catalog = saved && !profiles.some(row => row.provider === 'deepseek')
+      ? [...profiles, { provider: 'deepseek' as const, models: [saved] }] : profiles;
+    return catalog.flatMap(row => row.models.map(model => ({ provider: row.provider, model,
+      available: service.available(row.provider) && ports.allowed(row.provider, model) })));
+  };
   const usable = (value: Selection | null) => !!value && choices().some(row => row.provider === value.provider
     && row.model === value.model && row.available);
   const since = () => budgetCycle('day', Date.now());

@@ -196,7 +196,7 @@ export function GlobalSettings({ view, tab, fromProject, returnTo, status, works
           <a className="text-button" key={key} href={settingsRoute('account', key, returnTo, origin?.id)}
             aria-current={(tab ?? 'profile') === key ? 'page' : undefined}>{label}</a>)}
       </nav>
-      <div className="detail-stack">{tab === 'agent' ? <PersonalAgentSettings project={origin?.id} /> : tab === 'workers' ? <MyWorkers workspace={workspace} />
+      <div className="detail-stack">{tab === 'agent' ? <PersonalAgentSettings canConnect={workspace.canManageServices} project={origin?.id} /> : tab === 'workers' ? <MyWorkers workspace={workspace} />
         : <><PersonalProfileSettings /><PersonalLogin workspace={workspace} />{connections}</>}</div>
     </main>
   </div>;

@@ -95,6 +95,8 @@ npm start
 
 打开 [http://127.0.0.1:4280/](http://127.0.0.1:4280/)，使用初始化时创建的账号登录。首次进入是空工作台，创建项目后再配置主题、成员、Agent 和 Worker；仓库不会替你预置业务项目。
 
+想先与自己的 Agent 对话，可用管理员账号打开 **平台管理 → 模型服务 → 连接 DeepSeek**，验证后进入 **配置个人 Agent**，选择轻量模型并保存。
+
 **[第一次用执行端接单](docs/QUICKSTART-RUNNER.md)** · **[配置 Contractor](docs/CONFIGURATION.md)** · **[独立工作台说明](docs/WORKBENCH.md)**
 
 ## 界面

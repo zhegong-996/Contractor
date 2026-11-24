@@ -6037,6 +6037,26 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       accepted: { actor: acceptanceAssignee(work), revision: output.revision, at: new Date().toISOString() } }, output, verification),
   });
   const settings = operationsSettings(store, config, operationPolicies, { canManageServices, projectFor, maintain, mayStart, topicsFor, audit });
+  const assistantConnection = plugins.use('assistant').connection;
+  async function connectDeepSeek(actor: string, input: { model: string; key?: string; revision: string }) {
+    settings.assertServices(actor);
+    if (!assistantConnection) throw new WorkbenchError('当前模型插件未提供连接配置。', 409);
+    const models = config.platformAssistant?.find(row => row.provider === 'deepseek')?.models;
+    const check = () => {
+      settings.assertServices(actor);
+      if (input.revision !== assistantConnection.status().revision) throw new WorkbenchError('连接已更新，请刷新后重试。', 409);
+      if (models && !models.includes(input.model)) throw new WorkbenchError('请选择部署者登记的模型：' + models.join('、'), 409);
+      if (!operationPolicies.modelAllowed('deepseek', input.model)) throw new WorkbenchError('请先在平台策略中允许此模型。', 409);
+    };
+    check();
+    const commit = await assistantConnection.verify(input.model, input.key).catch(error => {
+      throw new WorkbenchError(error.message, 400);
+    });
+    check();
+    commit();
+    audit('platform', 'assistant.connection-updated', { actor, model: input.model });
+    return { model: input.model };
+  }
   async function modelServices(actor: string) {
     const services = settings.modelServices(actor);
     const checkedAt = new Date().toISOString();
@@ -6050,7 +6070,9 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       const credentials = await Promise.all(local.map(agent => codexCredentialReady(agent)));
       const connected = devices.list().filter(device => device.active && candidates.some(agent => deviceReady(device, agent.id)
         && agent.projects.some(id => !!projectById.get(id) && deviceAllowed(device, projectById.get(id)!, agent.id))));
-      return { ...row, runtime: { checkedAt, activeAgents: candidates.length, onlineWorkers: connected.length,
+      const connection = row.provider === 'deepseek' ? assistantConnection?.status() : undefined;
+      return { ...row, configured: row.configured || !!connection?.model, connection,
+        availableModels: [...new Set([...row.availableModels, ...(connection?.model ? [connection.model] : [])])], runtime: { checkedAt, activeAgents: candidates.length, onlineWorkers: connected.length,
         localProfiles: local.length, localCredentialsReady: credentials.filter(Boolean).length } };
     }));
     settings.assertServices(actor);
@@ -6098,7 +6120,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
   const api = {
     ...settings,
     modelServices,
-    platformAssistant: assistant.view,
+    connectDeepSeek, platformAssistant: assistant.view,
     setPlatformAssistant: assistant.update,
     assistantSkills: harness.catalog,
     changeAssistantSkill: harness.change,
