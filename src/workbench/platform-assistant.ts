@@ -101,7 +101,7 @@ export function openPlatformAssistant(store: Pick<SuperAgentStore, 'db' | 'atomi
     const connection = service.connection?.status();
     const installed = profiles.find(row => row.provider === 'deepseek');
     const verified = connection?.models ?? installed?.models ?? (connection?.model ? [connection.model] : []);
-    const models = connection?.disconnected ? [] : verified.filter(id => !installed || installed.models.includes(id));
+    const models = connection?.disconnected ? [] : verified;
     const catalog: Profiles = [...profiles.filter(row => row.provider !== 'deepseek'), { provider: 'deepseek', models }];
     return catalog.flatMap(row => row.models.map(model => ({ provider: row.provider, model,
       available: service.available(row.provider) && ports.allowed(row.provider, model) })));
