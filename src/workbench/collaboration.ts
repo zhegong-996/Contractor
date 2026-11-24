@@ -45,7 +45,7 @@ import { ChannelLinks, channelCommand, consultationReplyType, feishuConsultation
 import { canonicalResourceId, referenceResource, resourcePurpose, resourceView, routesEvents,
   type ProjectResource, type ReferenceInput } from './project-resources.ts';
 import { deliveryStatus, openDeliveryEvidence } from './delivery-evidence.ts';
-import { DeliveryChangedError, deploymentState, referencesTicket,
+import { defaultChecks, DeliveryChangedError, deploymentState, referencesTicket,
   type GitHubIdentity, type GitHubIssue, type PullCheck } from './github-delivery.ts';
 import { checkpointAgent, entireCheckpoint } from './entire.ts';
 import { checkoutFor, commitDevelopment, developmentCheckout, developmentDiff, developmentFolder, developmentChanges, developmentSourceStatus, type DevelopmentTarget } from './development.ts';
@@ -5835,11 +5835,18 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
             projectRole: isProjectReader(p.id, person) ? 'reader' as const : 'collaborator' as const })),
         goals: p.goals,
         deliveryTargets: deliveryTargets(p).filter(ref => mayStart(p, actor) && ref.execution && checkoutFor(config.attribution, ref.externalId))
-          .map(ref => ({ ...resourceView(p.id, ref), product: ref.execution?.deliveryTemplate?.product && {
-            cases: [...(ref.execution.deliveryTemplate.product.browser?.cases ?? []), ...(ref.execution.deliveryTemplate.product.manual ?? [])],
-            version: ref.execution.deliveryTemplate.version,
-          }, stages: ref.execution?.deliveryTemplate?.stages, eligibleAgents: config.agents.filter(agent => isActive(agent, p)
-            && executionCapabilities(agent).code && canAttach(p, ref, agent.owner, agent.owner)).map(agent => agent.id) })),
+          .map(ref => {
+            const execution = ref.execution!;
+            const template = execution.deliveryTemplate;
+            const eligibleAgents = config.agents.filter(agent => isActive(agent, p)
+              && executionCapabilities(agent).code && canAttach(p, ref, agent.owner, agent.owner)).map(agent => agent.id);
+            return { ...resourceView(p.id, ref), eligibleAgents, stages: template?.stages,
+              product: template?.product && { cases: [...(template.product.browser?.cases ?? []), ...(template.product.manual ?? [])],
+                version: template.version },
+              scope: eligibleAgents.length ? { base: execution.base, paths: execution.paths,
+                checks: (execution.requiredChecks ?? defaultChecks).map(check => check.name),
+                independentReview: !!template?.reviewerIds?.length, environment: execution.requiredDeployment?.environment } : undefined };
+          }),
         mayStart: mayStart(p, actor), maintain: maintain(p, actor),
         discussion: p.discussion ? { pending: maintain(p, actor) ? discussions.pendingCount(p.id) : 0 } : undefined })),
       agents: config.agents.flatMap(a => {

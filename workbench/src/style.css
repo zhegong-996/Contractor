@@ -367,6 +367,7 @@ a.external:hover, a.text-button:hover { text-decoration: underline; text-underli
 .facts dt { color: var(--dim); }
 .facts dd { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
 .facts select { width: 100%; }
+.delivery-scope dd, .delivery-scope code { overflow-wrap: anywhere; }
 .record-row,.resource-row,.topic-row { display: flex; align-items: center; min-width: 0; gap: 9px; padding: 8px 0; flex-wrap: wrap; }
 .record-row + .record-row,.resource-row + .resource-row,.topic-row + .topic-row { border-top: 1px solid var(--line); }
 .record-row a { color: var(--accent-strong); }

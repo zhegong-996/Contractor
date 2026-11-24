@@ -177,10 +177,15 @@ test('原生工单带口径交接、阻塞接续、多版验收、成果重授�
   assert.equal(detail(expired).work.continuation?.reason, undefined);
   assert.ok(!detail(expired).history.some(item => item.text === privateReason));
 
-  const target = work.overview('product').projects[0]!.deliveryTargets[0]!.ref;
+  const [repository] = work.overview('product').projects[0]!.deliveryTargets;
+  assert.ok(repository!.eligibleAgents.includes('coder'));
+  assert.ok(!repository!.eligibleAgents.includes('new'), '工作区成员仍须有仓库交付资格');
+  assert.deepEqual(repository!.scope, { base: 'main', paths: ['collab-pilot/'], checks: ['collab-pilot'], independentReview: false, environment: undefined });
+  const target = repository!.ref;
   const deliveryExecution = config.projects[0]!.resources.find(ref => ref.externalId === 'team/test')!.execution!;
   deliveryExecution.deliveryTemplate = { id: 'store-screen', version: 1 };
   deliveryExecution.requiredChecks = [{ name: 'check-screen-1', app: 'github-actions' }];
+  assert.deepEqual(work.overview('product').projects[0]!.deliveryTargets[0]!.scope?.checks, ['check-screen-1']);
   const sender = { provider: 'feishu' as const, namespace: 'app', id: 'ou_product', label: '产品' };
   assert.ok(work.proveAccount(work.accountProof('product', 'feishu').command.split(' ')[1]!, sender));
   work.confirmAccount('product', 'feishu', sender);
