@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -75,9 +75,14 @@ test('Contractor 可恢复原执行、飞书收件箱和 AutoLoop 回滚账本',
 
   execute('runtime-archive/autoloop/hub.db', "CREATE TABLE runs(id INTEGER); INSERT INTO runs VALUES (20);");
   await assert.rejects(backupLedger(source, path.join(lab, 'snapshot')), /回滚材料缺失/);
+  const connectionFile = 'assistant-deepseek.private.json';
+  const connection = JSON.stringify({ model: 'test-model', revision: 'test-revision', key: 'test-only' });
+  await writeFile(path.join(source, connectionFile), connection, { mode: 0o600 });
   await writeFile(path.join(source, 'runtime-archive/autoloop/master.key'), 'a'.repeat(43));
   await backupLedger(source, path.join(lab, 'snapshot'));
   const restored = await restoreLedger(path.join(lab, 'snapshot'), path.join(lab, 'restored'));
+  assert.equal(await readFile(path.join(restored, connectionFile), 'utf8'), connection);
+  assert.equal((await stat(path.join(restored, connectionFile))).mode & 0o777, 0o600);
   for (const [file, table, expected] of [
     ['dispatch/hub.sqlite', 'runs', { id: 21, state: 'done' }],
     ['runtime-archive/autoloop/hub.db', 'runs', { id: 20 }],

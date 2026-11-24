@@ -43,23 +43,27 @@ const prompts = {
 type Purpose = AssistantPurpose;
 const receipt = z.object({
   model: z.string().max(160),
-  choices: z.array(z.object({ message: z.object({ content: z.string().max(8000) }) })).min(1),
+  choices: z.array(z.object({ message: z.object({ content: z.string().max(8000) }), finish_reason: z.string().nullable().optional() })).min(1),
   usage: z.object({ prompt_tokens: z.number().int().nonnegative().max(1_000_000_000),
     completion_tokens: z.number().int().nonnegative().max(1_000_000_000) }).optional(),
 });
 export type AssistantService = {
+  personalReply?: 'text';
   available: (provider: Selection['provider']) => boolean;
   connection?: {
     status(): { model?: string; environmentKey: boolean; revision: string };
     verify(model: string, key?: string): Promise<() => void>;
   };
-  complete: (input: Selection & { system: string; evidence: string }) => Promise<unknown>;
+  complete: (input: Selection & { purpose: Purpose; system: string; evidence: string }) => Promise<unknown>;
 };
 type Prepared = { system: string; evidence: object; stamp: AssistantHarnessStamp };
 
 export function openPlatformAssistant(store: Pick<SuperAgentStore, 'db' | 'atomic'>, profiles: Profiles, service: AssistantService,
   ports: { admin: (actor: string) => boolean; allowed: (provider: string, model: string) => boolean;
     audit: (id: string, kind: string, data: object) => void; budgets: AgentBudgets; points: TokenPoints; harness: AssistantHarness }) {
+  const personalContract = service.personalReply === 'text'
+    ? '你是当前成员的个人助手。根据当前问题和提供的资料直接用自然语言回答。agentName 是助手名称，历史用于理解连续问题。说明缺少的信息，不调用工具或代替成员采取行动。'
+    : prompts.personal;
   const { db } = store;
   db.exec(`CREATE TABLE IF NOT EXISTS workbench_platform_assistant (id INTEGER PRIMARY KEY CHECK(id=1), value TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS workbench_platform_assistant_call (
@@ -133,7 +137,7 @@ export function openPlatformAssistant(store: Pick<SuperAgentStore, 'db' | 'atomi
   function prepare(purpose: Purpose, actor: string, role: Role, revision: string, evidence: object,
     context: Parameters<AssistantHarness['assemble']>[3]): Prepared {
     const { fields, sections, skillVersions, contextVersions, authority } = ports.harness.assemble(purpose, actor, role.bindings, context);
-    const contract = prompts[purpose];
+    const contract = purpose === 'personal' ? personalContract : prompts[purpose];
     const stamp = { revision: digest({ purpose, revision, contract, skillVersions, contextVersions, authority }),
       skills: skillVersions, context: contextVersions };
     return {
@@ -168,15 +172,19 @@ export function openPlatformAssistant(store: Pick<SuperAgentStore, 'db' | 'atomi
     let reported: string | undefined;
     let state = 'failed';
     try {
-      const result = receipt.parse(await service.complete({ ...selected, system: prepared.system, evidence: JSON.stringify(prepared.evidence) }));
+      const result = receipt.parse(await service.complete({ ...selected, purpose, system: prepared.system, evidence: JSON.stringify(prepared.evidence) }));
       reported = result.model;
       if (reported === selected.model && result.usage) metered = { input: result.usage.prompt_tokens, output: result.usage.completion_tokens };
       if (reported !== selected.model) throw new Error('返回的模型与配置不一致');
-      const value = formats[purpose].parse(JSON.parse(result.choices[0]!.message.content)) as z.infer<(typeof formats)[P]>;
+      const choice = result.choices[0]!;
+      if (choice.finish_reason === 'length' || choice.finish_reason === 'content_filter') throw new Error('回复不完整');
+      const content = choice.message.content;
+      const reply = personalCall && service.personalReply === 'text' ? { answer: content } : JSON.parse(content);
+      const value = formats[purpose].parse(reply) as z.infer<(typeof formats)[P]>;
       state = 'completed';
       return { value, model: selected, call, harness: prepared.stamp };
     } catch {
-      throw new WorkbenchError('模型整理暂未完成，可继续手动处理。', 502);
+      throw new WorkbenchError(personalCall ? '这次未能生成完整回复，请重试。' : '模型整理暂未完成，可继续手动处理。', 502);
     } finally {
       store.atomic(() => {
         db.prepare('UPDATE workbench_platform_assistant_call SET state=?,reported=?,tokens=? WHERE id=? AND state=\'pending\'')
@@ -187,7 +195,7 @@ export function openPlatformAssistant(store: Pick<SuperAgentStore, 'db' | 'atomi
     }
   }
   return { view, update, choices, usable,
-    personalContract: prompts.personal,
+    personalContract,
     async draft<P extends 'router' | 'memory'>(purpose: P, actor: string, project: string, { topic, ...evidence }: { topic?: string; [key: string]: unknown }) {
       const assemble = ({ harness, selection }: Setting) => prepare(purpose, actor, harness[purpose],
         digest({ selection, role: harness[purpose] }), evidence, { topic });

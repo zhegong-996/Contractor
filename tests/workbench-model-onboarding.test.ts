@@ -37,4 +37,18 @@ test('首次接入只发布经过验证的目录，普通成员和失败的换�
   await assert.rejects(work.connectDeepSeek('owner', { ...input, revision, model: 'missing' }), /模型目录/);
   await assert.rejects(work.connectDeepSeek('owner', input), /刷新/);
   assert.deepEqual(textAssistant().connection!.status(), current.connection);
+  let chatCalls = 0;
+  remote.mock.mockImplementation(async (url: string, options: RequestInit) => {
+    assert.equal(url, 'https://api.deepseek.com/chat/completions');
+    const request = JSON.parse(String(options.body));
+    assert.equal(request.response_format, undefined);
+    chatCalls++;
+    return Response.json({ model: input.model, choices: [{ message: { content: '逐档检查长词能否换行。' } }],
+      usage: { prompt_tokens: 12, completion_tokens: 8 } });
+  });
+  work.setPersonalAgent('reader', { revision: work.personalAgent('reader').revision, title: '我的 Agent',
+    instructions: '', experience: '', selection: { provider: 'deepseek', model: input.model } });
+  const answer = await work.askPersonalAgent('reader', '如何验收门店推荐理由？');
+  assert.equal(answer.value.answer, '逐档检查长词能否换行。');
+  assert.equal(chatCalls, 1);
 });

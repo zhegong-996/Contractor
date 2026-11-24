@@ -11,6 +11,7 @@ export function textAssistant(): AssistantService {
   const envKey = () => process.env.CONTRACTOR_DEEPSEEK_API_KEY?.trim();
   const key = () => envKey() || saved?.key;
   return {
+    personalReply: 'text',
     connection: {
       status: () => ({ model: saved?.model, environmentKey: !!envKey(), revision: saved?.revision ?? 'initial' }),
       async verify(model, input) {
@@ -28,13 +29,13 @@ export function textAssistant(): AssistantService {
       },
     },
     available: provider => provider === 'ollama' || !!key(),
-    async complete({ provider, model, system, evidence }) {
+    async complete({ provider, model, purpose, system, evidence }) {
       const deepseek = provider === 'deepseek';
       const response = await fetch(deepseek ? 'https://api.deepseek.com/chat/completions' : 'http://127.0.0.1:11434/v1/chat/completions', {
         method: 'POST', redirect: 'error', signal: AbortSignal.timeout(25_000),
         headers: { 'content-type': 'application/json', ...(deepseek ? { authorization: 'Bearer ' + key() } : {}) },
         body: JSON.stringify({ model, messages: [{ role: 'system', content: system }, { role: 'user', content: evidence }],
-          max_tokens: 1600, stream: false, response_format: { type: 'json_object' }, ...(deepseek && { thinking: { type: 'disabled' } }) }),
+          max_tokens: 1600, stream: false, ...(purpose !== 'personal' && { response_format: { type: 'json_object' } }), ...(deepseek && { thinking: { type: 'disabled' } }) }),
       });
       if (!response.ok) throw new Error('模型服务没有完成整理');
       return response.json();
