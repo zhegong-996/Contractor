@@ -119,9 +119,9 @@ async function prepareModel(folder: string, profile: z.infer<typeof runnerAgentS
   if (profile.engine === 'claude') {
     if (profile.execution?.provider === 'deepseek' && process.stdin.isTTY && !resumeReceipts
       && (!process.env.ANTHROPIC_AUTH_TOKEN?.trim() || !/^https:\/\/api\.deepseek\.com\/anthropic\/?$/.test(process.env.ANTHROPIC_BASE_URL ?? ''))) {
-      process.stderr.write('输入此设备使用的 DeepSeek API Key（输入隐藏，回车确认）：');
       const input = createInterface({ input: process.stdin, terminal: true,
         output: new Writable({ write(_chunk, _encoding, done) { done(); } }) });
+      process.stderr.write('输入此设备使用的 DeepSeek API Key（输入隐藏，回车确认）：');
       input.once('SIGINT', () => input.close());
       let token = '';
       try { for await (const line of input) { token = line.trim(); break; } }
