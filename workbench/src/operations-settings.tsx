@@ -18,6 +18,7 @@ const validModelId = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,99}$/u;
 export function ModelServices() {
   const data = useData<ModelService[]>('admin/model-services', 8000);
   const [editing, setEditing] = useState<ModelService>();
+  const [connecting, setConnecting] = useState<ModelService>();
   const current = data.data?.find(row => row.provider === editing?.provider);
   return <>
     {data.error && <Failure error={data.error} retry={() => void data.refetch()} />}
@@ -29,24 +30,47 @@ export function ModelServices() {
           <Pill tone={row.enabled ? 'green' : 'amber'}>{row.enabled ? '允许执行' : '已暂停'}</Pill></header>
         <div><h2>{provider.name}</h2><p>{provider.engine}</p></div>
         <dl>
-          <div><dt>执行配置</dt><dd>{row.configured ? '已配置' : '待配置'}</dd></div>
+          <div><dt>模型登记</dt><dd>{row.configured ? '已登记' : '尚未登记'}</dd></div>
           <div><dt>模型范围</dt><dd>{row.models.length ? '限定 ' + row.models.length + ' 个模型' : '沿用 Agent 授权'}</dd></div>
           <div><dt>在线可接单 Worker</dt><dd>{row.runtime.onlineWorkers} 台</dd></div>
           {!!row.runtime.localProfiles && <div><dt>本机凭据文件</dt><dd>{row.runtime.localCredentialsReady} / {row.runtime.localProfiles} 可读取</dd></div>}
+          {row.connection && <div><dt>工作台对话连接</dt><dd>{row.connection.model ?? (row.connection.environmentKey ? '已有部署凭据，待验证' : '待连接')}</dd></div>}
         </dl>
         <p className="muted-text">运行条件核对于 {date(row.runtime.checkedAt, true)}。具体模型和额度在派工前另核对。</p>
         <div className="admin-model-tags" aria-label="平台许可模型">
           {row.models.slice(0, 3).map(model => <code key={model} title={model}>{model}</code>)}
           {row.models.length > 3 && <span>另有 {row.models.length - 3} 个</span>}
         </div>
-        <footer><Button size="sm" variant="outline" onClick={() => setEditing(row)} aria-label={'配置 ' + provider.name}>配置模型</Button>
+        {row.connection?.model && <p><a href="#/account?tab=agent">配置个人 Agent</a> · <a href="#/platform?tab=router">配置 Router</a></p>}
+        <footer>{row.connection && <Button size="sm" onClick={() => setConnecting(row)}>{row.connection.model ? '更新连接' : '连接 DeepSeek'}</Button>}<Button size="sm" variant="outline" onClick={() => setEditing(row)} aria-label={'配置 ' + provider.name}>许可策略</Button>
           <Button size="sm" variant="ghost" onClick={() => void data.refetch()}>刷新运行状态</Button></footer>
       </article>;
     })}</div>}
+    {connecting?.connection && <DeepSeekConnection service={connecting} close={() => setConnecting(undefined)} />}
     {editing && <ModelServiceDialog key={editing.provider + ':' + editing.revision} service={editing}
       current={current} reload={() => { if (current) setEditing(current); }} refresh={() => data.refetch()}
       close={() => setEditing(undefined)} />}
   </>;
+}
+
+function DeepSeekConnection({ service, close }: { service: ModelService; close: () => void }) {
+  const { run } = useActions();
+  const connection = service.connection!;
+  const [model, setModel] = useState(connection.model ?? service.availableModels[0] ?? 'deepseek-flash');
+  const [key, setKey] = useState('');
+  return <SettingsDrawer title="连接 DeepSeek" close={close} submit={{ form: 'deepseek-connect', label: '验证并保存', disabled: !model.trim() }}>
+    <form id="deepseek-connect" className="form" onSubmit={async event => {
+      event.preventDefault();
+      if (await run(() => api('admin/model-services/deepseek/connect', { model: model.trim(), key: key.trim() || undefined,
+        revision: connection.revision }), '模型目录已验证，请为个人 Agent 或平台 Router 选择模型。')) close();
+    }}>
+      <p>用于工作台上的个人对话、路由建议和知识提炼。执行工单的 Worker 使用设备自己的凭据。</p>
+      {connection.environmentKey ? <p>使用部署环境已设置的 API Key。</p> : <Field label="DeepSeek API Key">
+        <Input type="password" autoComplete="off" required={!connection.model} value={key} onChange={e => setKey(e.target.value)}
+          placeholder={connection.model ? '留空沿用已保存的凭据' : '输入平台使用的 API Key'} /></Field>}
+      <Field label="模型 ID"><Input required value={model} maxLength={100} onChange={e => setModel(e.target.value)} /></Field>
+    </form>
+  </SettingsDrawer>;
 }
 
 function ModelServiceDialog({ service, current, reload, refresh, close }: {

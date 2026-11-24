@@ -35,21 +35,16 @@ node scripts/local-runner-proxy.mjs
 
 ## 2. 安装并确认执行端
 
-在第三个 Bash 或 Zsh 终端进入同一源码目录，配置本机模型凭据并安装执行端。输入凭据时终端隐藏内容。
+在第三个终端进入源码目录，用仓库自带的连接工具启动 Worker。首次确认设备后，终端提示输入 DeepSeek API Key，输入隐藏。工具会核对服务商返回的模型目录。
 
 ```sh
-export ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic
-printf 'DeepSeek 凭据：'
-IFS= read -rs ANTHROPIC_AUTH_TOKEN
-printf '\n'
-export ANTHROPIC_AUTH_TOKEN
 export CONTRACTOR_RUNNER_HOME="$PWD/.runtime/first-run-device"
-npm run package:runner
-npm install --ignore-scripts --prefix .runtime/first-run-tools ./dist/runner/contractor-runner-0.1.0.tgz
-.runtime/first-run-tools/node_modules/.bin/contractor connect http://127.0.0.1:4282 --bind-agent
+node bin/contractor.mjs connect http://127.0.0.1:4282 --bind-agent
 ```
 
 打开命令打印的浏览器地址，用刚初始化的账号登录，选择自己的项目和「验收清单 Agent」，确认连接。看到「执行端已上线」后返回工作台。
+
+如果还要体验个人对话或 Router，在 **平台管理 → 模型服务 → 连接 DeepSeek** 验证工作台使用的 Key，然后到「配置个人 Agent」或「配置 Router」选择模型并保存。
 
 ## 3. 发一张只读工单
 

@@ -64,7 +64,7 @@ function RouterSettings({ current }: { current: Assistant }) {
           <Field label="每日调用上限"><Input aria-label="每日调用上限" type="number" min={1} max={1000} required
             value={draft.dailyLimit} onChange={e => remember({ ...draft, dailyLimit: e.target.value })} /></Field>
         </div>
-        {!current.choices.length && <p className="muted-text">在工作台部署配置中登记整理模型后，即可选择。</p>}
+        {!current.choices.length && <p className="muted-text">请先到<a href="#/platform?tab=models">模型服务</a>连接 DeepSeek，再选择共用模型。</p>}
       </Section>
       <PageTabs label="Router 能力配置" items={routerTabs} value={purpose} onChange={setPurpose}>
         {routerTabs.map(([key]) => <TabsContent key={key} value={key} className="detail-stack">
@@ -99,15 +99,15 @@ function RouterSettings({ current }: { current: Assistant }) {
 
 const routerTabs = [['router', '路由建议'], ['memory', '知识提炼']] as const;
 
-export function PersonalAgentSettings({ project }: { project?: string }) {
+export function PersonalAgentSettings({ project, canConnect }: { project?: string; canConnect: boolean }) {
   const data = useData<Agent>('account/personal-agent');
   if (data.error && (!data.data || !mayKeepStale(data.error))) return <Failure error={data.error} retry={() => void data.refetch()} />;
   if (!data.data) return <Loading />;
   return <>{data.error && <Failure error={data.error} retry={() => void data.refetch()} />}
-    <PersonalAgentForm current={data.data} project={project} /></>;
+    <PersonalAgentForm current={data.data} project={project} canConnect={canConnect} /></>;
 }
 
-function PersonalAgentForm({ current, project }: { current: Agent; project?: string }) {
+function PersonalAgentForm({ current, project, canConnect }: { current: Agent; project?: string; canConnect: boolean }) {
   const { title, description, instructions, experience, selection, harness, revision } = current;
   const initial = { title, description, instructions, experience, selection, harness, revision };
   const [saved, remember] = useStored<typeof initial | undefined>('personal-agent-draft', undefined);
@@ -137,6 +137,7 @@ function PersonalAgentForm({ current, project }: { current: Agent; project?: str
         <Field label="轻量模型"><ModelPicker label="轻量模型" choices={current.choices} selection={draft.selection}
           onChange={selection => remember({ ...draft, selection })} /></Field>
       </div>
+      {!current.choices.length && <p className="muted-text">{canConnect ? <a href="#/platform?tab=models">连接团队模型</a> : '请联系平台管理员在「模型服务」连接团队模型。'}</p>}
       <div className="harness-field"><Field label="简介"><Input aria-label="简介" maxLength={240} value={draft.description}
         onChange={e => remember({ ...draft, description: e.target.value })} /></Field></div>
     </Section>

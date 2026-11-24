@@ -1,3 +1,6 @@
+import { createInterface } from 'node:readline';
+import { Writable } from 'node:stream';
+import { verifyDeepSeekModel } from './deepseek-catalog.ts';
 import { execFileSync, spawn } from 'node:child_process';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { link, open, lstat, mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
@@ -113,7 +116,25 @@ async function enroll(folder: string, endpoint: string, browser: boolean, name: 
 async function prepareModel(folder: string, profile: z.infer<typeof runnerAgentSchema>, resumeReceipts = false) {
   const cli = executable(profile.engine);
   if (!cli) throw new Error('请在此设备安装已授权的 ' + profile.engine + ' CLI');
-  if (profile.engine === 'claude') return checkClaudeRunnerModel(profile);
+  if (profile.engine === 'claude') {
+    if (profile.execution?.provider === 'deepseek' && process.stdin.isTTY && !resumeReceipts
+      && (!process.env.ANTHROPIC_AUTH_TOKEN?.trim() || !/^https:\/\/api\.deepseek\.com\/anthropic\/?$/.test(process.env.ANTHROPIC_BASE_URL ?? ''))) {
+      const input = createInterface({ input: process.stdin, terminal: true,
+        output: new Writable({ write(_chunk, _encoding, done) { done(); } }) });
+      process.stderr.write('输入此设备使用的 DeepSeek API Key（输入隐藏，回车确认）：');
+      input.once('SIGINT', () => input.close());
+      let token = '';
+      try { for await (const line of input) { token = line.trim(); break; } }
+      finally { input.close(); process.stderr.write('\n'); }
+      if (!token) throw new Error('已取消设备模型配置。');
+      process.env.ANTHROPIC_AUTH_TOKEN = token;
+      process.env.ANTHROPIC_BASE_URL = 'https://api.deepseek.com/anthropic';
+    }
+    await checkClaudeRunnerModel(profile);
+    if (!resumeReceipts && profile.execution?.provider === 'deepseek')
+      await verifyDeepSeekModel(process.env.ANTHROPIC_AUTH_TOKEN!, profile.model!);
+    return;
+  }
   if (process.platform === 'linux' && ['bwrap', 'socat', 'rg'].some(program => !executable(program)))
     throw new Error('请安装 Linux 隔离依赖 bubblewrap、socat、ripgrep，再运行同一条连接命令');
   const base = path.join(folder, 'member-credentials', profile.owner);
