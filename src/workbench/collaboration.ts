@@ -6041,13 +6041,11 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
   async function connectDeepSeek(actor: string, input: { model: string; models?: string[]; key?: string; revision: string }) {
     settings.assertServices(actor);
     if (!assistantConnection) throw new WorkbenchError('当前模型插件未提供连接配置。', 409);
-    const models = config.platformAssistant?.find(row => row.provider === 'deepseek')?.models;
     const requested = input.models ?? [input.model];
     if (requested[0] !== input.model || new Set(requested).size !== requested.length) throw new WorkbenchError('请核对模型列表。', 400);
     const check = () => {
       settings.assertServices(actor);
       if (input.revision !== assistantConnection.status().revision) throw new WorkbenchError('连接已更新，请刷新后重试。', 409);
-      if (models && requested.some(id => !models.includes(id))) throw new WorkbenchError('请选择部署者登记的模型：' + models.join('、'), 409);
       if (requested.some(id => !operationPolicies.modelAllowed('deepseek', id))) throw new WorkbenchError('请先在平台策略中允许此模型。', 409);
     };
     check();
@@ -6064,8 +6062,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     if (!assistantConnection?.catalog) throw new WorkbenchError('当前插件不支持读取模型目录。', 409);
     const ids = await assistantConnection.catalog(key).catch(error => { throw new WorkbenchError(error.message, 400); });
     settings.assertServices(actor);
-    const limit = config.platformAssistant?.find(row => row.provider === 'deepseek')?.models;
-    return ids.filter(id => (!limit || limit.includes(id)) && operationPolicies.modelAllowed('deepseek', id));
+    return ids.filter(id => operationPolicies.modelAllowed('deepseek', id));
   }
   function disconnectDeepSeek(actor: string, revision: string) {
     settings.assertServices(actor);

@@ -45,7 +45,7 @@ export function ModelServices() {
           {row.models.length > 3 && <span>另有 {row.models.length - 3} 个</span>}
         </div>
         {row.connection?.model && <p><a href="#/account?tab=agent">配置个人 Agent</a> · <a href="#/platform?tab=router">配置 Router</a></p>}
-        <footer>{row.connection && <Button size="sm" onClick={() => setConnecting(row)}>{row.connection.model ? '编辑模型连接' : '连接 DeepSeek'}</Button>}
+        <footer>{row.connection && <Button size="sm" onClick={() => setConnecting(row)}>{row.connection.model ? '管理模型许可' : '连接 DeepSeek'}</Button>}
           <Button size="sm" variant="outline" onClick={() => setEditing(row)}>
             {row.registered ? '编辑服务配置' : '新增服务配置'}
           </Button>
@@ -71,46 +71,38 @@ export function ModelServices() {
 }
 
 function DeepSeekConnection({ service, close }: { service: ModelService; close: () => void }) {
-  const { run } = useActions();
+  const { run, busy } = useActions();
   const connection = service.connection!;
-  const [model, setModel] = useState(connection.model ?? service.deploymentModels?.[0] ?? 'deepseek-flash');
-  const [others, setOthers] = useState<string[]>(connection.models?.slice(1) ?? []);
+  const initialModels = connection.models ?? service.deploymentModels ?? (connection.model ? [connection.model] : []);
+  const [models, setModels] = useState<string[]>(initialModels);
   const [key, setKey] = useState('');
   const [catalog, setCatalog] = useState<string[]>();
-  const suggested = catalog ?? service.deploymentModels;
-  const models = [model, ...others].map(id => id.trim());
-  const invalid = models.some(id => !validModelId.test(id)) || new Set(models).size !== models.length;
-  return <SettingsDrawer title="连接 DeepSeek" close={close} submit={{ form: 'deepseek-connect', label: '验证并保存', disabled: invalid }}>
+  const options = [...new Set([...(catalog ?? initialModels), ...models])];
+  const invalid = !models.length || models.length > 20 || models.some(id => catalog && !catalog.includes(id));
+  return <SettingsDrawer title="DeepSeek 模型许可" close={close} submit={{ form: 'deepseek-connect', label: '验证并保存', disabled: invalid }}>
     <form id="deepseek-connect" className="form" onSubmit={async event => {
       event.preventDefault();
-      if (await run(() => api('admin/model-services/deepseek/connect', { model: models[0], models, key: key.trim() || undefined,
-        revision: connection.revision }), '模型目录已验证，请为个人 Agent 或平台 Router 选择模型。')) close();
+      if (!invalid && await run(() => api('admin/model-services/deepseek/connect', { model: models[0], models, key: key.trim() || undefined,
+        revision: connection.revision }), '工作台模型许可已保存')) close();
     }}>
-      <p>用于工作台上的个人对话、路由建议和知识提炼。执行工单的 Worker 使用设备自己的凭据。</p>
+      <p>勾选的模型可供个人 Agent、平台 Router 和知识提炼使用。取消勾选并保存后，后续调用立即受限。</p>
       {connection.environmentKey ? <p>使用部署环境已设置的 API Key。</p> : <Field label="DeepSeek API Key">
-        <Input type="password" autoComplete="off" required={!connection.model} value={key} onChange={e => { setKey(e.target.value); setCatalog(undefined); }}
+        <Input type="password" autoComplete="off" disabled={busy} required={!connection.model} value={key}
+          onChange={e => { setKey(e.target.value); setCatalog(undefined); }}
           placeholder={connection.model ? '留空沿用已保存的凭据' : '输入平台使用的 API Key'} /></Field>}
-      <Button type="button" variant="outline" onClick={async () => {
-        const ids = await run(() => api<string[]>('admin/model-services/deepseek/catalog', { key: key.trim() || undefined }));
-        if (ids) {
-          setCatalog(ids);
-          if (ids.length && !ids.includes(model)) setModel(ids[0]!);
-        }
-      }}>读取可选模型</Button>
-      {service.deploymentModels && <p className="muted-text">部署允许的工作台模型：{service.deploymentModels.join('、')}</p>}
-      {catalog && !catalog.length && <p role="status">当前凭据与平台许可下没有可选模型，请核对密钥、部署范围和服务配置。</p>}
-      <Field label="模型 ID">{suggested?.length ? <select aria-label="模型 ID" value={model} onChange={e => setModel(e.target.value)}>
-        {[...new Set([model, ...suggested])].map(id => <option key={id}>{id}</option>)}</select>
-        : <Input required value={model} maxLength={100} onChange={e => setModel(e.target.value)} />}</Field>
-      {others.map((id, index) => <div className="actions" key={index}><Field label={'模型 ID ' + (index + 2)}>
-        {suggested?.length ? <select aria-label={'模型 ID ' + (index + 2)} required value={id} onChange={e =>
-          setOthers(others.map((value, i) => i === index ? e.target.value : value))}><option value="">请选择</option>
-          {[...new Set([id, ...suggested])].filter(Boolean).map(option => <option key={option}>{option}</option>)}</select>
-          : <Input aria-label={'模型 ID ' + (index + 2)} required maxLength={100} value={id}
-          onChange={event => setOthers(others.map((value, i) => i === index ? event.target.value : value))} />}</Field>
-        <Button type="button" variant="ghost" onClick={() => setOthers(others.filter((_, i) => i !== index))}>移除模型</Button></div>)}
-      {others.length < 19 && <Button type="button" variant="outline" onClick={() => setOthers([...others, ''])}>添加模型</Button>}
-      {models.every(Boolean) && invalid && <p role="alert">请填写有效且不重复的模型 ID。</p>}
+      <Button type="button" variant="outline" disabled={busy || (!key.trim() && !connection.model && !connection.environmentKey)}
+        onClick={async () => {
+          const ids = await run(() => api<string[]>('admin/model-services/deepseek/catalog', { key: key.trim() || undefined }));
+          if (ids) setCatalog(ids);
+        }}>读取供应商目录</Button>
+      {!!options.length && <fieldset className="admin-fieldset"><legend>许可模型</legend>
+        <div className="admin-radio-list">{options.map(id => <label key={id}><input type="checkbox" checked={models.includes(id)}
+          disabled={busy || (!models.includes(id) && models.length >= 20)} onChange={e =>
+            setModels(e.target.checked ? [...models, id] : models.filter(value => value !== id))} />{id}
+          {catalog && !catalog.includes(id) && '（当前不可用，请取消）'}</label>)}</div>
+      </fieldset>}
+      {catalog && !catalog.length && <p role="status">当前凭据和平台服务配置下没有可选模型。</p>}
+      {!models.length && options.length > 0 && <p role="status">请选择至少一个模型。要停用全部模型，可返回并断开连接。</p>}
     </form>
   </SettingsDrawer>;
 }

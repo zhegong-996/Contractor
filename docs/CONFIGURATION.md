@@ -40,7 +40,7 @@
 
 ### Router 和验收经验的轻量模型
 
-管理员可以在「平台管理 → 模型服务 → 连接 DeepSeek」输入 API Key 和模型 ID，验证通过后在个人 Agent 或 Router 中选择模型。工作台凭据只保存在状态目录的 `assistant-deepseek.private.json`（仅服务账号可读写）。账本恢复到新机器后，请重新连接。设置了环境变量时沿用部署凭据；已有部署模型名单仍限制可选范围。Worker 由设备所有者单独授权。
+管理员可以在「平台管理 → 模型服务 → 连接 DeepSeek」输入 API Key，读取供应商目录并勾选许可模型。已有连接可点「管理模型许可」修改；仅保存的模型进入个人 Agent 和 Router 的可选范围。工作台凭据只保存在状态目录的 `assistant-deepseek.private.json`（仅服务账号可读写）。本地保存的连接随账本备份恢复；通过环境变量提供的密钥须在目标主机另行设置。首次使用时沿用部署名单，管理员保存后使用页面上的许可名单，同时遵守平台服务的启停和模型范围。Worker 由设备所有者单独授权。
 
 部署者也可以在 `workbench.json` 登记可选模型。可使用 DeepSeek 或本机 Ollama。DeepSeek 的 API 凭据放在服务进程的 `CONTRACTOR_DEEPSEEK_API_KEY`，Ollama 使用回环地址。平台默认未启用整理模型。
 

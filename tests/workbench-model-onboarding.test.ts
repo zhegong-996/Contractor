@@ -16,7 +16,7 @@ test('首次接入只发布经过验证的目录，普通成员和失败的换�
   await auth.ready();
   await auth.bootstrapOwner('owner', 'fixture-password');
   await auth.createAccount('reader', 'fixture-password', 'viewer', 'owner');
-  const work = await openCollaboration(settingsSchema.parse({ executionRuntime: 'contractor' }), auth);
+  const work = await openCollaboration(settingsSchema.parse({ executionRuntime: 'contractor', platformAssistant: [{ provider: 'deepseek', models: ['deepseek-flash'] }] }), auth);
   t.after(async () => { await work.close(); await rm(state, { recursive: true, force: true }); });
   const provider = async () => (await work.modelServices('owner')).find(row => row.provider === 'deepseek')!;
   const input = { model: 'deepseek-flash', key: 'fixture-valid-token', revision: (await provider()).connection!.revision };
@@ -67,6 +67,17 @@ test('首次接入只发布经过验证的目录，普通成员和失败的换�
   assert.equal((await ollama()).registered, false);
   await work.connectDeepSeek('owner', { ...input, revision, models: [input.model, 'deepseek-test'] });
   assert.deepEqual(work.personalAgent('reader').choices.map(row => row.model), [input.model, 'deepseek-test']);
+  const second = { provider: 'deepseek' as const, model: 'deepseek-test' };
+  const beforeRevoke = work.platformAssistant('owner');
+  work.setPlatformAssistant('owner', { revision: beforeRevoke.revision, selection: second, dailyLimit: 30 });
+  work.setPersonalAgent('reader', { revision: work.personalAgent('reader').revision, title: '我的 Agent',
+    instructions: '', experience: '', selection: second });
+  await work.connectDeepSeek('owner', { ...input, revision: (await provider()).connection!.revision });
+  assert.equal(work.platformAssistant('owner').enabled, false);
+  assert.equal(work.personalAgent('reader').enabled, false);
+  const calls = remote.mock.callCount();
+  await assert.rejects(work.askPersonalAgent('reader', '复查门店推荐理由'), { status: 409 });
+  assert.equal(remote.mock.callCount(), calls);
   assert.throws(() => work.disconnectDeepSeek('owner', revision), { status: 409 });
   const connected = (await provider()).connection!.revision;
   assert.throws(() => work.disconnectDeepSeek('reader', connected), { status: 403 });
