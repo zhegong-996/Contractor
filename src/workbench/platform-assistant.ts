@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import type { SuperAgentStore } from '../superagent-ports.ts';
 import { emptyHarness, harnessBindings, validateAssistantText, type AssistantHarness, type AssistantHarnessStamp,
@@ -21,6 +22,15 @@ export const assistantUpdate = z.object({
   revision: z.string().regex(/^[a-f0-9]{64}$/), selection: assistantSelection.nullable(),
   dailyLimit: z.number().int().min(1).max(1000), harness: platformHarness.optional(),
 }).strict();
+const planName = z.string().trim().min(1).max(80);
+const planId = z.string().uuid();
+const planRevision = z.string().regex(/^[a-f0-9]{64}$/);
+const planSettings = assistantUpdate.omit({ revision: true }).required();
+export const routerPlanChange = z.discriminatedUnion('action', [
+  z.object({ action: z.literal('create'), name: planName, settings: planSettings }).strict(),
+  z.object({ action: z.literal('update'), id: planId, revision: planRevision, name: planName, settings: planSettings }).strict(),
+  z.object({ action: z.literal('remove'), id: planId, revision: planRevision }).strict(),
+]);
 type Setting = Omit<z.infer<typeof assistantUpdate>, 'revision' | 'harness'> & { harness: z.infer<typeof platformHarness> };
 type Role = z.infer<typeof roleSettings>;
 const defaultHarness = (): Setting['harness'] => ({
@@ -51,8 +61,10 @@ export type AssistantService = {
   personalReply?: 'text';
   available: (provider: Selection['provider']) => boolean;
   connection?: {
-    status(): { model?: string; environmentKey: boolean; revision: string };
-    verify(model: string, key?: string): Promise<() => void>;
+    status(): { model?: string; models?: string[]; disconnected?: boolean; environmentKey: boolean; revision: string };
+    catalog?(key?: string): Promise<string[]>;
+    disconnect?(): void;
+    verify(model: string, key?: string, models?: string[]): Promise<() => void>;
   };
   complete: (input: Selection & { purpose: Purpose; system: string; evidence: string }) => Promise<unknown>;
 };
@@ -66,6 +78,7 @@ export function openPlatformAssistant(store: Pick<SuperAgentStore, 'db' | 'atomi
     : prompts.personal;
   const { db } = store;
   db.exec(`CREATE TABLE IF NOT EXISTS workbench_platform_assistant (id INTEGER PRIMARY KEY CHECK(id=1), value TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS workbench_router_plan (id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, settings TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS workbench_platform_assistant_call (
       id INTEGER PRIMARY KEY, opened INTEGER NOT NULL, provider TEXT NOT NULL, model TEXT NOT NULL, purpose TEXT NOT NULL, actor TEXT NOT NULL,
       state TEXT NOT NULL, reported TEXT, tokens INTEGER, harness TEXT
@@ -85,9 +98,11 @@ export function openPlatformAssistant(store: Pick<SuperAgentStore, 'db' | 'atomi
     return { selection: saved.selection ?? null, dailyLimit: saved.dailyLimit ?? 100, harness: saved.harness ?? defaultHarness() };
   };
   const choices = () => {
-    const saved = service.connection?.status().model;
-    const catalog = saved && !profiles.some(row => row.provider === 'deepseek')
-      ? [...profiles, { provider: 'deepseek' as const, models: [saved] }] : profiles;
+    const connection = service.connection?.status();
+    const installed = profiles.find(row => row.provider === 'deepseek');
+    const verified = connection?.models ?? installed?.models ?? (connection?.model ? [connection.model] : []);
+    const models = connection?.disconnected ? [] : verified.filter(id => !installed || installed.models.includes(id));
+    const catalog: Profiles = [...profiles.filter(row => row.provider !== 'deepseek'), { provider: 'deepseek', models }];
     return catalog.flatMap(row => row.models.map(model => ({ provider: row.provider, model,
       available: service.available(row.provider) && ports.allowed(row.provider, model) })));
   };
@@ -100,6 +115,31 @@ export function openPlatformAssistant(store: Pick<SuperAgentStore, 'db' | 'atomi
   }
   function admin(actor: string) {
     if (!ports.admin(actor)) throw new WorkbenchError('需要平台服务管理权限。', 403);
+  }
+  function plans(actor: string) {
+    admin(actor);
+    return db.prepare('SELECT id,name,settings FROM workbench_router_plan ORDER BY name,id').all().map(row => {
+      const settings = planSettings.parse(JSON.parse(String(row.settings)));
+      return { id: String(row.id), name: String(row.name), settings, revision: digest([row.id, row.name, settings]) };
+    });
+  }
+  function changePlan(actor: string, input: z.infer<typeof routerPlanChange>) {
+    admin(actor);
+    return store.atomic(() => {
+      const rows = plans(actor);
+      const id = input.action === 'create' ? randomUUID() : input.id;
+      if (input.action !== 'create' && rows.find(row => row.id === id)?.revision !== input.revision)
+        throw new WorkbenchError('Router 方案已变化，请刷新。', 409);
+      if (input.action === 'remove') db.prepare('DELETE FROM workbench_router_plan WHERE id=?').run(id);
+      else {
+        validateAssistantText(input.name, input.settings.harness.router.instructions, input.settings.harness.memory.instructions);
+        if (rows.some(row => row.name === input.name && row.id !== id)) throw new WorkbenchError('方案名称已存在。', 409);
+        db.prepare('INSERT INTO workbench_router_plan VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,settings=excluded.settings')
+          .run(id, input.name, JSON.stringify(input.settings));
+      }
+      ports.audit('platform', 'assistant.plan-' + input.action, { actor, id });
+      return { id };
+    });
   }
   function view(actor: string) {
     admin(actor);
@@ -195,7 +235,17 @@ export function openPlatformAssistant(store: Pick<SuperAgentStore, 'db' | 'atomi
     }
   }
   return { view, update, choices, usable,
-    personalContract,
+    plans, changePlan, personalContract,
+    applyPlan(actor: string, id: string, revision: string, activeRevision: string) {
+      return store.atomic(() => {
+        const plan = plans(actor).find(row => row.id === id);
+        if (!plan || plan.revision !== revision) throw new WorkbenchError('Router 方案已变化，请刷新。', 409);
+        if (plan.settings.selection && !usable(plan.settings.selection)) throw new WorkbenchError('方案模型当前不可用。', 409);
+        const result = update(actor, { ...plan.settings, revision: activeRevision });
+        ports.audit('platform', 'assistant.plan-applied', { actor, id, revision });
+        return result;
+      });
+    },
     async draft<P extends 'router' | 'memory'>(purpose: P, actor: string, project: string, { topic, ...evidence }: { topic?: string; [key: string]: unknown }) {
       const assemble = ({ harness, selection }: Setting) => prepare(purpose, actor, harness[purpose],
         digest({ selection, role: harness[purpose] }), evidence, { topic });

@@ -6038,24 +6038,42 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
   });
   const settings = operationsSettings(store, config, operationPolicies, { canManageServices, projectFor, maintain, mayStart, topicsFor, audit });
   const assistantConnection = plugins.use('assistant').connection;
-  async function connectDeepSeek(actor: string, input: { model: string; key?: string; revision: string }) {
+  async function connectDeepSeek(actor: string, input: { model: string; models?: string[]; key?: string; revision: string }) {
     settings.assertServices(actor);
     if (!assistantConnection) throw new WorkbenchError('当前模型插件未提供连接配置。', 409);
     const models = config.platformAssistant?.find(row => row.provider === 'deepseek')?.models;
+    const requested = input.models ?? [input.model];
+    if (requested[0] !== input.model || new Set(requested).size !== requested.length) throw new WorkbenchError('请核对模型列表。', 400);
     const check = () => {
       settings.assertServices(actor);
       if (input.revision !== assistantConnection.status().revision) throw new WorkbenchError('连接已更新，请刷新后重试。', 409);
-      if (models && !models.includes(input.model)) throw new WorkbenchError('请选择部署者登记的模型：' + models.join('、'), 409);
-      if (!operationPolicies.modelAllowed('deepseek', input.model)) throw new WorkbenchError('请先在平台策略中允许此模型。', 409);
+      if (models && requested.some(id => !models.includes(id))) throw new WorkbenchError('请选择部署者登记的模型：' + models.join('、'), 409);
+      if (requested.some(id => !operationPolicies.modelAllowed('deepseek', id))) throw new WorkbenchError('请先在平台策略中允许此模型。', 409);
     };
     check();
-    const commit = await assistantConnection.verify(input.model, input.key).catch(error => {
+    const commit = await assistantConnection.verify(input.model, input.key, requested).catch(error => {
       throw new WorkbenchError(error.message, 400);
     });
     check();
     commit();
-    audit('platform', 'assistant.connection-updated', { actor, model: input.model });
+    audit('platform', 'assistant.connection-updated', { actor, models: requested });
     return { model: input.model };
+  }
+  async function deepSeekModels(actor: string, key?: string) {
+    settings.assertServices(actor);
+    if (!assistantConnection?.catalog) throw new WorkbenchError('当前插件不支持读取模型目录。', 409);
+    const ids = await assistantConnection.catalog(key).catch(error => { throw new WorkbenchError(error.message, 400); });
+    settings.assertServices(actor);
+    const limit = config.platformAssistant?.find(row => row.provider === 'deepseek')?.models;
+    return ids.filter(id => (!limit || limit.includes(id)) && operationPolicies.modelAllowed('deepseek', id));
+  }
+  function disconnectDeepSeek(actor: string, revision: string) {
+    settings.assertServices(actor);
+    if (!assistantConnection?.disconnect || assistantConnection.status().revision !== revision)
+      throw new WorkbenchError('模型连接已变化，请刷新。', 409);
+    assistantConnection.disconnect();
+    audit('platform', 'assistant.disconnected', { actor });
+    return { disconnected: true };
   }
   async function modelServices(actor: string) {
     const services = settings.modelServices(actor);
@@ -6072,7 +6090,8 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
         && agent.projects.some(id => !!projectById.get(id) && deviceAllowed(device, projectById.get(id)!, agent.id))));
       const connection = row.provider === 'deepseek' ? assistantConnection?.status() : undefined;
       return { ...row, configured: row.configured || !!connection?.model, connection,
-        availableModels: [...new Set([...row.availableModels, ...(connection?.model ? [connection.model] : [])])], runtime: { checkedAt, activeAgents: candidates.length, onlineWorkers: connected.length,
+        deploymentModels: config.platformAssistant?.find(profile => profile.provider === row.provider)?.models,
+        availableModels: [...new Set([...row.availableModels, ...(connection?.models ?? (connection?.model ? [connection.model] : []))])], runtime: { checkedAt, activeAgents: candidates.length, onlineWorkers: connected.length,
         localProfiles: local.length, localCredentialsReady: credentials.filter(Boolean).length } };
     }));
     settings.assertServices(actor);
@@ -6120,8 +6139,8 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
   const api = {
     ...settings,
     modelServices,
-    connectDeepSeek, platformAssistant: assistant.view,
-    setPlatformAssistant: assistant.update,
+    connectDeepSeek, disconnectDeepSeek, deepSeekModels, platformAssistant: assistant.view,
+    setPlatformAssistant: assistant.update, routerPlans: assistant.plans, changeRouterPlan: assistant.changePlan, applyRouterPlan: assistant.applyPlan,
     assistantSkills: harness.catalog,
     changeAssistantSkill: harness.change,
     async draftIntake(actor: string, id: string) {

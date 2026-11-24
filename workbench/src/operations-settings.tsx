@@ -19,6 +19,8 @@ export function ModelServices() {
   const data = useData<ModelService[]>('admin/model-services', 8000);
   const [editing, setEditing] = useState<ModelService>();
   const [connecting, setConnecting] = useState<ModelService>();
+  const [removal, setRemoval] = useState<{ row: ModelService; kind: 'policy' | 'connection' }>();
+  const { run, busy } = useActions();
   const current = data.data?.find(row => row.provider === editing?.provider);
   return <>
     {data.error && <Failure error={data.error} retry={() => void data.refetch()} />}
@@ -30,11 +32,12 @@ export function ModelServices() {
           <Pill tone={row.enabled ? 'green' : 'amber'}>{row.enabled ? '允许执行' : '已暂停'}</Pill></header>
         <div><h2>{provider.name}</h2><p>{provider.engine}</p></div>
         <dl>
-          <div><dt>模型登记</dt><dd>{row.configured ? '已登记' : '尚未登记'}</dd></div>
+          <div><dt>平台服务配置</dt><dd>{row.registered ? '已保存' : row.removed ? '已删除' : '使用默认策略'}</dd></div>
+          <div><dt>部署或连接登记</dt><dd>{row.configured ? '已登记' : '尚未登记'}</dd></div>
           <div><dt>模型范围</dt><dd>{row.models.length ? '限定 ' + row.models.length + ' 个模型' : '沿用 Agent 授权'}</dd></div>
           <div><dt>在线可接单 Worker</dt><dd>{row.runtime.onlineWorkers} 台</dd></div>
           {!!row.runtime.localProfiles && <div><dt>本机凭据文件</dt><dd>{row.runtime.localCredentialsReady} / {row.runtime.localProfiles} 可读取</dd></div>}
-          {row.connection && <div><dt>工作台对话连接</dt><dd>{row.connection.model ?? (row.connection.environmentKey ? '已有部署凭据，待验证' : '待连接')}</dd></div>}
+          {row.connection && <div><dt>工作台对话连接</dt><dd>{row.connection.disconnected ? '已断开' : row.connection.models?.join('、') || row.connection.model || (row.connection.environmentKey ? '已有部署凭据，待验证' : '待连接')}</dd></div>}
         </dl>
         <p className="muted-text">运行条件核对于 {date(row.runtime.checkedAt, true)}。具体模型和额度在派工前另核对。</p>
         <div className="admin-model-tags" aria-label="平台许可模型">
@@ -42,10 +45,24 @@ export function ModelServices() {
           {row.models.length > 3 && <span>另有 {row.models.length - 3} 个</span>}
         </div>
         {row.connection?.model && <p><a href="#/account?tab=agent">配置个人 Agent</a> · <a href="#/platform?tab=router">配置 Router</a></p>}
-        <footer>{row.connection && <Button size="sm" onClick={() => setConnecting(row)}>{row.connection.model ? '更新连接' : '连接 DeepSeek'}</Button>}<Button size="sm" variant="outline" onClick={() => setEditing(row)} aria-label={'配置 ' + provider.name}>许可策略</Button>
-          <Button size="sm" variant="ghost" onClick={() => void data.refetch()}>刷新运行状态</Button></footer>
+        <footer>{row.connection && <Button size="sm" onClick={() => setConnecting(row)}>{row.connection.model ? '编辑模型连接' : '连接 DeepSeek'}</Button>}
+          <Button size="sm" variant="outline" onClick={() => setEditing(row)}>
+            {row.registered ? '编辑服务配置' : '新增服务配置'}
+          </Button>
+          {row.registered && <Button size="sm" variant="ghost" onClick={() => setRemoval({ row, kind: 'policy' })}>删除服务配置</Button>}
+          {row.connection?.model && <Button size="sm" variant="ghost" onClick={() => setRemoval({ row, kind: 'connection' })}>断开模型连接</Button>}
+        </footer>
       </article>;
     })}</div>}
+    {removal && <Modal title={removal.kind === 'connection' ? '断开工作台模型连接' : '删除服务配置'} close={() => setRemoval(undefined)}>
+      <p>{removal.kind === 'connection' ? '将清除工作台保存的 DeepSeek 连接，使用它的个人会话、Router 和知识提炼需要重新连接。'
+        : '删除 ' + modelProviders[removal.row.provider].name + ' 的平台许可策略并暂停该服务的新调用。可通过新增配置重新启用。'}</p>
+      <Button variant="destructive" disabled={busy} onClick={async () => {
+        const connection = removal.kind === 'connection';
+        if (await run(() => api('admin/model-services/' + removal.row.provider + (connection ? '/disconnect' : '/remove'), {
+          revision: connection ? removal.row.connection!.revision : removal.row.revision }), connection ? '模型连接已断开' : '服务配置已删除')) setRemoval(undefined);
+      }}>{removal.kind === 'connection' ? '确认断开' : '确认删除配置'}</Button>
+    </Modal>}
     {connecting?.connection && <DeepSeekConnection service={connecting} close={() => setConnecting(undefined)} />}
     {editing && <ModelServiceDialog key={editing.provider + ':' + editing.revision} service={editing}
       current={current} reload={() => { if (current) setEditing(current); }} refresh={() => data.refetch()}
@@ -56,19 +73,44 @@ export function ModelServices() {
 function DeepSeekConnection({ service, close }: { service: ModelService; close: () => void }) {
   const { run } = useActions();
   const connection = service.connection!;
-  const [model, setModel] = useState(connection.model ?? service.availableModels[0] ?? 'deepseek-flash');
+  const [model, setModel] = useState(connection.model ?? service.deploymentModels?.[0] ?? 'deepseek-flash');
+  const [others, setOthers] = useState<string[]>(connection.models?.slice(1) ?? []);
   const [key, setKey] = useState('');
-  return <SettingsDrawer title="连接 DeepSeek" close={close} submit={{ form: 'deepseek-connect', label: '验证并保存', disabled: !model.trim() }}>
+  const [catalog, setCatalog] = useState<string[]>();
+  const suggested = catalog ?? service.deploymentModels;
+  const models = [model, ...others].map(id => id.trim());
+  const invalid = models.some(id => !validModelId.test(id)) || new Set(models).size !== models.length;
+  return <SettingsDrawer title="连接 DeepSeek" close={close} submit={{ form: 'deepseek-connect', label: '验证并保存', disabled: invalid }}>
     <form id="deepseek-connect" className="form" onSubmit={async event => {
       event.preventDefault();
-      if (await run(() => api('admin/model-services/deepseek/connect', { model: model.trim(), key: key.trim() || undefined,
+      if (await run(() => api('admin/model-services/deepseek/connect', { model: models[0], models, key: key.trim() || undefined,
         revision: connection.revision }), '模型目录已验证，请为个人 Agent 或平台 Router 选择模型。')) close();
     }}>
       <p>用于工作台上的个人对话、路由建议和知识提炼。执行工单的 Worker 使用设备自己的凭据。</p>
       {connection.environmentKey ? <p>使用部署环境已设置的 API Key。</p> : <Field label="DeepSeek API Key">
-        <Input type="password" autoComplete="off" required={!connection.model} value={key} onChange={e => setKey(e.target.value)}
+        <Input type="password" autoComplete="off" required={!connection.model} value={key} onChange={e => { setKey(e.target.value); setCatalog(undefined); }}
           placeholder={connection.model ? '留空沿用已保存的凭据' : '输入平台使用的 API Key'} /></Field>}
-      <Field label="模型 ID"><Input required value={model} maxLength={100} onChange={e => setModel(e.target.value)} /></Field>
+      <Button type="button" variant="outline" onClick={async () => {
+        const ids = await run(() => api<string[]>('admin/model-services/deepseek/catalog', { key: key.trim() || undefined }));
+        if (ids) {
+          setCatalog(ids);
+          if (ids.length && !ids.includes(model)) setModel(ids[0]!);
+        }
+      }}>读取可选模型</Button>
+      {service.deploymentModels && <p className="muted-text">部署允许的工作台模型：{service.deploymentModels.join('、')}</p>}
+      {catalog && !catalog.length && <p role="status">当前凭据与平台许可下没有可选模型，请核对密钥、部署范围和服务配置。</p>}
+      <Field label="模型 ID">{suggested?.length ? <select aria-label="模型 ID" value={model} onChange={e => setModel(e.target.value)}>
+        {[...new Set([model, ...suggested])].map(id => <option key={id}>{id}</option>)}</select>
+        : <Input required value={model} maxLength={100} onChange={e => setModel(e.target.value)} />}</Field>
+      {others.map((id, index) => <div className="actions" key={index}><Field label={'模型 ID ' + (index + 2)}>
+        {suggested?.length ? <select aria-label={'模型 ID ' + (index + 2)} required value={id} onChange={e =>
+          setOthers(others.map((value, i) => i === index ? e.target.value : value))}><option value="">请选择</option>
+          {[...new Set([id, ...suggested])].filter(Boolean).map(option => <option key={option}>{option}</option>)}</select>
+          : <Input aria-label={'模型 ID ' + (index + 2)} required maxLength={100} value={id}
+          onChange={event => setOthers(others.map((value, i) => i === index ? event.target.value : value))} />}</Field>
+        <Button type="button" variant="ghost" onClick={() => setOthers(others.filter((_, i) => i !== index))}>移除模型</Button></div>)}
+      {others.length < 19 && <Button type="button" variant="outline" onClick={() => setOthers([...others, ''])}>添加模型</Button>}
+      {models.every(Boolean) && invalid && <p role="alert">请填写有效且不重复的模型 ID。</p>}
     </form>
   </SettingsDrawer>;
 }
@@ -83,7 +125,7 @@ function ModelServiceDialog({ service, current, reload, refresh, close }: {
   const models = restricted ? selection : [];
   const known = current?.availableModels ?? service.availableModels;
   const invalid = restricted && (!models.length || models.length > 48 || models.some(model => !validModelId.test(model)));
-  const changed = enabled !== service.enabled || models.length !== service.models.length || models.some(model => !service.models.includes(model));
+  const changed = !service.registered || enabled !== service.enabled || models.length !== service.models.length || models.some(model => !service.models.includes(model));
   const stale = !!current && service.revision !== current.revision;
   const provider = modelProviders[service.provider];
   return <SettingsDrawer title={provider.name + ' 模型设置'} close={close}

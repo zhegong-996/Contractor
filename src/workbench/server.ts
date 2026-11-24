@@ -34,7 +34,7 @@ import { permissionAdmin } from './permission-admin.ts';
 import { AccountRecovery } from './account-recovery.ts';
 import { feishuActivationName } from './account-activation.ts';
 import { modelProvider, modelServiceUpdate, projectRoutingUpdate } from './operations-settings.ts';
-import { assistantUpdate } from './platform-assistant.ts';
+import { assistantUpdate, routerPlanChange } from './platform-assistant.ts';
 import { assistantSkillChange } from './assistant-harness.ts';
 import { personalAgentInput } from './personal-agent.ts';
 import { imLoginCookie, imQrCookie, imReturnPath, withIMStatus } from './im-login.ts';
@@ -586,6 +586,20 @@ async function serve(release: () => void) {
       else if (get && view === 'admin' && item === 'point-budgets' && !action) output = work.platformPointBudgets(actor);
       else if (get && view === 'admin' && item === 'model-services' && !action) output = await work.modelServices(actor);
       else if (get && view === 'admin' && item === 'platform-assistant' && !action) output = work.platformAssistant(actor);
+      else if (post && view === 'admin' && item === 'platform-assistant' && action === 'plans' && reference === 'apply') {
+        work.assertServices(actor);
+        const input = z.object({ id: z.string().uuid(), revision: knowledgeRevision, activeRevision: knowledgeRevision }).strict().parse(await body(req));
+        output = work.applyRouterPlan(actor, input.id, input.revision, input.activeRevision);
+      }
+      else if ((get || post) && view === 'admin' && item === 'platform-assistant' && action === 'plans' && !reference) {
+        work.assertServices(actor);
+        output = get ? work.routerPlans(actor) : work.changeRouterPlan(actor, routerPlanChange.parse(await body(req)));
+      }
+      else if (post && view === 'admin' && item === 'model-services' && action && reference === 'remove') {
+        work.assertServices(actor);
+        const { revision } = z.object({ revision: z.string().regex(/^[a-f0-9]{64}$/) }).strict().parse(await body(req));
+        output = work.removeModelService(actor, modelProvider.parse(action), revision);
+      }
       else if (post && view === 'admin' && item === 'platform-assistant' && !action)
         output = work.setPlatformAssistant(actor, assistantUpdate.parse(await body(req)));
       else if ((get || post) && view === 'admin' && item === 'platform-assistant' && action === 'skills' && !reference)
@@ -593,7 +607,16 @@ async function serve(release: () => void) {
       else if (post && view === 'admin' && item === 'model-services' && action === 'deepseek' && reference === 'connect') {
         work.assertServices(actor);
         output = await work.connectDeepSeek(actor, z.object({ model: z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,99}$/),
-          key: z.string().trim().regex(/^[!-~]{1,512}$/).optional(), revision: z.string().max(64) }).strict().parse(await body(req, 2048)));
+          models: z.array(z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,99}$/)).min(1).max(20).optional(),
+          key: z.string().trim().regex(/^[!-~]{1,512}$/).optional(), revision: z.string().max(64) }).strict().parse(await body(req, 4096)));
+      } else if (post && view === 'admin' && item === 'model-services' && action === 'deepseek' && reference === 'catalog') {
+        work.assertServices(actor);
+        const { key } = z.object({ key: z.string().trim().regex(/^[!-~]{1,512}$/).optional() }).strict().parse(await body(req, 1024));
+        output = await work.deepSeekModels(actor, key);
+      } else if (post && view === 'admin' && item === 'model-services' && action === 'deepseek' && reference === 'disconnect') {
+        work.assertServices(actor);
+        const { revision } = z.object({ revision: z.string().max(64) }).strict().parse(await body(req));
+        output = work.disconnectDeepSeek(actor, revision);
       } else if (post && view === 'admin' && item === 'model-services' && action && !reference)
         output = work.setModelService(actor, modelProvider.parse(action), modelServiceUpdate.parse(await body(req)));
       else if (get && view === 'admin' && item === 'service-status' && !action) {
