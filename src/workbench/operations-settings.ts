@@ -11,7 +11,7 @@ export type ModelProvider = z.infer<typeof modelProvider>;
 const revision = z.string().regex(/^[a-f0-9]{64}$/);
 export const modelServiceUpdate = z.object({ revision, enabled: z.boolean(), models: z.array(modelId).max(48)
   .refine(models => new Set(models).size === models.length) }).strict();
-type ModelService = Pick<z.infer<typeof modelServiceUpdate>, 'enabled' | 'models'>;
+type ModelService = Pick<z.infer<typeof modelServiceUpdate>, 'enabled' | 'models'> & { removed?: true };
 const routingSchema = z.object({ responsibilities: z.array(projectResponsibility).max(500),
   dispatch: z.array(dispatchRule).max(300), modelRoutes: z.array(modelRoute).max(60) }).strict();
 export const projectRoutingUpdate = routingSchema.extend({ revision }).strict();
@@ -35,7 +35,9 @@ export function loadOperationsSettings(store: Pick<SuperAgentStore, 'db' | 'atom
     const policy = service(known.data);
     return policy.enabled && (!policy.models.length || !!model && policy.models.includes(model));
   }
-  return { service, modelAllowed };
+  const registered = (provider: ModelProvider) => !!store.db.prepare('SELECT 1 FROM workbench_model_service WHERE provider=?').get(provider)
+    && !service(provider).removed;
+  return { service, modelAllowed, registered };
 }
 
 type Ports = {
@@ -62,7 +64,7 @@ export function operationsSettings(store: Pick<SuperAgentStore, 'db' | 'atomic'>
         ...(provider === 'deepseek' ? (config.octop?.profiles ?? []).map(profile => profile.model) : []),
         ...(config.platformAssistant?.find(row => row.provider === provider)?.models ?? []),
       ];
-      return { provider, title: serviceTitle[provider], ...value, revision: digest(value),
+      return { provider, title: serviceTitle[provider], ...value, registered: loaded.registered(provider), revision: digest([loaded.registered(provider), value]),
         configured: agents.length > 0 || profileModels.length > 0,
         availableModels: [...new Set([...agents.flatMap(a => a.allowedModels ?? (a.model ? [a.model] : [])), ...profileModels])].sort() };
     });
@@ -70,13 +72,25 @@ export function operationsSettings(store: Pick<SuperAgentStore, 'db' | 'atomic'>
 
   function setModelService(actor: string, provider: ModelProvider, { revision, ...value }: z.infer<typeof modelServiceUpdate>) {
     assertServices(actor);
-    if (digest(loaded.service(provider)) !== revision) throw new WorkbenchError('模型服务已被更新，请刷新后重试。', 409);
-    if (digest(value) === revision) return modelServices(actor).find(item => item.provider === provider)!;
+    if (digest([loaded.registered(provider), loaded.service(provider)]) !== revision) throw new WorkbenchError('模型服务已被更新，请刷新后重试。', 409);
+    if (loaded.registered(provider) && digest(value) === digest(loaded.service(provider))) return modelServices(actor).find(item => item.provider === provider)!;
     store.atomic(() => {
       store.db.prepare('INSERT OR REPLACE INTO workbench_model_service VALUES (?,?)').run(provider, JSON.stringify(value));
       audit('platform', 'model.service-changed', { actor, provider, enabled: value.enabled, models: value.models });
     });
     return modelServices(actor).find(item => item.provider === provider)!;
+  }
+
+  function removeModelService(actor: string, provider: ModelProvider, revision: string) {
+    assertServices(actor);
+    return store.atomic(() => {
+      if (!loaded.registered(provider) || digest([true, loaded.service(provider)]) !== revision)
+        throw new WorkbenchError('模型服务配置已变化，请刷新。', 409);
+      store.db.prepare('UPDATE workbench_model_service SET value=? WHERE provider=?')
+        .run(JSON.stringify({ enabled: false, models: [], removed: true }), provider);
+      audit('platform', 'model.service-removed', { actor, provider });
+      return { removed: true };
+    });
   }
 
   const currentRouting = (project: Project): Routing => ({ responsibilities: project.responsibilities, dispatch: project.dispatch,
@@ -131,5 +145,5 @@ export function operationsSettings(store: Pick<SuperAgentStore, 'db' | 'atomic'>
     Object.assign(project, routing);
     return projectRouting(actor, id);
   }
-  return { modelServices, setModelService, projectRouting, setProjectRouting, assertServices };
+  return { modelServices, setModelService, removeModelService, projectRouting, setProjectRouting, assertServices };
 }

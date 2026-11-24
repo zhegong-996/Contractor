@@ -8,7 +8,7 @@ import { credential, digest } from '../../upstream/autoloop/kernel/credentials.t
 import { acquireStateLease, stateLeasePath } from './state-lease.ts';
 
 const common = ['orchestrator.sqlite', 'console/accounts.json', 'workbench.json', 'secrets.json'];
-const optional = ['console/rbac_policy.csv', 'console/console-audit.jsonl', 'devices/host.key', 'feishu-ingress/inbox.sqlite'];
+const optional = ['assistant-deepseek.private.json', 'console/rbac_policy.csv', 'console/console-audit.jsonl', 'devices/host.key', 'feishu-ingress/inbox.sqlite'];
 const autoLoop = 'autoloop/hub.db';
 const autoLoopKey = 'autoloop/master.key';
 const contractor = 'dispatch/hub.sqlite';

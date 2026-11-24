@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import type { SuperAgentStore } from '../superagent-ports.ts';
 import { emptyHarness, harnessBindings, validateAssistantText, type AssistantHarness, type AssistantHarnessStamp,
@@ -21,6 +22,15 @@ export const assistantUpdate = z.object({
   revision: z.string().regex(/^[a-f0-9]{64}$/), selection: assistantSelection.nullable(),
   dailyLimit: z.number().int().min(1).max(1000), harness: platformHarness.optional(),
 }).strict();
+const planName = z.string().trim().min(1).max(80);
+const planId = z.string().uuid();
+const planRevision = z.string().regex(/^[a-f0-9]{64}$/);
+const planSettings = assistantUpdate.omit({ revision: true }).required();
+export const routerPlanChange = z.discriminatedUnion('action', [
+  z.object({ action: z.literal('create'), name: planName, settings: planSettings }).strict(),
+  z.object({ action: z.literal('update'), id: planId, revision: planRevision, name: planName, settings: planSettings }).strict(),
+  z.object({ action: z.literal('remove'), id: planId, revision: planRevision }).strict(),
+]);
 type Setting = Omit<z.infer<typeof assistantUpdate>, 'revision' | 'harness'> & { harness: z.infer<typeof platformHarness> };
 type Role = z.infer<typeof roleSettings>;
 const defaultHarness = (): Setting['harness'] => ({
@@ -43,25 +53,32 @@ const prompts = {
 type Purpose = AssistantPurpose;
 const receipt = z.object({
   model: z.string().max(160),
-  choices: z.array(z.object({ message: z.object({ content: z.string().max(8000) }) })).min(1),
+  choices: z.array(z.object({ message: z.object({ content: z.string().max(8000) }), finish_reason: z.string().nullable().optional() })).min(1),
   usage: z.object({ prompt_tokens: z.number().int().nonnegative().max(1_000_000_000),
     completion_tokens: z.number().int().nonnegative().max(1_000_000_000) }).optional(),
 });
 export type AssistantService = {
+  personalReply?: 'text';
   available: (provider: Selection['provider']) => boolean;
   connection?: {
-    status(): { model?: string; environmentKey: boolean; revision: string };
-    verify(model: string, key?: string): Promise<() => void>;
+    status(): { model?: string; models?: string[]; disconnected?: boolean; environmentKey: boolean; revision: string };
+    catalog?(key?: string): Promise<string[]>;
+    disconnect?(): void;
+    verify(model: string, key?: string, models?: string[]): Promise<() => void>;
   };
-  complete: (input: Selection & { system: string; evidence: string }) => Promise<unknown>;
+  complete: (input: Selection & { purpose: Purpose; system: string; evidence: string }) => Promise<unknown>;
 };
 type Prepared = { system: string; evidence: object; stamp: AssistantHarnessStamp };
 
 export function openPlatformAssistant(store: Pick<SuperAgentStore, 'db' | 'atomic'>, profiles: Profiles, service: AssistantService,
   ports: { admin: (actor: string) => boolean; allowed: (provider: string, model: string) => boolean;
     audit: (id: string, kind: string, data: object) => void; budgets: AgentBudgets; points: TokenPoints; harness: AssistantHarness }) {
+  const personalContract = service.personalReply === 'text'
+    ? '你是当前成员的个人助手。根据当前问题和提供的资料直接用自然语言回答。agentName 是助手名称，历史用于理解连续问题。说明缺少的信息，不调用工具或代替成员采取行动。'
+    : prompts.personal;
   const { db } = store;
   db.exec(`CREATE TABLE IF NOT EXISTS workbench_platform_assistant (id INTEGER PRIMARY KEY CHECK(id=1), value TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS workbench_router_plan (id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, settings TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS workbench_platform_assistant_call (
       id INTEGER PRIMARY KEY, opened INTEGER NOT NULL, provider TEXT NOT NULL, model TEXT NOT NULL, purpose TEXT NOT NULL, actor TEXT NOT NULL,
       state TEXT NOT NULL, reported TEXT, tokens INTEGER, harness TEXT
@@ -81,9 +98,11 @@ export function openPlatformAssistant(store: Pick<SuperAgentStore, 'db' | 'atomi
     return { selection: saved.selection ?? null, dailyLimit: saved.dailyLimit ?? 100, harness: saved.harness ?? defaultHarness() };
   };
   const choices = () => {
-    const saved = service.connection?.status().model;
-    const catalog = saved && !profiles.some(row => row.provider === 'deepseek')
-      ? [...profiles, { provider: 'deepseek' as const, models: [saved] }] : profiles;
+    const connection = service.connection?.status();
+    const installed = profiles.find(row => row.provider === 'deepseek');
+    const verified = connection?.models ?? installed?.models ?? (connection?.model ? [connection.model] : []);
+    const models = connection?.disconnected ? [] : verified.filter(id => !installed || installed.models.includes(id));
+    const catalog: Profiles = [...profiles.filter(row => row.provider !== 'deepseek'), { provider: 'deepseek', models }];
     return catalog.flatMap(row => row.models.map(model => ({ provider: row.provider, model,
       available: service.available(row.provider) && ports.allowed(row.provider, model) })));
   };
@@ -96,6 +115,31 @@ export function openPlatformAssistant(store: Pick<SuperAgentStore, 'db' | 'atomi
   }
   function admin(actor: string) {
     if (!ports.admin(actor)) throw new WorkbenchError('需要平台服务管理权限。', 403);
+  }
+  function plans(actor: string) {
+    admin(actor);
+    return db.prepare('SELECT id,name,settings FROM workbench_router_plan ORDER BY name,id').all().map(row => {
+      const settings = planSettings.parse(JSON.parse(String(row.settings)));
+      return { id: String(row.id), name: String(row.name), settings, revision: digest([row.id, row.name, settings]) };
+    });
+  }
+  function changePlan(actor: string, input: z.infer<typeof routerPlanChange>) {
+    admin(actor);
+    return store.atomic(() => {
+      const rows = plans(actor);
+      const id = input.action === 'create' ? randomUUID() : input.id;
+      if (input.action !== 'create' && rows.find(row => row.id === id)?.revision !== input.revision)
+        throw new WorkbenchError('Router 方案已变化，请刷新。', 409);
+      if (input.action === 'remove') db.prepare('DELETE FROM workbench_router_plan WHERE id=?').run(id);
+      else {
+        validateAssistantText(input.name, input.settings.harness.router.instructions, input.settings.harness.memory.instructions);
+        if (rows.some(row => row.name === input.name && row.id !== id)) throw new WorkbenchError('方案名称已存在。', 409);
+        db.prepare('INSERT INTO workbench_router_plan VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,settings=excluded.settings')
+          .run(id, input.name, JSON.stringify(input.settings));
+      }
+      ports.audit('platform', 'assistant.plan-' + input.action, { actor, id });
+      return { id };
+    });
   }
   function view(actor: string) {
     admin(actor);
@@ -133,7 +177,7 @@ export function openPlatformAssistant(store: Pick<SuperAgentStore, 'db' | 'atomi
   function prepare(purpose: Purpose, actor: string, role: Role, revision: string, evidence: object,
     context: Parameters<AssistantHarness['assemble']>[3]): Prepared {
     const { fields, sections, skillVersions, contextVersions, authority } = ports.harness.assemble(purpose, actor, role.bindings, context);
-    const contract = prompts[purpose];
+    const contract = purpose === 'personal' ? personalContract : prompts[purpose];
     const stamp = { revision: digest({ purpose, revision, contract, skillVersions, contextVersions, authority }),
       skills: skillVersions, context: contextVersions };
     return {
@@ -168,15 +212,19 @@ export function openPlatformAssistant(store: Pick<SuperAgentStore, 'db' | 'atomi
     let reported: string | undefined;
     let state = 'failed';
     try {
-      const result = receipt.parse(await service.complete({ ...selected, system: prepared.system, evidence: JSON.stringify(prepared.evidence) }));
+      const result = receipt.parse(await service.complete({ ...selected, purpose, system: prepared.system, evidence: JSON.stringify(prepared.evidence) }));
       reported = result.model;
       if (reported === selected.model && result.usage) metered = { input: result.usage.prompt_tokens, output: result.usage.completion_tokens };
       if (reported !== selected.model) throw new Error('返回的模型与配置不一致');
-      const value = formats[purpose].parse(JSON.parse(result.choices[0]!.message.content)) as z.infer<(typeof formats)[P]>;
+      const choice = result.choices[0]!;
+      if (choice.finish_reason === 'length' || choice.finish_reason === 'content_filter') throw new Error('回复不完整');
+      const content = choice.message.content;
+      const reply = personalCall && service.personalReply === 'text' ? { answer: content } : JSON.parse(content);
+      const value = formats[purpose].parse(reply) as z.infer<(typeof formats)[P]>;
       state = 'completed';
       return { value, model: selected, call, harness: prepared.stamp };
     } catch {
-      throw new WorkbenchError('模型整理暂未完成，可继续手动处理。', 502);
+      throw new WorkbenchError(personalCall ? '这次未能生成完整回复，请重试。' : '模型整理暂未完成，可继续手动处理。', 502);
     } finally {
       store.atomic(() => {
         db.prepare('UPDATE workbench_platform_assistant_call SET state=?,reported=?,tokens=? WHERE id=? AND state=\'pending\'')
@@ -187,7 +235,17 @@ export function openPlatformAssistant(store: Pick<SuperAgentStore, 'db' | 'atomi
     }
   }
   return { view, update, choices, usable,
-    personalContract: prompts.personal,
+    plans, changePlan, personalContract,
+    applyPlan(actor: string, id: string, revision: string, activeRevision: string) {
+      return store.atomic(() => {
+        const plan = plans(actor).find(row => row.id === id);
+        if (!plan || plan.revision !== revision) throw new WorkbenchError('Router 方案已变化，请刷新。', 409);
+        if (plan.settings.selection && !usable(plan.settings.selection)) throw new WorkbenchError('方案模型当前不可用。', 409);
+        const result = update(actor, { ...plan.settings, revision: activeRevision });
+        ports.audit('platform', 'assistant.plan-applied', { actor, id, revision });
+        return result;
+      });
+    },
     async draft<P extends 'router' | 'memory'>(purpose: P, actor: string, project: string, { topic, ...evidence }: { topic?: string; [key: string]: unknown }) {
       const assemble = ({ harness, selection }: Setting) => prepare(purpose, actor, harness[purpose],
         digest({ selection, role: harness[purpose] }), evidence, { topic });

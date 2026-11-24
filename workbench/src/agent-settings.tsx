@@ -45,24 +45,58 @@ function RouterSettings({ current }: { current: Assistant }) {
   const [purpose, setPurpose] = useStored<'router' | 'memory'>('router-settings-purpose', 'router');
   const initial = { selection: current.selection, dailyLimit: String(current.dailyLimit), harness: current.harness, revision: current.revision };
   const [saved, remember] = useStored<typeof initial | undefined>('platform-assistant-draft', undefined);
-  const draft = saved ?? initial;
-  const dirty = JSON.stringify(draft) !== JSON.stringify(initial);
-  const conflict = draft.revision !== current.revision;
+  const plans = useData<ReturnType<Collaboration['routerPlans']>>('admin/platform-assistant/plans');
+  type Plan = NonNullable<typeof plans.data>[number];
+  const [plan, editPlan] = useState<{ original?: Plan; name: string; values: typeof initial }>();
+  const [removing, setRemoving] = useState<Plan>();
+  const [applying, setApplying] = useState<Plan>();
+  const draft = plan?.values ?? saved ?? initial;
+  const dirty = plan ? !plan.original || plan.name !== plan.original.name
+    || JSON.stringify({ selection: draft.selection, dailyLimit: Number(draft.dailyLimit), harness: draft.harness }) !== JSON.stringify(plan.original.settings)
+    : JSON.stringify(draft) !== JSON.stringify(initial);
+  const conflict = plan ? !!plan.original && !!plans.data && !plans.data.some(row => row.id === plan.original!.id && row.revision === plan.original!.revision)
+    : draft.revision !== current.revision;
   const { run, busy } = useActions();
-  const changeRole = (value: (typeof initial.harness)['router']) => remember({ ...draft, harness: { ...draft.harness, [purpose]: value } });
+  const setDraft = (values: typeof initial) => plan ? editPlan({ ...plan, values }) : remember(values);
+  const openPlan = (row?: Plan) => editPlan(row ? { original: row, name: row.name,
+    values: { ...row.settings, dailyLimit: String(row.settings.dailyLimit), revision: current.revision } } : undefined);
+  const changeRole = (value: (typeof initial.harness)['router']) => setDraft({ ...draft, harness: { ...draft.harness, [purpose]: value } });
   const role = draft.harness[purpose];
   return <>
-    <form className="detail-stack harness-form" aria-label="平台 Router 配置" onSubmit={async event => {
+    <Section title="Router 方案" action={<Button size="sm" onClick={() => editPlan({ name: '', values: { ...draft } })}>新建方案</Button>}>
+      {plans.error && <Failure error={plans.error} retry={() => void plans.refetch()} />}
+      <Field label="正在编辑"><select aria-label="正在编辑" value={plan ? plan.original?.id ?? 'new' : 'active'}
+        onChange={e => openPlan(plans.data?.find(row => row.id === e.target.value))}>
+        <option value="active">平台生效配置</option>
+        {plan && !plan.original && <option value="new">新方案草稿</option>}
+        {plans.data?.map(row => <option key={row.id} value={row.id}>{row.name}</option>)}
+      </select></Field>
+      {plan && <Field label="方案名称"><Input aria-label="方案名称" required maxLength={80} form="router-settings" value={plan.name}
+        onChange={e => editPlan({ ...plan, name: e.target.value })} /></Field>}
+      {plan?.original && <div className="actions">
+        <Button size="sm" variant="outline" disabled={busy || dirty || conflict} onClick={() => setApplying(plan.original)}>应用到平台</Button>
+        <Button size="sm" variant="ghost" onClick={() => setRemoving(plan.original)}>删除方案</Button>
+      </div>}
+    </Section>
+    <form id="router-settings" className="detail-stack harness-form" aria-label="平台 Router 配置" onSubmit={async event => {
       event.preventDefault();
       if (conflict || busy || !dirty) return;
+      if (plan) {
+        const settings = { selection: draft.selection, dailyLimit: Number(draft.dailyLimit), harness: draft.harness };
+        const original = plan.original;
+        const result = await run(() => api<{ id: string }>('admin/platform-assistant/plans', { name: plan.name.trim(), settings,
+          ...(original ? { action: 'update', id: original.id, revision: original.revision } : { action: 'create' }) }), 'Router 方案已保存');
+        if (result) { const fresh = await plans.refetch(); openPlan(fresh.data?.find(row => row.id === result.id)); }
+        return;
+      }
       if (await run(() => api('admin/platform-assistant', { ...draft, dailyLimit: Number(draft.dailyLimit) }), '平台 Router 配置已保存')) remember(undefined);
     }}>
       <Section title="模型与额度" action={<Pill tone={current.enabled ? 'green' : 'neutral'}>{current.enabled ? '已启用' : '未启用'}</Pill>}>
         <div className="form-grid">
           <Field label="共用模型"><ModelPicker label="共用模型" choices={current.choices} selection={draft.selection}
-            onChange={selection => remember({ ...draft, selection })} /></Field>
+            onChange={selection => setDraft({ ...draft, selection })} /></Field>
           <Field label="每日调用上限"><Input aria-label="每日调用上限" type="number" min={1} max={1000} required
-            value={draft.dailyLimit} onChange={e => remember({ ...draft, dailyLimit: e.target.value })} /></Field>
+            value={draft.dailyLimit} onChange={e => setDraft({ ...draft, dailyLimit: e.target.value })} /></Field>
         </div>
         {!current.choices.length && <p className="muted-text">请先到<a href="#/platform?tab=models">模型服务</a>连接 DeepSeek，再选择共用模型。</p>}
       </Section>
@@ -80,9 +114,24 @@ function RouterSettings({ current }: { current: Assistant }) {
           </>}
         </TabsContent>)}
       </PageTabs>
-      <HarnessSave conflict={conflict} dirty={dirty} busy={busy} savedAt={'配置版本 ' + short(current.revision, 8)}
-        keep={() => remember({ ...draft, revision: current.revision })} refresh={() => remember(undefined)} />
+      {plan ? <div className="actions">
+        <Button type="submit" disabled={busy || conflict || !dirty || !plan.name.trim()}>保存方案</Button>
+        <Button type="button" variant="ghost" onClick={() => openPlan(undefined)}>返回生效配置</Button>
+        {conflict && <span role="alert">方案已更新，请重新选择。</span>}
+      </div> : <HarnessSave conflict={conflict} dirty={dirty} busy={busy} savedAt={'配置版本 ' + short(current.revision, 8)}
+        keep={() => setDraft({ ...draft, revision: current.revision })} refresh={() => remember(undefined)} />}
     </form>
+    {removing && <Modal title="删除 Router 方案" close={() => setRemoving(undefined)}><p>删除「{removing.name}」的保存副本。平台继续使用当前生效配置。</p>
+      <Button variant="destructive" disabled={busy} onClick={async () => {
+        if (await run(() => api('admin/platform-assistant/plans', { action: 'remove', id: removing.id, revision: removing.revision }), '方案已删除')) {
+          setRemoving(undefined); openPlan(undefined);
+        }
+      }}>确认删除方案</Button></Modal>}
+    {applying && <Modal title="应用 Router 方案" close={() => setApplying(undefined)}><p>将「{applying.name}」的模型、额度、提示词和技能用于后续路由建议与知识提炼。</p>
+      <Button disabled={busy} onClick={async () => {
+        if (await run(() => api('admin/platform-assistant/plans/apply', { id: applying.id, revision: applying.revision,
+          activeRevision: draft.revision }), '平台 Router 已应用方案')) { setApplying(undefined); openPlan(undefined); remember(undefined); }
+      }}>确认应用</Button></Modal>}
     <Section title="最近调用" action={<span className="muted-text">今日 {Number(current.today?.calls ?? 0)} 次 · {Number(current.today?.tokens ?? 0).toLocaleString()} Token</span>}>
       {current.recent.length ? <div className="detail-stack">{current.recent.map((call, index) =>
         <div className="harness-call-row" key={call.id ?? call.opened + ':' + index}><div className="record-row">
