@@ -1,3 +1,4 @@
+import { WorkspaceSearch } from './workspace-search.tsx';
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { Activity, ArrowLeft, Coins, Cpu, KeyRound, ListChecks, Plus, Route, ShieldCheck, UsersRound } from 'lucide-react';
 import { api, part, useData, type Overview, type PlatformAudit, type ProjectAccess, type Session } from './api.ts';
@@ -185,6 +186,7 @@ export function GlobalSettings({ view, tab, fromProject, returnTo, status, works
   const header = <header className="toolbar settings-toolbar">
     <a className="text-button" href={back}><ArrowLeft size={16} />返回工作台</a>
     <span className="settings-location">{view === 'platform' ? '平台管理' : '个人设置'}</span>
+    {!!workspace.projects.length && <WorkspaceSearch workspace={workspace} />}
     {view === 'platform' && <a className="text-button ml-auto" href={settingsRoute('account', undefined, returnTo, origin?.id)}>个人设置</a>}
     <Button variant="ghost" size="sm" onClick={logout}>退出登录</Button>
   </header>;

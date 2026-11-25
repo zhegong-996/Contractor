@@ -1,4 +1,5 @@
 import { TextArea } from './components/input.tsx';
+import { ticketMilestones } from './ticket-timeline.ts';
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Bot, Send } from 'lucide-react';
 import { api, uid, useData, useMessages, type Agent, type ConversationMessage, type ProjectChannels, type Ticket } from './api.ts';
@@ -81,6 +82,12 @@ export function Conversation({ project, workspace, openTask, ticket, topic, rout
     answerRef.current.querySelector('summary')?.focus();
   }, [originalReply?.id]);
   const visible = messages?.filter(item => !filterable || !channel || item.channel === channel || item === originalReply);
+  const entries = [
+    ...(visible ?? []).map(message => ({ kind: 'message' as const, at: message.at, message })),
+    ...(ticket && !channel ? ticketMilestones(ticket) : []).map(event => ({ kind: 'event' as const, at: event.at, event })),
+  ].sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
+  const [eventLimit, setEventLimit] = useStored('timeline-limit:' + (ticket?.id ?? ''), 30);
+  const hidden = ticket && !originalReply ? Math.max(0, entries.length - eventLimit) : 0;
   const members = new Map(project.members.map(member => [member.name, member]));
   const scrollKey = JSON.stringify(['messages', base, filter, reply, channel]);
   const scroll = useSessionScroll(scrollKey, { ready: desk && !!data.data, preserveInitial: true });
@@ -162,8 +169,17 @@ export function Conversation({ project, workspace, openTask, ticket, topic, rout
     }}>加载更早消息</Button>}
     {desk && visible?.length === 0 && <p className="conversation-empty">{channel ? '此来源暂无消息'
       : '还没有消息。输入 @ 提及一位 Agent，直接在这里布置任务，回复会出现在这个群里。'}</p>}
-    {(!data.error || ticket) && !!visible?.length && <div className="timeline" aria-label="成员讨论">
-      {visible.map(item => <Fragment key={item.id}><article className="timeline-entry member-message">
+    {(!data.error || ticket) && entries.length > 0 && <div className="timeline" aria-label={ticket ? "工单时间线" : "成员讨论"}>
+      {hidden > 0 && <Button size="sm" variant="ghost" onClick={() => setEventLimit(eventLimit + 30)}>显示较早动态（{hidden}）</Button>}
+      {entries.slice(hidden).map(entry => {
+        if (entry.kind === 'event') {
+          const event = entry.event;
+          return <article className="timeline-milestone" key={event.id}><time dateTime={event.at}>{date(event.at)}</time>
+            <div>{event.href ? event.external ? <Ext href={event.href}>{event.title}</Ext> : <a href={event.href}>{event.title}</a> : <strong>{event.title}</strong>}
+              {event.detail && <details><summary>详情</summary><p>{event.detail}</p></details>}</div></article>;
+        }
+        const item = entry.message;
+        return <Fragment key={item.id}><article className="timeline-entry member-message">
         <Avatar avatar={members.get(item.actor)?.avatar} value={item.actor} /><div className="message">
           <div className="message-meta"><strong title={item.actor}>{members.get(item.actor)?.displayName ?? item.actor}</strong><Source channel={item.channel} /><time>{date(item.at)}</time>
             {item.inline && <span>行内评论 {short(item.commit)}</span>}
@@ -184,7 +200,7 @@ export function Conversation({ project, workspace, openTask, ticket, topic, rout
             {item.revisions.map(revision => <div className="revision-note" key={revision.revision}><time>{date(revision.at)}</time><p>{revision.text || '原消息已撤回'}</p></div>)}
           </details>}
         </div>
-      </article>{item.consultations?.map(reply => <SignedTopicReply key={reply.ticket} origin={route} reply={reply} />)}</Fragment>)}
+      </article>{item.consultations?.map(reply => <SignedTopicReply key={reply.ticket} origin={route} reply={reply} />)}</Fragment>; })}
     </div>}
     </div>
     {!reply && project.mayStart && <form className={desk ? 'form conversation-composer' : 'form ticket-composer'} onSubmit={event => {

@@ -303,6 +303,12 @@ function TicketDetail(props: PageProps & { ticket: Ticket; tab: WorkTab }) {
     <div className="ticket-frame" data-inspector={side}>
       <PageTabs value={tab} onChange={value => { window.location.hash = detailLink(value); }} items={workTabs} label="工单详情">
         <TabsContent className="ticket-tab" value="activity">
+          {!viewedVersion && ticket.requiredChildren.length > 0 && <section className="revision-note" aria-label="必需子任务">
+            <h3>{ticket.requiredChildren.length} 项必需结果，已齐 {ticket.requiredChildren.filter(row => row.ready).length} 项</h3>
+            {ticket.requiredChildren.map(row => <div className="record-row" key={row.duty}>
+              {row.child ? <a href={routeFor(project.id, 'work', row.child)}>{row.title}</a> : <span>{row.title}</span>}
+              <span>{row.state}</span></div>)}
+          </section>}
           {ticket.work.development && <CurrentCodeReview ticket={ticket} />}
           {!viewedVersion && <EngineeringReview key={ticket.id} ticket={ticket} project={project} />}
           {ticket.recovery && <div className="decision-focus" data-decision-focus="recovery" tabIndex={-1}><TicketRecovery {...props} ticket={ticket} /></div>}

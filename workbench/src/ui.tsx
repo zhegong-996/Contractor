@@ -60,8 +60,8 @@ export function IconButton({ label, children, ...props }: ComponentProps<typeof 
   return <Button type="button" variant="ghost" size="icon-sm" aria-label={label} title={label} {...props}>{children}</Button>;
 }
 
-export function SearchBox({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
-  return <div className="searchbox"><Search aria-hidden="true" /><Input type="search" aria-label={label} placeholder={label}
+export function SearchBox({ label, value, onChange, autoFocus }: { autoFocus?: boolean; label: string; value: string; onChange: (value: string) => void }) {
+  return <div className="searchbox"><Search aria-hidden="true" /><Input autoFocus={autoFocus} type="search" aria-label={label} placeholder={label}
     value={value} onChange={event => onChange(event.target.value)} /></div>;
 }
 

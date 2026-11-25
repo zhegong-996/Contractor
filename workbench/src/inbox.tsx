@@ -1,5 +1,5 @@
 import { Input, TextArea } from './components/input.tsx';
-import { useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ArrowRight, Bot, CheckCheck, ChevronRight, ClipboardCheck, GitPullRequest, Inbox, Link2, ListChecks, LockKeyhole, MessageSquare, ShieldCheck, Workflow } from 'lucide-react';
 import { api, useData, useTickets, type Decision, type Knowledge } from './api.ts';
 import { TicketPicker } from './components/ticket-picker.tsx';
@@ -7,7 +7,7 @@ import { AgentOptions, MaterialPicker } from './creation.tsx';
 import { go, personalChatRoute, projectWorkRoute, routeFor, workFromInbox, type PageProps } from './navigation.ts';
 import { Button } from './components/button.tsx';
 import { Markdown } from './markdown.tsx';
-import { date, Empty, Ext, Field, Modal, Section, Segments, short, TicketStatus, TopicOptions, useActions, useStored, Version } from './ui.tsx';
+import { date, Empty, Ext, Field, Modal, Section, Segments, short, TicketStatus, TopicOptions, useActions, useSessionScroll, useStored, Version } from './ui.tsx';
 
 export const decisionVisual = {
   channel: [Link2, '确认归属'], intake: [Workflow, '确认分工'], discussion: [MessageSquare, '群反馈'],
@@ -29,7 +29,25 @@ export function InboxPage(props: PageProps) {
   const { project, workspace } = props;
   const [scope, setScope] = useStored<'all' | 'project'>('inbox-scope', 'all');
   const [opened, open] = useState<Decision>();
-  const decisions = workspace.needsYou.filter(d => scope === 'all' || d.project === project.id);
+  const fresh = workspace.needsYou.filter(d => scope === 'all' || d.project === project.id);
+  const scroll = useSessionScroll('inbox:' + scope + ':' + project.id);
+  const [hover, setHover] = useState(false);
+  const [focus, setFocus] = useState(false);
+  const [scrolling, setScrolling] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  useEffect(() => () => clearTimeout(timer.current), []);
+  const order = useRef<string[]>([]);
+  const held = hover || focus || scrolling;
+  const groups = new Map<string, Decision[]>();
+  for (const decision of fresh) {
+    const key = decision.ticket ?? decision.id;
+    const group = groups.get(key);
+    if (group) group.push(decision);
+    else groups.set(key, [decision]);
+  }
+  const keys = held ? [...new Set([...order.current, ...groups.keys()])].filter(key => groups.has(key)) : [...groups.keys()];
+  useLayoutEffect(() => { order.current = keys; });
+  const decisions = keys.flatMap(key => groups.get(key)!);
   const latest = useTickets({ project: project.id, purpose: 'work', limit: 6 }, true, 4000).rows;
   const memberAgents = workspace.agents.filter(a => a.projects.includes(project.id));
   function decisionRoute(d: Decision) {
@@ -41,7 +59,12 @@ export function InboxPage(props: PageProps) {
     if (d.kind === 'discussion') return routeFor(d.project, 'project', d.subject, 'discussion');
     if (d.kind === 'budget') return routeFor(d.project, 'project', undefined, 'usage');
   }
-  return <div className="page-scroll"><div className="dashboard">
+  return <div className="page-scroll" ref={scroll.ref} onScroll={event => {
+    scroll.onScroll(event);
+    setScrolling(true);
+    clearTimeout(timer.current);
+    timer.current = setTimeout(() => setScrolling(false), 500);
+  }}><div className="dashboard">
     <div className="dashboard-heading">
       <div><h1>待我处理 {!!decisions.length && <span className="heading-count">{decisions.length}</span>}</h1>
         <p>{decisions.length ? decisions.length + ' 项需要你的决定' : '当前没有待你决定的事项'}</p></div>
@@ -49,8 +72,10 @@ export function InboxPage(props: PageProps) {
     </div>
     <div className="dashboard-grid">
       <div className="dashboard-main">
-        <section className="inbox-list" aria-label="待办">
-          {decisions.length ? decisions.map(d => {
+        <section className="inbox-list" aria-label="待办" onPointerEnter={e => setHover(e.pointerType === 'mouse')}
+          onPointerLeave={() => setHover(false)} onFocus={() => setFocus(true)}
+          onBlur={e => { if (!e.currentTarget.contains(e.relatedTarget)) setFocus(false); }}>
+          {decisions.length ? keys.map(key => <div key={key} className="inbox-group">{groups.get(key)!.map(d => {
             const [Icon, kind] = decisionVisual[d.kind];
             const href = decisionRoute(d);
             const ticket = d.ticketTitle;
@@ -68,7 +93,7 @@ export function InboxPage(props: PageProps) {
             </div><div className="inbox-item-end"><time>{date(d.openedAt)}</time><ChevronRight size={17} /></div></>;
             return href ? <a key={d.id} className="inbox-row" data-tone={decisionTone[d.kind] ?? 'blue'} href={href}>{contents}</a>
               : <button key={d.id} className="inbox-row" data-tone={decisionTone[d.kind] ?? 'blue'} type="button" onClick={() => open(d)}>{contents}</button>;
-          }) : <Empty title="待办已清空" description="需要你授权、答复或验收的事项会显示在这里。" icon={<CheckCheck />} />}
+          })}</div>) : <Empty title="待办已清空" description="需要你授权、答复或验收的事项会显示在这里。" icon={<CheckCheck />} />}
         </section>
         <Section title="最近协作" action={<a href={projectWorkRoute(project.id)} className="text-button">全部工单 <ArrowRight size={15} /></a>}>
           {latest.length ? latest.map(item => <a className="recent-row" href={workFromInbox(routeFor(project.id, 'work', item.id), project.id)} key={item.id}>

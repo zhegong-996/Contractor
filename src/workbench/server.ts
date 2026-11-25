@@ -647,6 +647,15 @@ async function serve(release: () => void) {
         const { current, password } = z.object({ current: z.string().min(1).max(300), password: newPassword }).strict().parse(await body(req));
         await accessAdmin!.changePassword(actor, current, password);
       }
+      else if (get && view === 'search' && !item) {
+        const input = z.object({ q: z.string().trim().min(1).max(160), offset: z.coerce.number().int().min(0).default(0) })
+          .strict().parse(Object.fromEntries(url.searchParams));
+        output = work.workspaceSearch(actor, input.q, input.offset);
+      }
+      else if (post && view === 'ticket' && item && action === 'priority' && !reference) {
+        const priority = z.enum(['normal', 'urgent']);
+        output = work.setPriority(actor, item, z.object({ priority, previous: priority, version: z.number().int().positive() }).strict().parse(await body(req)));
+      }
       else if (get && view === 'engineering-health' && !item) output = work.engineeringHealth(actor);
       else if (post && view === 'ticket' && item && action === 'watch' && !reference)
         output = work.setWatching(actor, item, z.object({ active: z.boolean() }).strict().parse(await body(req)).active);
