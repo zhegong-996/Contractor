@@ -3,7 +3,7 @@ import { api, useData, useTickets, type Agent, type Usage } from './api.ts';
 import { agentSettingsRoute, go, routeFor, type PageProps } from './navigation.ts';
 import { TabsContent } from './components/page-tabs.tsx';
 import { Button } from './components/button.tsx';
-import { Avatar, date, Empty, Failure, Loading, PageTabs, Pill, SearchBox, Section, Segments, TicketStatus, useActions, useStored } from './ui.tsx';
+import { Avatar, date, Empty, Failure, Loading, PageTabs, Pill, SearchBox, Section, Segments, TicketStatus, useActions, useMediaQuery, useStored } from './ui.tsx';
 import { AgentMemory, AgentOperations } from './agent-operations.tsx';
 import { AgentLibrary } from './agent-library.tsx';
 import { WorkerHarness } from './worker-harness.tsx';
@@ -13,10 +13,11 @@ export function AgentsPage(props: PageProps) {
   const { workspace, project, route } = props;
   const tab = route.item ? undefined : route.tab;
   const library = tab === 'library' && workspace.octopEnabled;
+  const narrow = useMediaQuery('(max-width: 760px)');
   const catalogue = tab !== 'devices' && tab !== 'budgets' && !library;
   return <div className="agent-workspace">
     <nav className="agent-navigation" aria-label="Agent 配置入口">
-      <a className="text-button" href={routeFor(project.id, 'agents')} aria-current={catalogue ? 'page' : undefined}><Bot size={16} />项目 Agent</a>
+      <a className="text-button" href={routeFor(project.id, 'agents')} aria-current={catalogue ? 'page' : undefined}><Bot size={16} />{narrow && catalogue && !route.item ? <h1 className="nav-page-title">项目 Agent</h1> : '项目 Agent'}</a>
       <a className="text-button" href={agentSettingsRoute('agent', project.id)}><Bot size={16} />个人 Agent</a>
       {workspace.canManageServices && <a className="text-button" href={agentSettingsRoute('router', project.id)}><Routing size={16} />平台 Router</a>}
       <a className="text-button" href={agentSettingsRoute('workers', project.id)}><Laptop size={16} />我的 Worker</a>

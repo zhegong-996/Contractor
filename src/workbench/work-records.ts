@@ -78,8 +78,8 @@ export function openWorkRecords(store: SuperAgentStore, projectFor: (id: string,
     return { ticket, work, project };
   };
 
-  function createForMandate(id: string, event: Trigger) {
-    const work: Work = { project: String(event.meta.project), requester: event.actor.id,
+  function createForMandate(id: string, event: Trigger, deliveryLead?: string) {
+    const work: Work = { project: String(event.meta.project), requester: event.actor.id, deliveryLead: deliveryLead ?? event.actor.id,
       agent: String(event.meta.agent), agentVersion: String(event.meta.agentVersion), function: String(event.meta.function),
       octop: event.meta.octop as ExpertAuthority | undefined,
       material: event.meta.material as string[], source: event.source === 'feishu' || (event.meta.consultation as Work['consultation'])?.feishu ? 'feishu'

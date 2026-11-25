@@ -118,11 +118,17 @@ test('原生工单带口径交接、阻塞接续、多版验收、成果重授�
   assert.equal(work.engineeringHealth('product')[0]?.decisions, 1);
   assert.deepEqual(work.engineeringHealth('engineering'), []);
   assert.deepEqual(work.detail('resource', blocked).engineeringReview.records, []);
+  const requested = work.detail('engineering', blocked).responsibility;
+  assert.equal(requested.deliveryLead, 'engineering');
+  assert.ok(requested.actionMembers.includes('product'));
   const answer = { action: 'answer' as const, id: decision.id, text: '允许调整布局，保留三档验收。' };
   assert.throws(() => work.engineeringActionFor('resource', blocked, answer), { status: 403 });
   work.engineeringActionFor('product', blocked, answer);
   work.engineeringActionFor('product', blocked, answer);
   assert.equal(work.needsYou('engineering').filter(row => row.subject === decision.id).length, 1);
+  const answered = work.detail('engineering', blocked).responsibility;
+  assert.equal(answered.deliveryLead, requested.deliveryLead);
+  assert.ok(answered.actionMembers.includes('engineering'));
   const receive = { action: 'received' as const, id: decision.id, resume: true };
   work.engineeringActionFor('engineering', blocked, receive);
   work.engineeringActionFor('engineering', blocked, receive);

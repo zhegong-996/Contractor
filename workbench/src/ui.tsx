@@ -19,6 +19,18 @@ type Actions = {
 };
 export const ActionContext = createContext<Actions | null>(null);
 export const useActions = () => useContext(ActionContext)!;
+export function useMediaQuery(match: string) {
+  const [matches, setMatches] = useState(() => window.matchMedia(match).matches);
+  useEffect(() => {
+    const media = window.matchMedia(match);
+    const update = () => setMatches(media.matches);
+    update();
+    media.addEventListener('change', update);
+    return () => media.removeEventListener('change', update);
+  }, [match]);
+  return matches;
+}
+
 export function useStored<T>(key: string, initial: T): [T, (next: T) => void] {
   const action = useActions();
   return [Object.hasOwn(action.stored, key) ? action.stored[key] as T : initial, next => action.store(key, next)];

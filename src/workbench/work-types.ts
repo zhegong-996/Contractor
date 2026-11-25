@@ -19,6 +19,7 @@ export type ExecutionBlockKind = 'model-unavailable' | 'model-authorization' | '
 export type Work = {
   project: string;
   requester: string;
+  deliveryLead?: string;
   acceptanceAssignee?: { member: string; version: number; at: string };
   agent: string;
   agentVersion: string;

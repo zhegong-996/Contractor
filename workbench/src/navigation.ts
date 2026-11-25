@@ -7,7 +7,7 @@ export type GlobalView = 'platform' | 'account';
 type ConversationOrigin = { project: string; item?: string; tab?: string; reply?: string };
 export type Route = { project: string; view: View; item?: string; tab?: string; run?: number; attempt?: number; revision?: string;
   reply?: string; participant?: string; global?: GlobalView; conversationOrigin?: ConversationOrigin;
-  personalChat?: true; workTopic?: string; projectWork?: boolean; inboxOrigin?: string; decision?: string; reviewRevision?: string; returnTo?: string;
+  personalChat?: true; workTopic?: string; projectWork?: boolean; myWork?: boolean; inboxOrigin?: string; decision?: string; reviewRevision?: string; returnTo?: string;
   consultation?: { ticket: string; revision: string } };
 export type TaskPreset = {
   request?: string;
@@ -98,7 +98,7 @@ export function useRoute(): Route {
       run: positive('run'), attempt: positive('attempt'), revision: params.get('revision') ?? undefined,
       reply: params.get('reply') ?? undefined, participant: params.get('agent') ?? undefined, conversationOrigin,
       ...(view === 'work' && {
-        workTopic: token('topic', /^[\w-]{1,80}$/), projectWork: params.get('scope') === 'project',
+        workTopic: token('topic', /^[\w-]{1,80}$/), projectWork: params.get('scope') === 'project', myWork: params.get('scope') === 'mine',
         inboxOrigin: token('fromInbox', /^[\w-]{1,80}$/), decision: token('decision', /^[a-f0-9]{32}$/),
         reviewRevision: token('review', /^[a-f0-9]{64}$/),
       }),

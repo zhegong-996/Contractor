@@ -1,5 +1,5 @@
 import type { FeishuSources } from '../feishu-sources.ts';
-import type { inspectBranch, inspectCommitChecks, inspectIssue, inspectPull } from './github-delivery.ts';
+import type { inspectBranch, inspectChangedFiles, inspectCommitChecks, inspectIssue, inspectPull } from './github-delivery.ts';
 import type { inspectProductVerification } from './github-product-verification.ts';
 import type { readKnowledgeSource } from './knowledge-sources.ts';
 import type { knowledgeHealth } from './knowledge-health.ts';
@@ -14,6 +14,7 @@ export interface Capabilities {
   assistantHarness: AssistantHarnessProvider;
   delivery: {
     inspectPull: typeof inspectPull;
+    inspectChangedFiles?: typeof inspectChangedFiles;
     inspectBranch: typeof inspectBranch;
     inspectIssue: typeof inspectIssue;
     inspectCommitChecks: typeof inspectCommitChecks;

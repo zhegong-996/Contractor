@@ -174,7 +174,14 @@ test('交付检查按版本冻结，失败只重核相应证据；独立审查�
   remote.checks = [codeCheck(1, { status: 'in_progress', conclusion: null })];
   await save();
   await work.linkDelivery('owner', id, remote.pull.html_url);
-  assert.equal(work.detail('owner', id).deliveryStatus?.state, 'ci-pending');
+  const pendingVersion = work.detail('owner', id);
+  assert.equal(pendingVersion.deliveryStatus?.state, 'ci-pending');
+  assert.equal(pendingVersion.responsibility.deliveryLead, 'maker');
+  assert.equal(pendingVersion.currentEvidence, true);
+  assert.equal(pendingVersion.mayReadChanges, true);
+  assert.equal(work.detail('auditor', id).mayReadChanges, false);
+  await assert.rejects(work.ticketChanges('auditor', id), { status: 403 });
+  await assert.rejects(work.ticketChanges('owner', id, { head: foreign }), { status: 409 });
   assert.equal(pending('owner', 'acceptance'), undefined);
   assert.equal(pending('maker', 'delivery'), undefined);
   await assert.rejects(accept(), /代码工单必须/);
@@ -217,6 +224,8 @@ test('交付检查按版本冻结，失败只重核相应证据；独立审查�
   assert.equal(pending('maker', 'delivery'), undefined);
   // A later failed attempt hides the review inbox item. Restoring green for the same output doesn't push again.
   remote.checks = [codeCheck(4, { conclusion: 'failure' })]; await save(); await refresh();
+  assert.equal(work.detail('owner', id).lastGreen, sha);
+  assert.equal(work.detail('owner', id).actions.accept, false);
   assert.equal(pending('owner', 'acceptance'), undefined);
   remote.checks = [codeCheck(5)]; await save(); await refresh();
   assert.equal(pending('owner', 'acceptance')?.id, ready.id);

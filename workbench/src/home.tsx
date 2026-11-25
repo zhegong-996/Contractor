@@ -16,14 +16,20 @@ function decisionRoute(d: Decision) {
   if (d.kind === 'budget') return routeFor(d.project, 'project', undefined, 'usage');
 }
 
-export function HomePage({ workspace }: PageProps) {
+function focusSection(id: string) {
+  const section = document.getElementById(id);
+  section?.focus({ preventScroll: true });
+  section?.scrollIntoView({ block: 'start' });
+}
+
+export function HomePage({ workspace, project }: PageProps) {
   const needsYou = workspace.needsYou;
   // The shell intentionally loads only its navigation catalog. Home owns the
   // bounded ticket read so a missing ticket list cannot be mistaken for zero.
   const activity = useData<Overview>('overview');
   const tickets = activity.data?.tickets ?? [];
   const states = tickets.map(ticket => ticketListState(ticket));
-  const running = tickets.filter((ticket, index) => states[index] === 'running' || states[index] === 'queued');
+  const running = tickets.filter((ticket, index) => states[index] === 'running');
   const review = tickets.filter((ticket, index) => states[index] === 'review');
   const recent = [...tickets].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 8);
   const unavailable = activity.isPending || !!activity.error;
@@ -34,11 +40,15 @@ export function HomePage({ workspace }: PageProps) {
   return <div className="page-scroll"><div className="dashboard">
     <div className="dashboard-heading">
       <div><h1>工作台概览</h1><p>{display} · {today}</p></div>
+      <div className="actions">
+        <a className="text-button" href={routeFor(project.id, 'work') + '?scope=mine'}>我的研发任务 <ArrowRight size={14} /></a>
+        {workspace.projects.some(project => project.maintain) && <button type="button" className="text-button" onClick={() => focusSection('project-health')}>项目健康</button>}
+      </div>
     </div>
     <div className="home-stats">
       <a className="home-stat" href={'#/inbox'}><Inbox size={18} /><span>{needsYou.length}</span><small>待我处理</small></a>
-      <a className="home-stat" href={projectWorkRoute(workspace.projects[0]?.id ?? '')}><CircleDot size={18} /><span>{count(running)}</span><small>正在执行</small></a>
-      <a className="home-stat" href={projectWorkRoute(workspace.projects[0]?.id ?? '')}><ClipboardCheck size={18} /><span>{count(review)}</span><small>待验收</small></a>
+      <button type="button" className="home-stat" onClick={() => focusSection('home-running')}><CircleDot size={18} /><span>{count(running)}</span><small>正在执行</small></button>
+      <button type="button" className="home-stat" onClick={() => focusSection('home-review')}><ClipboardCheck size={18} /><span>{count(review)}</span><small>待验收</small></button>
     </div>
     {tickets.length === 100 && <p className="home-stat-scope">执行与验收数量统计当前可见项目的最近 100 张工单。</p>}
     {activity.error && <div className="home-load-status"><Failure error={activity.error} retry={() => void activity.refetch()} /></div>}
@@ -58,19 +68,19 @@ export function HomePage({ workspace }: PageProps) {
               : <div key={d.id} className="inbox-row" data-tone={decisionTone[d.kind] ?? 'blue'}>{contents}</div>;
           }) : <p className="muted-text">没有待你决定的事项。</p>}
         </Section>
-        <ProjectHealth workspace={workspace} />
-        <Section title="正在执行" action={<span className="muted-text">{running.length} 张</span>}>
+        {workspace.projects.some(project => project.maintain) && <div id="project-health" tabIndex={-1}><ProjectHealth workspace={workspace} /></div>}
+        <div id="home-running" tabIndex={-1}><Section title="正在执行" action={<span className="muted-text">{running.length} 张</span>}>
           {running.length ? running.slice(0, 6).map(item => <a className="recent-row" key={item.id} href={home(item.id, item.work.project)}>
             <CircleDot size={17} /><div><strong>{item.title}</strong><small>{item.progress?.device ?? workspace.agents.find(a => a.id === item.work.agent)?.title ?? item.work.agent}
               {item.progress?.summary ? ' · ' + item.progress.summary : ''}</small></div><TicketStatus ticket={item} />
-          </a>) : <p className="muted-text">当前没有正在执行的任务。</p>}
-        </Section>
-        <Section title="待验收" action={<span className="muted-text">{review.length} 张</span>}>
+          </a>) : unavailable ? (activity.isPending && <Loading />) : <p className="muted-text">当前没有正在执行的任务。</p>}
+        </Section></div>
+        <div id="home-review" tabIndex={-1}><Section title="待验收" action={<span className="muted-text">{review.length} 张</span>}>
           {review.length ? review.slice(0, 6).map(item => <a className="recent-row" key={item.id} href={home(item.id, item.work.project)}>
             <ClipboardCheck size={17} /><div><strong>{item.title}</strong><small>{workspace.projects.find(p => p.id === item.work.project)?.title}</small></div>
             <TicketStatus ticket={item} />
-          </a>) : <p className="muted-text">没有待验收的任务。</p>}
-        </Section>
+          </a>) : unavailable ? (activity.isPending && <Loading />) : <p className="muted-text">没有待验收的任务。</p>}
+        </Section></div>
         <Section title="最近更新" action={<a className="text-button" href={projectWorkRoute(workspace.projects[0]?.id ?? '')}>任务中心 <ArrowRight size={14} /></a>}>
           {activity.isPending && <Loading />}
           {recent.map(item => <a className="recent-row" key={item.id} href={home(item.id, item.work.project)}>

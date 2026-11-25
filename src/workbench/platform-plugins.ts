@@ -1,6 +1,6 @@
 import { FeishuSources } from '../feishu-sources.ts';
 import { connectCapabilities, type PluginProfile } from './capabilities.ts';
-import { inspectBranch, inspectCommitChecks, inspectIssue, inspectPull } from './github-delivery.ts';
+import { inspectBranch, inspectChangedFiles, inspectCommitChecks, inspectIssue, inspectPull } from './github-delivery.ts';
 import { inspectProductVerification } from './github-product-verification.ts';
 import { readKnowledgeSource } from './knowledge-sources.ts';
 import { memoryProviders } from './memory-providers.ts';
@@ -19,7 +19,7 @@ export function platformPlugins({ octop, plugins }: Settings, profile: PluginPro
     assistant: { id: 'text-completions', api: 1, service: textAssistant() },
     assistantHarness: { id: 'scoped-assistant-context', api: 1, service: assistantContext },
     delivery: { id: 'github-actions', api: 1,
-      service: { inspectPull, inspectBranch, inspectIssue, inspectCommitChecks, inspectProductVerification } },
+      service: { inspectChangedFiles, inspectPull, inspectBranch, inspectIssue, inspectCommitChecks, inspectProductVerification } },
     sources: { id: 'project-sources', api: 1,
       service: { feishu, figma, read: connection => readKnowledgeSource(connection, feishu, undefined, figma) } },
     memory,

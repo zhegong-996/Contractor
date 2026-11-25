@@ -240,3 +240,23 @@
   .work-state-neutral { color: var(--dim); }
   .work-state-blue { color: var(--accent-strong); }
 }
+
+.delivery-people, .code-review-summary dd { display: flex; align-items: baseline; flex-wrap: wrap; gap: .3rem .75rem; }
+.delivery-people { padding: .35rem clamp(.75rem, 2vw, 1.5rem); color: var(--dim); font-size: .8125rem; }
+.delivery-people strong { color: var(--ink); font-weight: 550; }
+.code-review-summary { padding: .875rem 1rem; border: 1px solid var(--line); border-radius: .6rem; background: var(--surface); }
+.code-review-summary dl { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: .4rem .875rem; margin: .65rem 0 0; font-size: .8125rem; }
+.code-review-summary dt, .code-evidence-pending { color: var(--dim); }
+.code-review-summary dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.code-review-summary dd code { white-space: normal; }
+.dashboard-heading { display: flex; align-items: center; justify-content: space-between; gap: .75rem; flex-wrap: wrap; }
+button.home-stat { text-align: start; font: inherit; cursor: pointer; }
+@media (prefers-reduced-motion: no-preference) {
+  .delivery-people strong, .changes-file, .home-stat, .task-tree-trigger svg {
+    transition: color var(--motion-state), background-color var(--motion-state), transform var(--motion-press) var(--motion-enter);
+  }
+  .changes-file:active, button.home-stat:active { transform: translateY(1px); }
+  .code-review-summary, .inspector { animation: content-arrive var(--motion-state) var(--motion-enter); }
+}
+
+.agent-navigation .nav-page-title { margin: 0; font: inherit; color: inherit; }

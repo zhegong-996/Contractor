@@ -20,7 +20,7 @@ import { forest, type Branch } from './hierarchy.ts';
 import { TabsContent } from './components/page-tabs.tsx';
 import { Markdown } from './markdown.tsx';
 import { Avatar, date, Empty, Ext, Failure, Field, IconButton, KnowledgeGrantStatus, Loading, Modal, PageTabs, Pill, recoveryLabel, SearchBox, Section, short, Source,
-  Segments, TicketStatus, TopicOptions, topicName, useActions, useSessionScroll, useStored, Version } from './ui.tsx';
+  Segments, TicketStatus, TopicOptions, topicName, useActions, useMediaQuery, useSessionScroll, useStored, Version } from './ui.tsx';
 
 const workTabs = [['activity', '协作动态'], ['execution', '执行记录'], ['delivery', '交付'], ['verification', '测试与验收'], ['context', '上下文']] as const;
 type WorkTab = (typeof workTabs)[number][0];
@@ -73,12 +73,16 @@ export function WorkPage(props: PageProps) {
   const [filters, setFilters] = useStored('work:' + project.id + (route.projectWork ? ':project:' + (routedTopic ?? '') : ''),
     { query: '', topic: routedTopic ?? '', status: 'all' });
   const [storedScope, setScope] = useStored('work-scope', 'project');
-  const scope = route.projectWork ? 'project' : storedScope;
+  // Remember the explicit personal entry when a list item opens its canonical ticket URL.
+  useLayoutEffect(() => {
+    if (route.myWork && storedScope !== 'mine') setScope('mine');
+  }, [route.myWork]);
+  const scope = route.projectWork ? 'project' : route.myWork ? 'mine' : storedScope;
   const [view, setView] = useStored<'board' | 'list'>('work-view', 'board');
   const [group, setGroup] = useStored<BoardGrouping>('work-board-group', 'status');
-  const [origin] = useStored('board-return:' + route.item, { project: project.id, topic: undefined as string | undefined, scoped: false });
+  const [origin] = useStored('board-return:' + route.item, { project: project.id, topic: undefined as string | undefined, scoped: false, mine: false });
   const boardProject = workspace.projects.some(item => item.id === origin.project) ? origin.project : project.id;
-  const boardBack = origin.scoped ? projectWorkRoute(boardProject, origin.topic) : routeFor(boardProject, 'work');
+  const boardBack = origin.scoped ? projectWorkRoute(boardProject, origin.topic) : routeFor(boardProject, 'work') + (origin.mine ? '?scope=mine' : '');
   const backToInbox = workspace.projects.some(item => item.id === route.inboxOrigin) ? routeFor(route.inboxOrigin!, 'inbox') : undefined;
   const fromChat = route.conversationOrigin;
   const chatProject = workspace.projects.find(item => item.id === fromChat?.project);
@@ -100,9 +104,9 @@ export function WorkPage(props: PageProps) {
     ready: !route.item || data.data?.project === project.id && data.data.id === route.item,
     preserveInitial: !!route.decision || (tab === 'delivery' || tab === 'verification') && !!route.revision,
   });
-  const scopeFilter = <Segments label="任务范围" items={[[ 'project', '项目任务' ], [ 'mine', '我的任务' ], [ 'watching', '我关注的' ]]} value={scope} onChange={next => {
+  const scopeFilter = <Segments label="任务范围" items={[[ 'project', '项目任务' ], [ 'mine', '我的研发任务' ], [ 'watching', '我关注的' ]]} value={scope} onChange={next => {
     setScope(next);
-    if (route.projectWork && next !== 'project') go(project.id, 'work');
+    if ((route.projectWork || route.myWork) && next !== scope) go(project.id, 'work');
   }} />;
   const viewFilter = <Segments label="任务视图" items={[[ 'board', '看板' ], [ 'list', '列表' ]]} value={view} onChange={setView} />;
   const taskFilters = <>
@@ -132,7 +136,7 @@ export function WorkPage(props: PageProps) {
       </div>
     </header>
     {shown.length > 0 && <WorkBoard tickets={shown} workspace={workspace} project={project} mine={scope !== 'project'} group={group}
-      origin={{ project: project.id, topic: routedTopic, scoped: !!route.projectWork }}
+      origin={{ project: project.id, topic: routedTopic, scoped: !!route.projectWork, mine: scope === 'mine' }}
       scrollKey={JSON.stringify(['work-board', project.id, scope, group, filters])} />}
     {empty && <Empty title="没有匹配的工单" icon={<ListChecks />} />}
     {listState}
@@ -159,7 +163,7 @@ export function WorkPage(props: PageProps) {
       {route.item && <a className={backToInbox || backToChat || view === 'board' ? 'work-back' : 'mobile-back'}
         href={backToInbox || backToChat || (view === 'board' ? boardBack : routeFor(project.id, 'work'))}>
         <ArrowLeft size={16} />{backToInbox ? '返回待办' : backToChat ? '返回会话' : view === 'board' ? '返回看板' : '工单列表'}</a>}
-      {!route.item ? <div className="desk-overview"><h1>{scope === 'mine' ? '我的任务' : scope === 'watching' ? '我关注的' : project.title}</h1>
+      {!route.item ? <div className="desk-overview"><h1>{scope === 'mine' ? '我的研发任务' : scope === 'watching' ? '我关注的' : project.title}</h1>
         <div className="status-grid">{workStates.map(({ id, title }) => <button key={id} type="button" aria-pressed={status === id}
           onClick={() => setFilters({ ...filters, status: status === id ? 'all' : id })}>{title}</button>)}</div>
         <Section title="近期更新">{shown.length ? shown.slice(0, 10).map(item => <div className="record-row" key={item.id}>
@@ -193,7 +197,10 @@ function TaskBranch({ branch, home, current }: { branch: Branch<TicketRow>; home
 
 function TicketDetail(props: PageProps & { ticket: Ticket; tab: WorkTab }) {
   const { ticket, tab, workspace, project, route } = props;
-  const [side, setSide] = useState(() => window.matchMedia('(min-width: 1280px)').matches);
+  const wide = useMediaQuery('(min-width: 1280px)');
+  const [inspector, setInspector] = useState({ wide: true, narrow: false });
+  const layout = wide ? 'wide' : 'narrow';
+  const side = inspector[layout];
   const [dialog, setDialog] = useState('');
   const { busy, run } = useActions();
   const agent = workspace.agents.find(a => a.id === ticket.work.agent);
@@ -268,7 +275,7 @@ function TicketDetail(props: PageProps & { ticket: Ticket; tab: WorkTab }) {
           <IconButton label={ticket.watching ? '取消关注' : '关注工单'} aria-pressed={ticket.watching} disabled={busy}
             onClick={() => void send('watch', { active: !ticket.watching }, ticket.watching ? '已取消关注' : '已关注工单')}>
             {ticket.watching ? <BellRing /> : <Bell />}</IconButton>
-          <IconButton label={side ? '隐藏工单属性' : '显示工单属性'} aria-expanded={side} onClick={() => setSide(!side)}>
+          <IconButton label={side ? '隐藏工单属性' : '显示工单属性'} aria-expanded={side} onClick={() => setInspector(previous => ({ ...previous, [layout]: !previous[layout] }))}>
             {side ? <PanelRightClose /> : <PanelRightOpen />}</IconButton>
           {project.mayStart && <IconButton label="新建子工单" onClick={() => props.openTask({ parent: ticket.id, topic: ticket.work.topic })}><Plus /></IconButton>}
         </div>
@@ -289,9 +296,14 @@ function TicketDetail(props: PageProps & { ticket: Ticket; tab: WorkTab }) {
           : ticket.device.state === 'lost' ? ' · 已丢失' : ticket.device.state === 'suspended' ? ' · 已暂停'
             : ticket.device.claimsPaused ? ' · 暂不接单' : deviceWaiting ? ' · 离线' : ''}</span>}</div>
     </div>
+    {!viewedVersion && !ticket.work.consultation && <div className="delivery-people">
+      <span>交付负责人 <strong>{memberName(ticket.responsibility.deliveryLead)}</strong></span>
+      {!!ticket.responsibility.actionMembers.length && <span>待行动 <strong>{ticket.responsibility.actionMembers.map(memberName).join('、')}</strong></span>}
+    </div>}
     <div className="ticket-frame" data-inspector={side}>
       <PageTabs value={tab} onChange={value => { window.location.hash = detailLink(value); }} items={workTabs} label="工单详情">
         <TabsContent className="ticket-tab" value="activity">
+          {ticket.work.development && <CurrentCodeReview ticket={ticket} />}
           {!viewedVersion && <EngineeringReview key={ticket.id} ticket={ticket} project={project} />}
           {ticket.recovery && <div className="decision-focus" data-decision-focus="recovery" tabIndex={-1}><TicketRecovery {...props} ticket={ticket} /></div>}
           {status && !ticket.recovery && <div className="info-callout"><History size={17} /><span>正在确认旧执行停止及接续权限。{ticket.report?.summary}</span></div>}
@@ -344,8 +356,7 @@ function TicketDetail(props: PageProps & { ticket: Ticket; tab: WorkTab }) {
           <dt>发起人</dt><dd>{memberName(ticket.work.requester)}</dd>
           {!ticket.work.consultation && <><dt>验收人</dt><dd>{memberName(ticket.acceptanceOwner)}</dd></>}
           <dt>负责 Agent</dt><dd>{agent?.title ?? ticket.work.agent}</dd>
-          {agent?.owner && <><dt>Agent 所有者</dt><dd>{memberName(agent.owner)}</dd></>}
-          {!!ticket.recovery?.owners.length && <><dt>待处理人</dt><dd>{ticket.recovery.owners.map(memberName).join('、')}</dd></>}
+          {agent?.owner && agent.owner !== ticket.responsibility.deliveryLead && <><dt>Agent 所有者</dt><dd>{memberName(agent.owner)}</dd></>}
           <dt>优先级</dt><dd>{ticket.work.priority === 'urgent' ? '紧急' : '普通'}</dd>
         </dl>
         {tab !== 'context' && <a className="inspector-link" href={detailLink('context')}><LockKeyhole size={16} /><span>引用与授权</span><ChevronRight size={15} /></a>}
@@ -468,12 +479,48 @@ function TicketCommand({ name, ticket, close, project, workspace, nextVersion, a
 }
 
 type TicketChanges = { available: false; reason: string } | { available: true; base: string; head: string;
-  files: string[]; diff: string; truncated: boolean };
+  files: string[]; anchors?: Record<string, string>; diff: string; truncated: boolean };
+
+function changeQuery(ticket: Ticket, namesOnly = false) {
+  if (!ticket.mayReadChanges || !ticket.result || !ticket.work.delivery) return '';
+  return 'ticket/' + ticket.id + '/changes?' + new URLSearchParams({ revision: ticket.result.revision,
+    head: ticket.work.delivery.headSha, view: namesOnly ? 'files' : 'patch' });
+}
+
+function CurrentCodeReview({ ticket }: { ticket: Ticket }) {
+  const files = useData<TicketChanges>(changeQuery(ticket, true));
+  const evidence = ticket.work.delivery;
+  if (!ticket.currentEvidence || !evidence) return <p className="code-evidence-pending">
+    {ticket.publishStatus ? '本版提交 ' + short(ticket.publishStatus.commit, 8) + ' · 待核对 PR 和 CI' : '本版尚无已核对的 PR 和 CI'}
+  </p>;
+  const failed = evidence.checks?.filter(item => item.head_sha === evidence.headSha && item.status === 'completed' && item.conclusion !== 'success');
+  const compare = 'https://github.com/' + evidence.repository + '/compare/' + evidence.baseSha + '...' + evidence.headSha;
+  const green = ticket.lastGreen;
+  const filesView = files.data?.available && !files.error ? files.data : undefined;
+  return <section className="code-review-summary" aria-label="本版代码核对">
+    <div className="inline-meta"><Ext href={evidence.url}>PR #{evidence.pr}</Ext><code title={evidence.headSha}>{short(evidence.headSha, 8)}</code>
+      <Pill tone={evidence.ci === 'passed' ? 'green' : evidence.ci === 'failed' ? 'red' : 'amber'}>
+        {{ passed: '本次 CI 通过', failed: '本次 CI 失败', pending: '本次 CI 待完成' }[evidence.ci]}</Pill>
+    </div>
+    <dl>
+      <dt>改动文件</dt><dd>{ticket.mayReadChanges && filesView?.files.slice(0, 3).map(file =>
+        <Ext key={file} href={compare + (filesView.anchors?.[file] ?? '')}><code>{file}</code></Ext>)}
+        <Ext href={compare}>{filesView && (filesView.truncated || filesView.files.length > 3) ? '查看更多文件' : '查看版本差异'}</Ext>
+        {files.isFetching && <span>正在核对文件…</span>}
+        {files.error && <button type="button" className="text-button" onClick={() => void files.refetch()}>重新读取文件</button>}</dd>
+      {!!failed?.length && <><dt>失败检查</dt><dd>{failed.map(check => <Ext key={check.id} href={check.html_url ?? undefined}>{check.name}</Ext>)}</dd></>}
+      <dt>最近通过</dt><dd>{green ? <><code>{short(green, 8)}</code>{green === evidence.headSha ? '当前提交' : '其他提交'}</> : '暂无已核对的通过记录'}</dd>
+      <dt>待审</dt><dd>{evidence.requestedReviewers?.map(githubActor).concat((evidence.requestedTeams ?? []).map(t => '@' + t.slug)).join('、')
+        || (evidence.requestedReviewers ? '未指定审查人' : '请到 PR 核对')}</dd>
+    </dl>
+  </section>;
+}
 
 function DeliveryChanges({ ticket }: { ticket: Ticket }) {
-  const data = useData<TicketChanges>('ticket/' + ticket.id + '/changes');
+  const data = useData<TicketChanges>(changeQuery(ticket));
   const changes = data.data;
   const [file, setFile] = useState<string>();
+  if (!ticket.mayReadChanges) return null;
   if (data.isFetching && !changes) return <Loading />;
   if (data.error) return <Failure error={data.error} retry={() => void data.refetch()} />;
   if (!changes) return null;
@@ -482,14 +529,14 @@ function DeliveryChanges({ ticket }: { ticket: Ticket }) {
   const blocks = [...changes.diff.matchAll(/^diff --git a\/(.*?) b\/(.*?)$/gm)]
     .map((match, index, all) => ({ file: match[1], start: match.index, end: all[index + 1]?.index ?? changes.diff.length }));
   const block = selected && blocks.find(item => item.file === selected);
-  const view = block ? changes.diff.slice(block.start, block.end) : changes.diff;
+  const view = block ? changes.diff.slice(block.start, block.end) : '';
   return <Section title="本版改动" action={<span className="muted-text">{changes.files.length} 个文件 · <code>{short(changes.base, 8)}..{short(changes.head, 8)}</code></span>}>
     <div className="changes-layout">
       <nav className="changes-files" aria-label="改动文件">
         {changes.files.map(name => <button key={name} type="button" className={name === selected ? 'changes-file selected' : 'changes-file'}
           onClick={() => setFile(name)}>{name}</button>)}
       </nav>
-      <pre className="changes-diff"><code>{view || '（该文件没有文本差异）'}</code></pre>
+      <pre className="changes-diff"><code>{view || '当前预览没有这个文件的文本差异。'}</code></pre>
     </div>
     {changes.truncated && <p className="muted-text">差异内容较长，仅显示前 40000 字符。</p>}
   </Section>;
