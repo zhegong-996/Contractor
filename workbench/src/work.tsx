@@ -20,7 +20,7 @@ import { forest, type Branch } from './hierarchy.ts';
 import { TabsContent } from './components/page-tabs.tsx';
 import { Markdown } from './markdown.tsx';
 import { Avatar, date, Empty, Ext, Failure, Field, IconButton, KnowledgeGrantStatus, Loading, Modal, PageTabs, Pill, recoveryLabel, SearchBox, Section, short, Source,
-  Segments, TicketStatus, TopicOptions, topicName, useActions, useSessionScroll, useStored, Version } from './ui.tsx';
+  Segments, TicketStatus, TopicOptions, topicName, useActions, useMediaQuery, useSessionScroll, useStored, Version } from './ui.tsx';
 
 const workTabs = [['activity', '协作动态'], ['execution', '执行记录'], ['delivery', '交付'], ['verification', '测试与验收'], ['context', '上下文']] as const;
 type WorkTab = (typeof workTabs)[number][0];
@@ -193,7 +193,10 @@ function TaskBranch({ branch, home, current }: { branch: Branch<TicketRow>; home
 
 function TicketDetail(props: PageProps & { ticket: Ticket; tab: WorkTab }) {
   const { ticket, tab, workspace, project, route } = props;
-  const [side, setSide] = useState(() => window.matchMedia('(min-width: 1280px)').matches);
+  const wide = useMediaQuery('(min-width: 1280px)');
+  const [inspector, setInspector] = useState({ wide: true, narrow: false });
+  const layout = wide ? 'wide' : 'narrow';
+  const side = inspector[layout];
   const [dialog, setDialog] = useState('');
   const { busy, run } = useActions();
   const agent = workspace.agents.find(a => a.id === ticket.work.agent);
@@ -268,7 +271,7 @@ function TicketDetail(props: PageProps & { ticket: Ticket; tab: WorkTab }) {
           <IconButton label={ticket.watching ? '取消关注' : '关注工单'} aria-pressed={ticket.watching} disabled={busy}
             onClick={() => void send('watch', { active: !ticket.watching }, ticket.watching ? '已取消关注' : '已关注工单')}>
             {ticket.watching ? <BellRing /> : <Bell />}</IconButton>
-          <IconButton label={side ? '隐藏工单属性' : '显示工单属性'} aria-expanded={side} onClick={() => setSide(!side)}>
+          <IconButton label={side ? '隐藏工单属性' : '显示工单属性'} aria-expanded={side} onClick={() => setInspector(previous => ({ ...previous, [layout]: !previous[layout] }))}>
             {side ? <PanelRightClose /> : <PanelRightOpen />}</IconButton>
           {project.mayStart && <IconButton label="新建子工单" onClick={() => props.openTask({ parent: ticket.id, topic: ticket.work.topic })}><Plus /></IconButton>}
         </div>

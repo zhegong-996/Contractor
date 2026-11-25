@@ -6,7 +6,7 @@ import { Breadcrumb, ConfigProvider, Drawer, Layout, Menu as NavigationMenu, Tab
 import zhCN from 'antd/es/locale/zh_CN.js';
 import { ArrowRight, BookOpen, Bot, ChevronDown, ChevronRight, CircleCheck, FileUp, FolderKanban, Inbox, ListChecks, LogOut, Menu, MessageSquare, PanelLeftClose, PanelLeftOpen, Plus, ShieldCheck, UserRound } from 'lucide-react';
 import { api, mayKeepStale, uid, useData, type Overview, type ProjectTemplate, type Session } from './api.ts';
-import { ActionContext, Avatar, Empty, Failure, Field, IconButton, Loading, Logo, Modal, useActions, useStored } from './ui.tsx';
+import { ActionContext, Avatar, Empty, Failure, Field, IconButton, Loading, Logo, Modal, useActions, useMediaQuery, useStored } from './ui.tsx';
 import { Button } from './components/button.tsx';
 import { Input } from './components/input.tsx';
 import { preference, WorkspaceSidebar } from './components/workspace-sidebar.tsx';
@@ -110,17 +110,6 @@ function RecoveryDialog({ url, close }: { url: string; close: () => void }) {
   </Modal>;
 }
 
-function useMediaQuery(match: string) {
-  const [matches, setMatches] = useState(() => window.matchMedia(match).matches);
-  useEffect(() => {
-    const media = window.matchMedia(match);
-    const update = () => setMatches(media.matches);
-    update();
-    media.addEventListener('change', update);
-    return () => media.removeEventListener('change', update);
-  }, [match]);
-  return matches;
-}
 
 function Navigation({ workspace, project, route, close, newProject }: PageProps & { close?: () => void; newProject: () => void }) {
   const signOut = useSignOut();
