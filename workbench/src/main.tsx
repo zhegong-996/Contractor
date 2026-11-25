@@ -109,16 +109,16 @@ function RecoveryDialog({ url, close }: { url: string; close: () => void }) {
   </Modal>;
 }
 
-function useNarrow() {
-  const match = '(max-width: 760px)';
-  const [narrow, setNarrow] = useState(() => window.matchMedia(match).matches);
+function useMediaQuery(match: string) {
+  const [matches, setMatches] = useState(() => window.matchMedia(match).matches);
   useEffect(() => {
     const media = window.matchMedia(match);
-    const update = () => setNarrow(media.matches);
+    const update = () => setMatches(media.matches);
+    update();
     media.addEventListener('change', update);
     return () => media.removeEventListener('change', update);
-  }, []);
-  return narrow;
+  }, [match]);
+  return matches;
 }
 
 function Navigation({ workspace, project, route, close, newProject }: PageProps & { close?: () => void; newProject: () => void }) {
@@ -248,7 +248,7 @@ function Workspace() {
   const requested = useRoute();
   const signOut = useSignOut();
   const [collapsed, setCollapsed] = useState(() => preference('contractor-sidebar-collapsed') === 'true');
-  const narrow = useNarrow();
+  const narrow = useMediaQuery('(max-width: 760px)');
   const [drawer, setDrawer] = useState(false);
   useEffect(() => { if (!narrow) setDrawer(false); }, [narrow]);
   const [composer, setComposer] = useState<TaskPreset | null>(null);
@@ -413,8 +413,12 @@ function App() {
 
 const client = new QueryClient({ defaultOptions: { queries: { staleTime: 0, refetchOnWindowFocus: 'always' } } });
 const styleNonce = document.querySelector<HTMLMetaElement>('meta[name="workbench-style-nonce"]')?.content;
-createRoot(document.getElementById('app')!).render(<ConfigProvider locale={zhCN as unknown as ConfigProviderProps['locale']} wave={{ disabled: true }}
-  button={{ autoInsertSpace: false }} csp={{ nonce: styleNonce }}
-  theme={{ ...workbenchTheme, zeroRuntime: true }}>
-  <QueryClientProvider client={client}><App /></QueryClientProvider>
-</ConfigProvider>);
+function WorkbenchApp() {
+  const reduced = useMediaQuery('(prefers-reduced-motion: reduce)');
+  return <ConfigProvider locale={zhCN as unknown as ConfigProviderProps['locale']} wave={{ disabled: true }}
+    button={{ autoInsertSpace: false }} csp={{ nonce: styleNonce }}
+    theme={{ ...workbenchTheme, zeroRuntime: true, token: { ...workbenchTheme.token, motion: !reduced } }}>
+    <QueryClientProvider client={client}><App /></QueryClientProvider>
+  </ConfigProvider>;
+}
+createRoot(document.getElementById('app')!).render(<WorkbenchApp />);

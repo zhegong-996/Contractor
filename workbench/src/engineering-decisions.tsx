@@ -13,9 +13,11 @@ export function EngineeringReview({ ticket, project }: { ticket: Ticket; project
   const { busy, run } = useActions();
   const [editor, setEditor] = useState<{ direction: 'escalate' | 'handover' | 'answer'; nonce: string; id?: string;
     version: number; sha: string | null; to?: string; takingOver?: boolean }>();
-  const [text, setText] = useState('');
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const draftKey = editor && JSON.stringify([ticket.id, editor.version, editor.sha, editor.direction, editor.id, editor.to]);
+  const text = draftKey ? drafts[draftKey] ?? '' : '';
   const edit = (direction: 'escalate' | 'handover' | 'answer', to?: string, id?: string, takingOver?: boolean) => {
-    setText(''); setEditor({ direction, to, id, takingOver, nonce: uid(), version: ticket.work.version ?? 1, sha: ticket.work.delivery?.headSha ?? null });
+    setEditor({ direction, to, id, takingOver, nonce: uid(), version: ticket.work.version ?? 1, sha: ticket.work.delivery?.headSha ?? null });
   };
   const send = (data: unknown, message: string) => run(() => api('ticket/' + ticket.id + '/engineering-decision', data), message);
   if (!editor && !review.records.length && !review.escalateTo && !review.handoverTo) return null;
@@ -50,12 +52,18 @@ export function EngineeringReview({ ticket, project }: { ticket: Ticket; project
         e.preventDefault();
         const result = await send(editor.direction === 'answer' ? { action: 'answer', id: editor.id, text: text.trim() }
           : { action: 'open', direction: editor.direction, version: editor.version, sha: editor.sha, nonce: editor.nonce, text: text.trim() }, '已更新研发决策');
-        if (result) setEditor(undefined);
+        if (result) {
+          if (draftKey) setDrafts(previous => { const next = { ...previous }; delete next[draftKey]; return next; });
+          setEditor(undefined);
+        }
       }}>
         <div className="inline-meta"><Version version={editor.version} />{editor.takingOver ? '接手人' : '接收人'} {editor.to && name(editor.to)}</div>
         <Field label={editor.takingOver ? '接手说明与下一步' : editor.direction === 'answer' ? '决定与下一步' : '需要对方处理什么'}
           hint={ticket.endReason ? '本版已结束。修改已交付成果需开启下一版。' : editor.takingOver || editor.direction === 'handover' ? '开发者接手后，排队中的 Worker 会按本版说明继续。' : '接回后，问题和答复可进入本版后续执行的上下文。'}>
-          <TextArea autoFocus required maxLength={1600} rows={4} value={text} onChange={e => setText(e.target.value)} /></Field>
+          <TextArea autoFocus required maxLength={1600} rows={4} value={text} onChange={e => {
+            const value = e.target.value;
+            if (draftKey) setDrafts(previous => ({ ...previous, [draftKey]: value }));
+          }} /></Field>
         <footer className="form-actions"><Button type="submit" disabled={busy || !text.trim()}>{editor.takingOver ? '确认接手' : '发送'}</Button></footer>
       </form>
     </Modal>}
