@@ -47,7 +47,8 @@ export function WorkspaceSearch({ workspace }: { workspace: Overview }) {
   useEffect(() => {
     function handle(e: KeyboardEvent) {
       if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== 'k' || e.isComposing) return;
-      if (!open && document.querySelector('[role="dialog"]')) return;
+      if (!open && Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"]'))
+        .some(dialog => dialog.getClientRects().length > 0 && getComputedStyle(dialog).visibility !== 'hidden')) return;
       if (!open && document.activeElement instanceof HTMLElement) dialogTrigger.current = document.activeElement;
       e.preventDefault();
       setOpen(value => !value);
