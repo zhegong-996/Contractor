@@ -435,8 +435,6 @@ a.external:hover, a.text-button:hover { text-decoration: underline; text-underli
 .empty-icon { width: 43px; height: 43px; background: var(--tint); border-radius: 11px; margin-bottom: 3px; display: grid; place-items: center; color: var(--accent); }
 .empty-icon svg { width: 20px; }
 .loading { color: var(--dim); padding: 20px; display: flex; gap: 8px; align-items: center; justify-content: center; }
-.loading svg { animation: spin 1s linear infinite; }
-@keyframes spin { to { transform: rotate(360deg); } }
 
 .form { display: flex; flex-direction: column; gap: 13px; min-width: 0; }
 .field { display: flex; flex-direction: column; gap: 5px; font-size: 13px; min-width: 0; }
