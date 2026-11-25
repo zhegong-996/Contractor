@@ -9,6 +9,7 @@ import { createServer } from 'node:http';
 import { once } from 'node:events';
 import { setTimeout as delay } from 'node:timers/promises';
 import test from 'node:test';
+import { checkRunLabel } from '../workbench/src/check-run-label.ts';
 import type { PullCheck } from '../src/workbench/github-delivery.ts';
 import { digest } from '../src/workbench/knowledge.ts';
 import type { OutboundMessage } from '../upstream/superagent/src/core/index.ts';
@@ -22,6 +23,16 @@ const { pullChecks } = await import('../src/workbench/github-delivery.ts');
 const sha = 'a'.repeat(40), base = 'b'.repeat(40), foreign = 'c'.repeat(40);
 const check = (id: number, change: Partial<PullCheck> = {}): PullCheck => ({ id, name: 'collab-pilot',
   head_sha: sha, status: 'completed', conclusion: 'success', app: { id: 15368, slug: 'github-actions' }, ...change });
+
+test('检查的原始结论与本版 CI 门禁分别呈现', () => {
+  for (const [conclusion, label] of [['cancelled', '已取消'], ['timed_out', '超时'], ['skipped', '已跳过'],
+    ['action_required', '需要人工处理'], ['neutral', '中性结果'], ['failure', '失败']]) {
+    assert.equal(checkRunLabel('completed', conclusion), label);
+    assert.equal(pullChecks(sha, [check(1), check(2, { conclusion })]).ci, 'failed');
+  }
+  assert.equal(checkRunLabel('in_progress', null), '运行中');
+  assert.equal(checkRunLabel('completed', null), '已结束，结论待核对');
+});
 
 test('版本 CI 只采信当前 SHA 的原生 Actions 最新检查，缺少或进行中均不可验收', () => {
   assert.equal(pullChecks(sha, []).ci, 'pending');

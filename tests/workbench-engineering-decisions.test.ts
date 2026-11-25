@@ -5,6 +5,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { ticketMilestones } from '../workbench/src/ticket-timeline.ts';
 import { engineeringDecisions, type DecisionScope } from '../src/workbench/engineering-decisions.ts';
 
 test('项目决策保留原提交，重启后仍需现任负责人答复，回执重放只回传一次', t => {
@@ -37,4 +38,18 @@ test('项目决策保留原提交，重启后仍需现任负责人答复，回�
   assert.equal(ledger.forExecution('screen', changed, () => true).length, 0);
   assert.equal(ledger.forExecution('screen', successor, member => member !== 'next').length, 0);
   assert.equal(ledger.forExecution('screen', successor, () => true).length, 1);
+  const timeline = () => ticketMilestones({ id: 'screen', project: 'store', runs: [], ciAttempts: [], versions: [],
+    engineeringReview: ledger.view('dev', successor) });
+  const received = timeline().find(event => event.id === 'closed-' + id);
+  assert.equal(received?.title, 'dev 已接回处理');
+  ledger.apply('dev', successor, { action: 'received', id });
+  assert.deepEqual(timeline().filter(event => event.id === 'closed-' + id), [received]);
+  const handover = ledger.apply('next', { ...successor, maintain: true }, { ...input, direction: 'handover', nonce: randomUUID() });
+  ledger.apply('dev', successor, { ...answer, id: handover.id });
+  assert.equal(timeline().filter(event => event.id.endsWith(handover.id)).length, 2);
+  assert.equal(timeline().find(event => event.id === 'answer-' + handover.id)?.title, 'dev 已接手');
+  const withdrawn = ledger.apply('dev', successor, { ...input, nonce: randomUUID() });
+  ledger.apply('next', { ...successor, maintain: true }, { action: 'withdraw', id: withdrawn.id });
+  assert.equal(timeline().find(event => event.id === 'closed-' + withdrawn.id)?.title, 'next 已撤回请求');
+  assert.equal(ledger.view('observer', successor).records.length, 0);
 });
