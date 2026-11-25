@@ -912,7 +912,7 @@ async function serve(release: () => void) {
           z.object({ action: z.literal('dismiss') }).strict(),
           z.object({ action: z.literal('ticket'), title: title.optional(), request: prose.optional(), agent: id.optional() }).strict(),
         ]).parse(await body(req)));
-      else if (post && view === 'ticket' && action === 'answer') work.reply(actor, item, settingsRoutes.answer.parse(await body(req)));
+      else if (post && view === 'ticket' && action === 'answer') output = work.reply(actor, item, settingsRoutes.answer.parse(await body(req)));
       else if (post && view === 'ticket' && action === 'stop') work.stop(actor, item);
       else if (post && view === 'ticket' && action === 'handoff')
         output = work.handoff(actor, item, z.object({ agent: id, reason: prose, device: z.uuid().optional() }).strict().parse(await body(req)));

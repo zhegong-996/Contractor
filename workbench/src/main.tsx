@@ -382,7 +382,7 @@ function App() {
       document.removeEventListener('keydown', remember, true);
     };
   }, []);
-  async function run<T>(task: () => Promise<T>, message?: string) {
+  async function run<T>(task: () => Promise<T>, message?: string | ((result: T) => string)) {
     if (busyRef.current) return;
     busyRef.current = true;
     setBusy(true);
@@ -391,7 +391,7 @@ function App() {
     try {
       const result = await task();
       await client.invalidateQueries();
-      if (message) setNotice(message);
+      if (message) setNotice(typeof message === 'function' ? message(result) : message);
       return result;
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : '操作暂未完成，请重试。');

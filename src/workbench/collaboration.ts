@@ -3763,12 +3763,30 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     });
   }
 
+  function isRecordedAnswer(card: Card, event: Trigger) {
+    if (!['decided', 'done'].includes(card.state) || !event.human || event.actor.id !== card.by) return false;
+    const answer = event.meta.answer as { card: number; choice?: number; text?: string } | undefined;
+    return answer?.card === card.id && (card.choice !== null ? answer.choice === card.choice : answer.text === card.answer);
+  }
+
   function reply(actor: string, id: string, input: { card: number; choice?: number; text?: string; nonce: string }, external?: Trigger) {
     const { ticket, work, project } = ticketFor(id, actor);
-    if (executionDecider(project, work) !== actor || ticket.ended) throw new WorkbenchError('这道问题由该工单的执行决策人回答。', 403);
+    if (executionDecider(project, work) !== actor) throw new WorkbenchError('这道问题由该工单的执行决策人回答。', 403);
+    const card = hub.card(input.card);
+    if (!card || card.kind !== 'ask' || ticketOfLane(card.lane) !== id) throw new WorkbenchError('本工单没有这道问题。', 404);
+    if (!external && (card.state === 'decided' || card.state === 'done')) {
+      const manifest = manifestFor(card.run_id);
+      if (!manifest || !canReadAssembly(actor, id, work, manifest)) throw new WorkbenchError('当前无权查看这道问题的原答复。', 403);
+      for (const input of ticket.inputs) {
+        const event = input.kind === 'trigger' && store.triggers.get(input.triggerId);
+        if (event && isRecordedAnswer(card, event)) return { ok: true, status: 'already-handled' as const, reply: event.id };
+      }
+      return { ok: true, status: 'already-handled' as const };
+    }
+    if (ticket.ended || card.lane !== activeLane(id) || card.state !== 'open')
+      throw new WorkbenchError('这道问题已关闭，不能再答复。', 409);
     if (handingOff(work)) throw new WorkbenchError('交接处理中，原执行暂不可继续。', 409);
     if (needed(id, work)) throw new WorkbenchError('资料权限已变化，请先核对授权。', 409);
-    const card = requireValue(cardsFor(id).find(card => card.id === input.card && card.state === 'open'), '问题已处理或发生变更。', 409);
     if (!canReadQuestion(actor, id, work, card)) throw new WorkbenchError('本次追问的资料权限已变化。', 409);
     const options: string[] = JSON.parse(card.options);
     const text = input.choice !== undefined ? options[input.choice] : input.text;
@@ -3779,6 +3797,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       actor: { source: external?.source ?? 'web', id: actor }, human: true, addressed: 'direct', at: external?.at ?? new Date().toISOString(),
       text, meta: { project: work.project, answer: { card: card.id, choice: input.choice, text: input.text } } });
     engine.evaluateDue();
+    return { ok: true, status: 'submitted' as const };
   }
 
   function answerDecision(actor: string, id: string, response: string, trigger: Trigger) {
@@ -4900,9 +4919,11 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       const card = answer && hub.card(answer.card);
       const answered = card && manifestFor(card.run_id);
       const recheck = event.meta.recheckRevision;
+      const readableAnswer = answered && canReadAssembly(actor, id, work, answered);
       const text = protectedReasons.has(event.id) || typeof recheck === 'string' && !readableRevisions.has(recheck) ? '修改理由随资料授权收回或受限。'
-        : answer && (!answered || !canReadAssembly(actor, id, work, answered)) ? '答复正文随资料授权收回或受限。' : event.text;
-      return [{ id: event.id, actor: event.actor.id, at: event.at, text }];
+        : answer && !readableAnswer ? '答复正文随资料授权收回或受限。' : event.text;
+      const questionTitle = readableAnswer && card && isRecordedAnswer(card, event) ? card.title : undefined;
+      return [{ id: event.id, actor: event.actor.id, at: event.at, text, questionTitle }];
     });
     const timers = ticket.ended ? [] : timersFor(ticket.id);
     const question = !ticket.ended && executionDecider(project, work) === actor && !handingOff(work) && !needed(id, work)

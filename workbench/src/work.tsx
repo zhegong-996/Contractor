@@ -391,9 +391,16 @@ function Question({ ticket, question }: { ticket: string; question: Ticket['ques
   const [text, setText] = useStored('answer:' + ticket + ':' + question.id, '');
   const { busy, run } = useActions();
   async function answer(choice?: number) {
-    const response = await run(() => api('ticket/' + ticket + '/answer', { card: question.id, nonce: uid(),
-      ...(choice === undefined ? { text: text.trim() } : { choice }) }), '答复已提交');
+    const origin = window.location.hash;
+    const response = await run(() => api<{ status: 'submitted' | 'already-handled'; reply?: string }>('ticket/' + ticket + '/answer', { card: question.id, nonce: uid(),
+      ...(choice === undefined ? { text: text.trim() } : { choice }) }), result => result.status === 'already-handled' ? '问题已处理，已保留原答复' : '答复已提交');
     if (response) setText('');
+    if (response?.status === 'already-handled' && response.reply && window.location.hash === origin) {
+      const [path, query] = window.location.hash.split('?');
+      const params = new URLSearchParams(query);
+      params.set('reply', response.reply);
+      window.location.hash = path + '?' + params;
+    }
   }
   return <article className="decision-box decision-focus" data-decision-focus={'answer-' + question.id} tabIndex={-1}>
     <span className="decision-mark"><Bot size={19} /></span><div>

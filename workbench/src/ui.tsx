@@ -10,7 +10,7 @@ import type { Project, Ticket, TicketRow } from './api.ts';
 
 type Actions = {
   busy: boolean; error: string;
-  run: <T>(task: () => Promise<T>, notice?: string) => Promise<T | undefined>;
+  run: <T>(task: () => Promise<T>, notice?: string | ((result: T) => string)) => Promise<T | undefined>;
   clearError: () => void;
   stored: Record<string, unknown>;
   store: (key: string, value: unknown) => void;
