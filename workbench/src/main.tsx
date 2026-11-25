@@ -414,10 +414,12 @@ function App() {
 const client = new QueryClient({ defaultOptions: { queries: { staleTime: 0, refetchOnWindowFocus: 'always' } } });
 const styleNonce = document.querySelector<HTMLMetaElement>('meta[name="workbench-style-nonce"]')?.content;
 function WorkbenchApp() {
-  const reduced = useMediaQuery('(prefers-reduced-motion: reduce)');
+  // Ant changes its provider tree when this token first turns false. Handle live preference changes
+  // in CSS so an open editor, its focus and draft survive the OS setting changing.
+  const [initialMotion] = useState(() => !window.matchMedia('(prefers-reduced-motion: reduce)').matches);
   return <ConfigProvider locale={zhCN as unknown as ConfigProviderProps['locale']} wave={{ disabled: true }}
     button={{ autoInsertSpace: false }} csp={{ nonce: styleNonce }}
-    theme={{ ...workbenchTheme, zeroRuntime: true, token: { ...workbenchTheme.token, motion: !reduced } }}>
+    theme={{ ...workbenchTheme, zeroRuntime: true, token: { ...workbenchTheme.token, motion: initialMotion } }}>
     <QueryClientProvider client={client}><App /></QueryClientProvider>
   </ConfigProvider>;
 }

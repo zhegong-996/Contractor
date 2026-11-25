@@ -349,7 +349,7 @@ function TicketDetail(props: PageProps & { ticket: Ticket; tab: WorkTab }) {
           <dt>发起人</dt><dd>{memberName(ticket.work.requester)}</dd>
           {!ticket.work.consultation && <><dt>验收人</dt><dd>{memberName(ticket.acceptanceOwner)}</dd></>}
           <dt>负责 Agent</dt><dd>{agent?.title ?? ticket.work.agent}</dd>
-          {agent?.owner && <><dt>Agent 所有者</dt><dd>{memberName(agent.owner)}</dd></>}
+          {agent?.owner && agent.owner !== ticket.responsibility.deliveryLead && <><dt>Agent 所有者</dt><dd>{memberName(agent.owner)}</dd></>}
           <dt>优先级</dt><dd>{ticket.work.priority === 'urgent' ? '紧急' : '普通'}</dd>
         </dl>
         {tab !== 'context' && <a className="inspector-link" href={detailLink('context')}><LockKeyhole size={16} /><span>引用与授权</span><ChevronRight size={15} /></a>}
