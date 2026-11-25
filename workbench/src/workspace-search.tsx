@@ -5,9 +5,9 @@ import type { Collaboration } from '../../src/workbench/collaboration.ts';
 import { api, type Overview } from './api.ts';
 import { Button } from './components/button.tsx';
 import { routeFor } from './navigation.ts';
-import { Failure, IconButton, Modal, SearchBox } from './ui.tsx';
+import { Failure, IconButton, Modal, SearchBox, useActions } from './ui.tsx';
 
-const groups = { project: '项目', topic: '主题', ticket: '工单', knowledge: '知识' } as const;
+const groups = { ticket: '工单', topic: '主题', project: '项目', knowledge: '知识' } as const;
 type Page = ReturnType<Collaboration['workspaceSearch']>;
 
 function Results({ workspace, close }: { workspace: Overview; close: () => void }) {
@@ -43,16 +43,18 @@ function Results({ workspace, close }: { workspace: Overview; close: () => void 
 
 export function WorkspaceSearch({ workspace }: { workspace: Overview }) {
   const [open, setOpen] = useState(false);
+  const { dialogTrigger } = useActions();
   useEffect(() => {
     function handle(e: KeyboardEvent) {
       if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== 'k' || e.isComposing) return;
       if (!open && document.querySelector('[role="dialog"]')) return;
+      if (!open && document.activeElement instanceof HTMLElement) dialogTrigger.current = document.activeElement;
       e.preventDefault();
       setOpen(value => !value);
     }
     window.addEventListener('keydown', handle);
     return () => window.removeEventListener('keydown', handle);
-  }, [open]);
+  }, [open, dialogTrigger]);
   return <><IconButton label="搜索工作台" onClick={() => setOpen(true)}><Search /></IconButton>
     {open && <Results workspace={workspace} close={() => setOpen(false)} />}</>;
 }

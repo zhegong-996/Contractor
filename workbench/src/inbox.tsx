@@ -28,7 +28,8 @@ const inboxScopes = [['all', '全部项目'], ['project', '当前项目']] as co
 export function InboxPage(props: PageProps) {
   const { project, workspace } = props;
   const [scope, setScope] = useStored<'all' | 'project'>('inbox-scope', 'all');
-  const [opened, open] = useState<Decision>();
+  const [openedId, open] = useState<string>();
+  const opened = workspace.needsYou.find(row => row.id === openedId);
   const fresh = workspace.needsYou.filter(d => scope === 'all' || d.project === project.id);
   const scroll = useSessionScroll('inbox:' + scope + ':' + project.id);
   const [hover, setHover] = useState(false);
@@ -98,7 +99,7 @@ export function InboxPage(props: PageProps) {
               </p>}
             </div><div className="inbox-item-end"><time>{date(d.openedAt)}</time><ChevronRight size={17} /></div></>;
             return href ? <a key={d.id} className="inbox-row" data-tone={decisionTone[d.kind] ?? 'blue'} href={href}>{contents}</a>
-              : <button key={d.id} className="inbox-row" data-tone={decisionTone[d.kind] ?? 'blue'} type="button" onClick={() => open(d)}>{contents}</button>;
+              : <button key={d.id} className="inbox-row" data-tone={decisionTone[d.kind] ?? 'blue'} type="button" onClick={() => open(d.id)}>{contents}</button>;
           })}</div>) : <Empty title="待办已清空" description="需要你授权、答复或验收的事项会显示在这里。" icon={<CheckCheck />} />}
         </section>
         <Section title="最近协作" action={<a href={projectWorkRoute(project.id)} className="text-button">全部工单 <ArrowRight size={15} /></a>}>

@@ -1125,7 +1125,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     if (!mayStart(projectFor(id, actor), actor)) throw new WorkbenchError('项目权限已变化。', 403);
     return { checkedAt, state: issues.length ? 'blocked' as const : 'ready' as const, issues,
       agent: { id: agent.id, name: agent.title, owner: agent.owner }, model, modelCatalogAt, provider,
-      device: device ? { id: device.id, name: device.name } : capability.local && !issues.some(issue => issue.kind === 'device')
+      device: device ? { id: device.id, name: device.name } : capability.available && !capability.remote && !issues.some(issue => issue.kind === 'device')
         ? { name: '工作台运行时' } : undefined,
       estimate: points.estimate(quote) };
   }
@@ -6015,36 +6015,51 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
   function workspaceSearch(actor: string, text: string, offset: number) {
     const q = text.trim().toLowerCase();
     type Hit = { kind: 'project' | 'topic' | 'ticket' | 'knowledge'; project: string; id: string; title: string };
-    const results: Hit[] = [];
-    const pageSize = 24;
-    let count = 0;
-    const add = (row: Hit) => {
-      if (count++ >= offset) results.push(row);
-      return results.length > pageSize;
-    };
-    const page = () => ({ rows: results.slice(0, pageSize), next: results.length > pageSize ? offset + pageSize : undefined });
-    if (!q) return page();
     const projects = readableProjects(actor);
     const contains = (value: string) => value.toLowerCase().includes(q);
-    for (const project of projects) {
-      if (contains(project.title) && add({ kind: 'project', project: project.id, id: project.id, title: project.title })) return page();
-      for (const topic of topicsFor(project)) if (contains(topic.title)
-        && add({ kind: 'topic', project: project.id, id: topic.id, title: topic.title })) return page();
+    const match = /^(?:pr\s*#?\s*|#)(\d+)$/i.exec(q);
+    const number = match ? Number(match[1]) : undefined;
+    function* projectHits(): Generator<Hit> {
+      for (const project of projects) if (contains(project.title))
+        yield { kind: 'project', project: project.id, id: project.id, title: project.title };
     }
-    const pr = /^(?:pr\s*#?\s*|#)(\d+)$/i.exec(q);
-    for (const { ticket, work } of workRecords.matchingTickets(actor, projects.map(p => p.id), q, pr ? Number(pr[1]) : undefined)) {
-      if (!contains(ticket.title) && !contains(ticket.id)) {
-        const output = currentOutputView(actor, ticket.id, work).output;
-        if (!output || !work.delivery || (output.version ?? 1) !== (work.version ?? 1)
-          || work.development && !matchesCodeDelivery(ticket, work, output, work.delivery)) continue;
+    function* topicHits(): Generator<Hit> {
+      for (const project of projects) for (const topic of topicsFor(project)) if (contains(topic.title))
+        yield { kind: 'topic', project: project.id, id: topic.id, title: topic.title };
+    }
+    function* ticketHits(): Generator<Hit> {
+      for (const { ticket, work } of workRecords.matchingTickets(actor, projects.map(p => p.id), q, Number.isSafeInteger(number) ? number : undefined)) {
+        if (!contains(ticket.title) && !contains(ticket.id)) {
+          const output = currentOutputView(actor, ticket.id, work).output;
+          if (!output || !work.delivery || (output.version ?? 1) !== (work.version ?? 1)
+            || work.development && !matchesCodeDelivery(ticket, work, output, work.delivery)) continue;
+        }
+        yield { kind: 'ticket', project: work.project, id: ticket.id, title: ticket.title };
       }
-      if (add({ kind: 'ticket', project: work.project, id: ticket.id, title: ticket.title })) return page();
     }
-    for (const project of projects) for (const entry of knowledge.list(project.id)) {
-      if (currentProjectMemory(entry, project, actor) && canReadEntry(entry, actor) && (contains(entry.title) || contains(entry.body))
-        && add({ kind: 'knowledge', project: project.id, id: entry.id, title: entry.title })) return page();
+    function* knowledgeHits(): Generator<Hit> {
+      for (const project of projects) for (const entry of knowledge.list(project.id)) {
+        if ((contains(entry.title) || contains(entry.body)) && currentProjectMemory(entry, project, actor) && canReadEntry(entry, actor))
+          yield { kind: 'knowledge', project: project.id, id: entry.id, title: entry.title };
+      }
     }
-    return page();
+    // Interleave groups so a long project list cannot displace all ticket and knowledge hits.
+    const streams = new Set(q ? [ticketHits(), projectHits(), topicHits(), knowledgeHits()] : []);
+    const rows: Hit[] = [];
+    let position = 0;
+    try {
+      while (streams.size) for (const stream of streams) {
+        const hit = stream.next();
+        if (hit.done) streams.delete(stream);
+        else if (position++ >= offset) {
+          if (rows.length === 24) return { rows, next: offset + rows.length };
+          rows.push(hit.value);
+        }
+      }
+      return { rows, next: undefined };
+    } finally {
+      for (const stream of streams) stream.return(undefined);
+    }
   }
 
   const conversations = openConversationIndex(store.db, { projects: readableProjects, topics: topicsFor, scope: (project, actor, target) => {

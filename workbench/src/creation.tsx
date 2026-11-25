@@ -40,7 +40,8 @@ function initialDraft(preset: TaskPreset): Draft {
 
 export function Composer({ project, workspace, route, preset, close }: PageProps & { preset: TaskPreset; close: () => void }) {
   const defaultDraft = useState(() => initialDraft(preset))[0];
-  const key = ['composer', project.id, preset.agent, preset.parent, preset.topic, preset.device, preset.request, preset.material?.join(','), preset.lesson?.id, preset.personal].join('/');
+  const baseKey = ['composer', project.id, preset.agent, preset.parent, preset.topic, preset.material?.join(','), preset.lesson?.id, preset.personal].join('/');
+  const key = preset.request || preset.device ? JSON.stringify([baseKey, preset.device, preset.request]) : baseKey;
   const [draft, setDraft] = useStored(key, defaultDraft);
   const { busy, run } = useActions();
   const catalog = useData<Knowledge[]>('knowledge/' + project.id);

@@ -1,4 +1,4 @@
-import { useState, type DragEvent, type ReactNode } from 'react';
+import { useLayoutEffect, useRef, useState, type DragEvent, type ReactNode } from 'react';
 import { ticketListState } from '../../src/workbench/ticket-list-state.ts';
 import { CircleAlert, CircleCheck, CircleDashed, CircleDot, CircleStop, ClipboardCheck, Hourglass } from 'lucide-react';
 import { api, type TicketRow } from './api.ts';
@@ -86,6 +86,14 @@ export function WorkBoard({ tickets, workspace, project, mine, group, scrollKey,
   const scroll = useSessionScroll(scrollKey);
   const { busy, run } = useActions();
   const [dragged, setDragged] = useState<TicketRow>();
+  const restoreButton = useRef<{ ticket: string; priority: string } | null>(null);
+  useLayoutEffect(() => {
+    const target = restoreButton.current;
+    if (!target || !tickets.some(row => row.id === target.ticket && row.work.priority === target.priority)) return;
+    if (document.activeElement === document.body)
+      scroll.ref.current?.querySelector<HTMLButtonElement>('[data-priority-ticket="' + CSS.escape(target.ticket) + '"]')?.focus({ preventScroll: true });
+    restoreButton.current = null;
+  }, [tickets, scroll.ref]);
   const adjust = (ticket: TicketRow, priority: 'normal' | 'urgent') => {
     if (!busy && ticket.mayPrioritize && priority !== ticket.work.priority)
       void run(() => api('ticket/' + ticket.id + '/priority', { priority, previous: ticket.work.priority ?? 'normal', revision: ticket.priorityRevision,
@@ -108,8 +116,8 @@ export function WorkBoard({ tickets, workspace, project, mine, group, scrollKey,
           return <div className="priority-card" key={ticket.id} draggable={!busy}
             onDragStart={e => { e.dataTransfer.setData('text/plain', ticket.id); e.dataTransfer.effectAllowed = 'move'; setDragged(ticket); }}
             onDragEnd={() => setDragged(undefined)}>{card}
-            <Button variant="ghost" size="sm" disabled={busy} aria-label={ticket.title + (next === 'urgent' ? ' · 设为紧急' : ' · 设为普通')}
-              onClick={() => adjust(ticket, next)}>{next === 'urgent' ? '设为紧急' : '设为普通'}</Button></div>;
+            <Button variant="ghost" size="sm" data-priority-ticket={ticket.id} disabled={busy} aria-label={ticket.title + (next === 'urgent' ? ' · 设为紧急' : ' · 设为普通')}
+              onClick={event => { if (event.detail === 0) restoreButton.current = { ticket: ticket.id, priority: next }; adjust(ticket, next); }}>{next === 'urgent' ? '设为紧急' : '设为普通'}</Button></div>;
         }} />;
     })}
   </div>;
