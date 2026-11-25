@@ -10,7 +10,7 @@ export function executionCapabilities(agent: RunnerAgent) {
     && !!config.credential && !!agent.model?.trim();
   const local = test || config?.kind === 'sandbox' && codex;
   const remote = config?.kind === 'remote' && !!agent.model?.trim()
-    && (codex || agent.engine === 'claude' && ['ollama', 'deepseek'].includes(config.provider) && !config.credential);
+    && (codex || agent.engine === 'acp' && config.provider === 'openai' && !!config.credential || agent.engine === 'claude' && ['ollama', 'deepseek'].includes(config.provider) && !config.credential);
   const harness = config?.kind === 'harness' && agent.engine === 'octop' && !!agent.model;
   const available = local || remote || harness;
   const reason = available ? undefined : !config ? '尚未配置隔离执行方式'

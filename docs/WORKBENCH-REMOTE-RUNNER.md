@@ -120,3 +120,11 @@ export CONTRACTOR_SANDBOX_ROOT="$sandbox_install/node_modules/@anthropic-ai/sand
 - 账本共保留五条回执，分别为平台整理一次、个人委托一次、项目执行三次。被取消的尝试没有模型用量数据。
 
 自动化回归覆盖接单重领、停止证明、跨端接续和主备选择。可以用测试仓和各自账号复测从平台委托到 GitHub 检查的链路。 [执行端回归](../tests/workbench-remote-runner.test.ts)
+
+### 接入只读 ACP 设备
+
+在 Contractor 调度器下，可把一位项目 Worker 的引擎配置为 `acp`，执行方式选 `remote`，服务商填 `openai`，使用成员独立凭据和项目已许可的模型。该 Worker 仅能接只读工单。设备端单独安装 Codex CLI、隔离工具及 [Zed codex-acp 0.16.0](https://github.com/zed-industries/codex-acp/releases/tag/v0.16.0)，让 `codex-acp` 可从 PATH 找到，再用 `contractor connect <团队地址> --bind-agent` 选择自己的项目和 Agent。每台设备使用独立的运行目录。
+
+设备在隔离环境里核对 ACP v1、实现版本和 `loadSession`。任务上下文仅随当前租约传入；客户端提供的终端、文件接口和 MCP 服务均为空。断线后重建同一会话的记录，只有原轮结束回执能确认成果。缺少结束证据时，工单显示待核对。接替执行仍须等设备进程退出。Token 取自该会话的实际记录。
+
+模型服务拒绝所选账号和模型组合时，原单提示核对授权。相同设备配置和凭据暂停领取新任务。授权修复后，在原设备运行 `contractor connect <团队地址> --recheck-model` 恢复检查，再从原工单接续。设备使用过命名 profile 时，这条命令须带上原来的 `--profile`。

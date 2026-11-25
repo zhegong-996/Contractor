@@ -50,7 +50,7 @@ export async function prepareRemote(home: string, profile: RunnerAgent, job: Dev
     throw new Error('领到的任务与远程配对范围不一致');
   const lease = leaseSchema.parse({ run: job.run, attempt: job.attempt, lease: job.token });
   if (!await neverLaunched(home, lease)) throw new Error('远端磁盘已有该轮执行记录，须保留旧执行和回执');
-  if (profile.engine === 'codex') {
+  if (profile.engine === 'codex' || profile.engine === 'acp') {
     const scoped = await isolateJob({ ...profile, execution: { ...profile.execution!, kind: 'sandbox' } }, job,
       { authority: job.remote!.authority, home }, undefined, job.remote?.code ? { bundle: job.remote.code, paths: job.remote.code.paths } : undefined);
     return scoped.job;
@@ -65,11 +65,12 @@ export async function remoteStop(home: string, entry: { run: number; attempt: nu
   if (!workerStopped(entry.run, entry.attempt, entry.token, home)) throw new Error('等待远端旧进程和它的子进程退出');
   let model: string | undefined;
   let usage;
-  const codex = protocolMatches(entry.job.agent.use, 'contractor-isolated');
+  const acp = entry.job.agent.use === 'contractor-acp';
+  const codex = acp || protocolMatches(entry.job.agent.use, 'contractor-isolated');
   if (codex) {
     // Only a fresh first turn can use the session total without charging another turn or attempt.
     ({ model, usage } = await codexSessionEvidence(await readIsolation(entry.run, entry.attempt), session,
-      recoverUsage && entry.turn === 1 && !entry.job.session));
+      (acp || recoverUsage) && entry.turn === 1 && !entry.job.session));
   } else {
     const stream = await readFile(path.join(entry.dir, 'stdout-' + entry.turn + '.log'), 'utf8').catch(() => '');
     for (const line of stream.split('\n')) {
@@ -81,7 +82,7 @@ export async function remoteStop(home: string, entry: { run: number; attempt: nu
   }
   const code = codex ? await exportCodeDelta(entry.run, entry.attempt) : undefined;
   const stop: RemoteStop = { ...(code && { code }), attempt: entry.attempt, state: entry.turn > 0 ? 'exited' : 'not-launched',
-    ...(model && { model }), ...(usage && { usageCoverage: 'partial' }) };
+    ...(model && { model }), ...(usage && recoverUsage && { usageCoverage: 'partial' }) };
   return { stop, usage };
 }
 

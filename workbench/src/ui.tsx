@@ -162,7 +162,7 @@ const recoveryLabels: Record<string, string> = {
   'model-unavailable': '模型暂不可用', 'model-authorization': '模型授权已变化', quota: '额度受限',
   worktree: '代码工作区待核对', 'result-incomplete': '执行结果待补齐', 'execution-failed': '执行失败',
   'execution-cancelled': '执行已取消', 'authority-changed': '委托权限已变化', resuming: '正在接续',
-  'ci-pending': '等待 CI', 'ci-failed': 'CI 未通过', 'deployment-pending': '等待部署', 'deployment-failed': '部署未通过',
+  'merge-conflict': 'PR 有合并冲突', 'ci-pending': '等待 CI', 'ci-failed': 'CI 未通过', 'deployment-pending': '等待部署', 'deployment-failed': '部署未通过',
   'stage-scope': '待确认范围依据', 'stage-verification': '待逐项核对',
 };
 

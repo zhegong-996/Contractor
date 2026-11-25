@@ -1,3 +1,4 @@
+import { checkRunLabel } from './check-run-label.ts';
 import type { Ticket } from './api.ts';
 import { deliveryVersionRoute, runRoute } from './navigation.ts';
 
@@ -5,7 +6,7 @@ const runStates: Record<string, string> = { failed: '失败', cancelled: '已停
 
 type Event = { id: string; at: string; title: string; detail?: string; href?: string; external?: boolean };
 
-export function ticketMilestones(ticket: Ticket) {
+export function ticketMilestones(ticket: Pick<Ticket, 'id' | 'project' | 'runs' | 'engineeringReview' | 'ciAttempts' | 'versions'>) {
   const events: Event[] = [];
   for (const run of ticket.runs) {
     const href = runRoute(ticket.project, ticket.id, run.id);
@@ -17,11 +18,13 @@ export function ticketMilestones(ticket: Ticket) {
   }
   for (const row of ticket.engineeringReview.records) {
     events.push({ id: 'decision-' + row.id, at: row.openedAt, title: row.actor + (row.direction === 'escalate' ? ' 请求决策' : ' 发起交接'), detail: row.question });
-    if (row.answeredAt) events.push({ id: 'answer-' + row.id, at: row.answeredAt, title: (row.answeredBy ?? row.recipient) + ' 已答复', detail: row.answer });
+    if (row.answeredAt) events.push({ id: 'answer-' + row.id, at: row.answeredAt, title: (row.answeredBy ?? row.recipient) + (row.direction === 'handover' ? ' 已接手' : ' 已答复'), detail: row.answer });
+    if (row.closed) events.push({ id: 'closed-' + row.id, at: row.closed.at,
+      title: row.closed.by + (row.state === 'withdrawn' ? ' 已撤回请求' : ' 已接回处理') });
   }
   for (const ci of ticket.ciAttempts) {
     if (!ci.completed_at) continue;
-    const result = ci.conclusion === 'success' ? '通过' : ci.conclusion === 'failure' ? '失败' : ci.conclusion ?? '已结束';
+    const result = checkRunLabel(ci.status, ci.conclusion);
     events.push({ id: ['ci', ci.repoId, ci.pr, ci.id].join('-'), at: ci.completed_at, title: ci.name + ' · ' + result,
       detail: 'PR #' + ci.pr + ' · ' + ci.head_sha.slice(0, 8), href: ci.html_url ?? undefined, external: true });
   }

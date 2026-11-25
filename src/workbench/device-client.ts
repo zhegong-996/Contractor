@@ -1,5 +1,6 @@
 import { mkdir, readFile, readdir, stat, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { z } from 'zod';
 import type { WorkerFactory, WorkerHub } from './execution/protocol.ts';
@@ -94,8 +95,11 @@ if (argv[0] === 'pair' || argv[0] === 'pair-remote') {
       createWorker = legacy.createWorker;
     }
     const send = <T>(action: string, data: unknown) => request<T>(endpoint, action, data, connection.token, remote, connection.driver);
-    const codex = profile?.engine === 'codex' ? runtime('member-credentials', profile.owner, profile.execution!.credential + '.json')
+    const codex = profile?.engine === 'codex' || profile?.engine === 'acp' ? runtime('member-credentials', profile.owner, profile.execution!.credential + '.json')
       : independent?.engines.includes('codex') ? runtime('member-credentials', independent.owner, workerCredential + '.json') : undefined;
+    const acpHold = runtime('devices', id, 'acp-model-hold.json');
+    let acpReady = false, acpProbeAt = 0, acpIdentity = '';
+    let blockedIdentity = '';
     let announced: string | undefined;
     const hub: WorkerHub = {
       async work(data) {
@@ -106,7 +110,15 @@ if (argv[0] === 'pair' || argv[0] === 'pair-remote') {
         }
         const validCodex = sandboxReady && !!auth && !expiredCodexLogin(auth);
         const engines = independent?.engines.filter(engine => engine !== 'codex' || validCodex);
-        const unavailable = engines ? engines.length === 0 : !!codex && !validCodex;
+        if (profile?.engine === 'acp') {
+          acpIdentity = createHash('sha256').update(JSON.stringify(profile)).update(auth ?? '').digest('hex');
+          blockedIdentity = await readFile(acpHold, 'utf8').catch(error => { if (error.code !== 'ENOENT') throw error; return ''; });
+        }
+        if (profile?.engine === 'acp' && validCodex && blockedIdentity !== acpIdentity && Date.now() >= acpProbeAt) {
+          acpReady = connection.driver === 'contractor' && await (await import('./acp-worker.ts')).probeAcp().catch(() => false);
+          acpProbeAt = Date.now() + 30_000;
+        }
+        const unavailable = profile?.engine === 'acp' && (!acpReady || blockedIdentity === acpIdentity) || (engines ? engines.length === 0 : !!codex && !validCodex);
         // Heartbeats, cancellation and receipt delivery continue with zero new-work capacity.
         const answer = await send<{ job?: DeviceJob | null; cancel?: number[]; release?: ReleasedLease; deviceActive?: boolean }>(
           'work', { ...data, ...(engines && { engines }), ...(unavailable && { capacity: false }) });
@@ -114,6 +126,7 @@ if (argv[0] === 'pair' || argv[0] === 'pair-remote') {
         if (status !== announced) {
           await writeFile(ready, status, { mode: 0o600 });
           if (!sandboxReady) console.log('Codex 隔离工具未就绪。按执行端手册安装锁定版本并核对 CONTRACTOR_SANDBOX_ROOT。');
+          else if (unavailable && profile?.engine === 'acp') console.log('ACP 暂停接单。请核对隔离工具、只读协议版本和成员模型授权。');
           else if (unavailable) console.log('Codex 登录不可用，暂停接单。运行同一条连接命令更新登录。');
           announced = status;
         }
@@ -156,6 +169,13 @@ if (argv[0] === 'pair' || argv[0] === 'pair-remote') {
         const entry = worker.entries().find(entry => entry.run === run && entry.token === lease);
         if (!entry) throw new Error('缺少远端本轮执行记录');
         const receipt = parseResult(value);
+        if (profile?.engine === 'acp' && acpIdentity) {
+          const stream = await readFile(path.join(entry.dir, 'stdout-' + entry.turn + '.log'), 'utf8').catch(() => '');
+          if (stream.split('\n').includes('{"blocked":"model"}')) {
+            blockedIdentity = acpIdentity;
+            await writeFile(acpHold, blockedIdentity, { mode: 0o600 });
+          }
+        }
         const { stop, usage } = await remoteStop(home, entry, receipt.session,
           !receipt.usage && (receipt.outcome === 'cancelled' || receipt.outcome === 'failed'));
         const ack = await send<Awaited<ReturnType<WorkerHub['result']>>>('result', { run, lease, value: usage ? { ...receipt, usage } : value, stop });

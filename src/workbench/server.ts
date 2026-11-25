@@ -231,7 +231,7 @@ async function serve(release: () => void) {
     if (!token) throw new WorkbenchError('请使用已配对的执行端。', 401);
     if (action === 'work') {
       const input = z.object({ claim: nonce, wait: z.number().min(0).max(50), capacity: z.boolean(),
-        running: z.array(z.number().int().positive()).max(1), engines: z.array(z.enum(['codex', 'claude'])).max(2).optional() }).strict().parse(native);
+        running: z.array(z.number().int().positive()).max(1), engines: z.array(z.enum(['codex', 'claude', 'acp'])).max(3).optional() }).strict().parse(native);
       json(res, 200, await work.deviceWork(token, input, remote));
     } else if (action === 'started' || action === 'result') {
       const input = z.object({ run: z.number().int().positive(), lease: z.string().min(1).max(500), value: z.unknown(),
@@ -725,6 +725,10 @@ async function serve(release: () => void) {
       else if (view === 'regression' && item && post && action === 'compare' && !reference)
         output = work.compareRegression(actor, id.parse(item), regressionCompareInput.parse(await body(req)));
       else if (get && view === 'ticket' && item && !action) output = work.detail(actor, item);
+      else if (get && view === 'ticket' && item && action === 'annotations' && !reference)
+        output = await work.checkAnnotations(actor, item, z.string().min(1).max(160).parse(url.searchParams.get('revision')),
+          z.string().regex(/^[a-f0-9]{40}$/).parse(url.searchParams.get('head')), z.coerce.number().int().positive().safe().parse(url.searchParams.get('run')),
+          z.coerce.number().int().min(1).max(1000).parse(url.searchParams.get('page') ?? 1));
       else if (get && view === 'ticket' && item && action === 'changes' && !reference) output = await work.ticketChanges(actor, item, {
         head: url.searchParams.get('head') ?? undefined, revision: url.searchParams.get('revision') ?? undefined, namesOnly: url.searchParams.get('view') === 'files',
       });

@@ -9,6 +9,7 @@ import { createServer } from 'node:http';
 import { once } from 'node:events';
 import { setTimeout as delay } from 'node:timers/promises';
 import test from 'node:test';
+import { checkRunLabel } from '../workbench/src/check-run-label.ts';
 import type { PullCheck } from '../src/workbench/github-delivery.ts';
 import { digest } from '../src/workbench/knowledge.ts';
 import type { OutboundMessage } from '../upstream/superagent/src/core/index.ts';
@@ -23,6 +24,16 @@ const sha = 'a'.repeat(40), base = 'b'.repeat(40), foreign = 'c'.repeat(40);
 const check = (id: number, change: Partial<PullCheck> = {}): PullCheck => ({ id, name: 'collab-pilot',
   head_sha: sha, status: 'completed', conclusion: 'success', app: { id: 15368, slug: 'github-actions' }, ...change });
 
+test('检查的原始结论与本版 CI 门禁分别呈现', () => {
+  for (const [conclusion, label] of [['cancelled', '已取消'], ['timed_out', '超时'], ['skipped', '已跳过'],
+    ['action_required', '需要人工处理'], ['neutral', '中性结果'], ['failure', '失败']]) {
+    assert.equal(checkRunLabel('completed', conclusion), label);
+    assert.equal(pullChecks(sha, [check(1), check(2, { conclusion })]).ci, 'failed');
+  }
+  assert.equal(checkRunLabel('in_progress', null), '运行中');
+  assert.equal(checkRunLabel('completed', null), '已结束，结论待核对');
+});
+
 test('版本 CI 只采信当前 SHA 的原生 Actions 最新检查，缺少或进行中均不可验收', () => {
   assert.equal(pullChecks(sha, []).ci, 'pending');
   assert.equal(pullChecks(sha, [check(1, { head_sha: foreign })]).ci, 'pending');
@@ -33,7 +44,29 @@ test('版本 CI 只采信当前 SHA 的原生 Actions 最新检查，缺少或�
   assert.deepEqual(pullChecks(sha, [check(1), check(2)]).checks.map(item => item.id), [2]);
 });
 
-test('交付检查按版本冻结，失败只重核相应证据；独立审查、CI、部署与权限均核对后才验收', { timeout: 35000 }, async t => {
+test('同一工单 PR 的冲突次数在关闭数据库后延续，未知状态保留最近事实', async t => {
+  const { openDeliveryEvidence } = await import('../src/workbench/delivery-evidence.ts');
+  const folder = await mkdtemp(path.join(os.tmpdir(), 'contractor-pr-conflict-'));
+  const file = path.join(folder, 'evidence.sqlite');
+  let db = new DatabaseSync(file);
+  t.after(async () => { db.close(); await rm(folder, { recursive: true, force: true }); });
+  const evidence: DeliveryEvidence = { repository: 'team/test', repoId: 1, pr: 22, url: 'https://github.com/team/test/pull/22',
+    headSha: sha, baseSha: base, ci: 'failed', mergeable: false };
+  let records = openDeliveryEvidence(db);
+  records.storeDeliveryVersion('store', evidence);
+  db.close();
+  db = new DatabaseSync(file);
+  records = openDeliveryEvidence(db);
+  for (const mergeable of [null, false, false]) records.storeDeliveryVersion('store', { ...evidence, mergeable });
+  assert.equal(records.conflict('store', evidence), 1);
+  records.storeDeliveryVersion('store', { ...evidence, mergeable: true });
+  assert.equal(records.conflict('store', evidence), undefined);
+  records.storeDeliveryVersion('store', evidence);
+  assert.equal(records.conflict('store', evidence), 2);
+  assert.equal(records.conflict('other', evidence), undefined);
+});
+
+test('交付检查按版本冻结，失败只重核相应证据；独立审查、CI、部署与权限均核对后才验收', { timeout: 60000 }, async t => {
   // Local admission regression: real native lifecycle, trusted ledger fixtures, mocked GitHub transport.
   // Live Codex, Git and GitHub evidence is collected separately by the integration journey.
   const oldPath = process.env.PATH;
@@ -128,7 +161,7 @@ test('交付检查按版本冻结，失败只重核相应证据；独立审查�
   const remote = {
     pull: { number: 1, html_url: 'https://github.com/team/test/pull/1', body: 'Contractor-Work: ' + id,
       base: { sha: base, ref: 'main', repo: repository }, head: { sha, ref: development.branch, repo: repository },
-      user: identity, state: 'open', draft: false, merged: false, created_at: '2026-11-01T00:00:00Z',
+      user: identity, state: 'open', draft: false, merged: false, mergeable: true as boolean | null, created_at: '2026-11-01T00:00:00Z',
       updated_at: '2026-11-01T00:00:00Z', merged_at: null, requested_reviewers: [], assignees: [], labels: [] },
     commits: [{ sha, author: identity, committer: identity }], checks: [codeCheck(1)], reviews: [] as NonNullable<DeliveryEvidence['reviews']>,
     deployments: [] as { id: number; sha: string; environment: string }[],
@@ -261,6 +294,45 @@ test('交付检查按版本冻结，失败只重核相应证据；独立审查�
   assert.equal(pending('owner', 'acceptance'), undefined);
   assert.deepEqual(work.detail('owner', id).deliveryVerification?.checks.map(c => [c.name, c.id, c.state]),
     [[requiredName, 8, 'failed'], ['asset-lint', 7, 'passed']]);
+  const route = 'repos/team/test/check-runs/8/annotations?per_page=100&page=1';
+  const line = { start_line: 2, end_line: 4, annotation_level: 'failure' };
+  remote.github[route] = [{ ...line, path: 'private/plan.md' }, { ...line, path: 'collab-pilot/index.html', message: 'unscoped log text' }];
+  await save();
+  assert.deepEqual(await work.checkAnnotations('owner', id, output.revision, sha, 8, 1), { more: false,
+    items: [{ ...line, path: 'collab-pilot/index.html' }] });
+  await assert.rejects(work.checkAnnotations('auditor', id, output.revision, sha, 8, 1), { status: 403 });
+  await assert.rejects(work.checkAnnotations('owner', id, output.revision, foreign, 8, 1), { status: 409 });
+  const visible = Array.from({ length: 22 }, (_, i) => ({ ...line, path: 'collab-pilot/' + i + '.tsx' }));
+  remote.github[route] = Array.from({ length: 100 }, () => ({ ...line, path: 'private/plan.md' }));
+  remote.github[route.replace(/page=1$/, 'page=2')] = visible;
+  await save();
+  assert.deepEqual(await work.checkAnnotations('owner', id, output.revision, sha, 8, 2), { more: false, items: visible.slice(20) });
+  remote.github[route] = [];
+  await save();
+  assert.deepEqual(await work.checkAnnotations('owner', id, output.revision, sha, 8, 1), { more: false, items: [] });
+  delete remote.github[route];
+  await save();
+  assert.deepEqual(await work.checkAnnotations('owner', id, output.revision, sha, 8, 1), { unavailable: true });
+  remote.pull.mergeable = false;
+  await save();
+  assert.equal((await recheck()).deliveryStatus?.state, 'merge-conflict');
+  const conflictId = pending('maker', 'delivery')!.id;
+  remote.pull.mergeable = null;
+  await save();
+  assert.equal((await recheck()).deliveryStatus?.state, 'merge-conflict');
+  assert.equal(pending('maker', 'delivery')?.id, conflictId);
+  await assert.rejects(accept(sha), /冲突/);
+  remote.pull.mergeable = true;
+  await save();
+  assert.equal((await recheck()).deliveryStatus?.state, 'ci-failed');
+  remote.pull.mergeable = false;
+  await save();
+  await recheck();
+  const repeated = pending('maker', 'delivery')!.id;
+  assert.notEqual(repeated, conflictId);
+  await recheck();
+  assert.equal(pending('maker', 'delivery')?.id, repeated);
+  remote.pull.mergeable = true;
   remote.checks.push(codeCheck(11));
   await save();
   const tested = await recheck();

@@ -23,7 +23,7 @@ function copy(source, prefix, names) {
 try {
   copy(root, '', ['LICENSE', 'bin/contractor.mjs',
     'src/commands.ts', 'src/config.ts', 'src/github.ts',
-    ...['claude-runner-adapter.ts', 'claude-runner-launch.mjs', 'code-bundle.ts', 'codex-catalog.ts', 'compatibility.ts', 'device-client.ts',
+    ...['acp-client.mjs', 'acp-worker.ts', 'claude-runner-adapter.ts', 'claude-runner-launch.mjs', 'code-bundle.ts', 'codex-catalog.ts', 'compatibility.ts', 'device-client.ts',
       'devices.ts', 'execution-capabilities.ts', 'isolation.ts', 'sandbox-provider.ts', 'remote-runner.ts', 'cursor.ts',
       'execution/cli.ts', 'execution/codex.ts', 'execution/protocol.ts', 'execution/worker.ts',
       'deepseek-catalog.ts', 'runner-cli.ts', 'runner-connection.ts', 'runner-credentials.ts', 'runner-profile.ts', 'worker-process.ts'].map(file => 'src/workbench/' + file),

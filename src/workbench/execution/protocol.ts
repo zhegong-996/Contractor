@@ -47,7 +47,7 @@ export type Job = {
   };
 };
 
-export type WorkRequest = { claim: string; running: number[]; wait: number; capacity: boolean; engines?: ('codex' | 'claude')[] };
+export type WorkRequest = { claim: string; running: number[]; wait: number; capacity: boolean; engines?: ('codex' | 'claude' | 'acp')[] };
 export type Started = { session: string; link?: string };
 export type WorkerHub = {
   work(request: WorkRequest): Promise<{ job?: Job | null; cancel?: number[] }>;

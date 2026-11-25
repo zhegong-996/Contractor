@@ -1,3 +1,4 @@
+import { checkRunLabel } from './check-run-label.ts';
 import { RefreshCw } from 'lucide-react';
 import { api, part, type Ticket } from './api.ts';
 import { Button } from './components/button.tsx';
@@ -44,7 +45,7 @@ export function DeliveryVerification({ ticket, revision, verification }: {
     </div>
     {verification.checks.map(check => <div className="record-row" key={check.app + ':' + check.name}>
       <Ext href={check.url ?? undefined}>{check.name}</Ext>
-      <Pill tone={state[check.state].tone}>{state[check.state].label}</Pill>
+      <Pill tone={state[check.state].tone}>{check.status ? checkRunLabel(check.status, check.conclusion) : state[check.state].label}</Pill>
       {check.id && <span>检查 #{check.id}</span>}
     </div>)}
     {verification.review && <div className="record-row">

@@ -7,7 +7,7 @@ export const runnerEndpoint = z.url().transform(value => new URL(value)).refine(
   && !url.username && !url.password && url.pathname === '/' && !url.search && !url.hash,
 '请使用团队 HTTPS 地址，或由部署方配置的回环地址').transform(url => url.origin);
 export const runnerSecret = z.string().regex(/^[A-Za-z0-9_-]{43}$/);
-export const runnerEngines = z.array(z.enum(['codex', 'claude'])).min(1).max(2).refine(items => new Set(items).size === items.length);
+export const runnerEngines = z.array(z.enum(['codex', 'claude', 'acp'])).min(1).max(3).refine(items => new Set(items).size === items.length);
 export const runnerRequestId = z.uuid();
 export const runnerWorkerSchema = z.object({ owner: z.string().regex(/^[a-zA-Z0-9_-]{2,32}$/), engines: runnerEngines }).strict();
 export type RunnerWorker = z.infer<typeof runnerWorkerSchema>;

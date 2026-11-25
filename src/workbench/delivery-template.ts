@@ -69,7 +69,7 @@ export function templateChecks(template: DeliveryTemplate, evidence: DeliveryEvi
   return template.checks.map(rule => {
     const result = pullChecks(evidence.headSha, evidence.checks ?? [], [rule]);
     const check = result.checks[0];
-    return { name: rule.name, app: rule.app, state: result.ci, ...(check && { id: check.id, url: check.html_url }) };
+    return { name: rule.name, app: rule.app, state: result.ci, ...(check && { id: check.id, url: check.html_url, status: check.status, conclusion: check.conclusion }) };
   });
 }
 

@@ -15,6 +15,10 @@ export function openDeliveryEvidence(db: DatabaseSync) {
       ticket TEXT NOT NULL, repository INTEGER NOT NULL, number INTEGER NOT NULL, head TEXT NOT NULL,
       id INTEGER NOT NULL, value TEXT NOT NULL, PRIMARY KEY(ticket,repository,number,head,id)
     );
+    CREATE TABLE IF NOT EXISTS workbench_pull_conflict (
+      ticket TEXT NOT NULL, repository INTEGER NOT NULL, number INTEGER NOT NULL,
+      active INTEGER NOT NULL, episode INTEGER NOT NULL, PRIMARY KEY(ticket,repository,number)
+    );
     CREATE TABLE IF NOT EXISTS workbench_ci_green (
       ticket TEXT NOT NULL, repository INTEGER NOT NULL, number INTEGER NOT NULL,
       head TEXT NOT NULL, policy TEXT NOT NULL, observed INTEGER NOT NULL,
@@ -28,6 +32,13 @@ export function openDeliveryEvidence(db: DatabaseSync) {
 
   const policy = (e: DeliveryEvidence) => JSON.stringify((e.requiredChecks ?? []).map(c => [c.app, c.appId ?? null, c.name]).sort());
   function storeDeliveryVersion(id: string, evidence: DeliveryEvidence) {
+    if (evidence.repoId && typeof evidence.mergeable === 'boolean') {
+      const active = Number(!evidence.mergeable);
+      db.prepare(`INSERT INTO workbench_pull_conflict VALUES (?,?,?,?,?)
+        ON CONFLICT(ticket,repository,number) DO UPDATE SET active=excluded.active,
+        episode=episode+excluded.active WHERE active!=excluded.active`)
+        .run(id, evidence.repoId, evidence.pr, active, active);
+    }
     if (evidence.ci === 'passed') {
       db.prepare('INSERT OR REPLACE INTO workbench_ci_green VALUES (?,?,?,?,?,?)')
         .run(id, evidence.repoId!, evidence.pr, evidence.headSha, policy(evidence), Date.now());
@@ -46,6 +57,11 @@ export function openDeliveryEvidence(db: DatabaseSync) {
 
   return {
     storeDeliveryVersion, recordCheckAttempts,
+    conflict(id: string, evidence: DeliveryEvidence) {
+      const row = db.prepare('SELECT episode FROM workbench_pull_conflict WHERE ticket=? AND repository=? AND number=? AND active=1')
+        .get(id, evidence.repoId ?? 0, evidence.pr);
+      return row ? Number(row.episode) : undefined;
+    },
     lastGreen(id: string, evidence: DeliveryEvidence, versions: DeliveryEvidence[]) {
       if (evidence.ci === 'passed') return evidence.headSha;
       const seen = db.prepare(`SELECT head FROM workbench_ci_green WHERE ticket=? AND repository=? AND number=? AND policy=?
@@ -84,6 +100,7 @@ export function deliveryStatus(ports: {
   followedPull: (id: string, work: Work) => DeliveryPull | undefined;
   targets: (project: string) => ProjectResource[];
   review: (work: Work, output: Output, evidence: DeliveryEvidence) => ReturnType<typeof templateReview>;
+  conflict?: (id: string, evidence: DeliveryEvidence) => number | undefined;
   browserVerified?: (id: string, work: Work, output: Output, evidence: DeliveryEvidence) => boolean;
 }) {
   const { outputFor, matchesCodeDelivery, followedPull, targets, review } = ports;
@@ -101,6 +118,8 @@ export function deliveryStatus(ports: {
     const target = targets(work.project).find(ref => ref.execution
       && ref.externalId.toLowerCase() === evidence.repository.toLowerCase());
     if (!target) return missing('本版交付仓库配置已变化，请研发核对。');
+    if (evidence.mergeable === false || ports.conflict?.(ticket.id, evidence))
+      return { state: 'merge-conflict', issue: 'merge-conflict', detail: '当前 PR 与目标分支有合并冲突，请研发处理。', output };
     const policy = deliveryRequirements(work, target);
     const { ci, checks } = pullChecks(evidence.headSha, evidence.checks ?? [], policy.checks);
     if (!checks.length) return missing('本版提交尚无配置要求的 CI 检查，请研发核对。');

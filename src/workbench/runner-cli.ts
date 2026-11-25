@@ -90,6 +90,8 @@ async function enroll(folder: string, endpoint: string, browser: boolean, name: 
   const pending = restore && restore.expires > Date.now() ? restore
     : { id: randomUUID(), secret: randomBytes(32).toString('base64url'), expires: Date.now() + 10 * 60_000 };
   const engines = ['codex', 'claude'].filter(executable);
+  if (bindAgent && executable('codex') && executable('codex-acp') && await (await import('./acp-worker.ts')).probeAcp().catch(() => false))
+    engines.push('acp');
   if (!engines.length) throw new Error('未检测到 Codex 或 Claude Code，请先安装其中一个');
   await save(pendingFile, pending);
   const invite = z.object({ expires: z.number(), verification: z.url() }).strict().parse(
@@ -114,7 +116,7 @@ async function enroll(folder: string, endpoint: string, browser: boolean, name: 
 }
 
 async function prepareModel(folder: string, profile: z.infer<typeof runnerAgentSchema>, resumeReceipts = false) {
-  const cli = executable(profile.engine);
+  const cli = executable(profile.engine === 'acp' ? 'codex' : profile.engine);
   if (!cli) throw new Error('请在此设备安装已授权的 ' + profile.engine + ' CLI');
   if (profile.engine === 'claude') {
     if (profile.execution?.provider === 'deepseek' && process.stdin.isTTY && !resumeReceipts
@@ -215,7 +217,7 @@ async function setupLock(folder: string) {
 async function main() {
   const { positionals, values } = parseArgs({ allowPositionals: true, options: {
     profile: { type: 'string', default: 'default' },
-    name: { type: 'string' }, foreground: { type: 'boolean' }, 'no-browser': { type: 'boolean' }, 'bind-agent': { type: 'boolean' },
+    name: { type: 'string' }, foreground: { type: 'boolean' }, 'no-browser': { type: 'boolean' }, 'bind-agent': { type: 'boolean' }, 'recheck-model': { type: 'boolean' },
   } });
   const [action, address] = positionals;
   if (positionals.length !== 2 || !['connect', 'stop'].includes(action ?? ''))
@@ -252,9 +254,11 @@ async function main() {
     const profile = 'profile' in connection ? connection.profile : connection.worker.engines.includes('codex')
       ? runnerAgentSchema.parse({ id: workerCredential, owner: connection.worker.owner, engine: 'codex',
         execution: { kind: 'remote', provider: 'openai', credential: workerCredential } }) : undefined;
+    if (values['recheck-model'] && profile?.engine === 'acp')
+      await unlink(path.join(local, 'acp-model-hold.json')).catch(error => { if (error.code !== 'ENOENT') throw error; });
     const existing = await running(local, connection.id);
     if (existing) {
-      if (profile?.engine === 'codex') await prepareModel(folder, profile);
+      if (profile?.engine === 'codex' || profile?.engine === 'acp') await prepareModel(folder, profile);
       return console.log('执行端已在运行（' + connection.id + '）');
     }
     if (profile) await prepareModel(folder, profile, id !== undefined && await hasUnsettledRuns(local) || 'worker' in connection);

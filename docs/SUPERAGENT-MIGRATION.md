@@ -16,7 +16,7 @@ flowchart LR
     A[飞书 · GitHub · 业务事件] --> B[Contractor 入口与项目身份]
     B --> C[Super-agent Engine 与工单账本]
     C --> D[AutoLoop 原版 Runtime 与 worker]
-    D --> E[Codex · Claude Code · ACP · 通用 CLI]
+    D --> E[已适配执行端：Codex · Claude Code]
     E --> D
     D --> C
     F[Contractor · 人的决定与验收] <--> C
@@ -33,7 +33,7 @@ flowchart LR
 | 标准事件、事件源插件、去重、同主题合并 | 入口可信身份、Webhook 验签、显式项目绑定，授权工单映射原生执行 lane | 飞书单聊与显式工单事件。GitHub/GitLab/HTTP 等入口留待接入 |
 | 声明式规则、热更新、Skill、并发隔离 | 绑定可信配置，支持按项目看生效版本、止停、错误与回退 | 原版规则和单并发 worker。配置界面待接 |
 | cron、定时复查 `later`、事件链 `events`、跳数限制 | 定时与后继事件仍经过项目、归属和 Mandate；受控配置启用 | 原版内核保留。试点关闭自动外发与跨任务派生 |
-| CLI/ACP 插件、远程 worker、会话恢复 | 保留 Codex、Claude Code、ACP、通用命令及适配器能力；逐端验证隔离、凭据、续跑、取消和断线 | 使用真实 Codex、原版会话续跑 |
+| CLI/ACP 插件、远程 worker、会话恢复 | 上游提供 CLI/ACP 扩展点。工作台按执行端分别核验隔离、权限、续跑与停止；ACP 尚待独立适配，当前可用范围见[执行端说明](WORKBENCH-REMOTE-RUNNER.md) | 使用真实 Codex、原版会话续跑 |
 | 卡片、`ask`、`notice`、`resolve`、原生等待和回复 | 在协作台展示卡片，并接原渠道；回答绑定回复者与工单 | 原版卡片和选择记录通过飞书原话题文字回复接续。按钮及其他通道待接 |
 | 重试、失败回执修复、回收、断线保护、追加日志 | 留存尝试与恢复证据，将重试中、待人工和不可确定状态正确呈现 | 原版执行内核运行，异常分支依靠原版测试。首轮服务验证走正常路径 |
 | 交付插件、发布核对、CLI/MCP 管理与用量统计 | 将交付策略、CI、预览、合并发布与人的审批分开；接入状态、停用、费用与组织治理 | 复用现成 GitHub PR 和同提交 CI 预览。原版交付插件、多通道与组织治理待接 |

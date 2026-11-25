@@ -125,7 +125,7 @@ export class Devices {
       return;
     }
     if (current?.id === id && current.active && current.projects.length === 1
-      && (current.remote?.engine === 'codex' || current.remote?.engine === 'claude')) {
+      && (current.remote?.engine === 'codex' || current.remote?.engine === 'claude' || current.remote?.engine === 'acp')) {
       const binding = authorize({ id, name: current.name, engines: [current.remote.engine], expires: 0,
         approved: { actor: current.owner, project: current.projects[0]!, agent: current.agent } });
       if (binding?.remote && JSON.stringify(current.remote) === JSON.stringify(binding.remote))

@@ -45,6 +45,8 @@ Contractor 把 Super Agent 的“少占用人注意力、只在需要处回应�
 - **人的待办。** Sheepdog 用回执区分已处理、等外部结果和需要人决策；引用回复回到发问会话。Contractor 用这个原则组织研发接单、权限确认、阻塞恢复和按版验收。研发请求显示当前责任人；答复回到发起人的待办，接回后可在原单查看加载该决定的执行记录。[Sheepdog 工作流](https://github.com/Matthewoho/sheepdog/blob/084770e97a9b8d9f1bff215692bf1b32ccc63b06/README.md#workflow)
 - **角色与交接。** AutoByteus 的软件工程团队把方案、实现、代码审查、验证和交付分给不同职责，按改动情况选择审查路径。Contractor 让项目职责和 Router 提供分工建议，仓库范围、审查要求和验收权仍由业务核心校验。项目维护人可以在「职责与路由」应用研发分工模板，为实现、审查和可选的测试职责绑定本项目的 Agent。[AutoByteus 研发团队定义](https://github.com/AutoByteus/autobyteus-agents/blob/8c2da3accdb28d7355f72a67df6a3e64e8c16453/agent-teams/software-engineering-team/team.md)
 
+六个项目在领取、回传、恢复、委派和验收上的实现及对应测试见[研发编排源码对照](docs/RESEARCH-DEVELOPMENT-ORCHESTRATION.md)。
+
 ## Operating Context
 
 中文团队通过工作台与已授权的 IM 渠道协作。消息先持久入站，再经去重、身份、项目归属、明确/推断意图和规则研判；只有通过准入的工作才形成带授权范围的工单。常见工作包括项目与主题管理、群聊与个聊、Agent 与 Worker 配置、交付证据核对、按版本验收及知识采用。Super-agent 管理工单与委托；执行恢复、权限和额度边界必须可见。

@@ -12,7 +12,7 @@ export const engineeringAction = z.discriminatedUnion('action', [
   z.object({ action: z.literal('withdraw'), id: z.string().max(100) }).strict(),
 ]);
 type RecordRow = { id: string; ticket: string; version: number; sha: string | null; direction: 'escalate' | 'handover';
-  actor: string; recipient: string; question: string; answer?: string; answeredBy?: string; answeredAt?: string;
+  actor: string; recipient: string; question: string; answer?: string; answeredBy?: string; answeredAt?: string; closed?: { by: string; at: string };
   state: 'open' | 'answered' | 'received' | 'withdrawn'; openedAt: string };
 export type EngineeringAction = z.infer<typeof engineeringAction>;
 export type DecisionScope = { project: string; ticket: string; version: number; sha: string | null; active: boolean;
@@ -82,7 +82,7 @@ export function engineeringDecisions(db: DatabaseSync, ports: {
       if (r.state === next) return { id: r.id };
       if (!open(r) || next === 'received' && r.state !== 'answered') throw new WorkbenchError('请求状态已变化。', 409);
       ports.close(r.id, r.state === 'answered');
-      save({ ...r, state: next });
+      save({ ...r, state: next, closed: { by: actor, at: new Date().toISOString() } });
     }
     return { id: r.id };
   }

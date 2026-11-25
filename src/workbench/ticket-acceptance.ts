@@ -32,6 +32,8 @@ type AcceptancePorts = {
   storeDeliveryVersion: (id: string, evidence: DeliveryEvidence) => void;
   recordCheckAttempts: (id: string, pull: {repoId: number; pr: number}, attempts: PullCheck[]) => void;
   saveWork: (id: string, work: Work) => unknown;
+  recordConflict: (ticket: Ticket, current: Work, evidence: DeliveryEvidence) => void;
+  conflict: (id: string, evidence: DeliveryEvidence) => number | undefined;
   closeAcceptance: (id: string) => void;
   closeDeliveryIssues: (id: string, output: Output) => void;
   manifestFor: (run: number) => Assembled | undefined;
@@ -89,7 +91,15 @@ export function openTicketAcceptance(store: Pick<SuperAgentStore, 'atomic'>, hub
       });
       const observed = fresh.snapshot;
       attempts = fresh.attempts;
-      const selected = ticketFor(id, actor).work.delivery;
+      const current = ticketFor(id, actor);
+      const selected = current.work.delivery;
+      if (observed.mergeable === false && selected && !current.work.accepted && current.work.development &&
+          selected.repoId === observed.repoId && selected.pr === observed.pr && selected.headSha === observed.headSha &&
+          selected.baseSha === observed.baseSha && digest(selected) === digest(work.delivery) && readableOutput(id, actor)?.revision === revision &&
+          acceptanceAssignee(current.work) === actor && mayStart(current.project, actor))
+        ports.recordConflict(current.ticket, current.work, { ...selected, mergeable: false });
+      if (observed.mergeable === false || (observed.mergeable == null && ports.conflict(id, work.delivery)))
+        throw new WorkbenchError('PR 合并冲突尚未确认解决，请更新后再验收。', 409);
       if (observed.state === 'draft' || observed.state === 'closed' || observed.ci !== 'passed'
         || observed.headSha !== commit || digest(selected ?? null) !== digest(work.delivery)
         || work.delivery.headSha !== observed.headSha || observed.baseSha !== work.delivery.baseSha)

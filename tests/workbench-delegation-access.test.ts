@@ -6,7 +6,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 
-test('受限子单单独授权，旧执行退出后接续，两项齐备才出现一项主单验收待办', { timeout: 24000 }, async t => {
+test('受限子单单独授权，旧执行退出后接续，两项齐备才出现一项主单验收待办', { timeout: 40000 }, async t => {
   const state = await mkdtemp(path.join(os.tmpdir(), 'contractor-delegation-access-'));
   process.env.COLLAB_STATE_DIR = state;
   await mkdir(path.join(state, 'console'));
@@ -41,6 +41,7 @@ test('受限子单单独授权，旧执行退出后接续，两项齐备才出�
       execution: { kind: 'test', provider: 'fixture' }, active: true, capability: '只读核对', skill: '依据本工单资料',
     })),
   });
+  cfg.agents.push({ ...cfg.agents.find(a => a.id === 'delivery')!, id: 'delivery-backup', title: '交付核对接续' });
   const sent: string[] = [], updated: string[] = [];
   const work = await openCollaboration(cfg, auth, undefined, {
     async send(target, _key, body) {
@@ -96,6 +97,10 @@ test('受限子单单独授权，旧执行退出后接续，两项齐备才出�
       if ((error as { status?: number }).status !== 404) throw error;
     }
   });
+  assert.throws(() => work.handoff('product', delivery, { agent: 'rules', reason: '测试越职责接续' }), { status: 409 });
+  const activeChild = get(parent).requiredChildren.find(row => row.child === delivery)!;
+  assert.equal(activeChild.executor?.run, running.id);
+  assert.equal(activeChild.executor?.agent, 'delivery');
   work.changeAccess('product', delivery, grant.id, 'revoked');
   assert.equal(work.executionSnapshot('engineering', delivery, running.id).readable, false);
   await until(() => get(delivery).runs[0]?.state === 'cancelled');
@@ -172,4 +177,44 @@ test('受限子单单独授权，旧执行退出后接续，两项齐备才出�
   await until(() => updated.at(-1)?.includes(cardNeedle));
   assert.equal(sent.length, 1);
   assert.equal(updated.filter(body => body.includes(cardNeedle)).length, 2);
+  // A second parent checks a real role-preserving handoff while the sibling has already finished.
+  const secondStart = work.start('product', { project: 'store', agent: 'summary', title: '门店推荐理由 · 子单交接', request: '核对两项',
+    priority: 'normal', nonce: randomUUID(), material: [publicRules, privateDelivery] });
+  const second = await until(() => work.resolveStart('product', secondStart.trigger));
+  const allow = async (ticket: string) => {
+    const grant = await until(() => get(ticket).requests.find(r => r.state === 'requested'));
+    work.changeAccess('product', ticket, grant.id, 'granted');
+  };
+  await allow(second);
+  const proposals = await until(() => {
+    const list = work.needsYou('product').filter(row => row.ticket === second && row.kind === 'intake');
+    return list.length === 2 && list;
+  });
+  const child = (agent: string) => work.resolveIntake('product', proposals.find(row => row.request?.function === agent)!.subject,
+    { action: 'create', agent }).ticket!;
+  const sibling = child('rules'), changed = child('delivery');
+  await accept(sibling, (await until(() => get(sibling).result)).revision);
+  const acceptedSibling = get(sibling).work.accepted;
+  await allow(changed);
+  const old = await until(() => {
+    const claimed = get(changed).runs.find(row => row.state === 'claimed');
+    const actual = get(second).requiredChildren.find(row => row.child === changed)?.executor;
+    return claimed && actual?.run === claimed.id && claimed;
+  });
+  const change = { agent: 'delivery-backup', reason: '原职责换执行成员' };
+  work.handoff('product', changed, change);
+  work.handoff('product', changed, change);
+  await until(() => get(changed).runs.find(row => row.id === old.id)?.state === 'cancelled');
+  await allow(changed);
+  const latest = await until(() => get(changed).result);
+  assert.equal(latest.version, 1);
+  assert.deepEqual(get(changed).runs.map(row => row.attribution?.agent), ['delivery', 'delivery-backup']);
+  assert.equal(get(second).result, undefined);
+  await accept(changed, latest.revision);
+  await accept(changed, latest.revision);
+  await until(() => get(second).result);
+  assert.deepEqual(get(sibling).work.accepted, acceptedSibling);
+  assert.equal(get(second).requiredChildren.find(row => row.child === changed)?.executor?.agent, '交付核对接续');
+  assert.equal(work.needsYou('product').filter(row => row.ticket === second && row.kind === 'acceptance').length, 1);
+
 });

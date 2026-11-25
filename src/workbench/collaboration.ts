@@ -106,7 +106,7 @@ export { WorkbenchError } from './errors.ts';
 
 export async function openCollaboration(config: Settings, auth: ConsoleAuth, send?: (message: import('../../upstream/superagent/src/core/index.ts').OutboundMessage) => Promise<'sent' | 'gone'>, cardTransport?: CardTransport,
   octopTransport?: OctopIMTransport, plugins = platformPlugins(config), feishuTopicsTransport?: FeishuTopicTransport) {
-  const { inspectPull, inspectBranch, inspectCommitChecks, inspectIssue, inspectProductVerification, inspectChangedFiles } = plugins.use('delivery');
+  const { inspectPull, inspectBranch, inspectCommitChecks, inspectIssue, inspectProductVerification, inspectChangedFiles, inspectCheckAnnotations } = plugins.use('delivery');
   const { feishu: reader, figma, read: readSourceVersion } = plugins.use('sources');
   const { prepare: prepareExpert, modelReceipt: expertModelReceipt, readSkill } = plugins.use('expert');
   const { search: indexSearch } = plugins.use('memory');
@@ -1005,6 +1005,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
   };
   const deviceAllowed = (device: Pick<Device, 'agent' | 'owner' | 'projects' | 'remote' | 'worker'>, project: Project, agent: string) => {
     const service = agentById.get(agent);
+    if (service?.engine === 'acp' && (config.executionRuntime !== 'contractor' || !device.remote)) return false;
     if (!device.projects.includes(project.id) || !isActive(service, project) || service.owner !== device.owner) return false;
     if (device.worker) {
       const profile = workerProfile(service);
@@ -1053,7 +1054,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
   function workerHarnessOwner(actor: string, id: string, agentId: string) {
     const project = projectFor(id, actor);
     const agent = agentById.get(agentId);
-    if (!agent?.projects.includes(id) || !['codex', 'claude'].includes(agent.engine))
+    if (!agent?.projects.includes(id) || !['codex', 'claude', 'acp'].includes(agent.engine))
       throw new WorkbenchError('找不到本项目的 Worker Agent。', 404);
     if (!mayStart(project, actor) || !mayStart(project, agent.owner) || actor !== agent.owner && !maintain(project, actor))
       throw new WorkbenchError('由 Agent 所有者或项目维护人配置。', 403);
@@ -1061,7 +1062,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
   }
 
   function assembleWorkerHarness(project: Project, agent: Agent, requester: string) {
-    if (agent.engine === 'codex' || agent.engine === 'claude')
+    if (agent.engine === 'codex' || agent.engine === 'claude' || agent.engine === 'acp')
       return workHarness.assemble(project.id, agent.id, agent.owner, requester);
   }
 
@@ -2744,6 +2745,14 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
 
   const handoffs = openHandoffs({ store, engine, hub, devices, knowledge, octop, receiptJournal, delegations, projectById, agentById }, {
     workOf, saveWork, ticketFor, audit, runsFor, activeLane, cardsFor, isActive, version, selectAgent, selectDevice, deviceAllowed,
+    mayTakeDuty(work, agent) {
+      if (!work.delegatedVia) return true;
+      const row = delegations.get(work.delegatedVia.delegation);
+      if (!row || agent.function !== row.proposal.function || !delegationAuthority(work)) return false;
+      for (let parent: string | undefined = row.parent; parent; parent = workOf(parent)?.parent)
+        if (workOf(parent)?.agent === agent.id) return false;
+      return true;
+    },
     maintain, mayStart, mandateCurrent: ticket => policy().revalidate(ticket.mandate), developmentAuthorized, authorizesDevelopment,
     askDevelopment, requestAccess, needed, accessReader, ingest, askHuman, clearExecutionDecisions, reportBlocked,
     outputFor, readableOutput: id => readableOutput(id), manifestFor, childResultsUsable, recoverDelegations, requestReviewAccess,
@@ -3163,7 +3172,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
         return '\n已授权共享技能 ' + skill.title + ' · ' + ref.revision + '\n' + skill.instructions;
       }).join('\n');
       for (const ref of work.octop?.skills ?? []) octop.recordUse(ref.id, ref.revision, ticket.id);
-      const fullResult = !work.consultation && !development && (agent.engine === 'codex' || agent.engine === 'claude');
+      const fullResult = !work.consultation && !development && (agent.engine === 'codex' || agent.engine === 'claude' || agent.engine === 'acp');
       const prompt = executionPrompt({ agent, skillText, consultation: !!work.consultation,
         required: work.consultation?.requiredKnowledge, continuation, development, retry, hasKnowledge: entries.length > 0, fullResult,
         workerAdditions: workerContext?.text,
@@ -4642,6 +4651,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
 
   const codeDeliveryState = deliveryStatus({
     outputFor, matchesCodeDelivery, followedPull,
+    conflict: deliveryEvidence.conflict,
     targets: project => deliveryTargets(projectById.get(project)!), review: independentReview,
     browserVerified: (id, work, output, evidence) => {
       const execution = product.state(id, output.revision, work, evidence)?.execution;
@@ -4686,11 +4696,20 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
   }
 
   const codeAcceptanceSubject = (id: string, output: Output) => key('code-acceptance', id, output.revision);
-  const deliverySubject = (id: string, output: Output, issue: DeliveryIssue) => key('delivery-issue', id, output.revision, issue);
+  function deliverySubject(id: string, output: Output, issue: DeliveryIssue) {
+    const evidence = issue === 'merge-conflict' && workOf(id)?.delivery;
+    if (evidence) return ['pr-conflict', id, evidence.repoId, evidence.pr, output.revision, deliveryEvidence.conflict(id, evidence)].join(':');
+    return key('delivery-issue', id, output.revision, issue);
+  }
   function notifyCodeDelivery(ticket: Ticket, work: Work) {
     const status = codeDeliveryState(ticket, work);
     if (!status) return;
     const { output, issue } = status;
+    for (const item of decisions.forTicket(ticket.id)) {
+      if (item.kind === 'delivery' && item.subject.startsWith('pr-conflict:') && work.delivery &&
+          (item.subject !== deliverySubject(ticket.id, output, 'merge-conflict') || work.delivery.mergeable === true))
+        closeDecision('delivery', item.subject);
+    }
     const project = projectById.get(work.project)!;
     const title = '第 ' + (work.version ?? 1) + ' 版';
     if (status.state === 'ready' && readableOutput(ticket.id) && stagedProductReady(ticket.id, work, output)) {
@@ -4702,7 +4721,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     } else if (issue) {
       const owner = deliveryOwner(work, output);
       if (owner) askHuman(project, { kind: 'delivery', subject: deliverySubject(ticket.id, output, issue), ticket: ticket.id,
-        title: title + (issue === 'ci-failed' ? ' CI 未通过，请研发处理'
+        title: title + (issue === 'merge-conflict' ? ' PR 合并冲突，请研发处理' : issue === 'ci-failed' ? ' CI 未通过，请研发处理'
           : issue === 'review-failed' ? '独立审查要求修改'
           : issue === 'verification-missing' ? '缺少产品验收报告，请研发核对'
           : issue === 'deployment-failed' ? '部署未通过，请研发处理' : '缺少交付证据，请研发核对'), detail: status.detail }, owner);
@@ -4710,6 +4729,9 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
   }
 
   function closeDeliveryIssues(id: string, output: Output) {
+    for (const item of decisions.forTicket(id))
+      if (item.kind === 'delivery' && item.subject.startsWith('pr-conflict:') && item.subject.split(':')[4] === output.revision)
+        closeDecision('delivery', item.subject);
     closeDecision('delivery', deliverySubject(id, output, 'missing-evidence'));
     closeDecision('delivery', deliverySubject(id, output, 'ci-failed'));
     closeDecision('delivery', deliverySubject(id, output, 'review-failed'));
@@ -4981,7 +5003,13 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
         : !visible ? '等待子单结果' : needed(row.child!, child) ? '等待资料授权'
         : row.result ? '需要重新核对' : store.tickets.get(row.child!)?.ended?.outcome === 'completed' ? '等待子单验收'
         : store.tickets.get(row.child!)?.ended ? '执行已结束，缺少结果' : '等待执行结果';
-      return { duty: rule.to, title: rule.scope!.title, child: visible ? row.child : undefined, ready, state };
+      const run = visible ? runsFor(row.child!).at(-1) : undefined;
+      const assigned = run && manifestFor(run.id);
+      const deviceId = run && devices.leasedTo(run.id);
+      const device = deviceId && devices.get(deviceId);
+      const executor = assigned?.actor && visible && canReadAssembly(actor, row.child!, child, assigned) ? { agent: agentById.get(assigned.actor.agent)?.title ?? assigned.actor.agent,
+        device: device ? device.name : undefined, run: run!.id } : undefined;
+      return { executor, duty: rule.to, title: rule.scope!.title, child: visible ? row.child : undefined, ready, state };
     });
   }
 
@@ -5223,6 +5251,34 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       observations: output ? observations.list(id).filter(record => readableRevisions.has(record.revision)).map(({ candidate, ...record }) => ({
         ...record, candidate: work.requester === actor ? candidate : undefined,
       })) : [] };
+  }
+
+  async function checkAnnotations(actor: string, id: string, revision: string, head: string, run: number, page: number) {
+    function scope() {
+      const { work, project, ticket } = ticketFor(id, actor);
+      const target = work.development;
+      const { output } = currentOutputView(actor, id, work);
+      if (!target || !output || !authorizesDevelopment(project, target, actor))
+        throw new WorkbenchError('没有查看本版检查标注的权限。', 403);
+      const evidence = work.delivery;
+      const check = evidence?.checks?.find(item => item.id === run && item.head_sha === head &&
+        item.status === 'completed' && item.conclusion !== 'success' && item.app);
+      if (!evidence || !check || evidence.headSha !== head || revision !== output.revision ||
+          (output.version ?? 1) !== (work.version ?? 1) || !matchesCodeDelivery(ticket, work, output, evidence))
+        throw new WorkbenchError('检查与当前版本不匹配，请刷新工单。', 409);
+      return { repository: evidence.repository, pr: evidence.pr, check, paths: target.paths };
+    }
+    const before = scope();
+    try {
+      const result = await inspectCheckAnnotations?.(before.repository, before.pr, head, before.check, before.paths, page);
+      if (digest(scope()) !== digest(before)) throw new WorkbenchError('本版检查或授权范围已变化，请刷新。', 409);
+      return result ?? { unavailable: true as const };
+    } catch (error) {
+      scope();
+      if (error instanceof WorkbenchError) throw error;
+      if (error instanceof DeliveryChangedError) throw new WorkbenchError(error.message, 409);
+      return { unavailable: true as const };
+    }
   }
 
   async function ticketChanges(actor: string, id: string, options: { revision?: string; head?: string; namesOnly?: boolean } = {}) {
@@ -5773,7 +5829,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       } else {
         const receipt = parseResult(value);
         const manifest = manifestFor(run, stop.attempt);
-        if (stop.usageCoverage && (manifest?.actor?.engine !== 'codex' || stop.state !== 'exited' || !receipt.usage
+        if (stop.usageCoverage && (!['codex', 'acp'].includes(manifest?.actor?.engine ?? '') || stop.state !== 'exited' || !receipt.usage
           || receipt.outcome !== 'cancelled' && receipt.outcome !== 'failed'))
           throw new WorkbenchError('部分用量仅适用于已退出的 Codex 中断执行。', 403);
         if (stop.state === 'not-launched' && receipt.outcome !== 'cancelled' && receipt.outcome !== 'failed'
@@ -6319,7 +6375,15 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     pendingDelegation: (id, version) => delegations.pending(id, version),
     readableOutput: (id, actor) => currentOutputView(actor, id, workOf(id)!).output, pullTarget, provenance,
     verifyCodeDelivery, inspectPull, review: independentReview, product: product.state,
-    storeDeliveryVersion, recordCheckAttempts, saveWork, closeAcceptance, closeDeliveryIssues, manifestFor, knowledgeId, audit,
+    recordConflict(ticket, current, evidence) {
+      store.atomic(() => {
+        storeDeliveryVersion(ticket.id, evidence);
+        const next = { ...current, delivery: evidence };
+        saveWork(ticket.id, next);
+        notifyCodeDelivery(ticket, next);
+      });
+    },
+    conflict: deliveryEvidence.conflict, storeDeliveryVersion, recordCheckAttempts, saveWork, closeAcceptance, closeDeliveryIssues, manifestFor, knowledgeId, audit,
     decisionPending: (id, work) => engineering.pending(id, decisionStamp(work)),
     approvalComplete: (work, project) => !project.approvals?.length || !!work.approvals?.completedAt,
     stages: (ticket, work, output, verification) => readDeliveryStages(ticket, { ...work,
@@ -6480,7 +6544,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       return historySources(project).map(ref => ({ resource: resourceView(id, ref).ref,
         ...historyStatus.get(key('discussion-history', id, ref.externalId)) }));
     },
-    start, dispatchReadiness, projectDeliverySetup, attachDeliveryProfile, projectPlansView, setProjectPlans, projectTrigger, setProjectTrigger, voteFeedback, resolveFeedback, approveTicket, reply, resume, revise, retryUnpublishedCode, approveDevelopment, respondDevelopment, reofferDevelopment, overview, ticketPage, detail, ticketChanges, executionSnapshot, boundProject, recordObservation,
+    start, dispatchReadiness, projectDeliverySetup, attachDeliveryProfile, projectPlansView, setProjectPlans, projectTrigger, setProjectTrigger, voteFeedback, resolveFeedback, approveTicket, reply, resume, revise, retryUnpublishedCode, approveDevelopment, respondDevelopment, reofferDevelopment, overview, ticketPage, detail, ticketChanges, checkAnnotations, executionSnapshot, boundProject, recordObservation,
     regressionList: (actor: string, id: string) => regression.list(actor, regressionProject(actor, id)),
     createRegressionCase: (actor: string, id: string, input: z.infer<typeof regressionCaseInput>) =>
       regression.create(actor, regressionProject(actor, id, true), input),
