@@ -1,3 +1,4 @@
+import { Provider as MotionProvider } from '@rc-component/motion';
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query';
@@ -414,13 +415,12 @@ function App() {
 const client = new QueryClient({ defaultOptions: { queries: { staleTime: 0, refetchOnWindowFocus: 'always' } } });
 const styleNonce = document.querySelector<HTMLMetaElement>('meta[name="workbench-style-nonce"]')?.content;
 function WorkbenchApp() {
-  // Ant changes its provider tree when this token first turns false. Handle live preference changes
-  // in CSS so an open editor, its focus and draft survive the OS setting changing.
-  const [initialMotion] = useState(() => !window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  const reduced = useMediaQuery('(prefers-reduced-motion: reduce)');
   return <ConfigProvider locale={zhCN as unknown as ConfigProviderProps['locale']} wave={{ disabled: true }}
     button={{ autoInsertSpace: false }} csp={{ nonce: styleNonce }}
-    theme={{ ...workbenchTheme, zeroRuntime: true, token: { ...workbenchTheme.token, motion: initialMotion } }}>
-    <QueryClientProvider client={client}><App /></QueryClientProvider>
+    theme={{ ...workbenchTheme, zeroRuntime: true }}>
+    {/* Keep the provider mounted so a live OS setting change preserves the active editor. */}
+    <MotionProvider motion={!reduced}><QueryClientProvider client={client}><App /></QueryClientProvider></MotionProvider>
   </ConfigProvider>;
 }
 createRoot(document.getElementById('app')!).render(<WorkbenchApp />);

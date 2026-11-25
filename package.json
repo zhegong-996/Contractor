@@ -26,6 +26,7 @@
   "dependencies": {
     "@deepseek-ai/cosmokit": "1.9.0",
     "@deepseek-ai/schemastery": "3.19.0",
+    "@rc-component/motion": "1.4.0",
     "@tanstack/react-query": "5.102.8",
     "antd": "6.7.1",
     "boring-avatars": "2.0.4",
