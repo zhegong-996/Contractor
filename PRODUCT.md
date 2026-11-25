@@ -28,10 +28,19 @@ Contractor 把 Super Agent 的“少占用人注意力、只在需要处回应�
 
 例如“门店推荐理由在 280px 下出现横向滚动”。产品在小屏主题提交复现文本及预期，研发接单前看到能改哪个仓库、哪些文件。实现者交付 PR 后，验收人查看本次提交的小屏用例。若 280px 仍失败，修改回到原单下一版，前版失败证据留在历史中。[交付模板与验证证据](docs/WORKBENCH-DELIVERY-TEMPLATE.md)
 
+### 开发者和项目负责人的操作入口
+
+| 入口 | 用法 |
+| --- | --- |
+| 任务中心 → 我的任务 / 我关注的 | 在有权查看的工单上点关注。看板显示执行进度、待行动人，以及有权限查看的 PR、提交与 CI 状态。 |
+| 工单 → 协作动态 → 研发决策 | 请求项目负责人作决定，或由负责人请开发者接手。请求绑定当前工单版本及已关联的提交。问题和答复经接回后进入本版后续执行上下文。可接续的阻塞单支持从这里请求接续。 |
+| 工作台概览 → 项目健康 | 维护人查看各项目正在执行的 Agent、执行阻塞、待答复的研发工单和积分账本的周期用量。点击问题工单回到决定、证据和执行记录。 |
+| 项目 → 职责与路由 → 研发分工模板 | 维护人选择项目默认范围或一个主题，绑定负责人的 Agent。实现和审查使用不同负责人、不同职责。模板用于派工，独立审查证据及最终验收沿用项目的交付规则。 |
+
 ### 设计取舍
 
-- **人的待办。** Sheepdog 用回执区分已处理、等外部结果和需要人决策；引用回复回到发问会话。Contractor 用这个原则组织研发接单、权限确认、阻塞恢复和按版验收。后续优先检查看板上每个等待项能否回答“等谁、缺什么、从哪里继续”。[Sheepdog 工作流](https://github.com/Matthewoho/sheepdog/blob/084770e97a9b8d9f1bff215692bf1b32ccc63b06/README.md#workflow)
-- **角色与交接。** AutoByteus 的软件工程团队把方案、实现、代码审查、验证和交付分给不同职责，按改动情况选择审查路径。Contractor 让项目职责和 Router 提供分工建议，仓库范围、审查要求和验收权仍由业务核心校验。下一项值得验证的是一份可复用的研发团队配置，导入后由项目维护人绑定自己的人员、Agent 和设备。[AutoByteus 研发团队定义](https://github.com/AutoByteus/autobyteus-agents/blob/8c2da3accdb28d7355f72a67df6a3e64e8c16453/agent-teams/software-engineering-team/team.md)
+- **人的待办。** Sheepdog 用回执区分已处理、等外部结果和需要人决策；引用回复回到发问会话。Contractor 用这个原则组织研发接单、权限确认、阻塞恢复和按版验收。研发请求显示当前责任人；答复回到发起人的待办，接回后可在原单查看加载该决定的执行记录。[Sheepdog 工作流](https://github.com/Matthewoho/sheepdog/blob/084770e97a9b8d9f1bff215692bf1b32ccc63b06/README.md#workflow)
+- **角色与交接。** AutoByteus 的软件工程团队把方案、实现、代码审查、验证和交付分给不同职责，按改动情况选择审查路径。Contractor 让项目职责和 Router 提供分工建议，仓库范围、审查要求和验收权仍由业务核心校验。项目维护人可以在「职责与路由」应用研发分工模板，为实现、审查和可选的测试职责绑定本项目的 Agent。[AutoByteus 研发团队定义](https://github.com/AutoByteus/autobyteus-agents/blob/8c2da3accdb28d7355f72a67df6a3e64e8c16453/agent-teams/software-engineering-team/team.md)
 
 ## Operating Context
 

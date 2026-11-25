@@ -96,19 +96,49 @@ test('原生工单带口径交接、阻塞接续、多版验收、成果重授�
   const executionDb = new DatabaseSync(path.join(dir, 'autoloop/hub.db'), { readOnly: true });
   await wait(() => executionDb.prepare("SELECT id FROM runs WHERE lane=? AND state='queued' AND attempts>0").get(blocked));
   executionDb.close();
-  const resume = { nonce: randomUUID(), version: 1, reason: '外部阻塞已排除，继续同一版' };
-  work.resume('engineering', blocked, resume); work.resume('engineering', blocked, { ...resume, nonce: randomUUID() });
+  // A developer's decision and the maintainer's response travel back on the same ticket.
+  const requestDecision = { action: 'open' as const, direction: 'escalate' as const, nonce: randomUUID(),
+    version: 1, sha: null, text: '280px 能否调整布局？' };
+  const decision = work.engineeringActionFor('engineering', blocked, requestDecision);
+  assert.deepEqual(work.engineeringActionFor('engineering', blocked, requestDecision), decision);
+  assert.equal(work.needsYou('product').filter(row => row.subject === decision.id).length, 1);
+  assert.equal(work.engineeringHealth('product')[0]?.decisions, 1);
+  assert.deepEqual(work.engineeringHealth('engineering'), []);
+  assert.deepEqual(work.detail('resource', blocked).engineeringReview.records, []);
+  const answer = { action: 'answer' as const, id: decision.id, text: '允许调整布局，保留三档验收。' };
+  assert.throws(() => work.engineeringActionFor('resource', blocked, answer), { status: 403 });
+  work.engineeringActionFor('product', blocked, answer);
+  work.engineeringActionFor('product', blocked, answer);
+  assert.equal(work.needsYou('engineering').filter(row => row.subject === decision.id).length, 1);
+  const receive = { action: 'received' as const, id: decision.id, resume: true };
+  work.engineeringActionFor('engineering', blocked, receive);
+  work.engineeringActionFor('engineering', blocked, receive);
+  assert.equal(work.needsYou('engineering').filter(row => row.subject === decision.id).length, 0);
+  const resume = { nonce: decision.id, version: 1, reason: '外部阻塞已排除，继续同一版' };
+  work.resume('engineering', blocked, resume);
   await wait(() => detail(blocked).result);
   work.resume('engineering', blocked, resume);
   assert.equal(assignments(blocked), 2);
+  assert.ok(detail(blocked).runs.some(run => run.engineeringDecisions?.includes(decision.id)));
+  work.setWatching('resource', blocked, true);
+  work.setWatching('resource', blocked, true);
+  assert.deepEqual(work.ticketPage('resource', { watching: true }).rows.map(row => row.id), [blocked]);
+  assert.deepEqual(work.ticketPage('engineering', { watching: true }).rows, []);
+  work.setWatching('resource', blocked, false);
+  assert.deepEqual(work.ticketPage('resource', { watching: true }).rows, []);
   assert.equal(detail(blocked).work.version, 1);
   const continued = (await traces()).findLast(row => row.mode === 'fail' && row.context.events.some((event: { type: string }) => event.type === 'task.continuation'));
   assert.ok(continued.context.events.some((event: { type: string }) => event.type === 'task.request'));
+  assert.ok(continued.context.events.some((event: { type: string; detail: string }) =>
+    event.type === 'task.engineering-decision' && event.detail.includes(answer.text)));
   assert.match(continued.prompt, /恢复原因不替代原需求/);
   assert.doesNotMatch(continued.prompt, /在现有代码上修改/);
 
   const ticket = await start('review');
   const v1 = await wait(() => detail(ticket).result);
+  const reverse = work.engineeringActionFor('product', ticket, { ...requestDecision, direction: 'handover', nonce: randomUUID() });
+  await assert.rejects(work.accept('product', ticket, v1.revision, '', ''), { status: 409 });
+  assert.equal(work.needsYou('engineering').filter(row => row.subject === reverse.id).length, 1);
   // A source conversation can be subscribed by several tickets; rejecting one must not wake its neighbour.
   const shared = db.prepare("SELECT key,value FROM thread WHERE EXISTS (SELECT 1 FROM json_each(thread.value,'$.subscriptions') ref WHERE ref.value=?)").get(ticket)!;
   const sharedValue = JSON.parse(String(shared.value)); sharedValue.subscriptions.push(blocked);
@@ -118,6 +148,8 @@ test('原生工单带口径交接、阻塞接续、多版验收、成果重授�
   assert.deepEqual(work.revise('product', ticket, { revision: v1.revision, reason: '重复打回' }), { version: 2 });
   await assert.rejects(work.accept('product', ticket, v1.revision, '', ''), { status: 409 });
   const v2 = await wait(() => detail(ticket).result?.version === 2 ? detail(ticket).result : undefined);
+  assert.throws(() => work.engineeringActionFor('engineering', ticket, { ...answer, id: reverse.id }), { status: 409 });
+  assert.equal(work.needsYou('engineering').filter(row => row.subject === reverse.id).length, 0);
   assert.equal(assignments(ticket), 2);
   assert.equal(assignments(blocked), 2, '打回限定在指定工单，不能唤醒同话题的其他工单');
   assert.equal(detail(ticket).versions[0]!.reviews[0]!.kind, 'rejected');

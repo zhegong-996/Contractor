@@ -15,6 +15,9 @@ type ModelService = Pick<z.infer<typeof modelServiceUpdate>, 'enabled' | 'models
 const routingSchema = z.object({ responsibilities: z.array(projectResponsibility).max(500),
   dispatch: z.array(dispatchRule).max(300), modelRoutes: z.array(modelRoute).max(60) }).strict();
 export const projectRoutingUpdate = routingSchema.extend({ revision }).strict();
+const teamAgent = z.string().regex(/^[a-z][a-z0-9-]{0,47}$/);
+export const engineeringTeamInput = z.object({ revision, topic: teamAgent.optional(),
+  implement: teamAgent, review: teamAgent, verify: teamAgent.optional() }).strict();
 type Routing = z.infer<typeof routingSchema>;
 const serviceTitle = { openai: 'OpenAI · Codex', deepseek: 'DeepSeek · Claude Code / Octop', ollama: 'Ollama · Claude Code' };
 
@@ -107,7 +110,7 @@ export function operationsSettings(store: Pick<SuperAgentStore, 'db' | 'atomic'>
     return { ...current, revision: digest(current), duties: config.functions.map(({ id, title }) => ({ id, title })),
       members: project.members.filter(member => mayStart(project, member)), topics: topicsFor(project).map(({ id, title }) => ({ id, title })),
       agents: config.agents.filter(agent => agent.engine !== 'octop' && agent.projects.includes(id) && mayStart(project, agent.owner)).map(agent => ({
-        id: agent.id, title: agent.title, function: agent.function, owner: agent.owner, kind: agent.kind,
+        id: agent.id, title: agent.title, active: agent.active, function: agent.function, owner: agent.owner, kind: agent.kind,
         models: mayRouteModel(agent) ? agent.allowedModels!.filter(model => loaded.modelAllowed(agent.execution?.provider, model)) : [],
         canSummarize: project.discussion?.agent === agent.id,
       })), summaryUsesFixedModel: !!project.discussion?.model };
@@ -145,5 +148,27 @@ export function operationsSettings(store: Pick<SuperAgentStore, 'db' | 'atomic'>
     Object.assign(project, routing);
     return projectRouting(actor, id);
   }
-  return { modelServices, setModelService, removeModelService, projectRouting, setProjectRouting, assertServices };
+  function applyEngineeringTeam(actor: string, id: string, input: z.infer<typeof engineeringTeamInput>) {
+    const base = projectRouting(actor, id);
+    if (base.revision !== input.revision) throw new WorkbenchError('分工已变化，请刷新后核对。', 409);
+    const agents = [input.implement, input.review, ...(input.verify ? [input.verify] : [])].map(selected => {
+      const agent = base.agents.find(a => a.id === selected);
+      if (!agent || !config.agents.find(a => a.id === selected)?.active) throw new WorkbenchError('请选择本项目在岗的 Agent。', 409);
+      return agent;
+    });
+    if (agents[0]!.owner === agents[1]!.owner) throw new WorkbenchError('实现与审查须由不同成员负责。', 409);
+    if (new Set(agents.map(a => a.function)).size !== agents.length) throw new WorkbenchError('每个分工须对应不同的项目职责。', 409);
+    const responsibilities = [...base.responsibilities];
+    const dispatch = [...base.dispatch];
+    for (const agent of agents) {
+      const existing = dispatch.find(row => row.topic === input.topic && row.function === agent.function);
+      if (existing && (existing.agent !== agent.id || existing.decider !== agent.owner))
+        throw new WorkbenchError('所选范围已有其他牵头规则，请先在项目路由中核对。', 409);
+      if (!existing) dispatch.push({ topic: input.topic, function: agent.function, agent: agent.id, decider: agent.owner });
+      if (!responsibilities.some(row => row.member === agent.owner && row.function === agent.function))
+        responsibilities.push({ member: agent.owner, function: agent.function });
+    }
+    return setProjectRouting(actor, id, projectRoutingUpdate.parse({ revision: base.revision, responsibilities, dispatch, modelRoutes: base.modelRoutes }));
+  }
+  return { modelServices, setModelService, removeModelService, projectRouting, setProjectRouting, applyEngineeringTeam, assertServices };
 }

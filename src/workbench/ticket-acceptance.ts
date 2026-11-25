@@ -13,6 +13,7 @@ import type { ProductVerification } from './product-verification.ts';
 import type { DeliveryStages } from './delivery-stages.ts';
 
 type AcceptancePorts = {
+  decisionPending: (id: string, work: Work) => boolean;
   ticketFor: (id: string, actor: string) => { ticket: Ticket; work: Work; project: Project };
   mayStart: (project: Project, actor: string) => boolean;
   delegationAuthority: (work: Work) => boolean;
@@ -109,6 +110,7 @@ export function openTicketAcceptance(store: Pick<SuperAgentStore, 'atomic'>, hub
       || digest(current.deliveryTemplate ?? null) !== digest(work.deliveryTemplate ?? null))
       throw new WorkbenchError('成果或交付版本已变化，请刷新。', 409);
     store.atomic(() => {
+      if (ports.decisionPending(id, current)) throw new WorkbenchError('请先完成本版研发决策并接回处理。', 409);
       const productResult = product(id, revision, current, current.development ? verified : undefined);
       if (productResult && (!productResult.ready || digest(productResult) !== digest(checkResult)))
         throw new WorkbenchError('需求验收证据已变化，请在工作台重新核对本版。', 409);

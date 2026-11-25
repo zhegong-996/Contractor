@@ -1,3 +1,4 @@
+import { engineeringDecisions, type EngineeringAction, type DecisionScope } from './engineering-decisions.ts';
 import type { Work, Start, IntakeDecision, ExecutionBlockKind, DeliveryEvidence, DeliveryIssue, DeliveryPull,
   CodeDeliveryState, RunActor, Assembled, Output, MappedIdentity, CommitProvenance } from './work-types.ts';
 import { WorkbenchError, requireValue } from './errors.ts';
@@ -1250,6 +1251,32 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     owner: intakeOwner, mayStart, decisionAllowed, opened: notifyDecisionOpened, closed: notifyDecisionClosed,
   });
 
+  const engineering = engineeringDecisions(store.db, {
+    notify(project, ticket, subject, recipient, returned) {
+      askHuman(projectById.get(project)!, { kind: returned ? 'engineering-return' : 'engineering-request',
+        subject, ticket, title: returned ? '研发请求已答复，请接回处理' : '工单有一项研发请求待处理' }, recipient);
+    },
+    close: (subject, returned) => closeDecision(returned ? 'engineering-return' : 'engineering-request', subject),
+  });
+  const decisionStamp = (work: Work) => ({ version: work.version ?? 1, sha: work.delivery?.headSha ?? null });
+  function engineeringScope(actor: string, ticket: Ticket, work: Work, project: Project): DecisionScope {
+    const owner = agentById.get(work.agent)?.owner;
+    return { ...decisionStamp(work), project: project.id, ticket: ticket.id, requester: work.requester, lead: intakeOwner(project),
+      developer: owner && mayStart(project, owner) ? owner : undefined, maintain: maintain(project, actor),
+      writable: mayStart(project, actor), active: !work.consultation && !work.personal && !work.accepted && (!ticket.ended || ticket.ended.outcome === 'completed') };
+  }
+  function engineeringActionFor(actor: string, id: string, input: EngineeringAction) {
+    return store.atomic(() => {
+      const { ticket, work, project } = ticketFor(id, actor);
+      const scope = engineeringScope(actor, ticket, work, project);
+      const resumeRequested = input.action === 'received' && input.resume && !ticket.ended
+        && engineering.view(actor, scope).records.some(row => row.id === input.id && row.canReceive);
+      const result = engineering.apply(actor, scope, input);
+      if (resumeRequested) resume(actor, id, { nonce: input.id, version: scope.version, reason: '已接回本版研发决定，按原范围接续。' });
+      return result;
+    });
+  }
+
   function reconcileRemovedMember(project: Project, removed: string, revoked: { id: string; ticket: string }[]) {
     const tickets = new Set(revoked.map(grant => grant.ticket));
     const revokedIds = new Set(revoked.map(grant => grant.id));
@@ -1303,6 +1330,10 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     const ticket = decision.ticket && store.tickets.get(decision.ticket);
     const work = decision.ticket && workOf(decision.ticket);
     if (!ticket || !work) return false;
+    if (decision.kind === 'engineering-request' || decision.kind === 'engineering-return') {
+      const record = engineering.view(actor, engineeringScope(actor, ticket, work, project)).records.find(r => r.id === decision.subject);
+      return !!record && (decision.kind === 'engineering-request' ? record.canAnswer : record.canReceive);
+    }
     if (decision.kind === 'approval') {
       const approvals = work.approvals;
       const output = readableOutput(ticket.id);
@@ -1313,6 +1344,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     }
     if (decision.kind === 'acceptance') {
       const output = readableOutput(ticket.id);
+      if (engineering.pending(ticket.id, decisionStamp(work))) return false;
       if (acceptanceAssignee(work) !== actor || work.accepted || ticket.ended?.outcome !== 'completed' || !output) return false;
       if (delegations.pending(ticket.id, work.version ?? 1) || missingRequiredDelegation(ticket.id, work)
         || !delegationResultsCurrent(ticket.id, work)) return false;
@@ -3042,6 +3074,14 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
         knowledge: entries.map(entry => ({ entry, acceptance: entry.ticket ? acceptedKnowledgeSource(entry, true) : undefined,
           lesson: lessonEvidence(entry) })),
       });
+      const confirmedDecisions = () => engineering.forExecution(ticket.id, decisionStamp(workOf(ticket.id)!), name => mayStart(project, name));
+      const loadedDecisions = confirmedDecisions();
+      for (const decision of loadedDecisions) {
+        context.events.push({ id: decision.id, type: 'task.engineering-decision', source: 'contractor', sourceName: '已确认的研发决定',
+          subject: ticket.id, summary: '第 ' + decision.version + ' 版研发决定',
+          detail: JSON.stringify({ question: decision.question, answer: decision.answer, by: decision.answeredBy }),
+          receivedAt: decision.answeredAt!, link: '' });
+      }
       const skillText = (work.octop?.skills ?? []).map(ref => {
         const skill = octop.skill(ref.id, ref.revision)!;
         return '\n已授权共享技能 ' + skill.title + ' · ' + ref.revision + '\n' + skill.instructions;
@@ -3089,6 +3129,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       }
       const currentDevice = device && devices.get(device.id);
       if (!mayRun(store.tickets.get(ticket.id), workOf(ticket.id)) || run.lane !== activeLane(ticket.id) || !usable(ticket.id, sources)
+        || digest(loadedDecisions) !== digest(confirmedDecisions())
         || workOf(ticket.id)?.topic !== work.topic || !topicContext.valid(project.id, topicRefs)
         || requiresStageBasis(work) && (!stageBasis || stageBasis !== currentStageBasis(ticket.id, work))
         || workerContext && !workHarness.current(project.id, agent.owner, work.requester, workerContext.stamp)
@@ -3113,6 +3154,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
         ...(work.consultation && { consultationReply: true }),
         ...(fullResult && { fullResult: true as const }),
         ...(childResults.some(row => row.sources.some(ref => ref.access)) && { childResults: childResults.map(row => row.id) }),
+        ...(loadedDecisions.length && { engineeringDecisions: loadedDecisions.map(r => r.id) }),
         confirmations: confirmed.map(card => card.id), codeState: changes, topic: work.topic ?? null,
         ...(topicRefs.length && { topicContext: topicRefs }),
         ...(stageBasis && { stageBasis }),
@@ -4890,7 +4932,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       const assigned = agentById.get(work.agent);
       return { id: run.id, state: run.state, stopping: !!run.cancel_at && ['claimed', 'unknown'].includes(run.state),
         resumed, startedAt: run.claimed_at, finishedAt: run.finished_at,
-        assembly: manifest?.assembly, version: manifest?.version ?? (manifest ? 1 : undefined),
+        engineeringDecisions: manifest?.engineeringDecisions, assembly: manifest?.assembly, version: manifest?.version ?? (manifest ? 1 : undefined),
         attribution: manifest?.actor ?? (run.lane === lane && assigned && version(assigned) === work.agentVersion ? runActor(ticket, work, assigned) : undefined),
         development: manifest?.development && { repository: manifest.development.repository, branch: manifest.development.branch,
           commit: manifest.development.commit },
@@ -4963,6 +5005,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       return entry && (canDiscoverEntry(entry, actor) || requester || owner && entryEvidence(entry)
         && knowledge.usable(ticket.id, entry, accessReader(work)));
     };
+    const engineeringReview = engineering.view(actor, engineeringScope(actor, ticket, work, project));
     const actions = {
       stop: !ticket.ended && mayStart(project, actor) && (requester || maintainer),
       handoff: !consultation && !ticket.ended && maintainer && !work.developmentResponse && !handingOff(work) && !cardsFor(id).some(card => card.state === 'open'),
@@ -4971,12 +5014,12 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       baseline: !!work.development && authorizesDevelopment(project, work.development, actor),
       retryUnpublished: requester && mayStart(project, actor) && !!unpublishedCodeScope(ticket, work, output),
       revise: !consultation && requester && mayStart(project, actor) && ticket.ended?.outcome === 'completed' && !!output,
-      accept: !consultation && reviewer && mayStart(project, actor) && ticket.ended?.outcome === 'completed' && !work.accepted && !!output
+      accept: !engineering.pending(id, decisionStamp(work)) && !consultation && reviewer && mayStart(project, actor) && ticket.ended?.outcome === 'completed' && !work.accepted && !!output
         && (!project.approvals?.length || work.approvals?.revision === output.revision && !!work.approvals.completedAt)
         && (!work.development || delivery?.state === 'ready') && (!deploymentGate || !!deploymentGate.selection)
         && productVerification?.ready !== false,
     };
-    return { id, title: ticket.title, project: project.id, work: { ...visibleWork, material: work.material.filter(visibleMaterial),
+    return { id, title: ticket.title, project: project.id, watching: workRecords.watching(actor, id), engineeringReview, work: { ...visibleWork, material: work.material.filter(visibleMaterial),
         recall: work.recall?.filter(visibleMaterial), continuation: visibleContinuation, consultation: !!consultation }, origin: opening.id, request: opening.text,
       createdAt: ticket.createdAt, history, report: report && { ...report, question: question[0]?.title ?? null }, children, related, actions, endReason: ticket.ended?.outcome,
       acceptanceOwner: acceptanceAssignee(work), acceptanceChoices: maintainer && !work.accepted && !work.consultation && !work.personal
@@ -5772,6 +5815,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       && !!output && !observations.list(id).some(record => record.revision === output.revision);
     const productVerification = output && (iterations.get(id, output.revision, 'accepted')?.product
       ?? product.state(id, output.revision, work, work.development ? work.delivery : undefined));
+    const review = engineering.view(actor, engineeringScope(actor, ticket, work, project)).records.find(r => !r.stale && (r.state === 'open' || r.state === 'answered'));
     const { project: projectId, agent, requester, topic, parent, priority, source, version, personal, accepted, handoff } = work;
     return { id, title, updatedAt, stage: ticketStage(ticket), attention: pending.has(id) || needsObservation
       || recovery?.kind === 'stage-scope' && (actor === work.requester || maintain(project, actor))
@@ -5780,6 +5824,8 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
         accepted: accepted && { revision: accepted.revision }, handoff: handoff && { completedAt: handoff.completedAt, cancelledAt: handoff.cancelledAt },
         goal: work.goal, consultation: !!work.consultation, development: !!work.development, developmentResponse: !!work.developmentResponse,
         approvalRequired: !!work.approvalRequired, developmentApproval: !!work.developmentApproval },
+      engineeringWait: review && { member: review.state === 'open' ? review.recipient : review.actor, reply: review.state === 'open' },
+      pull: output && work.delivery ? { number: work.delivery.pr, sha: work.delivery.headSha, ci: work.delivery.ci } : undefined,
       result: !!output, deliveryStatus: delivery && { state: delivery.state }, needsObservation,
       endReason: ticket.ended?.outcome, materialHidden, recoveryKind: recovery?.kind, runState: runs.at(-1)?.state,
       productChecksPending: productVerification?.ready === false, waitingAccess: !ticket.ended && needed(id, work),
@@ -5801,6 +5847,14 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     read: workRecords.recent, topics: topicsFor, agent: id => agentById.get(id), summary: ticketSummary,
   });
 
+  function engineeringHealth(actor: string) {
+    return config.projects.filter(project => maintain(project, actor)).map(project => {
+      const stats = workRecords.engineeringStats(project.id, lane => hub.runs(lane).some(run => run.state === 'claimed' && !run.cancel_at));
+      const usage = points.view({ kind: 'project', subject: project.id });
+      return { project: project.id, title: project.title, ...stats, tokens: usage.tokens, incomplete: usage.incomplete,
+        period: usage.period, quotaBlocked: usage.blocked, metered: usage.enabled || usage.tokens > 0 };
+    }).sort((a, b) => Number(b.quotaBlocked) - Number(a.quotaBlocked) || b.decisions - a.decisions || b.blocked - a.blocked || a.title.localeCompare(b.title));
+  }
   function overview(actor: string, includeTickets = true) {
     const projects = config.projects.filter(p => member(p, actor));
     const ids = new Set(projects.map(project => project.id));
@@ -6039,6 +6093,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     pendingDelegation: (id, version) => delegations.pending(id, version), readableOutput, pullTarget, provenance,
     verifyCodeDelivery, inspectPull, review: independentReview, product: product.state,
     storeDeliveryVersion, recordCheckAttempts, saveWork, closeAcceptance, closeDeliveryIssues, manifestFor, knowledgeId, audit,
+    decisionPending: (id, work) => engineering.pending(id, decisionStamp(work)),
     approvalComplete: (work, project) => !project.approvals?.length || !!work.approvals?.completedAt,
     stages: (ticket, work, output, verification) => readDeliveryStages(ticket, { ...work,
       accepted: { actor: acceptanceAssignee(work), revision: output.revision, at: new Date().toISOString() } }, output, verification),
@@ -6232,7 +6287,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     canReplyToFeishuTopic: (actor: string, id: string, topic?: string) => { const project = projectFor(id, actor); return !!send && mayStart(project, actor) && !!mappedFeishuThread(project, topic); },
     feishuProject: (chat: string, root: unknown) => feishuScope(chat, root).project,
     receiveChannel, receiveNote, resolveChannel, resolveChannelFromHttp, channelView, confirmAccount, refreshDelivery, refreshIssue,
-    rememberDiscussion, trackFeishuThread, refreshFeishuHistory, discussionView, discussionRevisions, resolveDiscussion, needsYou, answerDecision, resolveIntake, handoff,
+    setWatching: workRecords.setWatching, engineeringActionFor, engineeringHealth, rememberDiscussion, trackFeishuThread, refreshFeishuHistory, discussionView, discussionRevisions, resolveDiscussion, needsYou, answerDecision, resolveIntake, handoff,
     memoryHome, memoryUses, projectKnowledgeGraph, setMemoryPin, budgetPools, agentBudgets, setBudget, setAgentBudget,
     projectUsage, projectPointBudgets, pointLimit, setPointLimit, setPointPolicy, pointPolicy, pointControl: () => points.status(),
     octopCatalog, publishOctopSkill, trialOctopSkill, shareOctop, mountOctop, createOctop, publishOctopTemplate, normalizeOctopFeishu,

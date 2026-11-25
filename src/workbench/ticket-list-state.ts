@@ -7,7 +7,7 @@ export function ticketListState({ work, stage, recoveryKind, ...ticket }: {
   work: { accepted?: unknown; consultation: boolean; development: boolean; developmentResponse: boolean;
     approvalRequired: boolean; developmentApproval: boolean };
   stage: ReturnType<typeof ticketStage>;
-  recoveryKind?: string;
+  recoveryKind?: string; engineeringWait?: unknown;
   endReason?: NonNullable<Ticket['ended']>['outcome'];
   deliveryStatus?: Pick<CodeDeliveryState, 'state'>;
   result: boolean;
@@ -19,6 +19,7 @@ export function ticketListState({ work, stage, recoveryKind, ...ticket }: {
 }) {
   if (work.accepted || work.consultation && ticket.result) return 'done';
   if (ticket.endReason && ticket.endReason !== 'completed') return 'closed';
+  if (ticket.engineeringWait) return 'waiting';
   if (recoveryKind === 'acceptance' && !ticket.productChecksPending) return 'review';
   if (recoveryKind || ticket.waitingAccess || ticket.materialHidden || work.developmentResponse || ticket.blocked
     || ticket.productChecksPending || ticket.deliveryStatus && ticket.deliveryStatus.state !== 'ready'
@@ -31,7 +32,7 @@ export function ticketListState({ work, stage, recoveryKind, ...ticket }: {
 }
 
 export type TicketListFilters = {
-  project?: string; mine?: boolean; q?: string; topic?: string; agent?: string;
+  project?: string; mine?: boolean; watching?: boolean; q?: string; topic?: string; agent?: string;
   state?: (typeof ticketListStates)[number]; limit?: number; after?: string;
   purpose?: 'work' | 'all';
 };
