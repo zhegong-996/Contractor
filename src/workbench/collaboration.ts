@@ -1125,7 +1125,8 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     if (!mayStart(projectFor(id, actor), actor)) throw new WorkbenchError('项目权限已变化。', 403);
     return { checkedAt, state: issues.length ? 'blocked' as const : 'ready' as const, issues,
       agent: { id: agent.id, name: agent.title, owner: agent.owner }, model, modelCatalogAt, provider,
-      device: device ? { id: device.id, name: device.name } : capability.available ? { name: '工作台运行时' } : undefined,
+      device: device ? { id: device.id, name: device.name } : capability.local && !issues.some(issue => issue.kind === 'device')
+        ? { name: '工作台运行时' } : undefined,
       estimate: points.estimate(quote) };
   }
 
@@ -4988,17 +4989,20 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     return !ticket.ended && !work.accepted && !work.consultation && mayStart(project, actor)
       && (maintain(project, actor) || work.requester === actor || work.deliveryLead === actor);
   }
-  function setPriority(actor: string, id: string, input: { priority: Work['priority']; previous: Work['priority']; version: number }) {
+  function setPriority(actor: string, id: string, input: { priority: Work['priority']; previous: Work['priority']; version: number; revision: number }) {
     return store.atomic(() => {
       const { ticket, work, project } = ticketFor(id, actor);
       if (!mayPrioritize(actor, ticket, work, project)) throw new WorkbenchError('当前无法调整这张工单的优先级。', 403);
-      if ((work.version ?? 1) !== input.version || work.priority !== input.previous && work.priority !== input.priority)
-        throw new WorkbenchError('工单已更新，请重新核对。', 409);
-      if (work.priority !== input.priority) {
-        saveWork(id, { ...work, priority: input.priority });
-        audit(id, 'work.priority-changed', { actor, ...input });
-      }
-      return { priority: input.priority };
+      const revision = work.priorityRevision ?? 0;
+      const current = work.priority ?? 'normal';
+      if ((work.version ?? 1) !== input.version) throw new WorkbenchError('工单已换版，请重新核对。', 409);
+      if (current === input.priority && revision === input.revision + 1) return { priority: current, revision };
+      if (revision !== input.revision || current !== input.previous)
+        throw new WorkbenchError('优先级已更新，请重新核对。', 409);
+      if (current === input.priority) return { priority: current, revision };
+      saveWork(id, { ...work, priority: input.priority, priorityRevision: revision + 1 });
+      audit(id, 'work.priority-changed', { actor, ...input });
+      return { priority: input.priority, revision: revision + 1 };
     });
   }
 
@@ -5989,7 +5993,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       ?? product.state(id, output.revision, work, work.development ? work.delivery : undefined));
     const review = engineering.view(actor, engineeringScope(actor, ticket, work, project)).records.find(r => !r.stale && (r.state === 'open' || r.state === 'answered'));
     const { project: projectId, agent, requester, topic, parent, priority, source, version, personal, accepted, handoff } = work;
-    return { id, title, updatedAt, mayPrioritize: mayPrioritize(actor, ticket, work, project), stage: ticketStage(ticket), attention: pending.has(id) || needsObservation
+    return { id, title, updatedAt, mayPrioritize: mayPrioritize(actor, ticket, work, project), priorityRevision: work.priorityRevision ?? 0, stage: ticketStage(ticket), attention: pending.has(id) || needsObservation
       || recovery?.kind === 'stage-scope' && (actor === work.requester || maintain(project, actor))
       || recovery?.kind === 'stage-verification' && actor === acceptanceAssignee(work),
       work: { project: projectId, agent, requester, topic, parent, priority, source, version, personal,

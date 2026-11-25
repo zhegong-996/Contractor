@@ -37,6 +37,7 @@ export function InboxPage(props: PageProps) {
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
   useEffect(() => () => clearTimeout(timer.current), []);
   const order = useRef<string[]>([]);
+  const previousRows = useRef<string[]>([]);
   const held = hover || focus || scrolling;
   const groups = new Map<string, Decision[]>();
   for (const decision of fresh) {
@@ -46,8 +47,13 @@ export function InboxPage(props: PageProps) {
     else groups.set(key, [decision]);
   }
   const keys = held ? [...new Set([...order.current, ...groups.keys()])].filter(key => groups.has(key)) : [...groups.keys()];
-  useLayoutEffect(() => { order.current = keys; });
+  if (held) {
+    const ranks = new Map(previousRows.current.map((id, index) => [id, index]));
+    for (const items of groups.values()) items.sort((a, b) =>
+      (ranks.get(a.id) ?? Infinity) - (ranks.get(b.id) ?? Infinity));
+  }
   const decisions = keys.flatMap(key => groups.get(key)!);
+  useLayoutEffect(() => { order.current = keys; previousRows.current = decisions.map(row => row.id); });
   const latest = useTickets({ project: project.id, purpose: 'work', limit: 6 }, true, 4000).rows;
   const memberAgents = workspace.agents.filter(a => a.projects.includes(project.id));
   function decisionRoute(d: Decision) {

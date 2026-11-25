@@ -25,6 +25,7 @@ export type Work = {
   agentVersion: string;
   function: string;
   priority: 'normal' | 'urgent';
+  priorityRevision?: number;
   source: 'web' | Provider;
   executionBlock?: { kind: ExecutionBlockKind; run: number; lane: string };
   material: string[];

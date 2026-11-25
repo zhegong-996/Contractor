@@ -281,3 +281,5 @@ button.home-stat { text-align: start; font: inherit; cursor: pointer; }
   .workspace-results a { transition: background-color var(--motion-state); }
   .timeline-milestone details[open] p { animation: content-arrive var(--motion-state) var(--motion-enter); }
 }
+
+.work-column[data-drop-ready] { outline: 2px dashed var(--accent-ring); outline-offset: -2px; }

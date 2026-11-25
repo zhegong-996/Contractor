@@ -70,7 +70,7 @@ function BoardColumn({ label, tone, items, scrollKey, render, icon: Icon, drop }
 }) {
   const scroll = useSessionScroll(scrollKey);
   const [limit, setLimit] = useStored('board-limit:' + scrollKey, 30);
-  return <section className="work-column" onDragOver={drop && (e => drop(e, false))} onDrop={drop && (e => drop(e, true))} data-tone={tone} aria-label={label + ' · ' + items.length + ' 张工单'}>
+  return <section className="work-column" data-drop-ready={!!drop || undefined} onDragOver={drop && (e => drop(e, false))} onDrop={drop && (e => drop(e, true))} data-tone={tone} aria-label={label + ' · ' + items.length + ' 张工单'}>
     <header className="work-column-header"><Icon className={'work-state-icon work-state-' + tone} size={17} aria-hidden="true" />
       <h2>{label}</h2><span className="work-column-count">{items.length}</span></header>
     <div className="work-column-items" {...scroll}>
@@ -88,7 +88,7 @@ export function WorkBoard({ tickets, workspace, project, mine, group, scrollKey,
   const [dragged, setDragged] = useState<TicketRow>();
   const adjust = (ticket: TicketRow, priority: 'normal' | 'urgent') => {
     if (!busy && ticket.mayPrioritize && priority !== ticket.work.priority)
-      void run(() => api('ticket/' + ticket.id + '/priority', { priority, previous: ticket.work.priority ?? 'normal',
+      void run(() => api('ticket/' + ticket.id + '/priority', { priority, previous: ticket.work.priority ?? 'normal', revision: ticket.priorityRevision,
         version: ticket.work.version ?? 1 }), priority === 'urgent' ? '已设为紧急' : '已设为普通');
   };
   const columns = group === 'status' ? workStates : priorityGroups;

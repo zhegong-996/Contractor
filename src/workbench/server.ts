@@ -654,7 +654,7 @@ async function serve(release: () => void) {
       }
       else if (post && view === 'ticket' && item && action === 'priority' && !reference) {
         const priority = z.enum(['normal', 'urgent']);
-        output = work.setPriority(actor, item, z.object({ priority, previous: priority, version: z.number().int().positive() }).strict().parse(await body(req)));
+        output = work.setPriority(actor, item, z.object({ priority, previous: priority, version: z.number().int().positive(), revision: z.number().int().nonnegative() }).strict().parse(await body(req)));
       }
       else if (get && view === 'engineering-health' && !item) output = work.engineeringHealth(actor);
       else if (post && view === 'ticket' && item && action === 'watch' && !reference)
