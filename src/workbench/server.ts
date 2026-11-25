@@ -1,3 +1,4 @@
+import { engineeringAction } from './engineering-decisions.ts';
 import { codeDeltaSchema } from './code-bundle.ts';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { readFileSync } from 'node:fs';
@@ -33,7 +34,7 @@ import { notificationGuard } from './notification-guard.ts';
 import { permissionAdmin } from './permission-admin.ts';
 import { AccountRecovery } from './account-recovery.ts';
 import { feishuActivationName } from './account-activation.ts';
-import { modelProvider, modelServiceUpdate, projectRoutingUpdate } from './operations-settings.ts';
+import { engineeringTeamInput, modelProvider, modelServiceUpdate, projectRoutingUpdate } from './operations-settings.ts';
 import { assistantUpdate, routerPlanChange } from './platform-assistant.ts';
 import { assistantSkillChange } from './assistant-harness.ts';
 import { personalAgentInput } from './personal-agent.ts';
@@ -646,13 +647,18 @@ async function serve(release: () => void) {
         const { current, password } = z.object({ current: z.string().min(1).max(300), password: newPassword }).strict().parse(await body(req));
         await accessAdmin!.changePassword(actor, current, password);
       }
+      else if (get && view === 'engineering-health' && !item) output = work.engineeringHealth(actor);
+      else if (post && view === 'ticket' && item && action === 'watch' && !reference)
+        output = work.setWatching(actor, item, z.object({ active: z.boolean() }).strict().parse(await body(req)).active);
+      else if (post && view === 'ticket' && item && action === 'engineering-decision' && !reference)
+        output = work.engineeringActionFor(actor, item, engineeringAction.parse(await body(req)));
       else if (get && view === 'overview') output = work.overview(actor, url.searchParams.get('catalog') !== '1');
       else if (get && view === 'tickets' && !item) {
-        const params = z.object({ project: id.optional(), mine: z.literal('1').optional(), q: z.string().max(240).optional(),
+        const params = z.object({ project: id.optional(), mine: z.literal('1').optional(), watching: z.literal('1').optional(), q: z.string().max(240).optional(),
           topic: id.optional(), agent: id.optional(), state: z.enum(ticketListStates).optional(), purpose: z.enum(['work', 'all']).optional(),
           limit: z.coerce.number().int().min(1).max(100).optional(), after: z.string().max(300).regex(/^[\w-]+$/).optional() })
           .strict().parse(Object.fromEntries(url.searchParams));
-        output = work.ticketPage(actor, { ...params, mine: params.mine === '1' });
+        output = work.ticketPage(actor, { ...params, mine: params.mine === '1', watching: params.watching === '1' });
       }
       else if (get && view === 'conversations' && !item) {
         const params = z.object({ project: id.optional(), q: z.string().max(240).optional(), archived: z.literal('1').optional(),
@@ -741,6 +747,8 @@ async function serve(release: () => void) {
           feishuHistory: work.feishuSourceStatus(actor, item), feishuTopics: work.projectFeishuTopics(actor, item), imTopics: work.projectIMTopics(actor, item),
           feishuReply: work.canReplyToFeishuTopic(actor, item, url.searchParams.get('topic') ?? undefined) };
       }
+      else if (post && view === 'project' && item && action === 'engineering-team' && !reference)
+        output = work.applyEngineeringTeam(actor, item, engineeringTeamInput.parse(await body(req)));
       else if (get && view === 'project' && item && action === 'routing' && !reference) output = work.projectRouting(actor, item);
       else if (get && view === 'project' && item && action === 'worker-harness' && reference)
         output = work.workerHarness(actor, item, id.parse(reference));
@@ -904,7 +912,7 @@ async function serve(release: () => void) {
           z.object({ action: z.literal('dismiss') }).strict(),
           z.object({ action: z.literal('ticket'), title: title.optional(), request: prose.optional(), agent: id.optional() }).strict(),
         ]).parse(await body(req)));
-      else if (post && view === 'ticket' && action === 'answer') work.reply(actor, item, settingsRoutes.answer.parse(await body(req)));
+      else if (post && view === 'ticket' && action === 'answer') output = work.reply(actor, item, settingsRoutes.answer.parse(await body(req)));
       else if (post && view === 'ticket' && action === 'stop') work.stop(actor, item);
       else if (post && view === 'ticket' && action === 'handoff')
         output = work.handoff(actor, item, z.object({ agent: id, reason: prose, device: z.uuid().optional() }).strict().parse(await body(req)));

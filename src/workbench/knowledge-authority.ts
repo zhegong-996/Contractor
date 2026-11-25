@@ -16,11 +16,12 @@ type AuthorityPorts = {
   octopCurrent: (work: Work) => boolean;
   octopIMCurrent: (work: Work) => boolean;
   workerHarnessCurrent: (work: Work, manifest?: Assembled) => boolean;
+  knowledgeDecisionsReadable: (entry: KnowledgeEntry, actor?: string) => boolean;
 };
 
 export function knowledgeAuthority(knowledge: Pick<ProjectKnowledge, 'get' | 'granted' | 'usable' | 'directory' | 'current'>, ports: AuthorityPorts) {
   const { workOf, connected, originOutput, accessReader, outputReader, manifestFor, childResultsUsable, topicContextUsable,
-    member, octopCurrent, octopIMCurrent, workerHarnessCurrent } = ports;
+    member, octopCurrent, octopIMCurrent, workerHarnessCurrent, knowledgeDecisionsReadable } = ports;
 
   function entryEvidence(entry: KnowledgeEntry, visited = new Set<string>(), current = false): boolean {
     if (!connected(entry) || visited.has(entry.id) || current && entry.retirement) return false;
@@ -34,7 +35,9 @@ export function knowledgeAuthority(knowledge: Pick<ProjectKnowledge, 'get' | 'gr
         new Set([...visited, entry.id]), outputReader(origin, work), '', current);
   }
   const sourceAllowed = (id: string, entry: KnowledgeEntry, visited: Set<string>, reader = accessReader(workOf(id)), access?: string, review = '', current = false): boolean => {
-    if (entry.project !== workOf(id)?.project || entry.visibility === 'restricted' && (!reader || !member(entry.project, reader.owner))) return false;
+    const work = workOf(id);
+    if (!work || entry.project !== work.project || entry.visibility === 'restricted' && (!reader || !member(entry.project, reader.owner))
+      || !knowledgeDecisionsReadable(entry, work.requester) || !knowledgeDecisionsReadable(entry, reader?.owner)) return false;
     return (knowledge.usable(id, entry, reader, access) || !!review && knowledge.usable(id, entry, reader, access, review))
       && entryEvidence(entry, visited, current);
   };
@@ -55,8 +58,8 @@ export function knowledgeAuthority(knowledge: Pick<ProjectKnowledge, 'get' | 'gr
     });
     return usable(id, sources, new Set(), reader, output.revision);
   };
-  const canDiscoverEntry = (entry: KnowledgeEntry, actor: string) => entry.owner === actor
-    || entry.state === 'published' && (entry.visibility === 'project' || knowledge.directory(entry) === 'requestable');
+  const canDiscoverEntry = (entry: KnowledgeEntry, actor: string) => knowledgeDecisionsReadable(entry, actor) && (entry.owner === actor
+    || entry.state === 'published' && (entry.visibility === 'project' || knowledge.directory(entry) === 'requestable'));
 
   function selectMaterials(project: string, actor: string, ids: string[], preceding?: Work) {
     return [...new Set(ids.map(id => {
@@ -67,10 +70,11 @@ export function knowledgeAuthority(knowledge: Pick<ProjectKnowledge, 'get' | 'gr
       return entry.id;
     }))];
   }
-  const currentProjectMemory = (entry: KnowledgeEntry, project: Project) =>
-    entry.project === project.id && entry.state === 'published' && entry.visibility === 'project' && entryEvidence(entry, new Set(), true);
+  const currentProjectMemory = (entry: KnowledgeEntry, project: Project, actor?: string) =>
+    entry.project === project.id && entry.state === 'published' && entry.visibility === 'project' && knowledgeDecisionsReadable(entry, actor)
+      && entryEvidence(entry, new Set(), true);
   const canReadEntry = (e: KnowledgeEntry, actor: string) => {
-    return entryEvidence(e) && (e.owner === actor || (e.state === 'published' && e.visibility === 'project'));
+    return knowledgeDecisionsReadable(e, actor) && entryEvidence(e) && (e.owner === actor || (e.state === 'published' && e.visibility === 'project'));
   };
 
   return { entryEvidence, sourceAllowed, usable, outputUsable, canDiscoverEntry, canReadEntry, selectMaterials, currentProjectMemory };

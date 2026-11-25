@@ -1,4 +1,4 @@
-import type { Ticket, Trigger } from '../../upstream/superagent/src/core/index.ts';
+import { waitsForPerson, type Ticket, type Trigger } from '../../upstream/superagent/src/core/index.ts';
 import type { SuperAgentStore } from '../superagent-ports.ts';
 import type { Project } from './config.ts';
 import { requireValue, WorkbenchError } from './errors.ts';
@@ -17,6 +17,7 @@ export type TicketCursor = { updatedAt: string; id: string };
 export function openWorkRecords(store: SuperAgentStore, projectFor: (id: string, actor: string) => Project,
   freezeTemplate?: (project: string, target: DevelopmentTarget) => DeliveryTemplate | undefined) {
   store.db.exec(`CREATE TABLE IF NOT EXISTS workbench_ticket (id TEXT PRIMARY KEY, value TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS workbench_ticket_watch(member TEXT NOT NULL,ticket TEXT NOT NULL,PRIMARY KEY(member,ticket));
     CREATE INDEX IF NOT EXISTS workbench_ticket_project_parent ON workbench_ticket(json_extract(value,'$.project'),json_extract(value,'$.parent'));
     CREATE INDEX IF NOT EXISTS workbench_ticket_recent ON ticket(json_extract(value,'$.updatedAt') DESC,id DESC);`);
 
@@ -25,14 +26,38 @@ export function openWorkRecords(store: SuperAgentStore, projectFor: (id: string,
   }));
   const readable = `(COALESCE(json_extract(w.value,'$.consultation.private'),0)=0 OR json_extract(w.value,'$.requester')=?)`;
   const source = 'SELECT t.value AS ticket,w.value AS work FROM ticket t JOIN workbench_ticket w ON w.id=t.id';
-  function recent(actor: string, projects: string[], limit: number, cursor?: TicketCursor) {
+  function recent(actor: string, projects: string[], limit: number, cursor?: TicketCursor, watching = false) {
     if (!projects.length) return [];
     const time = "json_extract(t.value,'$.updatedAt')";
     return decode(store.db.prepare(`${source} WHERE ${readable}
+      ${watching ? 'AND EXISTS (SELECT 1 FROM workbench_ticket_watch f WHERE f.ticket=w.id AND f.member=?)' : ''}
       AND json_extract(w.value,'$.project') IN (SELECT value FROM json_each(?))
       ${cursor ? `AND (${time},t.id)<(?,?)` : ''}
-      ORDER BY ${time} DESC,t.id DESC LIMIT ?`).all(actor, JSON.stringify(projects),
+      ORDER BY ${time} DESC,t.id DESC LIMIT ?`).all(actor, ...(watching ? [actor] : []), JSON.stringify(projects),
         ...(cursor ? [cursor.updatedAt, cursor.id] : []), limit));
+  }
+  function engineeringStats(project: string, claimed: (lane: string) => boolean) {
+    const rows = store.db.prepare(`SELECT w.id, json_extract(w.value,'$.agent') AS agent,
+      json_extract(w.value,'$.lane') AS lane, json_extract(w.value,'$.executionBlock.kind') AS block,
+      json_extract(t.value,'$.assignments[#-1].state') AS assignment,
+      CASE WHEN json_extract(t.value,'$.assignments[#-1].report.state') IN ('blocked','failed') THEN t.value END AS stalled
+      FROM workbench_ticket w JOIN ticket t ON t.id=w.id WHERE json_extract(w.value,'$.project')=?
+        AND json_extract(w.value,'$.consultation') IS NULL AND COALESCE(json_extract(w.value,'$.personal'),0)=0
+        AND json_extract(t.value,'$.ended') IS NULL`).all(project);
+    const active = new Set<string>();
+    let blocked = 0;
+    for (const row of rows) {
+      if (row.assignment === 'running' && !active.has(String(row.agent)) && claimed(String(row.lane ?? row.id))) active.add(String(row.agent));
+      if (row.block || row.stalled && waitsForPerson(JSON.parse(String(row.stalled)))) blocked++;
+    }
+    const waiting = store.db.prepare(`SELECT w.id,json_extract(t.value,'$.title') AS title, COUNT(*) OVER () AS total
+      FROM workbench_ticket w JOIN ticket t ON t.id=w.id JOIN workbench_engineering_decision e ON e.ticket=w.id
+      WHERE json_extract(w.value,'$.project')=? AND json_extract(w.value,'$.accepted') IS NULL
+        AND (json_extract(t.value,'$.ended') IS NULL OR json_extract(t.value,'$.ended.outcome')='completed')
+        AND json_extract(e.value,'$.version')=COALESCE(json_extract(w.value,'$.version'),1)
+        AND json_extract(e.value,'$.sha') IS json_extract(w.value,'$.delivery.headSha')
+        AND json_extract(e.value,'$.state')='open' ORDER BY e.rowid LIMIT 5`).all(project).map(r => ({ id: String(r.id), title: String(r.title), total: Number(r.total) }));
+    return { active: active.size, blocked, decisions: waiting[0]?.total ?? 0, waiting: waiting.map(({ id, title }) => ({ id, title })) };
   }
   function children(actor: string, project: string, parent: string) {
     return decode(store.db.prepare(`${source} WHERE ${readable} AND json_extract(w.value,'$.project')=?
@@ -82,5 +107,12 @@ export function openWorkRecords(store: SuperAgentStore, projectFor: (id: string,
     store.db.prepare('INSERT INTO workbench_ticket VALUES (?,?)').run(id, JSON.stringify(work));
     return work;
   }
-  return { workOf, saveWork, ticketFor, createForMandate, recent, children };
+  function setWatching(actor: string, id: string, active: boolean) {
+    ticketFor(id, actor);
+    if (active) store.db.prepare('INSERT OR IGNORE INTO workbench_ticket_watch VALUES (?,?)').run(actor, id);
+    else store.db.prepare('DELETE FROM workbench_ticket_watch WHERE member=? AND ticket=?').run(actor, id);
+    return { active };
+  }
+  const watching = (actor: string, id: string) => !!store.db.prepare('SELECT 1 FROM workbench_ticket_watch WHERE member=? AND ticket=?').get(actor, id);
+  return { setWatching, watching, workOf, saveWork, ticketFor, createForMandate, recent, children, engineeringStats };
 }

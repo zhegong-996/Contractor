@@ -109,16 +109,16 @@ function RecoveryDialog({ url, close }: { url: string; close: () => void }) {
   </Modal>;
 }
 
-function useNarrow() {
-  const match = '(max-width: 760px)';
-  const [narrow, setNarrow] = useState(() => window.matchMedia(match).matches);
+function useMediaQuery(match: string) {
+  const [matches, setMatches] = useState(() => window.matchMedia(match).matches);
   useEffect(() => {
     const media = window.matchMedia(match);
-    const update = () => setNarrow(media.matches);
+    const update = () => setMatches(media.matches);
+    update();
     media.addEventListener('change', update);
     return () => media.removeEventListener('change', update);
-  }, []);
-  return narrow;
+  }, [match]);
+  return matches;
 }
 
 function Navigation({ workspace, project, route, close, newProject }: PageProps & { close?: () => void; newProject: () => void }) {
@@ -248,7 +248,7 @@ function Workspace() {
   const requested = useRoute();
   const signOut = useSignOut();
   const [collapsed, setCollapsed] = useState(() => preference('contractor-sidebar-collapsed') === 'true');
-  const narrow = useNarrow();
+  const narrow = useMediaQuery('(max-width: 760px)');
   const [drawer, setDrawer] = useState(false);
   useEffect(() => { if (!narrow) setDrawer(false); }, [narrow]);
   const [composer, setComposer] = useState<TaskPreset | null>(null);
@@ -317,7 +317,7 @@ function Workspace() {
           <Button size="sm" type="button" className="create-button" onClick={() => props.openTask()}><Plus />发起协作</Button>}
       </Layout.Header>
       {reconnect}
-      {error && !composer && <div className="toolbar-error"><Failure error={new Error(error)} retry={clearError} /></div>}
+      {error && !composer && <div className="toolbar-error"><Failure error={new Error(error)} dismiss={clearError} /></div>}
       <Layout.Content className={'main-view' + (chat ? ' task-center' : '')} id="main-content">
         {chat && <nav className="task-center-tabs" aria-label="会话范围">
           <a href={personalChatRoute(undefined, project.id)} aria-current={route.personalChat ? 'page' : undefined}>个人会话</a>
@@ -339,6 +339,7 @@ function App() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [closingNotice, setClosingNotice] = useState(false);
   const [stored, setStored] = useState<Record<string, unknown>>(() => {
     try {
       const saved = JSON.parse(localStorage.getItem('contractor-drafts') ?? '{}') as unknown;
@@ -364,9 +365,11 @@ function App() {
     return () => window.removeEventListener('contractor-session-expired', expired);
   }, [client, scrollPositions]);
   useEffect(() => {
+    setClosingNotice(false);
     if (!notice) return;
-    const timer = window.setTimeout(() => setNotice(''), 3500);
-    return () => window.clearTimeout(timer);
+    const leave = window.setTimeout(() => setClosingNotice(true), 3360);
+    const clear = window.setTimeout(() => setNotice(''), 3500);
+    return () => { window.clearTimeout(leave); window.clearTimeout(clear); };
   }, [notice]);
   useEffect(() => {
     const remember = (event: PointerEvent | KeyboardEvent) => {
@@ -382,7 +385,7 @@ function App() {
       document.removeEventListener('keydown', remember, true);
     };
   }, []);
-  async function run<T>(task: () => Promise<T>, message?: string) {
+  async function run<T>(task: () => Promise<T>, message?: string | ((result: T) => string)) {
     if (busyRef.current) return;
     busyRef.current = true;
     setBusy(true);
@@ -391,7 +394,7 @@ function App() {
     try {
       const result = await task();
       await client.invalidateQueries();
-      if (message) setNotice(message);
+      if (message) setNotice(typeof message === 'function' ? message(result) : message);
       return result;
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : '操作暂未完成，请重试。');
@@ -404,14 +407,18 @@ function App() {
     store: (key, value) => setStored(previous => ({ ...previous, [key]: value })) }}>
     {session.error ? <div className="app-placeholder"><Failure error={session.error} retry={() => void session.refetch()} /></div>
       : session.isPending ? <Loading /> : session.data?.signedIn ? <Workspace /> : <Login session={session.data} />}
-    {notice && <div className="toast" role="status"><CircleCheck size={17} />{notice}</div>}
+    {notice && <div className="toast" role="status" data-closing={closingNotice}><CircleCheck size={17} />{notice}</div>}
   </ActionContext.Provider>;
 }
 
 const client = new QueryClient({ defaultOptions: { queries: { staleTime: 0, refetchOnWindowFocus: 'always' } } });
 const styleNonce = document.querySelector<HTMLMetaElement>('meta[name="workbench-style-nonce"]')?.content;
-createRoot(document.getElementById('app')!).render(<ConfigProvider locale={zhCN as unknown as ConfigProviderProps['locale']} wave={{ disabled: true }}
-  button={{ autoInsertSpace: false }} csp={{ nonce: styleNonce }}
-  theme={{ ...workbenchTheme, zeroRuntime: true }}>
-  <QueryClientProvider client={client}><App /></QueryClientProvider>
-</ConfigProvider>);
+function WorkbenchApp() {
+  const reduced = useMediaQuery('(prefers-reduced-motion: reduce)');
+  return <ConfigProvider locale={zhCN as unknown as ConfigProviderProps['locale']} wave={{ disabled: true }}
+    button={{ autoInsertSpace: false }} csp={{ nonce: styleNonce }}
+    theme={{ ...workbenchTheme, zeroRuntime: true, token: { ...workbenchTheme.token, motion: !reduced } }}>
+    <QueryClientProvider client={client}><App /></QueryClientProvider>
+  </ConfigProvider>;
+}
+createRoot(document.getElementById('app')!).render(<WorkbenchApp />);

@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useLayoutEffect, useRef, type ComponentProps, type ReactNode, type UIEvent } from 'react';
+import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, type ComponentProps, type ReactNode, type UIEvent } from 'react';
 import { Alert, Card, Empty as DesignEmpty, Modal as DesignModal, Spin } from 'antd';
 import { ArrowUpRight, FileText, FolderOpen, HardHat, Search } from 'lucide-react';
 import { Badge } from './components/badge.tsx';
@@ -10,7 +10,7 @@ import type { Project, Ticket, TicketRow } from './api.ts';
 
 type Actions = {
   busy: boolean; error: string;
-  run: <T>(task: () => Promise<T>, notice?: string) => Promise<T | undefined>;
+  run: <T>(task: () => Promise<T>, notice?: string | ((result: T) => string)) => Promise<T | undefined>;
   clearError: () => void;
   stored: Record<string, unknown>;
   store: (key: string, value: unknown) => void;
@@ -62,9 +62,10 @@ export function Loading() {
   return <div className="loading" role="status"><Spin size="small" />加载中</div>;
 }
 
-export function Failure({ error, retry }: { error: Error | null; retry?: () => void }) {
+export function Failure({ error, retry, dismiss }: { error: Error | null; retry?: () => void; dismiss?: () => void }) {
   return <Alert type="error" showIcon message={error?.message ?? '加载失败'}
-    action={retry && <Button type="button" size="sm" variant="outline" onClick={retry}>重试</Button>} />;
+    action={retry ? <Button type="button" size="sm" variant="outline" onClick={retry}>重试</Button>
+      : dismiss && <Button type="button" size="sm" variant="ghost" onClick={dismiss}>收起</Button>} />;
 }
 
 export function FormError() {
@@ -74,17 +75,19 @@ export function FormError() {
 
 export function Modal({ title, children, close }: { title: string; children: ReactNode; close: () => void }) {
   const { busy, clearError, dialogTrigger } = useActions();
-  useEffect(() => () => {
+  const [open, setOpen] = useState(true);
+  useEffect(() => {
     const trigger = dialogTrigger.current;
-    window.setTimeout(() => {
-      if (trigger?.isConnected) trigger.focus({ preventScroll: true });
-    });
+    return () => {
+      requestAnimationFrame(() => {
+        if (trigger?.isConnected && document.activeElement === document.body) trigger.focus({ preventScroll: true });
+      });
+    };
   }, [dialogTrigger]);
-  const dismiss = () => { if (!busy) { clearError(); close(); } };
-  return <DesignModal className="contractor-dialog" open title={<h2>{title}</h2>} onCancel={dismiss}
-    afterClose={() => {
-      if (dialogTrigger.current?.isConnected) dialogTrigger.current.focus({ preventScroll: true });
-    }}
+  const dismiss = () => {
+    if (!busy) { clearError(); setOpen(false); }
+  };
+  return <DesignModal className="contractor-dialog" open={open} title={<h2>{title}</h2>} onCancel={dismiss} afterClose={close}
     getContainer="#app" width={620} footer={null} keyboard={!busy} closable={!busy} mask={{ closable: false }}>
     <div className="modal-body"><FormError />{children}</div>
   </DesignModal>;

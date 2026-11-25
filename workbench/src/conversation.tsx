@@ -15,7 +15,7 @@ type ConversationDraft = { text: string; nonce: string; consultants: string[]; d
 
 type DiscussionMessage = Omit<ConversationMessage, 'channel' | 'sourceUrl'> & {
   channel: string; sourceUrl?: string;
-  url?: string; linkLabel?: string; inline?: boolean; commit?: string; revisions?: Ticket['channelHistory'][number]['revisions'];
+  questionTitle?: string; url?: string; linkLabel?: string; inline?: boolean; commit?: string; revisions?: Ticket['channelHistory'][number]['revisions'];
 };
 
 function ticketDiscussion(ticket: Ticket, messages: ConversationMessage[]): DiscussionMessage[] {
@@ -25,9 +25,9 @@ function ticketDiscussion(ticket: Ticket, messages: ConversationMessage[]): Disc
   for (const item of ticket.history) {
     if (!rows.has(item.id)) rows.set(item.id, { ...item, channel: 'web', consultations: undefined });
   }
-  for (const item of messages) rows.set(item.id, item);
+  for (const item of messages) rows.set(item.id, { ...rows.get(item.id), ...item });
   for (const item of ticket.channelHistory) rows.set(item.id, {
-    id: item.id, actor: item.member, text: item.text, at: item.at, channel: item.source, url: item.url,
+    ...rows.get(item.id), id: item.id, actor: item.member, text: item.text, at: item.at, channel: item.source, url: item.url,
     linkLabel: item.linkLabel, revisions: item.revisions, inline: item.github?.kind === 'inline', commit: item.github?.commit, consultations: undefined,
   });
   return [...rows.values()].sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
@@ -73,7 +73,14 @@ export function Conversation({ project, workspace, openTask, ticket, topic, rout
   const channels = [...new Set(messages?.map(item => item.channel) ?? [])];
   const filterable = desk || !!ticket;
   const channel = channels.includes(source) ? source : '';
-  const visible = messages?.filter(item => !filterable || !channel || item.channel === channel);
+  const answerRef = useRef<HTMLDetailsElement>(null);
+  const originalReply = ticket && route.reply ? messages?.find(item => item.id === route.reply && item.questionTitle) : undefined;
+  useLayoutEffect(() => {
+    if (!originalReply || !answerRef.current) return;
+    answerRef.current.open = true;
+    answerRef.current.querySelector('summary')?.focus();
+  }, [originalReply?.id]);
+  const visible = messages?.filter(item => !filterable || !channel || item.channel === channel || item === originalReply);
   const members = new Map(project.members.map(member => [member.name, member]));
   const scrollKey = JSON.stringify(['messages', base, filter, reply, channel]);
   const scroll = useSessionScroll(scrollKey, { ready: desk && !!data.data, preserveInitial: true });
@@ -168,7 +175,10 @@ export function Conversation({ project, workspace, openTask, ticket, topic, rout
               {sourceName(item.mirrorDelivery.channel)} · {({ sent: '已送达', pending: '待送达', dropped: '待核对回执' })[item.mirrorDelivery.state]}
             </span>}
           </div>
-          <Markdown text={item.text} />
+          {item.questionTitle ? <details className="minor-disclosure" ref={item === originalReply ? answerRef : undefined}>
+            <summary>{item.questionTitle} · 已处理 · 查看原答复</summary>
+            <Markdown text={item.text} />
+          </details> : <Markdown text={item.text} />}
           {item.revisions && item.revisions.length > 1 && <details className="minor-disclosure">
             <summary>消息修订 · {item.revisions.length}</summary>
             {item.revisions.map(revision => <div className="revision-note" key={revision.revision}><time>{date(revision.at)}</time><p>{revision.text || '原消息已撤回'}</p></div>)}

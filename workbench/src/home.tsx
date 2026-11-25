@@ -1,3 +1,4 @@
+import { ProjectHealth } from './engineering-decisions.tsx';
 import { ArrowRight, ClipboardCheck, CircleDot, FolderKanban, Inbox, ListChecks } from 'lucide-react';
 import { ticketListState } from '../../src/workbench/ticket-list-state.ts';
 import { useData, type Decision, type Overview } from './api.ts';
@@ -57,6 +58,7 @@ export function HomePage({ workspace }: PageProps) {
               : <div key={d.id} className="inbox-row" data-tone={decisionTone[d.kind] ?? 'blue'}>{contents}</div>;
           }) : <p className="muted-text">没有待你决定的事项。</p>}
         </Section>
+        <ProjectHealth workspace={workspace} />
         <Section title="正在执行" action={<span className="muted-text">{running.length} 张</span>}>
           {running.length ? running.slice(0, 6).map(item => <a className="recent-row" key={item.id} href={home(item.id, item.work.project)}>
             <CircleDot size={17} /><div><strong>{item.title}</strong><small>{item.progress?.device ?? workspace.agents.find(a => a.id === item.work.agent)?.title ?? item.work.agent}

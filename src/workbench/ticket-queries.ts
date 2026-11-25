@@ -37,7 +37,7 @@ export function ticketQueries<T extends Row>(ports: Ports<T>) {
     let hasMore = false;
     // Bound the number of summaries per request, even for a selective state filter.
     for (let batch = 0; batch < 5; batch++) {
-      const found = ports.read(actor, ids, batchSize + 1, cursor);
+      const found = ports.read(actor, ids, batchSize + 1, cursor, filters.watching);
       hasMore = found.length > batchSize;
       for (const { ticket, work } of found.slice(0, batchSize)) {
         const project = allowed.get(work.project)!;

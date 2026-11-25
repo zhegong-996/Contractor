@@ -66,8 +66,21 @@ test('原生工单带口径交接、阻塞接续、多版验收、成果重授�
   assert.deepEqual(work.detail('engineering', handoff).recovery?.decisionIds, []);
   post('former-member', 'screen', '当时有权，撤权后接手人不能带走这段记录');
   assert.throws(() => work.resume('product', handoff, { nonce: randomUUID(), version: 1, reason: '不能跳过问题' }), /必答/);
+  const transfer = work.engineeringActionFor('product', handoff, { action: 'open', direction: 'handover', nonce: randomUUID(),
+    version: 1, sha: null, text: '请接手核对门店推荐理由。' });
+  const todos = (actor: string) => work.needsYou(actor).filter(row => row.subject === transfer.id);
+  assert.deepEqual(todos('engineering').map(row => [row.title, row.ticket, row.version]), [['负责人请你接手本版工单', handoff, 1]]);
+  assert.deepEqual(todos('product'), []);
   work.reply('product', handoff, { card: question.id, choice: 0, nonce: 'criteria' });
-  await wait(async () => (await traces()).find(row => row.event === 'holding'));
+  await wait(() => detail(handoff).runs.find(run => run.state === 'queued'));
+  const take = { action: 'answer' as const, id: transfer.id, text: '接手复核两句推荐理由。' };
+  work.engineeringActionFor('engineering', handoff, take);
+  work.engineeringActionFor('engineering', handoff, take);
+  assert.deepEqual(todos('engineering'), []);
+  assert.deepEqual(todos('product'), []);
+  const resumed = await wait(async () => (await traces()).find(row => row.event === 'holding'));
+  const handoverEvent = resumed.context.events.find((event: { id: string }) => event.id === transfer.id);
+  assert.deepEqual(JSON.parse(handoverEvent.detail), { direction: 'handover', requestedBy: 'product', question: '请接手核对门店推荐理由。', answer: take.text, by: 'engineering' });
   const offered = work.ticketTopicContext('product', handoff).recent.find(row => row.id === basis.id)!;
   const input = { id: offered.id, source: offered.source, revision: offered.revision, confirmed: true };
   assert.throws(() => work.setTicketTopicBasis('replacement', handoff, input), { status: 403 });
@@ -96,19 +109,72 @@ test('原生工单带口径交接、阻塞接续、多版验收、成果重授�
   const executionDb = new DatabaseSync(path.join(dir, 'autoloop/hub.db'), { readOnly: true });
   await wait(() => executionDb.prepare("SELECT id FROM runs WHERE lane=? AND state='queued' AND attempts>0").get(blocked));
   executionDb.close();
-  const resume = { nonce: randomUUID(), version: 1, reason: '外部阻塞已排除，继续同一版' };
-  work.resume('engineering', blocked, resume); work.resume('engineering', blocked, { ...resume, nonce: randomUUID() });
+  // A developer's decision and the maintainer's response travel back on the same ticket.
+  const requestDecision = { action: 'open' as const, direction: 'escalate' as const, nonce: randomUUID(),
+    version: 1, sha: null, text: '280px 能否调整布局？' };
+  const decision = work.engineeringActionFor('engineering', blocked, requestDecision);
+  assert.deepEqual(work.engineeringActionFor('engineering', blocked, requestDecision), decision);
+  assert.equal(work.needsYou('product').filter(row => row.subject === decision.id).length, 1);
+  assert.equal(work.engineeringHealth('product')[0]?.decisions, 1);
+  assert.deepEqual(work.engineeringHealth('engineering'), []);
+  assert.deepEqual(work.detail('resource', blocked).engineeringReview.records, []);
+  const answer = { action: 'answer' as const, id: decision.id, text: '允许调整布局，保留三档验收。' };
+  assert.throws(() => work.engineeringActionFor('resource', blocked, answer), { status: 403 });
+  work.engineeringActionFor('product', blocked, answer);
+  work.engineeringActionFor('product', blocked, answer);
+  assert.equal(work.needsYou('engineering').filter(row => row.subject === decision.id).length, 1);
+  const receive = { action: 'received' as const, id: decision.id, resume: true };
+  work.engineeringActionFor('engineering', blocked, receive);
+  work.engineeringActionFor('engineering', blocked, receive);
+  assert.equal(work.needsYou('engineering').filter(row => row.subject === decision.id).length, 0);
+  const resume = { nonce: decision.id, version: 1, reason: '外部阻塞已排除，继续同一版' };
+  work.resume('engineering', blocked, resume);
   await wait(() => detail(blocked).result);
   work.resume('engineering', blocked, resume);
   assert.equal(assignments(blocked), 2);
+  assert.ok(detail(blocked).runs.some(run => run.engineeringDecisions?.includes(decision.id)));
+  work.setWatching('resource', blocked, true);
+  work.setWatching('resource', blocked, true);
+  assert.deepEqual(work.ticketPage('resource', { watching: true }).rows.map(row => row.id), [blocked]);
+  assert.deepEqual(work.ticketPage('engineering', { watching: true }).rows, []);
+  work.setWatching('resource', blocked, false);
+  assert.deepEqual(work.ticketPage('resource', { watching: true }).rows, []);
   assert.equal(detail(blocked).work.version, 1);
   const continued = (await traces()).findLast(row => row.mode === 'fail' && row.context.events.some((event: { type: string }) => event.type === 'task.continuation'));
   assert.ok(continued.context.events.some((event: { type: string }) => event.type === 'task.request'));
+  assert.ok(continued.context.events.some((event: { type: string; detail: string }) =>
+    event.type === 'task.engineering-decision' && event.detail.includes(answer.text)));
   assert.match(continued.prompt, /恢复原因不替代原需求/);
   assert.doesNotMatch(continued.prompt, /在现有代码上修改/);
+  const decisionOutput = detail(blocked).result!;
+  const outputRun = detail(blocked).runs.find(row => row.id === decisionOutput.run)!;
+  assert.ok(outputRun.engineeringDecisions?.includes(decision.id));
+  // Older data can be authorized from the frozen execution context alone.
+  db.prepare("UPDATE workbench_manifest SET value=json_remove(value,'$.decisionInputs','$.engineeringDecisions') WHERE ticket=? AND run=?").run(blocked, decisionOutput.run);
+  for (const actor of ['product', 'engineering']) {
+    assert.equal(work.executionSnapshot(actor, blocked, decisionOutput.run).readable, true);
+    assert.equal(work.detail(actor, blocked).result?.text, decisionOutput.text);
+  }
+  const restrictedView = work.detail('resource', blocked);
+  assert.deepEqual(restrictedView.engineeringReview.records, []);
+  assert.equal(work.executionSnapshot('resource', blocked, decisionOutput.run).contents, undefined);
+  assert.equal(restrictedView.result, undefined);
+  assert.equal(restrictedView.versions.find(version => version.revision === decisionOutput.revision)?.text, undefined);
+  await work.accept('product', blocked, decisionOutput.revision, '仅交接参与者', answer.text);
+  const derived = work.browse('product', 'store', '').find(row => row.id === detail(blocked).candidate)!;
+  assert.ok('revision' in derived);
+  work.publish('product', derived.id, derived.revision!);
+  assert.ok(work.browse('engineering', 'store', answer.text).some(row => row.id === derived.id));
+  assert.ok(!work.browse('resource', 'store', answer.text).some(row => row.id === derived.id));
+  assert.ok(!work.browse('resource', 'store', '', true).some(row => row.id === derived.id));
+  assert.ok(!(await work.recallMemory('resource', 'store', answer.text)).some(row => row.id === derived.id));
+  assert.ok((await work.recallMemory('engineering', 'store', answer.text)).some(row => row.id === derived.id));
 
   const ticket = await start('review');
   const v1 = await wait(() => detail(ticket).result);
+  const reverse = work.engineeringActionFor('product', ticket, { ...requestDecision, direction: 'handover', nonce: randomUUID() });
+  await assert.rejects(work.accept('product', ticket, v1.revision, '', ''), { status: 409 });
+  assert.equal(work.needsYou('engineering').filter(row => row.subject === reverse.id).length, 1);
   // A source conversation can be subscribed by several tickets; rejecting one must not wake its neighbour.
   const shared = db.prepare("SELECT key,value FROM thread WHERE EXISTS (SELECT 1 FROM json_each(thread.value,'$.subscriptions') ref WHERE ref.value=?)").get(ticket)!;
   const sharedValue = JSON.parse(String(shared.value)); sharedValue.subscriptions.push(blocked);
@@ -118,6 +184,8 @@ test('原生工单带口径交接、阻塞接续、多版验收、成果重授�
   assert.deepEqual(work.revise('product', ticket, { revision: v1.revision, reason: '重复打回' }), { version: 2 });
   await assert.rejects(work.accept('product', ticket, v1.revision, '', ''), { status: 409 });
   const v2 = await wait(() => detail(ticket).result?.version === 2 ? detail(ticket).result : undefined);
+  assert.throws(() => work.engineeringActionFor('engineering', ticket, { ...answer, id: reverse.id }), { status: 409 });
+  assert.equal(work.needsYou('engineering').filter(row => row.subject === reverse.id).length, 0);
   assert.equal(assignments(ticket), 2);
   assert.equal(assignments(blocked), 2, '打回限定在指定工单，不能唤醒同话题的其他工单');
   assert.equal(detail(ticket).versions[0]!.reviews[0]!.kind, 'rejected');
@@ -177,10 +245,15 @@ test('原生工单带口径交接、阻塞接续、多版验收、成果重授�
   assert.equal(detail(expired).work.continuation?.reason, undefined);
   assert.ok(!detail(expired).history.some(item => item.text === privateReason));
 
-  const target = work.overview('product').projects[0]!.deliveryTargets[0]!.ref;
+  const [repository] = work.overview('product').projects[0]!.deliveryTargets;
+  assert.ok(repository!.eligibleAgents.includes('coder'));
+  assert.ok(!repository!.eligibleAgents.includes('new'), '工作区成员仍须有仓库交付资格');
+  assert.deepEqual(repository!.scope, { base: 'main', paths: ['collab-pilot/'], checks: ['collab-pilot'], independentReview: false, environment: undefined });
+  const target = repository!.ref;
   const deliveryExecution = config.projects[0]!.resources.find(ref => ref.externalId === 'team/test')!.execution!;
   deliveryExecution.deliveryTemplate = { id: 'store-screen', version: 1 };
   deliveryExecution.requiredChecks = [{ name: 'check-screen-1', app: 'github-actions' }];
+  assert.deepEqual(work.overview('product').projects[0]!.deliveryTargets[0]!.scope?.checks, ['check-screen-1']);
   const sender = { provider: 'feishu' as const, namespace: 'app', id: 'ou_product', label: '产品' };
   assert.ok(work.proveAccount(work.accountProof('product', 'feishu').command.split(' ')[1]!, sender));
   work.confirmAccount('product', 'feishu', sender);

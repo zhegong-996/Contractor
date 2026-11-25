@@ -46,6 +46,9 @@ function BoardCard({ ticket, home, workspace, mine, group, origin }: { ticket: T
     {(group === 'priority' || state.id === 'waiting') && <div className="work-card-status">
       <Pill tone={state.tone}>{state.id === 'waiting' && label === '待验收' ? state.title : label}</Pill>
     </div>}
+    {ticket.engineeringWait && <span className="work-card-location">等 {home.members.find(m => m.name === ticket.engineeringWait?.member)?.displayName ?? ticket.engineeringWait.member ?? '责任人'}
+      {' '}{ticket.engineeringWait.direction === 'handover' ? ticket.engineeringWait.reply ? '接手' : '确认交接' : ticket.engineeringWait.reply ? '答复' : '接回处理'}</span>}
+    {ticket.pull && <span className="work-card-location">PR #{ticket.pull.number} · {ticket.pull.sha.slice(0, 8)} · CI {{ passed: '通过', failed: '失败', pending: '待完成' }[ticket.pull.ci]}</span>}
     {location && <span className="work-card-location" title={location}>{location}</span>}
     {state.id === 'running' && <span className="work-card-progress" title={[ticket.progress?.device, ticket.progress?.summary].filter(Boolean).join(' · ')}>
       <span className="work-card-activity">正在执行</span>

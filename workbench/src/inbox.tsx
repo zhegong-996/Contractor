@@ -15,12 +15,13 @@ export const decisionVisual = {
   development: [GitPullRequest, '研发委托'], 'development-returned': [GitPullRequest, '研发退回'],
   delivery: [GitPullRequest, '交付证据'], blocked: [Workflow, '执行阻塞'], budget: [Workflow, '费用核对'],
   feedback: [Workflow, '反馈改进'],
+  'engineering-request': [GitPullRequest, '研发请求'], 'engineering-return': [CheckCheck, '研发回执'],
   approval: [ShieldCheck, '项目审批'],
 } as const;
 export const decisionTone = {
   channel: 'blue', intake: 'blue', discussion: 'blue', answer: 'blue', development: 'blue',
   acceptance: 'green', delivery: 'green', access: 'amber', approval: 'amber',
-  blocked: 'red', budget: 'red', feedback: 'red', 'development-returned': 'red',
+  'engineering-request': 'amber', 'engineering-return': 'blue', blocked: 'red', budget: 'red', feedback: 'red', 'development-returned': 'red',
 } as const;
 const inboxScopes = [['all', '全部项目'], ['project', '当前项目']] as const;
 

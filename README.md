@@ -26,7 +26,9 @@
 
 <br>
 
-Contractor 是给团队使用的自托管 Agent 协作工作台。它把 DeepSeek 开源的 [dsh-superagent](https://github.com/deepseek-ai/dsh-superagent-prototype/tree/8c32a9dc5d72c033816c6a8110b37f40cf94fba4) 所表达的 Super Agent 工作方式落到真实组织：消息先成为可审计事件，经过准入、过滤和研判后才形成带授权范围的工单；Router、个人 Agent 和 Worker 分工执行；结果回到原会话，由人按版本验收。
+Contractor 是面向软件研发团队的自托管 Agent 协作工作台。产品经理可以在项目主题里提出改动，研发确认仓库和修改范围，Worker 提交 PR，验收人按同一提交的 CI 和产品用例验收。
+
+它把 DeepSeek 开源的 [dsh-superagent](https://github.com/deepseek-ai/dsh-superagent-prototype/tree/8c32a9dc5d72c033816c6a8110b37f40cf94fba4) 所表达的 Super Agent 工作方式落到真实组织：消息先成为可审计事件，经过准入、过滤和研判后才形成带授权范围的工单；Router、个人 Agent 和 Worker 分工执行；结果回到原会话，由人按版本验收。
 
 核心原则只有一句：**尽可能少占用人的注意力，尽可能给出有效价值。**
 

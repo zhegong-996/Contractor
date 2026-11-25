@@ -229,6 +229,7 @@ export function ProjectRoutingPanel({ project }: { project: string }) {
   const path = 'project/' + part(project) + '/routing';
   const data = useData<ProjectRouting>(path, 8000);
   const [editor, setEditor] = useState<Editor>();
+  const [team, setTeam] = useState<ProjectRouting>();
   if (data.error) return <Failure error={data.error} retry={() => void data.refetch()} />;
   if (!data.data) return <Loading />;
   const view = data.data;
@@ -246,6 +247,10 @@ export function ProjectRoutingPanel({ project }: { project: string }) {
     </Section>;
   }
   return <>
+    <Section title="研发分工模板" action={<Button size="sm" variant="outline" onClick={() => setTeam(view)}>绑定本项目团队</Button>}>
+      实现、独立审查和可选的测试验证
+    </Section>
+    {team && <EngineeringTeamForm project={project} base={team} close={() => setTeam(undefined)} />}
     {rows('responsibilities', view.responsibilities.map(row => [duty(row.function), row.member]))}
     {rows('dispatch', view.dispatch.map(row => [duty(row.function), row.topic ? view.topics.find(topic => topic.id === row.topic)?.title ?? row.topic : '项目默认',
       name(row.agent), row.decider ? '决定人 ' + row.decider : '按项目规则选择决定人']))}
@@ -253,6 +258,34 @@ export function ProjectRoutingPanel({ project }: { project: string }) {
     <ProjectDeviceRouting project={project} />
     {editor && <RoutingDialog endpoint={path} editor={editor} close={() => setEditor(undefined)} />}
   </>;
+}
+
+function EngineeringTeamForm({ project, base, close }: { project: string; base: ProjectRouting; close: () => void }) {
+  const { busy, run } = useActions();
+  const agents = base.agents.filter(a => a.active);
+  const [implement, setImplement] = useState('');
+  const [review, setReview] = useState('');
+  const first = agents.find(a => a.id === implement);
+  const reviewers = agents.filter(a => a.owner !== first?.owner && a.function !== first?.function);
+  const second = agents.find(a => a.id === review);
+  const choices = (rows: typeof agents) => rows.map(a => <option key={a.id} value={a.id}>{a.title} · {a.owner}</option>);
+  return <Modal title="绑定研发团队" close={close}><form className="form" onSubmit={async e => {
+    e.preventDefault();
+    const form = new FormData(e.currentTarget);
+    const result = await run(() => api('project/' + part(project) + '/engineering-team', { revision: base.revision, implement, review,
+      verify: form.get('verify') || undefined, topic: form.get('topic') || undefined }), '研发分工已应用');
+    if (result) close();
+  }}>
+    <Field label="适用主题"><select name="topic"><option value="">项目默认</option>{base.topics.map(t => <option key={t.id} value={t.id}>{t.title}</option>)}</select></Field>
+    <Field label="实现 Agent"><select required value={implement} onChange={e => { setImplement(e.target.value); setReview(''); }}>
+      <option value="">选择实现 Agent</option>{choices(agents)}</select></Field>
+    <Field label="独立审查 Agent" hint={first && !reviewers.length ? '请先接入另一位项目成员负责、且职责不同的审查 Agent。' : undefined}>
+      <select required disabled={!first} value={review} onChange={e => setReview(e.target.value)}><option value="">选择审查 Agent</option>{choices(reviewers)}</select></Field>
+    <Field label="测试验证 Agent"><select name="verify" key={review} disabled={!second}><option value="">暂不绑定</option>
+      {choices(agents.filter(a => a.function !== first?.function && a.function !== second?.function))}</select></Field>
+    <p className="muted-text">按 Agent 的项目职责和所有者设置牵头规则。验收权限由工单单独管理。</p>
+    <footer className="form-actions"><Button type="submit" disabled={busy || !first || !second}>应用到项目路由</Button></footer>
+  </form></Modal>;
 }
 
 function ProjectDeviceRouting({ project }: { project: string }) {

@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, useState } from 'react';
-import { ArrowLeft, ArrowRight, Bot, Check, ChevronRight, CircleCheck, FileCheck2, GitBranch, GitPullRequest, History, Link2, ListChecks, LockKeyhole, MessageSquare, PanelRightClose, PanelRightOpen, Plus, ShieldCheck, ThumbsDown, ThumbsUp } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Bell, BellRing, Bot, Check, ChevronRight, CircleCheck, FileCheck2, GitBranch, GitPullRequest, History, Link2, ListChecks, LockKeyhole, MessageSquare, PanelRightClose, PanelRightOpen, Plus, ShieldCheck, ThumbsDown, ThumbsUp } from 'lucide-react';
 import { api, uid, useData, useTickets, type Knowledge, type Ticket, type TicketRow, type TicketTopicContext } from './api.ts';
 import { AgentOptions, MaterialPicker } from './creation.tsx';
 import { Conversation } from './conversation.tsx';
@@ -7,6 +7,7 @@ import { ChannelWorkLink } from './project-channels.tsx';
 import { AcceptedEvidence } from './accepted-evidence.tsx';
 import { ChannelReceipt, DeliveryVerification, StageChecks } from './work-evidence.tsx';
 import { WorkBoard, workStates, type BoardGrouping } from './work-board.tsx';
+import { EngineeringReview } from './engineering-decisions.tsx';
 import { RunHistory } from './work-execution.tsx';
 import { eligibleExecutionDevices, ExecutionTargetPicker, useExecutionTargets } from './execution-target.tsx';
 import { CaseEditor } from './product-criteria.tsx';
@@ -85,7 +86,7 @@ export function WorkPage(props: PageProps) {
   const backToChat = chatProject && conversationRoute({ project: chatProject.id, item: chatTopic, tab: fromChat?.tab, reply: fromChat?.reply });
   const status = ({ active: 'running', acceptance: 'review', accepted: 'done', answered: 'done', ended: 'closed' } as Record<string, string>)[filters.status] ?? filters.status;
   const listScroll = useSessionScroll(JSON.stringify(['work-list', project.id, scope, filters]), { visibleAt: route.item });
-  const tickets = useTickets({ ...(scope === 'mine' ? { mine: true } : { project: project.id, topic: filters.topic }),
+  const tickets = useTickets({ ...(scope === 'mine' ? { mine: true } : scope === 'watching' ? { watching: true } : { project: project.id, topic: filters.topic }),
     purpose: 'work', q: filters.query.trim().slice(0, 240), state: workStates.find(item => item.id === status)?.id }, view === 'list' || !route.item, 4000);
   const shown = tickets.rows;
   const empty = !shown.length && !tickets.isPending && !tickets.hasNextPage && !tickets.error;
@@ -99,15 +100,15 @@ export function WorkPage(props: PageProps) {
     ready: !route.item || data.data?.project === project.id && data.data.id === route.item,
     preserveInitial: !!route.decision || (tab === 'delivery' || tab === 'verification') && !!route.revision,
   });
-  const scopeFilter = <Segments label="任务范围" items={[[ 'project', '项目任务' ], [ 'mine', '我的任务' ]]} value={scope} onChange={next => {
+  const scopeFilter = <Segments label="任务范围" items={[[ 'project', '项目任务' ], [ 'mine', '我的任务' ], [ 'watching', '我关注的' ]]} value={scope} onChange={next => {
     setScope(next);
-    if (route.projectWork && next === 'mine') go(project.id, 'work');
+    if (route.projectWork && next !== 'project') go(project.id, 'work');
   }} />;
   const viewFilter = <Segments label="任务视图" items={[[ 'board', '看板' ], [ 'list', '列表' ]]} value={view} onChange={setView} />;
   const taskFilters = <>
     <SearchBox label="搜索工单" value={filters.query} onChange={query => setFilters({ ...filters, query })} />
     <div className="filters">
-      {scope !== 'mine' && <select aria-label="筛选主题" value={filters.topic} onChange={e => {
+      {scope === 'project' && <select aria-label="筛选主题" value={filters.topic} onChange={e => {
         if (route.projectWork && !route.item) window.location.hash = projectWorkRoute(project.id, e.target.value);
         else setFilters({ ...filters, topic: e.target.value });
       }}><TopicOptions project={project} empty="全部主题" /></select>}
@@ -130,7 +131,7 @@ export function WorkPage(props: PageProps) {
         </div>
       </div>
     </header>
-    {shown.length > 0 && <WorkBoard tickets={shown} workspace={workspace} project={project} mine={scope === 'mine'} group={group}
+    {shown.length > 0 && <WorkBoard tickets={shown} workspace={workspace} project={project} mine={scope !== 'project'} group={group}
       origin={{ project: project.id, topic: routedTopic, scoped: !!route.projectWork }}
       scrollKey={JSON.stringify(['work-board', project.id, scope, group, filters])} />}
     {empty && <Empty title="没有匹配的工单" icon={<ListChecks />} />}
@@ -143,10 +144,10 @@ export function WorkPage(props: PageProps) {
         {scopeFilter}{viewFilter}{taskFilters}
       </div>
       <div className="list-scroll" {...listScroll}>
-        {(scope === 'mine' ? workspace.projects : [project]).map(home => {
+        {(scope !== 'project' ? workspace.projects : [project]).map(home => {
           const roots = forest(shown.filter(item => item.work.project === home.id), item => item.work.parent);
           return roots.length > 0 && <section key={home.id} aria-label={home.title}>
-            {scope === 'mine' && <h2 className="tree-heading">{home.title}</h2>}
+            {scope !== 'project' && <h2 className="tree-heading">{home.title}</h2>}
             {roots.map(branch => <TaskBranch key={branch.item.id} branch={branch} home={home} current={route.item} />)}
           </section>;
         })}
@@ -158,7 +159,7 @@ export function WorkPage(props: PageProps) {
       {route.item && <a className={backToInbox || backToChat || view === 'board' ? 'work-back' : 'mobile-back'}
         href={backToInbox || backToChat || (view === 'board' ? boardBack : routeFor(project.id, 'work'))}>
         <ArrowLeft size={16} />{backToInbox ? '返回待办' : backToChat ? '返回会话' : view === 'board' ? '返回看板' : '工单列表'}</a>}
-      {!route.item ? <div className="desk-overview"><h1>{scope === 'mine' ? '我的任务' : project.title}</h1>
+      {!route.item ? <div className="desk-overview"><h1>{scope === 'mine' ? '我的任务' : scope === 'watching' ? '我关注的' : project.title}</h1>
         <div className="status-grid">{workStates.map(({ id, title }) => <button key={id} type="button" aria-pressed={status === id}
           onClick={() => setFilters({ ...filters, status: status === id ? 'all' : id })}>{title}</button>)}</div>
         <Section title="近期更新">{shown.length ? shown.slice(0, 10).map(item => <div className="record-row" key={item.id}>
@@ -208,6 +209,7 @@ function TicketDetail(props: PageProps & { ticket: Ticket; tab: WorkTab }) {
     : routedDecision.kind === 'access' ? 'access-' + routedDecision.subject
     : routedDecision.kind === 'acceptance' ? 'acceptance'
     : routedDecision.kind === 'delivery' ? 'delivery-evidence'
+    : routedDecision.kind.startsWith('engineering-') ? 'engineering'
     : routedDecision.kind.startsWith('development') ? 'development' : 'recovery');
   useLayoutEffect(() => {
     if (!focus) return;
@@ -263,6 +265,9 @@ function TicketDetail(props: PageProps & { ticket: Ticket; tab: WorkTab }) {
       <div className="ticket-title-line">
         <h1>{ticket.title}</h1>
         <div className="ticket-top-actions">
+          <IconButton label={ticket.watching ? '取消关注' : '关注工单'} aria-pressed={ticket.watching} disabled={busy}
+            onClick={() => void send('watch', { active: !ticket.watching }, ticket.watching ? '已取消关注' : '已关注工单')}>
+            {ticket.watching ? <BellRing /> : <Bell />}</IconButton>
           <IconButton label={side ? '隐藏工单属性' : '显示工单属性'} aria-expanded={side} onClick={() => setSide(!side)}>
             {side ? <PanelRightClose /> : <PanelRightOpen />}</IconButton>
           {project.mayStart && <IconButton label="新建子工单" onClick={() => props.openTask({ parent: ticket.id, topic: ticket.work.topic })}><Plus /></IconButton>}
@@ -287,6 +292,7 @@ function TicketDetail(props: PageProps & { ticket: Ticket; tab: WorkTab }) {
     <div className="ticket-frame" data-inspector={side}>
       <PageTabs value={tab} onChange={value => { window.location.hash = detailLink(value); }} items={workTabs} label="工单详情">
         <TabsContent className="ticket-tab" value="activity">
+          {!viewedVersion && <EngineeringReview key={ticket.id} ticket={ticket} project={project} />}
           {ticket.recovery && <div className="decision-focus" data-decision-focus="recovery" tabIndex={-1}><TicketRecovery {...props} ticket={ticket} /></div>}
           {status && !ticket.recovery && <div className="info-callout"><History size={17} /><span>正在确认旧执行停止及接续权限。{ticket.report?.summary}</span></div>}
           {deviceWaiting && !status && !ticket.recovery && <div className="info-callout"><Bot size={17} />{ticket.device?.name}
@@ -385,9 +391,16 @@ function Question({ ticket, question }: { ticket: string; question: Ticket['ques
   const [text, setText] = useStored('answer:' + ticket + ':' + question.id, '');
   const { busy, run } = useActions();
   async function answer(choice?: number) {
-    const response = await run(() => api('ticket/' + ticket + '/answer', { card: question.id, nonce: uid(),
-      ...(choice === undefined ? { text: text.trim() } : { choice }) }), '答复已提交');
+    const origin = window.location.hash;
+    const response = await run(() => api<{ status: 'submitted' | 'already-handled'; reply?: string }>('ticket/' + ticket + '/answer', { card: question.id, nonce: uid(),
+      ...(choice === undefined ? { text: text.trim() } : { choice }) }), result => result.status === 'already-handled' ? '问题已处理，已保留原答复' : '答复已提交');
     if (response) setText('');
+    if (response?.status === 'already-handled' && response.reply && window.location.hash === origin) {
+      const [path, query] = window.location.hash.split('?');
+      const params = new URLSearchParams(query);
+      params.set('reply', response.reply);
+      window.location.hash = path + '?' + params;
+    }
   }
   return <article className="decision-box decision-focus" data-decision-focus={'answer-' + question.id} tabIndex={-1}>
     <span className="decision-mark"><Bot size={19} /></span><div>

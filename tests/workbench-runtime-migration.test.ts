@@ -181,12 +181,12 @@ test('门店推荐理由离线切换两次，原工单必答、会话、历史�
   await runner('result', asked, 409, 'autoloop');
   assert.deepEqual(await runner('result', asked), { rejected: [] });
   await runner('result', { ...asked, value: { ...asked.value, summary: '改变原回执' } }, 403);
-  await api(answerPath, firstAnswer, 409);
+  assert.equal((await api<{ status: string }>(answerPath, firstAnswer)).status, 'already-handled');
   assert.equal((await claim()).job, undefined, '未答完仍由原工单等候');
   const secondAnswer = answer(secondQuestion.id);
   await api(answerPath, secondAnswer);
   const second = await next();
-  await api(answerPath, secondAnswer, 409);
+  assert.equal((await api<{ status: string }>(answerPath, secondAnswer)).status, 'already-handled');
   assert.equal(second.run, retainedRun);
   assert.notEqual(second.token, first.token);
   assert.ok(second.context.answers.some(row => row.title === firstTitle));
@@ -218,7 +218,7 @@ test('门店推荐理由离线切换两次，原工单必答、会话、历史�
   const lastAnswer = answer(lastQuestion.id);
   await api(answerPath, lastAnswer);
   const last = await next();
-  await api(answerPath, lastAnswer, 409);
+  assert.equal((await api<{ status: string }>(answerPath, lastAnswer)).status, 'already-handled');
   assert.ok(last.run > retainedRun, '回滚后新运行编号不能覆盖已迁移尝试');
   assert.ok(last.context.answers.some(row => row.title === lastTitle));
   const finalText = '280px、320px、360px 下，连续长词可以换行且页面没有横向溢出。';
@@ -230,6 +230,11 @@ test('门店推荐理由离线切换两次，原工单必答、会话、历史�
   assert.equal(result.text, finalText);
   await api('ticket/' + ticket + '/accept', { revision: result.revision });
   assert.ok((await detail()).work.accepted);
+  const replay = await api<{ status: string; reply: string }>(answerPath, { ...lastAnswer, text: '改写旧答复', choice: undefined });
+  assert.equal(replay.status, 'already-handled');
+  const originalReply = (await detail()).history.find(row => row.id === replay.reply);
+  assert.equal(originalReply?.questionTitle, lastTitle);
+  assert.notEqual(originalReply?.text, '改写旧答复');
   await checkUsage([first.run, second.run, last.run], 300);
   assert.equal((await claim()).job, undefined);
   assert.equal((await detail()).runs.length, 3);

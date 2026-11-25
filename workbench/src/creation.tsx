@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { Bot, GitPullRequest, Plus } from 'lucide-react';
+import { Bot, Plus } from 'lucide-react';
 import { api, readable, uid, useData, type DispatchReadiness, type Knowledge, type StartResult } from './api.ts';
 import { ExecutionEnvironment, executionTargetState, useExecutionTargets } from './execution-target.tsx';
 import { Failure, Field, Modal, Pill, SearchBox, Source, TopicOptions, useActions, useStored } from './ui.tsx';
@@ -27,7 +27,7 @@ export function MaterialPicker({ entries, values, onChange }: {
 type Draft = {
   title: string; request: string; topic: string; agent: string; target: string; goal: string; material: string[]; resources: string[];
   priority: 'normal' | 'urgent'; nonce: string; metric: string; unit: string; baseline: string; targetValue: string;
-  recall: boolean; device: string;
+  recall: boolean; device: string; codeDelivery?: boolean;
   productCases?: { title: string; expectation: string }[];
   reuseAcceptance?: boolean;
 };
@@ -53,7 +53,16 @@ export function Composer({ project, workspace, route, preset, close }: PageProps
   const needsDevice = draft.device ? !deviceState?.selected : deviceState?.needsChoice;
   const codeTargets = project.deliveryTargets.filter(ref => ref.eligibleAgents.some(id => options.some(agent => agent.id === id)));
   const deliveryTarget = codeTargets.find(ref => ref.ref === draft.target);
-  const agentOptions = deliveryTarget ? options.filter(agent => deliveryTarget.eligibleAgents.includes(agent.id)) : options;
+  const codeDelivery = !preset.personal && (draft.codeDelivery ?? !!draft.target);
+  const changeTarget = (code: boolean, target: string) => {
+    const selected = codeTargets.find(ref => ref.ref === target);
+    const keepAgent = !code || selected?.eligibleAgents.includes(draft.agent);
+    const eligible = options.filter(agent => selected?.eligibleAgents.includes(agent.id));
+    const agent = keepAgent ? draft.agent : eligible.length === 1 ? eligible[0]!.id : '';
+    setDraft({ ...draft, codeDelivery: code, target, agent, device: agent === draft.agent ? draft.device : '' });
+  };
+  const incompleteDelivery = codeDelivery && !deliveryTarget?.eligibleAgents.includes(draft.agent);
+  const agentOptions = codeDelivery ? options.filter(agent => deliveryTarget?.eligibleAgents.includes(agent.id)) : options;
   const openGoals = project.goals.filter(goal => !goal.done);
   const parent = preset.lesson?.ticket ?? preset.parent;
   const topicRequired = !!deliveryTarget?.stages?.requireTopicBasis && !parent;
@@ -62,11 +71,11 @@ export function Composer({ project, workspace, route, preset, close }: PageProps
   const routeAgent: Record<string, string> = draft.agent.startsWith('function:') ? { function: draft.agent.slice('function:'.length) } : { agent: draft.agent || 'auto' };
   const selection = new URLSearchParams({ ...routeAgent, ...(draft.topic && { topic: draft.topic }), ...(draft.target && { target: draft.target }),
     ...(draft.device && { device: draft.device }), ...(preset.personal && { personal: '1' }) });
-  const readiness = useData<DispatchReadiness>(preset.personal && !draft.agent ? '' : 'project/' + project.id + '/dispatch-readiness?' + selection);
+  const readiness = useData<DispatchReadiness>(incompleteDelivery || (preset.personal && !draft.agent) ? '' : 'project/' + project.id + '/dispatch-readiness?' + selection);
   const blocked = readiness.data?.state === 'blocked';
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
-    if (blocked || readiness.error || readiness.isFetching) return;
+    if (!draft.request.trim() || incompleteDelivery || blocked || readiness.error || !readiness.data) return;
     const outcome = await run(async () => {
       if (needsDevice)
         throw new Error('请先选择该 Agent 可以使用的执行设备。');
@@ -80,7 +89,8 @@ export function Composer({ project, workspace, route, preset, close }: PageProps
         ...(draft.baseline !== '' ? { baseline: Number(draft.baseline) } : {}),
         ...(draft.targetValue !== '' ? { target: Number(draft.targetValue) } : {}) } : undefined;
       const started = await api<StartResult>('ticket', {
-        project: project.id, title: draft.title.trim(), request: draft.request.trim(), nonce: draft.nonce,
+        project: project.id, title: draft.title.trim() || draft.request.trim().split(/\r?\n/, 1)[0]!.slice(0, 100),
+        request: draft.request.trim(), nonce: draft.nonce,
         agent: draft.agent.startsWith('function:') ? undefined : draft.agent || 'auto',
         function: draft.agent.startsWith('function:') ? draft.agent.slice('function:'.length) : undefined,
         topic: draft.topic || undefined, target: draft.target || undefined, material: draft.material, resources: draft.resources,
@@ -106,15 +116,34 @@ export function Composer({ project, workspace, route, preset, close }: PageProps
   };
   return <Modal title={preset.personal ? '发起只读代办' : preset.parent ? '新建子工单' : '发起协作'} close={close}>
     <form className="form" onSubmit={handleSubmit}>
-      <Field label="工单标题"><Input autoFocus value={draft.title} onChange={e => change('title', e.target.value)} required maxLength={100} /></Field>
-      <Field label="要做什么"><TextArea rows={5} value={draft.request} onChange={e => change('request', e.target.value)} required maxLength={3500}
+      <Field label="要做什么"><TextArea autoFocus rows={5} value={draft.request} onChange={e => change('request', e.target.value)} required maxLength={3500}
         placeholder="描述要解决的问题和验收条件" /></Field>
+      <Field label="工单标题（选填）"><Input value={draft.title} onChange={e => change('title', e.target.value)} maxLength={100}
+        placeholder={draft.request.trim().split(/\r?\n/, 1)[0]?.slice(0, 100) || '默认使用任务描述的第一行'} /></Field>
+      {!preset.personal && <Field label="交付方式">
+        <select aria-label="交付方式" value={codeDelivery ? 'code' : 'standard'} onChange={e => {
+          const code = e.target.value === 'code';
+          changeTarget(code, code && codeTargets.length === 1 ? codeTargets[0]!.ref : '');
+        }}><option value="standard">常规工单</option><option value="code">代码交付（PR）</option></select>
+      </Field>}
+      {codeDelivery && <section className="revision-note" aria-label="代码交付范围">
+        {codeTargets.length ? <Field label="交付仓库"><select aria-label="交付仓库" value={deliveryTarget?.ref ?? ''} required
+          onChange={e => changeTarget(true, e.target.value)}><option value="">选择交付仓库</option>
+          {codeTargets.map(ref => <option key={ref.ref} value={ref.ref}>{ref.label}</option>)}</select></Field>
+          : <p>此项目暂无已授权且有 Agent 可接单的代码仓库。<a href={routeFor(project.id, 'project', undefined, 'sources')} onClick={close}>查看资料与连接</a></p>}
+        {deliveryTarget?.scope && <dl className="facts delivery-scope">
+          <dt>目标分支</dt><dd><code>{deliveryTarget.scope.base}</code></dd>
+          <dt>可修改路径</dt><dd>{deliveryTarget.scope.paths.map(p => <code key={p}>{p}</code>)}</dd>
+          <dt>提交须通过</dt><dd>{deliveryTarget.scope.checks.join('、')}{deliveryTarget.scope.independentReview && ' · 独立审查'}</dd>
+          {deliveryTarget.scope.environment && <><dt>验收环境</dt><dd>{deliveryTarget.scope.environment}</dd></>}
+        </dl>}
+      </section>}
       <div className="form-grid">
-        <Field label="执行 Agent"><select aria-label="执行 Agent" value={draft.agent} required={!!preset.personal || !!deliveryTarget}
+        <Field label="执行 Agent"><select aria-label="执行 Agent" value={draft.agent} required={!!preset.personal || codeDelivery} disabled={codeDelivery && !deliveryTarget}
           onChange={e => setDraft({ ...draft, agent: e.target.value, device: '' })}>
-          <option value="">{preset.personal ? '选择我的执行 Agent' : deliveryTarget ? '选择有仓库资格的 Agent' : '按项目职责分派'}</option>
+          <option value="">{preset.personal ? '选择我的执行 Agent' : codeDelivery ? '选择有仓库资格的 Agent' : '按项目职责分派'}</option>
           {agentOptions.map(agent => <option key={agent.id} value={agent.id}>{agent.title} · {agent.owner}</option>)}
-          {!preset.personal && !deliveryTarget && workspace.functions.filter(fn => options.some(agent => agent.function === fn.id)).map(fn => <option key={fn.id} value={'function:' + fn.id}>职责 · {fn.title}</option>)}
+          {!preset.personal && !codeDelivery && workspace.functions.filter(fn => options.some(agent => agent.function === fn.id)).map(fn => <option key={fn.id} value={'function:' + fn.id}>职责 · {fn.title}</option>)}
         </select></Field>
         <Field label="主题" hint={deliveryTarget?.stages?.requireTopicBasis ? '委托提交后，在工单中确认一条主题依据。' : undefined}>
           <select value={draft.topic} required={topicRequired} onChange={e => change('topic', e.target.value)}>
@@ -144,18 +173,6 @@ export function Composer({ project, workspace, route, preset, close }: PageProps
             <span>{ref.label}</span><Source channel={ref.source} /></label>)}
         </fieldset>}
       </details>
-      {!preset.personal && <details className="form-disclosure">
-        <summary><GitPullRequest size={15} />代码交付</summary>
-        {codeTargets.length ? <Field label="交付仓库" hint="代码委托须由有仓库权限的研发确认。"><select value={draft.target} onChange={e => {
-          const target = e.target.value;
-          const selected = codeTargets.find(ref => ref.ref === target);
-          const eligible = !selected || selected.eligibleAgents.includes(draft.agent);
-          setDraft({ ...draft, target, agent: eligible ? draft.agent : '', device: eligible ? draft.device : '' });
-        }}>
-          <option value="">不涉及代码</option>
-          {codeTargets.map(ref => <option key={ref.ref} value={ref.ref}>{ref.label}</option>)}
-        </select></Field> : <p className="muted-text">暂无可用于代码执行的仓库与 Agent。<a href={routeFor(project.id, 'project', undefined, 'sources')} onClick={close}>查看交付配置</a></p>}
-      </details>}
       {!preset.personal && <details className="form-disclosure">
         <summary>需求验收{(product?.cases.length ?? 0) + (draft.productCases?.length ?? 0)
           ? ' · ' + ((product?.cases.length ?? 0) + (draft.productCases?.length ?? 0)) + ' 项' : ''}</summary>
@@ -191,7 +208,7 @@ export function Composer({ project, workspace, route, preset, close }: PageProps
         </div>)}
         {blocked && <Button type="button" size="sm" variant="ghost" onClick={() => void readiness.refetch()}>重新核对</Button>}
       </div>}
-      <footer className="form-actions"><Button type="submit" disabled={busy || needsDevice || blocked || !!readiness.error || readiness.isFetching}><Plus />提交委托</Button></footer>
+      <footer className="form-actions"><Button type="submit" loading={busy} disabled={!draft.request.trim() || busy || incompleteDelivery || needsDevice || blocked || !!readiness.error || !readiness.data}><Plus />提交委托</Button></footer>
     </form>
   </Modal>;
 }

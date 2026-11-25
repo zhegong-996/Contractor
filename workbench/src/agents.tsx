@@ -32,8 +32,9 @@ function ProjectAgentCatalog(props: PageProps) {
   const [query, search] = useStored('agents-search:' + project.id, '');
   const [scope, setScope] = useStored('agents-scope:' + project.id, 'all');
   const all = workspace.agents.filter(agent => agent.projects.includes(project.id));
+  const ownerNames = new Map(project.members.map(member => [member.name, member.displayName ?? member.name]));
   const shown = all.filter(a => (scope === 'all' || a.owner === workspace.actor)
-    && (a.title + a.owner + a.capability).toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
+    && [a.title, a.owner, ownerNames.get(a.owner), a.capability].join(' ').toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
   const selected = route.item ? all.find(agent => agent.id === route.item) : undefined;
   return <div className="split" data-has-detail={!!route.item}>
     <aside className="split-list" aria-label="项目 Agent 列表">
@@ -47,7 +48,7 @@ function ProjectAgentCatalog(props: PageProps) {
         {shown.map(agent => <a className="list-item entry-item" href={routeFor(project.id, 'agents', agent.id)} key={agent.id}
           aria-current={selected?.id === agent.id ? 'page' : undefined}>
           <Avatar value={agent.title} kind="agent" /><div><strong>{agent.title}</strong>
-            <div className="list-item-meta"><span>{agent.owner}</span><Pill tone={agent.active ? 'green' : 'neutral'}>{agent.active ? '在岗' : '未启用'}</Pill></div></div>
+            <div className="list-item-meta"><span>{ownerNames.get(agent.owner) ?? agent.owner}</span><Pill tone={agent.active ? 'green' : 'neutral'}>{agent.active ? '在岗' : '未启用'}</Pill></div></div>
         </a>)}
         {!shown.length && <Empty title={all.length ? '没有匹配的 Agent' : '此项目暂无 Agent'} icon={<Bot />} />}
       </div>
@@ -64,7 +65,7 @@ function ProjectAgentCatalog(props: PageProps) {
           </div>
           {shown.length ? <div className="agent-cards">{shown.map(agent => <a key={agent.id} className="agent-card" href={routeFor(project.id, 'agents', agent.id)}>
             <div className="agent-card-top"><Avatar value={agent.title} kind="agent" /><Pill tone={agent.active ? 'green' : 'neutral'}>{agent.active ? '在岗' : '未启用'}</Pill></div>
-            <h2>{agent.title}</h2><p>{agent.capability}</p><div className="agent-card-foot"><span>{agent.owner} · {engineName(agent.engine)}</span><ChevronRight size={16} /></div>
+            <h2>{agent.title}</h2><p>{agent.capability}</p><div className="agent-card-foot"><span>{ownerNames.get(agent.owner) ?? agent.owner} · {engineName(agent.engine)}</span><ChevronRight size={16} /></div>
           </a>)}</div> : <Empty title={all.length ? '没有匹配的 Agent' : '等待项目配置执行成员'} icon={<Bot />} />}
         </div>}
     </div>
