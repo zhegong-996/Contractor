@@ -66,8 +66,21 @@ test('原生工单带口径交接、阻塞接续、多版验收、成果重授�
   assert.deepEqual(work.detail('engineering', handoff).recovery?.decisionIds, []);
   post('former-member', 'screen', '当时有权，撤权后接手人不能带走这段记录');
   assert.throws(() => work.resume('product', handoff, { nonce: randomUUID(), version: 1, reason: '不能跳过问题' }), /必答/);
+  const transfer = work.engineeringActionFor('product', handoff, { action: 'open', direction: 'handover', nonce: randomUUID(),
+    version: 1, sha: null, text: '请接手核对门店推荐理由。' });
+  const todos = (actor: string) => work.needsYou(actor).filter(row => row.subject === transfer.id);
+  assert.deepEqual(todos('engineering').map(row => [row.title, row.ticket, row.version]), [['负责人请你接手本版工单', handoff, 1]]);
+  assert.deepEqual(todos('product'), []);
   work.reply('product', handoff, { card: question.id, choice: 0, nonce: 'criteria' });
-  await wait(async () => (await traces()).find(row => row.event === 'holding'));
+  await wait(() => detail(handoff).runs.find(run => run.state === 'queued'));
+  const take = { action: 'answer' as const, id: transfer.id, text: '接手复核两句推荐理由。' };
+  work.engineeringActionFor('engineering', handoff, take);
+  work.engineeringActionFor('engineering', handoff, take);
+  assert.deepEqual(todos('engineering'), []);
+  assert.deepEqual(todos('product'), []);
+  const resumed = await wait(async () => (await traces()).find(row => row.event === 'holding'));
+  const handoverEvent = resumed.context.events.find((event: { id: string }) => event.id === transfer.id);
+  assert.deepEqual(JSON.parse(handoverEvent.detail), { direction: 'handover', requestedBy: 'product', question: '请接手核对门店推荐理由。', answer: take.text, by: 'engineering' });
   const offered = work.ticketTopicContext('product', handoff).recent.find(row => row.id === basis.id)!;
   const input = { id: offered.id, source: offered.source, revision: offered.revision, confirmed: true };
   assert.throws(() => work.setTicketTopicBasis('replacement', handoff, input), { status: 403 });
@@ -133,6 +146,29 @@ test('原生工单带口径交接、阻塞接续、多版验收、成果重授�
     event.type === 'task.engineering-decision' && event.detail.includes(answer.text)));
   assert.match(continued.prompt, /恢复原因不替代原需求/);
   assert.doesNotMatch(continued.prompt, /在现有代码上修改/);
+  const decisionOutput = detail(blocked).result!;
+  const outputRun = detail(blocked).runs.find(row => row.id === decisionOutput.run)!;
+  assert.ok(outputRun.engineeringDecisions?.includes(decision.id));
+  // Older data can be authorized from the frozen execution context alone.
+  db.prepare("UPDATE workbench_manifest SET value=json_remove(value,'$.decisionInputs','$.engineeringDecisions') WHERE ticket=? AND run=?").run(blocked, decisionOutput.run);
+  for (const actor of ['product', 'engineering']) {
+    assert.equal(work.executionSnapshot(actor, blocked, decisionOutput.run).readable, true);
+    assert.equal(work.detail(actor, blocked).result?.text, decisionOutput.text);
+  }
+  const restrictedView = work.detail('resource', blocked);
+  assert.deepEqual(restrictedView.engineeringReview.records, []);
+  assert.equal(work.executionSnapshot('resource', blocked, decisionOutput.run).contents, undefined);
+  assert.equal(restrictedView.result, undefined);
+  assert.equal(restrictedView.versions.find(version => version.revision === decisionOutput.revision)?.text, undefined);
+  await work.accept('product', blocked, decisionOutput.revision, '仅交接参与者', answer.text);
+  const derived = work.browse('product', 'store', '').find(row => row.id === detail(blocked).candidate)!;
+  assert.ok('revision' in derived);
+  work.publish('product', derived.id, derived.revision!);
+  assert.ok(work.browse('engineering', 'store', answer.text).some(row => row.id === derived.id));
+  assert.ok(!work.browse('resource', 'store', answer.text).some(row => row.id === derived.id));
+  assert.ok(!work.browse('resource', 'store', '', true).some(row => row.id === derived.id));
+  assert.ok(!(await work.recallMemory('resource', 'store', answer.text)).some(row => row.id === derived.id));
+  assert.ok((await work.recallMemory('engineering', 'store', answer.text)).some(row => row.id === derived.id));
 
   const ticket = await start('review');
   const v1 = await wait(() => detail(ticket).result);

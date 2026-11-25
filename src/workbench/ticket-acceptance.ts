@@ -21,7 +21,7 @@ type AcceptancePorts = {
   missingRequiredDelegation: (id: string, work: Work) => boolean;
   delegationResultsCurrent: (id: string, work: Work) => boolean;
   approvalComplete: (work: Work, project: Project) => boolean;
-  readableOutput: (id: string) => Output | undefined;
+  readableOutput: (id: string, actor: string) => Output | undefined;
   pullTarget: (project: Project, url: string) => ProjectResource;
   inspectPull: typeof inspectPull;
   provenance: (ticket: Ticket, work: Work, project: Project, observed: Awaited<ReturnType<typeof inspectPull>>) => Promise<CommitProvenance[]>;
@@ -58,7 +58,7 @@ export function openTicketAcceptance(store: Pick<SuperAgentStore, 'atomic'>, hub
     if (!work.accepted && (pendingDelegation(id, work.version ?? 1) || missingRequiredDelegation(id, work) || !delegationResultsCurrent(id, work)))
       throw new WorkbenchError('必需子任务的验收结果尚未齐备或已失效。', 409);
     if (body && !conditions.trim()) throw new WorkbenchError('请填写这条结论的适用条件。');
-    const output = requireValue(readableOutput(id), '当前成果不可读取，请重新核对权限。', 409);
+    const output = requireValue(readableOutput(id, actor), '当前成果不可读取，请重新核对权限。', 409);
     if (ticket.ended?.outcome !== 'completed' || output.revision !== revision) throw new WorkbenchError('请验收当前已生成的版本。', 409);
     const verifyRepeat = (accepted: Work) => {
       if (commit !== undefined && commit !== accepted.accepted?.commit)
@@ -105,7 +105,7 @@ export function openTicketAcceptance(store: Pick<SuperAgentStore, 'atomic'>, hub
     if (acceptanceAssignee(current) !== actor || !mayStart(check.project, actor))
       throw new WorkbenchError('由当前版本的验收人验收。', 403);
     if (current.accepted?.revision === revision) return verifyRepeat(current);
-    if (current.accepted || !delegationAuthority(current) || readableOutput(id)?.revision !== revision
+    if (current.accepted || !delegationAuthority(current) || readableOutput(id, actor)?.revision !== revision
       || digest(current.delivery ?? null) !== digest(work.delivery ?? null)
       || digest(current.deliveryTemplate ?? null) !== digest(work.deliveryTemplate ?? null))
       throw new WorkbenchError('成果或交付版本已变化，请刷新。', 409);

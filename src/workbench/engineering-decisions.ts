@@ -19,7 +19,7 @@ export type DecisionScope = { project: string; ticket: string; version: number; 
   lead?: string; developer?: string; requester: string; maintain: boolean; writable: boolean };
 
 export function engineeringDecisions(db: DatabaseSync, ports: {
-  notify: (project: string, ticket: string, subject: string, recipient: string, returned: boolean) => void;
+  notify: (project: string, ticket: string, subject: string, recipient: string, returned: boolean, direction: RecordRow['direction']) => void;
   close: (subject: string, returned: boolean) => void;
 }) {
   db.exec('CREATE TABLE IF NOT EXISTS workbench_engineering_decision(id TEXT PRIMARY KEY,ticket TEXT NOT NULL,value TEXT NOT NULL); CREATE INDEX IF NOT EXISTS engineering_ticket ON workbench_engineering_decision(ticket)');
@@ -61,7 +61,7 @@ export function engineeringDecisions(db: DatabaseSync, ports: {
       const to = input.direction === 'handover' ? s.developer : s.lead;
       if (!to || to === actor) throw new WorkbenchError('当前没有其他可接收此请求的责任人。', 409);
       save({ id, ticket: s.ticket, version: s.version, sha: s.sha, direction: input.direction, actor, recipient: to, question: input.text, state: 'open', openedAt: new Date().toISOString() });
-      ports.notify(s.project, s.ticket, id, to, false);
+      ports.notify(s.project, s.ticket, id, to, false, input.direction);
       return { id };
     }
     const r = rows.find(r => r.id === input.id);
@@ -72,9 +72,10 @@ export function engineeringDecisions(db: DatabaseSync, ports: {
         if (r.answeredBy === actor && r.answer === input.text && r.state !== 'withdrawn') return { id: r.id };
         throw new WorkbenchError('该请求已处理。', 409);
       }
-      save({ ...r, state: 'answered', answeredBy: actor, answeredAt: new Date().toISOString(), answer: input.text });
+      const handedOver = r.direction === 'handover';
+      save({ ...r, state: handedOver ? 'received' : 'answered', answeredBy: actor, answeredAt: new Date().toISOString(), answer: input.text });
       ports.close(r.id, false);
-      ports.notify(s.project,s.ticket,r.id, r.actor,true);
+      if (!handedOver) ports.notify(s.project, s.ticket, r.id, r.actor, true, r.direction);
     } else {
       if (r.actor !== actor && !(input.action === 'withdraw' && s.maintain)) throw new WorkbenchError('当前账号无法处理这项请求。', 403);
       const next = input.action === 'received' ? 'received' : 'withdrawn';
@@ -87,5 +88,8 @@ export function engineeringDecisions(db: DatabaseSync, ports: {
   }
   const forExecution = (ticket: string, scope: Pick<DecisionScope, 'version' | 'sha'>, allowed: (name: string) => boolean) =>
     list(ticket).reverse().filter(r => r.state === 'received' && current(r, scope) && !!r.answeredBy && allowed(r.answeredBy) && allowed(r.actor));
-  return { view, apply, forExecution, pending: (id: string, scope: Pick<DecisionScope, 'version' | 'sha'>) => list(id).some(r => current(r, scope) && open(r)) };
+  function pending(id: string, scope: Pick<DecisionScope, 'version' | 'sha'>, direction?: RecordRow['direction']) {
+    return list(id).some(r => current(r, scope) && open(r) && (!direction || r.direction === direction));
+  }
+  return { view, apply, forExecution, pending };
 }

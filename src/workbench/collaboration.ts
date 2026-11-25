@@ -1252,9 +1252,12 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
   });
 
   const engineering = engineeringDecisions(store.db, {
-    notify(project, ticket, subject, recipient, returned) {
+    notify(project, ticket, subject, recipient, returned, direction) {
+      const title = direction === 'handover'
+        ? returned ? '开发者已接手，请确认交接' : '负责人请你接手本版工单'
+        : returned ? '研发请求已答复，请接回处理' : '工单有一项研发请求待处理';
       askHuman(projectById.get(project)!, { kind: returned ? 'engineering-return' : 'engineering-request',
-        subject, ticket, title: returned ? '研发请求已答复，请接回处理' : '工单有一项研发请求待处理' }, recipient);
+        subject, ticket, title }, recipient);
     },
     close: (subject, returned) => closeDecision(returned ? 'engineering-return' : 'engineering-request', subject),
   });
@@ -1533,10 +1536,59 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     && workHarness.current(work.project, manifest.actor.owner, work.requester, manifest.workerHarness);
   const workerHarnessReadable = (actor: string, work: Work, manifest?: Assembled) => !manifest?.workerHarness
     || workerHarnessCurrent(work, manifest) && workHarness.readable(work.project, actor, manifest.workerHarness);
+  // A decision remains scoped to its participants, including when it is quoted in a result or a later memory.
+  // An omitted actor denotes an audience-wide projection (project search, IM digest or automatic recall).
+  function decisionEvidenceReadable(id: string, manifest: Assembled | undefined, actor?: string, path = new Set<string>()): boolean {
+    if (!manifest) return true;
+    const decisions = manifest.engineeringDecisions ?? (!manifest.decisionInputs && manifest.assembly
+      && store.db.prepare('SELECT 1 FROM workbench_engineering_decision WHERE ticket=? LIMIT 1').get(id)
+      ? store.db.prepare(`SELECT e.value->>'$.id' AS id FROM workbench_execution_pack p,json_each(p.value,'$.events') e
+          WHERE p.hash=? AND e.value->>'$.type'='task.engineering-decision'`).all(manifest.assembly.context).map(row => String(row.id)) : []);
+    if (decisions.length) {
+      const ticket = store.tickets.get(id), work = workOf(id), project = work && projectById.get(work.project);
+      if (!actor || !ticket || !work || !project || !member(project, actor)) return false;
+      const visible = engineering.view(actor, engineeringScope(actor, ticket, work, project)).records;
+      if (!decisions.every(ref => visible.some(record => record.id === ref))) return false;
+    }
+    const seen = new Set(path);
+    const reference = id + ':' + manifest.contextHash;
+    if (seen.has(reference)) return false;
+    seen.add(reference);
+    const outputReadable = (ref: { ticket: string; revision: string }) => {
+      const output = outputByRevision(ref.ticket, ref.revision);
+      return !!output && decisionEvidenceReadable(ref.ticket, manifestFor(output.run, output.attempt), actor, seen);
+    };
+    const inputs = manifest.decisionInputs ?? (manifest.assembly ? legacyDecisionInputs(id, manifest.assembly.context) : []);
+    return inputs.every(outputReadable) && manifest.sources.every(ref => {
+      const entry = knowledge.get(ref.id, ref.revision);
+      return !entry?.ticket || knowledgeDecisionsReadable(entry, actor, seen);
+    }) && (manifest.childResults ?? []).every(ref => {
+      const row = delegations.get(ref);
+      const output = row?.child && row.result && outputByRevision(row.child, row.result.revision);
+      return !!output && decisionEvidenceReadable(row!.child!, manifestFor(output.run, output.attempt), actor, seen);
+    });
+  }
+  function legacyDecisionInputs(id: string, context: string) {
+    // Old snapshots recorded these exact result revisions in the frozen context, before decisionInputs existed.
+    const rows = store.db.prepare(`SELECT ? AS ticket, substr(e.value->>'$.id',10) AS revision
+      FROM workbench_execution_pack p,json_each(p.value,'$.events') e
+      WHERE p.hash=? AND e.value->>'$.type'='task.previous-output' AND e.value->>'$.id' LIKE 'previous:%'
+      UNION SELECT r.value->>'$.child', r.value->>'$.revision'
+      FROM workbench_execution_pack p,json_each(p.value,'$.events') e,
+        json_each(CASE WHEN e.value->>'$.type'='task.child-results' AND json_valid(e.value->>'$.detail') THEN e.value->>'$.detail' ELSE '[]' END) r
+      WHERE p.hash=? AND r.type='object' AND r.value->>'$.child' IS NOT NULL`).all(id, context, context);
+    return rows.map(row => ({ ticket: String(row.ticket), revision: String(row.revision) }));
+  }
+  function knowledgeDecisionsReadable(entry: KnowledgeEntry, actor?: string, path?: Set<string>) {
+    if (!entry.ticket) return true;
+    const output = originOutput(entry);
+    return !!output && decisionEvidenceReadable(entry.ticket, manifestFor(output.run, output.attempt), actor, path);
+  }
   const { entryEvidence, sourceAllowed, usable, outputUsable, canDiscoverEntry, canReadEntry, selectMaterials, currentProjectMemory } =
     knowledgeAuthority(knowledge, {
       workOf, connected, originOutput, accessReader, outputReader, manifestFor, childResultsUsable, topicContextUsable,
       member: (id, actor) => member(projectById.get(id), actor), octopCurrent, octopIMCurrent: work => octopIMCurrent(work), workerHarnessCurrent,
+      knowledgeDecisionsReadable,
     });
 
   function consultationSource(entry: KnowledgeEntry, project: Project, seen = new Set<string>()): boolean {
@@ -1904,7 +1956,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     return entry && { id: entry.id, revision: entry.revision };
   }
 
-  async function indexMemory(project: Project, query: string, candidates?: KnowledgeEntry[], availability: 'best-effort' | 'required' = 'best-effort') {
+  async function indexMemory(project: Project, query: string, candidates?: KnowledgeEntry[], availability: 'best-effort' | 'required' = 'best-effort', actor?: string) {
     if (!query.trim()) return [];
     const entries = candidates ?? knowledge.list(project.id).filter(entry => currentProjectMemory(entry, project));
     if (!entries.length) return [];
@@ -1918,7 +1970,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       return ids.flatMap(id => {
         const entry = knowledge.current(id);
         return entry && entries.some(candidate => candidate.id === id && candidate.revision === entry.revision)
-          && currentProjectMemory(entry, project) ? [entry] : [];
+          && currentProjectMemory(entry, project, actor) ? [entry] : [];
       });
     } catch {
       if (availability === 'required') throw new WorkbenchError('知识检索暂不可用，请稍后重试。', 503);
@@ -2870,6 +2922,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       const id = ticketOfLane(run.lane);
       const work = workOf(id);
       if (!work || work.device !== device?.id || delegations.pending(id, work.version ?? 1)
+        || engineering.pending(id, decisionStamp(work), 'handover')
         || requiresStageBasis(work) && !currentStageBasis(id, work)) return false;
       if (device?.worker && !engines?.some(engine => engine === agentById.get(work.agent)?.engine)) return false;
       return device ? deviceAllowed(device, projectById.get(work.project)!, work.agent)
@@ -2912,7 +2965,15 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       const prior = job.session ? hub.runs(run.lane).findLast(item => item.id !== job.run && item.session === job.session) : undefined;
       let previous = manifestFor(job.run) ?? (prior && manifestFor(prior.id));
       let session = job.session;
+      const confirmedDecisions = () => {
+        const current = workOf(ticket.id)!;
+        const visible = engineering.view(agent.owner, engineeringScope(agent.owner, ticket, current, project)).records;
+        return engineering.forExecution(ticket.id, decisionStamp(current), name => mayStart(project, name))
+          .filter(row => visible.some(item => item.id === row.id));
+      };
       if (previous && (!topicContextUsable(work, previous) || !workerHarnessCurrent(work, previous)
+        || !decisionEvidenceReadable(ticket.id, previous, agent.owner)
+        || previous.engineeringDecisions?.some(ref => !confirmedDecisions().some(row => row.id === ref))
         || workerContext && previous.workerHarness?.revision !== workerContext.stamp.revision)) {
         previous = undefined;
         session = null;
@@ -3006,7 +3067,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       // Rebuild from native answered cards across assignments, never from another CLI's private transcript.
       const confirmed = hub.confirmed(ticket.id).filter(card => {
           const previous = manifestFor(card.run_id);
-          return !!previous && workerHarnessReadable(agent.owner, work, previous) && (!work.continuation?.recheck || previous.version === work.version)
+          return !!previous && decisionEvidenceReadable(ticket.id, previous, agent.owner) && workerHarnessReadable(agent.owner, work, previous) && (!work.continuation?.recheck || previous.version === work.version)
             && mounted(previous.sources) && topicContextUsable(work, previous);
         });
       const changes = development ? await developmentChanges(ticket.id, development).catch(() => undefined) : undefined;
@@ -3020,10 +3081,11 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
         return {};
       }
       const priorOutput = work.continuation?.previous && outputByRevision(ticket.id, work.continuation.previous);
+      const priorDecisionAccess = !priorOutput || decisionEvidenceReadable(ticket.id, manifestFor(priorOutput.run, priorOutput.attempt), agent.owner);
       const priorAllowed = !work.consultation && !work.continuation?.recheck && priorOutput && mounted(priorOutput.sources)
-        && workerHarnessReadable(agent.owner, work, manifestFor(priorOutput.run, priorOutput.attempt)) && outputUsable(ticket.id, priorOutput);
-      const privatePrior = priorOutput && !priorAllowed && priorOutput.sources.some(ref =>
-        knowledge.get(ref.id, ref.revision)?.visibility !== 'project');
+        && priorDecisionAccess && workerHarnessReadable(agent.owner, work, manifestFor(priorOutput.run, priorOutput.attempt)) && outputUsable(ticket.id, priorOutput);
+      const privatePrior = priorOutput && !priorAllowed && (!priorDecisionAccess || priorOutput.sources.some(ref =>
+        knowledge.get(ref.id, ref.revision)?.visibility !== 'project'));
       const continuation = privatePrior && work.continuation
         ? { ...work.continuation, reason: '原工单开启了下一版。请依据本轮选定的资料重新核对。' } : work.continuation;
       const continuationEvent = privatePrior && ticket.inputs.find(input =>
@@ -3032,6 +3094,19 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
         || recoveringDelegations(work) && event === key('recovery-summary', a.id));
       const childResults = delegations.list(ticket.id).filter(row => row.version === (work.version ?? 1)
         && job.context.events.some(event => resultEventMatches(event.id, row.resultEvent)));
+      const decisionInputs = [...(priorAllowed && priorOutput ? [{ ticket: ticket.id, revision: priorOutput.revision }] : []),
+        ...childResults.flatMap(row => row.child && row.result ? [{ ticket: row.child, revision: row.result.revision }] : [])].filter(ref => {
+          const output = outputByRevision(ref.ticket, ref.revision);
+          return !!output && !decisionEvidenceReadable(ref.ticket, manifestFor(output.run, output.attempt));
+        });
+      if (decisionInputs.some(ref => {
+        const output = outputByRevision(ref.ticket, ref.revision)!;
+        return !decisionEvidenceReadable(ref.ticket, manifestFor(output.run, output.attempt), agent.owner);
+      })) {
+        cancelUnstarted(job, ticket.id, '受托开发者无权读取来源交接记录');
+        reportBlocked(ticket.id, work, '执行人需要来源交接记录的读取权限。', 'authority-changed');
+        return {};
+      }
       const events = job.context.events.map(event => {
           if (continuationEvent && event.id === key('assignment-input', a.id, continuationEvent.id))
             return { ...event, detail: '原工单开启了下一版。请依据本轮选定的资料重新核对。' };
@@ -3074,12 +3149,11 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
         knowledge: entries.map(entry => ({ entry, acceptance: entry.ticket ? acceptedKnowledgeSource(entry, true) : undefined,
           lesson: lessonEvidence(entry) })),
       });
-      const confirmedDecisions = () => engineering.forExecution(ticket.id, decisionStamp(workOf(ticket.id)!), name => mayStart(project, name));
       const loadedDecisions = confirmedDecisions();
       for (const decision of loadedDecisions) {
         context.events.push({ id: decision.id, type: 'task.engineering-decision', source: 'contractor', sourceName: '已确认的研发决定',
           subject: ticket.id, summary: '第 ' + decision.version + ' 版研发决定',
-          detail: JSON.stringify({ question: decision.question, answer: decision.answer, by: decision.answeredBy }),
+          detail: JSON.stringify({ direction: decision.direction, requestedBy: decision.actor, question: decision.question, answer: decision.answer, by: decision.answeredBy }),
           receivedAt: decision.answeredAt!, link: '' });
       }
       const skillText = (work.octop?.skills ?? []).map(ref => {
@@ -3155,6 +3229,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
         ...(fullResult && { fullResult: true as const }),
         ...(childResults.some(row => row.sources.some(ref => ref.access)) && { childResults: childResults.map(row => row.id) }),
         ...(loadedDecisions.length && { engineeringDecisions: loadedDecisions.map(r => r.id) }),
+        decisionInputs,
         confirmations: confirmed.map(card => card.id), codeState: changes, topic: work.topic ?? null,
         ...(topicRefs.length && { topicContext: topicRefs }),
         ...(stageBasis && { stageBasis }),
@@ -4217,8 +4292,8 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       if (readDocs.some(fact => fact.key === ref.externalId)) return [];
       return [{ kind: 'material' as const, key: ref.externalId, title: ref.label ?? '项目文档', url: ref.url, revision: ref.revision }];
     });
-    if (messages.length) documents.push(...knowledge.search(knowledge.list(project.id).filter(entry => entry.state === 'published'
-      && entry.visibility === 'project' && entryEvidence(entry, new Set(), true) && !sensitiveFeishuText.test(entry.body)),
+    if (messages.length) documents.push(...knowledge.search(knowledge.list(project.id).filter(entry => currentProjectMemory(entry, project)
+      && !sensitiveFeishuText.test(entry.body)),
       messages.slice(0, 5).map(msg => msg.text).join('\n').slice(0, 1000), project.id).slice(0, 6).map(entry => ({
       kind: 'material' as const, key: entry.id, title: entry.title, text: entry.body.slice(0, 1300), revision: entry.revision, knowledge: true as const,
     })));
@@ -4235,8 +4310,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     return scope.facts.every(fact => {
       if (!fact.knowledge) return true;
       const entry = fact.revision && knowledge.get(fact.key, fact.revision);
-      return !!entry && entry.project === scope.project && entry.state === 'published'
-        && entry.visibility === 'project' && entryEvidence(entry, new Set(), true);
+      return !!entry && !!projectById.get(scope.project) && currentProjectMemory(entry, projectById.get(scope.project)!);
     });
   }
 
@@ -4883,7 +4957,8 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
 
   function currentOutputView(actor: string, id: string, work: Work) {
     const stored = outputFor(id);
-    const permitted = !!stored && workerHarnessReadable(actor, work, manifestFor(stored.run, stored.attempt))
+    const manifest = stored && manifestFor(stored.run, stored.attempt);
+    const permitted = !!stored && workerHarnessReadable(actor, work, manifest) && decisionEvidenceReadable(id, manifest, actor)
       && (work.requester === actor || agentById.get(work.agent)?.owner === actor
       || !work.octop && stored.sources.every(ref => knowledge.get(ref.id)?.visibility === 'project'));
     const output = permitted && outputUsable(id, stored) ? stored : undefined;
@@ -4901,7 +4976,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       const priorActor = manifest?.actor;
       const visible = actor === work.requester || actor === priorActor?.owner
         || !work.octop && prior.sources.every(ref => knowledge.get(ref.id)?.visibility === 'project');
-      return visible && workerHarnessReadable(actor, work, manifest) && outputUsable(id, prior);
+      return visible && workerHarnessReadable(actor, work, manifest) && decisionEvidenceReadable(id, manifest, actor) && outputUsable(id, prior);
     }).map(prior => prior.revision));
     const reviews = iterations.list(id);
     const protectedReasons = new Set(reviews.filter(review => review.kind !== 'accepted' && !readableRevisions.has(review.revision))
@@ -4953,7 +5028,8 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       const assigned = agentById.get(work.agent);
       return { id: run.id, state: run.state, stopping: !!run.cancel_at && ['claimed', 'unknown'].includes(run.state),
         resumed, startedAt: run.claimed_at, finishedAt: run.finished_at,
-        engineeringDecisions: manifest?.engineeringDecisions, assembly: manifest?.assembly, version: manifest?.version ?? (manifest ? 1 : undefined),
+        engineeringDecisions: decisionEvidenceReadable(id, manifest, actor) ? manifest?.engineeringDecisions : undefined,
+        assembly: manifest?.assembly, version: manifest?.version ?? (manifest ? 1 : undefined),
         attribution: manifest?.actor ?? (run.lane === lane && assigned && version(assigned) === work.agentVersion ? runActor(ticket, work, assigned) : undefined),
         development: manifest?.development && { repository: manifest.development.repository, branch: manifest.development.branch,
           commit: manifest.development.commit },
@@ -5042,7 +5118,9 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     };
     return { id, title: ticket.title, project: project.id, watching: workRecords.watching(actor, id), engineeringReview, work: { ...visibleWork, material: work.material.filter(visibleMaterial),
         recall: work.recall?.filter(visibleMaterial), continuation: visibleContinuation, consultation: !!consultation }, origin: opening.id, request: opening.text,
-      createdAt: ticket.createdAt, history, report: report && { ...report, question: question[0]?.title ?? null }, children, related, actions, endReason: ticket.ended?.outcome,
+      createdAt: ticket.createdAt, history, report: report && { ...report,
+        summary: currentRun && !decisionEvidenceReadable(id, manifestFor(currentRun.id), actor) ? '本轮执行内容受限。' : report.summary,
+        question: question[0]?.title ?? null }, children, related, actions, endReason: ticket.ended?.outcome,
       acceptanceOwner: acceptanceAssignee(work), acceptanceChoices: maintainer && !work.accepted && !work.consultation && !work.personal
         && ticket.ended?.outcome === 'completed' ? project.members.filter(person => person !== acceptanceAssignee(work) && mayStart(project, person)
           && !!currentOutputView(person, id, work).output) : [],
@@ -5113,7 +5191,8 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
   }
 
   function canReadAssembly(actor: string, id: string, work: Work, manifest: Assembled) {
-    if (!privateConsultationVisible(work, actor) || !topicContextUsable(work, manifest) || !workerHarnessReadable(actor, work, manifest)) return false;
+    if (!privateConsultationVisible(work, actor) || !topicContextUsable(work, manifest) || !workerHarnessReadable(actor, work, manifest)
+      || !decisionEvidenceReadable(id, manifest, actor)) return false;
     const reader = manifest.actor && { agent: manifest.actor.agent, owner: manifest.actor.owner };
     if (manifest.octop) {
       if (!octopCurrent(work, manifest.octop)) return false;
@@ -5652,7 +5731,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
   function adoptKnowledge(actor: string, entry: KnowledgeEntry, revision: string, replaces?: KnowledgeRef) {
     if (entry.state !== 'candidate' || entry.revision !== revision) throw new WorkbenchError('知识候选已更新，请重新核对。', 409);
     if (entry.draft?.needsReview || !entry.conditions.trim()) throw new WorkbenchError('采用前请核对结论并补充适用条件。', 409);
-    if (!entryEvidence(entry, new Set(), true)) throw new WorkbenchError('候选的来源已失效，请按现行资料重新核对。', 409);
+    if (!knowledgeDecisionsReadable(entry, actor) || !entryEvidence(entry, new Set(), true)) throw new WorkbenchError('候选的来源已失效或无权读取，请按现行资料重新核对。', 409);
     if (entry.replaces && replaces && (entry.replaces.id !== replaces.id || entry.replaces.revision !== replaces.revision))
       throw new WorkbenchError('替代对象已变化，请重新提交候选。', 409);
     const target = entry.replaces ?? replaces;
@@ -5831,6 +5910,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     const { output, materialHidden } = currentOutputView(actor, id, work);
     const delivery = codeDeliveryState(ticket, work);
     const runs = hub.runs(work.lane ?? id);
+    const lastRun = runs.at(-1);
     const recovery = ticketRecovery(actor, ticket, work, project, runs, delivery);
     const needsObservation = work.requester === actor && !!work.measure && !!work.accepted
       && !!output && !observations.list(id).some(record => record.revision === output.revision);
@@ -5845,14 +5925,14 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
         accepted: accepted && { revision: accepted.revision }, handoff: handoff && { completedAt: handoff.completedAt, cancelledAt: handoff.cancelledAt },
         goal: work.goal, consultation: !!work.consultation, development: !!work.development, developmentResponse: !!work.developmentResponse,
         approvalRequired: !!work.approvalRequired, developmentApproval: !!work.developmentApproval },
-      engineeringWait: review && { member: review.state === 'open' ? review.recipient : review.actor, reply: review.state === 'open' },
+      engineeringWait: review && { member: review.state === 'open' ? review.recipient : review.actor, reply: review.state === 'open', direction: review.direction },
       pull: output && work.delivery ? { number: work.delivery.pr, sha: work.delivery.headSha, ci: work.delivery.ci } : undefined,
       result: !!output, deliveryStatus: delivery && { state: delivery.state }, needsObservation,
       endReason: ticket.ended?.outcome, materialHidden, recoveryKind: recovery?.kind, runState: runs.at(-1)?.state,
       productChecksPending: productVerification?.ready === false, waitingAccess: !ticket.ended && needed(id, work),
       blocked: ticket.assignments.at(-1)?.report?.state === 'blocked',
       progress: { runState: runs.at(-1)?.state, attempts: runs.at(-1)?.attempts ?? 0,
-        summary: runs.at(-1)?.summary ?? undefined,
+        summary: lastRun && decisionEvidenceReadable(id, manifestFor(lastRun.id), actor) ? lastRun.summary ?? undefined : undefined,
         device: work.device ? devices.list().find(device => device.id === work.device)?.name : undefined } };
   }
 
@@ -6111,7 +6191,8 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
 
   const accept = openTicketAcceptance(store, hub, iterations, knowledge, {
     ticketFor, mayStart, delegationAuthority, missingRequiredDelegation, delegationResultsCurrent,
-    pendingDelegation: (id, version) => delegations.pending(id, version), readableOutput, pullTarget, provenance,
+    pendingDelegation: (id, version) => delegations.pending(id, version),
+    readableOutput: (id, actor) => currentOutputView(actor, id, workOf(id)!).output, pullTarget, provenance,
     verifyCodeDelivery, inspectPull, review: independentReview, product: product.state,
     storeDeliveryVersion, recordCheckAttempts, saveWork, closeAcceptance, closeDeliveryIssues, manifestFor, knowledgeId, audit,
     decisionPending: (id, work) => engineering.pending(id, decisionStamp(work)),
@@ -6341,10 +6422,10 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       const project = projectFor(id, actor);
       const pinned = pinnedMemory(project).filter(entry => canReadEntry(entry, actor));
       const pins = new Set(pinned.map(entry => entry.id));
-      const found = await indexMemory(project, query, knowledge.list(project.id).filter(entry => currentProjectMemory(entry, project)
-        && canReadEntry(entry, actor) && !pins.has(entry.id)), 'required');
+      const found = await indexMemory(project, query, knowledge.list(project.id).filter(entry => currentProjectMemory(entry, project, actor)
+        && canReadEntry(entry, actor) && !pins.has(entry.id)), 'required', actor);
       projectFor(id, actor);
-      return [...pinned, ...found].filter(entry => currentProjectMemory(entry, project) && canReadEntry(entry, actor)).slice(0, 3).map(entry =>
+      return [...pinned, ...found].filter(entry => currentProjectMemory(entry, project, actor) && canReadEntry(entry, actor)).slice(0, 3).map(entry =>
         ({ id: entry.id, revision: entry.revision, title: entry.title, conditions: entry.conditions, pinned: pins.has(entry.id),
           acceptedSource: acceptedKnowledgeSource(entry) }));
     },
