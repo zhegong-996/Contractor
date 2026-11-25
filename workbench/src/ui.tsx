@@ -13,7 +13,7 @@ type Actions = {
   run: <T>(task: () => Promise<T>, notice?: string | ((result: T) => string)) => Promise<T | undefined>;
   clearError: () => void;
   stored: Record<string, unknown>;
-  store: (key: string, value: unknown) => void;
+  store: (key: string, value: unknown, expected?: unknown) => void;
   scrollPositions: Map<string, { top: number; left: number }>;
   dialogTrigger: { current: HTMLElement | null };
 };
@@ -31,9 +31,10 @@ export function useMediaQuery(match: string) {
   return matches;
 }
 
-export function useStored<T>(key: string, initial: T): [T, (next: T) => void] {
+export function useStored<T>(key: string, initial: T): [T, (next: T) => void, (next: T) => void] {
   const action = useActions();
-  return [Object.hasOwn(action.stored, key) ? action.stored[key] as T : initial, next => action.store(key, next)];
+  const value = Object.hasOwn(action.stored, key) ? action.stored[key] as T : initial;
+  return [value, next => action.store(key, next), next => action.store(key, next, value)];
 }
 
 export function useSessionScroll(key: string, { ready = true, visibleAt, preserveInitial = false }: {
@@ -60,8 +61,8 @@ export function IconButton({ label, children, ...props }: ComponentProps<typeof 
   return <Button type="button" variant="ghost" size="icon-sm" aria-label={label} title={label} {...props}>{children}</Button>;
 }
 
-export function SearchBox({ label, value, onChange, autoFocus }: { autoFocus?: boolean; label: string; value: string; onChange: (value: string) => void }) {
-  return <div className="searchbox"><Search aria-hidden="true" /><Input autoFocus={autoFocus} type="search" aria-label={label} placeholder={label}
+export function SearchBox({ label, value, onChange, ...input }: Omit<ComponentProps<typeof Input>, 'onChange' | 'value'> & { label: string; value: string; onChange: (value: string) => void }) {
+  return <div className="searchbox"><Search aria-hidden="true" /><Input {...input} type="search" aria-label={label} placeholder={label}
     value={value} onChange={event => onChange(event.target.value)} /></div>;
 }
 
@@ -85,7 +86,9 @@ export function FormError() {
   return error && <Failure error={new Error(error)} />;
 }
 
-export function Modal({ title, children, close }: { title: string; children: ReactNode; close: () => void }) {
+export function Modal({ title, children, close, visibility }: { title: string; children: ReactNode; close: () => void;
+  visibility?: { open: boolean; dismiss: () => void };
+}) {
   const { busy, clearError, dialogTrigger } = useActions();
   const [open, setOpen] = useState(true);
   useEffect(() => {
@@ -97,9 +100,9 @@ export function Modal({ title, children, close }: { title: string; children: Rea
     };
   }, [dialogTrigger]);
   const dismiss = () => {
-    if (!busy) { clearError(); setOpen(false); }
+    if (!busy) { clearError(); if (visibility) visibility.dismiss(); else setOpen(false); }
   };
-  return <DesignModal className="contractor-dialog" open={open} title={<h2>{title}</h2>} onCancel={dismiss} afterClose={close}
+  return <DesignModal className="contractor-dialog" open={visibility?.open ?? open} title={<h2>{title}</h2>} onCancel={dismiss} afterClose={close}
     getContainer="#app" width={620} footer={null} keyboard={!busy} closable={!busy} mask={{ closable: false }}>
     <div className="modal-body"><FormError />{children}</div>
   </DesignModal>;

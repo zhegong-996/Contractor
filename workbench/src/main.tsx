@@ -1,3 +1,4 @@
+import { writeStoredValue } from './drafts.ts';
 import { WorkspaceSearch } from './workspace-search.tsx';
 import { Provider as MotionProvider } from '@rc-component/motion';
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
@@ -10,7 +11,7 @@ import { api, mayKeepStale, uid, useData, type Overview, type ProjectTemplate, t
 import { ActionContext, Avatar, Empty, Failure, Field, IconButton, Loading, Logo, Modal, useActions, useMediaQuery, useStored } from './ui.tsx';
 import { Button } from './components/button.tsx';
 import { Input } from './components/input.tsx';
-import { preference, WorkspaceSidebar } from './components/workspace-sidebar.tsx';
+import { preference, savePreference, WorkspaceSidebar } from './components/workspace-sidebar.tsx';
 import { go, personalChatRoute, routeFor, settingsRoute, titles, useRoute, type PageProps, type TaskPreset } from './navigation.ts';
 import { Composer } from './creation.tsx';
 import { forest, type Branch } from './hierarchy.ts';
@@ -298,7 +299,7 @@ function Workspace() {
         <IconButton label={narrow ? '打开导航' : collapsed ? '展开侧栏' : '收起侧栏'} className="sidebar-toggle"
           onClick={() => {
             if (narrow) setDrawer(true);
-            else { localStorage.setItem('contractor-sidebar-collapsed', String(!collapsed)); setCollapsed(!collapsed); }
+            else { savePreference('contractor-sidebar-collapsed', String(!collapsed)); setCollapsed(!collapsed); }
           }}>{narrow ? <Menu /> : collapsed ? <PanelLeftOpen /> : <PanelLeftClose />}</IconButton>
         <Breadcrumb aria-label="当前位置" className="toolbar-path" items={[
           { title: <a href={routeFor(project.id, 'project')}><FolderKanban size={14} /><span>{project.title}</span></a> },
@@ -338,9 +339,12 @@ function App() {
       return saved && typeof saved === 'object' ? saved as Record<string, unknown> : {};
     } catch { return {}; }
   });
+  const [storageFailed, setStorageFailed] = useState(false);
   useEffect(() => {
-    try { localStorage.setItem('contractor-drafts', JSON.stringify(stored)); }
-    catch { localStorage.removeItem('contractor-drafts'); }
+    try {
+      localStorage.setItem('contractor-drafts', JSON.stringify(stored));
+      setStorageFailed(false);
+    } catch { setStorageFailed(Object.keys(stored).length > 0); }
   }, [stored]);
   const [scrollPositions] = useState(() => new Map<string, { top: number; left: number }>());
   useEffect(() => {
@@ -396,9 +400,10 @@ function App() {
     }
   }
   return <ActionContext.Provider value={{ busy, run, error, clearError: () => setError(''), stored, scrollPositions, dialogTrigger,
-    store: (key, value) => setStored(previous => ({ ...previous, [key]: value })) }}>
+    store: (key, value, expected) => setStored(previous => writeStoredValue(previous, key, value, expected)) }}>
     {session.error ? <div className="app-placeholder"><Failure error={session.error} retry={() => void session.refetch()} /></div>
       : session.isPending ? <Loading /> : session.data?.signedIn ? <Workspace /> : <Login session={session.data} />}
+    {storageFailed && <div className="draft-warning" role="status">草稿仅保留在当前页面，刷新前请复制未提交的内容。</div>}
     {notice && <div className="toast" role="status" data-closing={closingNotice}><CircleCheck size={17} />{notice}</div>}
   </ActionContext.Provider>;
 }

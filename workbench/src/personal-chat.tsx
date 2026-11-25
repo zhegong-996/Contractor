@@ -70,8 +70,9 @@ function PersonalChatThread({ workspace, project, conversation, profile, loading
 }) {
   const data = useChatPages<History>(conversation ? 'personal-chat/' + part(conversation) : '', 2000);
   const [initial] = useState(() => ({ text: '', nonce: uid() }));
-  const [draft, setDraft] = useStored('personal-chat-draft:' + workspace.actor + ':' + (conversation ?? 'new'), initial);
+  const [draft, setDraft, finishDraft] = useStored('personal-chat-draft:' + workspace.actor + ':' + (conversation ?? 'new'), initial);
   const { busy, run } = useActions();
+  const [sending, setSending] = useState(false);
   const scroll = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
   const rounds = data.error ? [] : [...new Map(data.data?.pages.slice().reverse().flatMap(page => page.rows.map(row => [row.id, row] as const))).values()];
@@ -112,7 +113,7 @@ function PersonalChatThread({ workspace, project, conversation, profile, loading
               {turn.state === 'answered' && turn.answer ? <Markdown text={turn.answer} /> : turn.state === 'pending'
                 ? <p className="agent-typing" role="status"><span className="typing-dots"><i /><i /><i /></span>正在回复</p> : <div className="actions">
                   <p className="muted-text">{turn.error ?? '暂未收到回复'}</p>
-                  {turn.id === last?.id && <Button size="sm" variant="outline" onClick={() => setDraft({ text: turn.question, nonce: uid() })}>再问一次</Button>}
+                  {turn.id === last?.id && !draft.text.trim() && <Button size="sm" variant="outline" onClick={() => setDraft({ text: turn.question, nonce: uid() })}>再问一次</Button>}
                 </div>}
               {turn.harness && <HarnessCallDetails stamp={turn.harness} />}
             </div></article>
@@ -124,19 +125,23 @@ function PersonalChatThread({ workspace, project, conversation, profile, loading
       event.preventDefault();
       if (!draft.text.trim() || !profile?.enabled || waiting || busy) return;
       stick.current = true;
+      const origin = window.location.hash;
+      setSending(true);
       const next = await run(() => api<ReturnType<Collaboration['sendPersonalMessage']>>('personal-chat', {
         conversation, nonce: draft.nonce, question: draft.text.trim(),
       }));
+      setSending(false);
       if (next) {
-        setDraft({ text: '', nonce: uid() });
+        finishDraft({ text: '', nonce: uid() });
+        if (origin !== window.location.hash) return;
         openNew();
         if (next.conversation !== conversation) window.location.hash = personalChatRoute(next.conversation, project);
       }
     }}>
       <TextArea aria-label="发给我的 Agent" placeholder="输入消息…" rows={3} value={draft.text} maxLength={3000}
-        disabled={!profile?.enabled} onChange={event => setDraft({ text: event.target.value, nonce: uid() })} />
+        readOnly={sending && !conversation} disabled={!profile?.enabled} onChange={event => setDraft({ text: event.target.value, nonce: uid() })} />
       <div className="form-actions"><span className="personal-context-note">{usesHistory ? '续聊参考最近 8 轮' : '会话历史仅供查看'}</span>
-        <Button size="sm" type="submit" disabled={busy || waiting || !profile?.enabled || !draft.text.trim()}><Send />发送</Button></div>
+        <Button size="sm" type="submit" loading={sending} disabled={busy || waiting || !profile?.enabled || !draft.text.trim()}><Send />发送</Button></div>
     </form>}
   </div>;
 }

@@ -283,3 +283,12 @@ button.home-stat { text-align: start; font: inherit; cursor: pointer; }
 }
 
 .work-column[data-drop-ready] { outline: 2px dashed var(--accent-ring); outline-offset: -2px; }
+
+.workspace-results [aria-selected=true] { background: var(--accent-soft); color: var(--accent-strong); }
+.draft-warning { position: fixed; z-index: 1100; inset-inline: .75rem; top: .5rem; width: fit-content; max-width: calc(100% - 1.5rem); margin-inline: auto; padding: .4rem .75rem; border: 1px solid var(--line); border-radius: .4rem; background: var(--surface); color: var(--warning); pointer-events: none; font-size: .82rem; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .discussion-receipt, .topic-reply .pill {
+    transition: color var(--motion-state) var(--motion-enter), background-color var(--motion-state) var(--motion-enter);
+  }
+}

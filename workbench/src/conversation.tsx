@@ -44,8 +44,10 @@ export function Conversation({ project, workspace, openTask, ticket, topic, rout
   const activeTopic = ticket?.work.topic ?? topic;
   const connection = useData<ProjectChannels>(activeTopic ? 'project/' + project.id + '/channels?topic=' + encodeURIComponent(activeTopic) : '');
   const [publication, choosePublication] = useState('');
-  const [draft, setDraft] = useStored<ConversationDraft>('conversation:' + base + filter, { text: '', nonce: uid(), consultants: [] });
-  const [source, setChannel] = useStored('conversation-source:' + base + filter + (reply ? ':' + reply : ''), '');
+  const [draft, saveDraft, finishDraft] = useStored<ConversationDraft>('conversation:' + base + filter, { text: '', nonce: uid(), consultants: [] });
+  const setDraft = (next: ConversationDraft) => saveDraft({ ...next, nonce: uid() });
+  const [sending, setSending] = useState<string>();
+  const [source, setChannel, finishChannel] = useStored('conversation-source:' + base + filter + (reply ? ':' + reply : ''), '');
   const [agent, setAgent] = useState('');
   const [mention, setMention] = useState<{ open: boolean; query: string; index: number }>({ open: false, query: '', index: 0 });
   const { run, busy, scrollPositions } = useActions();
@@ -67,7 +69,7 @@ export function Conversation({ project, workspace, openTask, ticket, topic, rout
   }));
   const preferred = route.participant && consultants.some(item => item.id === route.participant) ? route.participant : undefined;
   useEffect(() => {
-    if (preferred) setDraft({ ...draft, consultants: [preferred] });
+    if (preferred && !draft.consultants?.includes(preferred)) setDraft({ ...draft, consultants: [preferred] });
   }, [preferred]);
   const messages: DiscussionMessage[] | undefined = ticket ? ticketDiscussion(ticket, data.error ? [] : data.rows ?? [])
     : data.rows?.map(row => ({ ...row, revisions: 'sourceRevisions' in row ? row.sourceRevisions : undefined }));
@@ -139,13 +141,16 @@ export function Conversation({ project, workspace, openTask, ticket, topic, rout
     if (!consultants.length && agent) { openTask({ topic, parent: ticket?.id, agent, device: placements[0]?.device || undefined, request: text }); return; }
     const devices = placements.flatMap(({ participant, device }) => device ? [{ agent: participant.id, device }] : []);
     tail.current = { key: scrollKey, follow: true };
-    if (await run(() => selected.length
+    setMention({ open: false, query: '', index: 0 });
+    setSending(publish ?? 'internal');
+    const delivered = await run(() => selected.length
       ? api('project/' + project.id + '/consult', { text, nonce: draft.nonce, topic, agents: selected, ...(devices.length && { devices }) })
       : api(base, { text, nonce: draft.nonce, ticket: ticket?.id, topic, ...(feishu ? { feishu: true } : publish ? { im: publish } : {}) }),
-    selected.length ? '已发送，Agent 回复会出现在这里' : publish ? '已记录，等待渠道送达' : ticket ? '已在工单内留言' : '消息已发送')) {
-      setDraft({ text: '', nonce: uid(), consultants: [] });
-      setChannel('');
-      setMention({ open: false, query: '', index: 0 });
+    selected.length ? '已发送，Agent 回复会出现在这里' : publish ? '已记录，等待渠道送达' : ticket ? '已在工单内留言' : '消息已发送');
+    setSending(undefined);
+    if (delivered) {
+      finishDraft({ text: '', nonce: uid(), consultants: [] });
+      finishChannel('');
       await data.refetch();
     }
   };
@@ -212,10 +217,10 @@ export function Conversation({ project, workspace, openTask, ticket, topic, rout
           aria-label="群聊输入" placeholder={selected.length ? '补充要求，或直接发送…' : '输入消息，@ 可以提及 Agent…'}
           onChange={event => changeText(event.target.value)}
           onKeyDown={event => {
-            if (!mention.open || !consultants.length) return;
+            if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229 || !mention.open || !consultants.length) return;
             if (event.key === 'ArrowDown') { event.preventDefault(); setMention({ ...mention, index: (mention.index + 1) % Math.max(1, mentionMatches.length) }); }
             else if (event.key === 'ArrowUp') { event.preventDefault(); setMention({ ...mention, index: Math.max(0, mention.index - 1) }); }
-            else if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
+            else if (event.key === 'Enter') {
               if (mentionMatches[mention.index]) { event.preventDefault(); pickMention(mentionMatches[mention.index]); }
             } else if (event.key === 'Escape') setMention({ ...mention, open: false });
           }}
@@ -243,14 +248,14 @@ export function Conversation({ project, workspace, openTask, ticket, topic, rout
           {agents.map(item => <option key={item.id} value={item.id}>交给 {item.title}</option>)}
         </select>}
         {desk && selected.length > 0 && needsDevice && <span className="mention-hint" role="status">请先为未定设备的 Agent 选择执行设备</span>}
-        {publishable && <Button size="sm" type="button" variant="outline" disabled={busy || !draft.text.trim()}
+        {publishable && <Button size="sm" type="button" variant="outline" loading={sending === 'feishu'} disabled={busy || !draft.text.trim()}
           onClick={() => void submit('feishu')}>公开回复到飞书</Button>}
         {!!destinations.length && <><select aria-label="选择公开回复的会话" value={publication} onChange={event => choosePublication(event.target.value)}>
           <option value="">选择其他 IM 会话</option>{destinations.map(row => <option value={row.id} key={row.id}>
             {sourceName(row.kind)} · {row.label}{row.tag ? ' / ' + row.tag : ''}</option>)}
-        </select><Button size="sm" type="button" variant="outline" disabled={busy || !draft.text.trim() || !destinations.some(row => row.id === publication)}
+        </select><Button size="sm" type="button" variant="outline" loading={!!publication && sending === publication} disabled={busy || !draft.text.trim() || !destinations.some(row => row.id === publication)}
           onClick={() => void submit(publication)}>公开到选定会话</Button></>}
-        <Button size="sm" type="submit" disabled={busy || needsDevice || !draft.text.trim()}>{desk && <Send />}
+        <Button size="sm" type="submit" loading={sending === 'internal'} disabled={busy || needsDevice || !draft.text.trim()}>{desk && <Send />}
           {desk ? '发送' : agent ? '确认委托' : ticket ? '仅在工单内留言' : '发送'}</Button>
       </div>
     </form>}
