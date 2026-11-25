@@ -1,44 +1,48 @@
 import type { ThemeConfig } from 'antd';
 
-export const workbenchTheme = {
-  hashed: false,
-  cssVar: { key: 'contractor' },
-  token: {
-    colorPrimary: '#2563eb',
-    colorLink: '#1d4ed8',
-    colorText: '#172033',
-    colorTextSecondary: '#526176',
-    colorTextPlaceholder: '#69788c',
-    colorBorder: '#c8d1dc',
-    colorBorderSecondary: '#e3e8ef',
-    colorBgLayout: '#f5f7fa',
-    colorBgContainer: '#ffffff',
-    colorError: '#c0364c',
-    colorSuccess: '#18794e',
-    colorWarning: '#9a6700',
-    borderRadius: 6,
-    controlHeight: 36,
-    controlHeightSM: 32,
-    motionEaseOutBack: 'cubic-bezier(0.16, 1, 0.3, 1)',
-    motionEaseInBack: 'cubic-bezier(0.7, 0, 0.84, 0)',
-    fontFamily: '-apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", system-ui, sans-serif',
+export const palettes = {
+  light: {
+    page: '#f5f7fa', surface: '#ffffff', ink: '#172033', dim: '#526176', placeholder: '#69788c',
+    border: '#c8d1dc', line: '#e3e8ef', muted: '#f7f8fa', hover: '#f3f5f8', pressed: '#e9edf2',
+    primary: '#2563eb', link: '#1d4ed8', selected: '#edf4ff', ring: '#2563eb1a', onPrimary: '#ffffff',
+    danger: '#c0364c', success: '#18794e', warning: '#9a6700',
   },
-  components: {
-    Button: { defaultShadow: 'none', primaryShadow: 'none', dangerShadow: 'none', fontWeight: 550,
-      defaultBg: '#ffffff', defaultColor: '#273448', defaultBorderColor: '#c8d1dc',
-      primaryColor: '#ffffff', textHoverBg: '#f3f5f8', colorBgTextActive: '#e9edf2' },
-    Input: { activeShadow: '0 0 0 3px #2563eb1a', activeBorderColor: '#2563eb', hoverBorderColor: '#93a4b8' },
-    Layout: { headerBg: '#fff', lightSiderBg: '#fff', bodyBg: '#f5f7fa' },
-    Menu: { itemBg: 'transparent', itemColor: '#526176', itemSelectedBg: '#edf4ff',
-      itemSelectedColor: '#1d4ed8', itemHoverBg: '#f3f5f8', itemHeight: 38, itemBorderRadius: 6 },
-    Card: { headerBg: '#ffffff', bodyPaddingSM: 18, headerHeightSM: 46, headerFontSizeSM: 14 },
-    Tabs: { itemColor: '#526176', itemSelectedColor: '#1d4ed8', inkBarColor: '#2563eb', cardBg: '#f3f5f8' },
-    Table: {
-      headerBg: '#f7f8fa', headerColor: '#526176', borderColor: '#e3e8ef',
-      rowHoverBg: '#f7f8fa', cellPaddingBlockSM: 11, cellPaddingInlineSM: 14,
+  dark: {
+    page: '#10161e', surface: '#18212c', ink: '#e6edf5', dim: '#b0bccb', placeholder: '#96a6b8',
+    border: '#53667c', line: '#344354', muted: '#1d2835', hover: '#243141', pressed: '#2a394c',
+    primary: '#4384ee', link: '#9dc3ff', selected: '#233a59', ring: '#589bff40', onPrimary: '#07172c',
+    danger: '#ff96a3', success: '#81d4a4', warning: '#edc476',
+  },
+};
+export function themeFor(mode: keyof typeof palettes): ThemeConfig {
+  const p = palettes[mode];
+  return {
+    hashed: false, cssVar: { key: 'contractor' },
+    token: {
+      colorPrimary: p.primary, colorLink: p.link, colorText: p.ink, colorTextSecondary: p.dim,
+      colorTextPlaceholder: p.placeholder, colorBorder: p.border, colorBorderSecondary: p.line,
+      colorBgLayout: p.page, colorBgContainer: p.surface, colorBgElevated: p.surface,
+      colorError: p.danger, colorSuccess: p.success, colorWarning: p.warning,
+      borderRadius: 6, controlHeight: 36, controlHeightSM: 32,
+      motionDurationFast: '0.08s', motionDurationMid: '0.14s', motionDurationSlow: '0.20s',
+      motionEaseOutBack: 'cubic-bezier(0.2, 0.8, 0.2, 1)', motionEaseInBack: 'cubic-bezier(0.4, 0, 1, 1)',
+      fontFamily: '-apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", system-ui, sans-serif',
     },
-    Modal: { titleFontSize: 17, titleLineHeight: 1.5, headerBg: '#ffffff' },
-    Drawer: { colorBgElevated: '#ffffff' },
-    Alert: { borderRadiusLG: 6 },
-  },
-} satisfies ThemeConfig;
+    components: {
+      Button: { defaultShadow: 'none', primaryShadow: 'none', dangerShadow: 'none', fontWeight: 550,
+        defaultBg: p.surface, defaultColor: p.ink, defaultBorderColor: p.border, primaryColor: p.onPrimary,
+        textHoverBg: p.hover, colorBgTextActive: p.pressed },
+      Input: { activeShadow: '0 0 0 3px ' + p.ring, activeBorderColor: p.primary, hoverBorderColor: p.border },
+      Layout: { headerBg: p.surface, lightSiderBg: p.surface, bodyBg: p.page },
+      Menu: { itemBg: 'transparent', itemColor: p.dim, itemSelectedBg: p.selected,
+        itemSelectedColor: p.link, itemHoverBg: p.hover, itemHeight: 38, itemBorderRadius: 6 },
+      Card: { headerBg: p.surface, bodyPaddingSM: 18, headerHeightSM: 46, headerFontSizeSM: 14 },
+      Tabs: { itemColor: p.dim, itemSelectedColor: p.link, inkBarColor: p.primary, cardBg: p.hover },
+      Table: { headerBg: p.muted, headerColor: p.dim, borderColor: p.line,
+        rowHoverBg: p.muted, cellPaddingBlockSM: 11, cellPaddingInlineSM: 14 },
+      Modal: { titleFontSize: 17, titleLineHeight: 1.5, headerBg: p.surface },
+      Drawer: { colorBgElevated: p.surface }, Alert: { borderRadiusLG: 6 },
+    },
+  };
+}
+export const workbenchTheme = themeFor('light');

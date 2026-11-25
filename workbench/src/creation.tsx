@@ -57,7 +57,9 @@ export function Composer({ project, workspace, route, preset, close }: PageProps
   const changeTarget = (code: boolean, target: string) => {
     const selected = codeTargets.find(ref => ref.ref === target);
     const keepAgent = !code || selected?.eligibleAgents.includes(draft.agent);
-    setDraft({ ...draft, codeDelivery: code, target, agent: keepAgent ? draft.agent : '', device: keepAgent ? draft.device : '' });
+    const eligible = options.filter(agent => selected?.eligibleAgents.includes(agent.id));
+    const agent = keepAgent ? draft.agent : eligible.length === 1 ? eligible[0]!.id : '';
+    setDraft({ ...draft, codeDelivery: code, target, agent, device: agent === draft.agent ? draft.device : '' });
   };
   const incompleteDelivery = codeDelivery && !deliveryTarget?.eligibleAgents.includes(draft.agent);
   const agentOptions = codeDelivery ? options.filter(agent => deliveryTarget?.eligibleAgents.includes(agent.id)) : options;
@@ -73,7 +75,7 @@ export function Composer({ project, workspace, route, preset, close }: PageProps
   const blocked = readiness.data?.state === 'blocked';
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
-    if (incompleteDelivery || blocked || readiness.error || readiness.isFetching) return;
+    if (!draft.request.trim() || incompleteDelivery || blocked || readiness.error || !readiness.data) return;
     const outcome = await run(async () => {
       if (needsDevice)
         throw new Error('请先选择该 Agent 可以使用的执行设备。');
@@ -87,7 +89,8 @@ export function Composer({ project, workspace, route, preset, close }: PageProps
         ...(draft.baseline !== '' ? { baseline: Number(draft.baseline) } : {}),
         ...(draft.targetValue !== '' ? { target: Number(draft.targetValue) } : {}) } : undefined;
       const started = await api<StartResult>('ticket', {
-        project: project.id, title: draft.title.trim(), request: draft.request.trim(), nonce: draft.nonce,
+        project: project.id, title: draft.title.trim() || draft.request.trim().split(/\r?\n/, 1)[0]!.slice(0, 100),
+        request: draft.request.trim(), nonce: draft.nonce,
         agent: draft.agent.startsWith('function:') ? undefined : draft.agent || 'auto',
         function: draft.agent.startsWith('function:') ? draft.agent.slice('function:'.length) : undefined,
         topic: draft.topic || undefined, target: draft.target || undefined, material: draft.material, resources: draft.resources,
@@ -113,9 +116,10 @@ export function Composer({ project, workspace, route, preset, close }: PageProps
   };
   return <Modal title={preset.personal ? '发起只读代办' : preset.parent ? '新建子工单' : '发起协作'} close={close}>
     <form className="form" onSubmit={handleSubmit}>
-      <Field label="工单标题"><Input autoFocus value={draft.title} onChange={e => change('title', e.target.value)} required maxLength={100} /></Field>
-      <Field label="要做什么"><TextArea rows={5} value={draft.request} onChange={e => change('request', e.target.value)} required maxLength={3500}
+      <Field label="要做什么"><TextArea autoFocus rows={5} value={draft.request} onChange={e => change('request', e.target.value)} required maxLength={3500}
         placeholder="描述要解决的问题和验收条件" /></Field>
+      <Field label="工单标题（选填）"><Input value={draft.title} onChange={e => change('title', e.target.value)} maxLength={100}
+        placeholder={draft.request.trim().split(/\r?\n/, 1)[0]?.slice(0, 100) || '默认使用任务描述的第一行'} /></Field>
       {!preset.personal && <Field label="交付方式">
         <select aria-label="交付方式" value={codeDelivery ? 'code' : 'standard'} onChange={e => {
           const code = e.target.value === 'code';
@@ -204,7 +208,7 @@ export function Composer({ project, workspace, route, preset, close }: PageProps
         </div>)}
         {blocked && <Button type="button" size="sm" variant="ghost" onClick={() => void readiness.refetch()}>重新核对</Button>}
       </div>}
-      <footer className="form-actions"><Button type="submit" disabled={busy || incompleteDelivery || needsDevice || blocked || !!readiness.error || readiness.isFetching}><Plus />提交委托</Button></footer>
+      <footer className="form-actions"><Button type="submit" loading={busy} disabled={!draft.request.trim() || busy || incompleteDelivery || needsDevice || blocked || !!readiness.error || !readiness.data}><Plus />提交委托</Button></footer>
     </form>
   </Modal>;
 }

@@ -15,7 +15,7 @@ export const decisionVisual = {
   development: [GitPullRequest, '研发委托'], 'development-returned': [GitPullRequest, '研发退回'],
   delivery: [GitPullRequest, '交付证据'], blocked: [Workflow, '执行阻塞'], budget: [Workflow, '费用核对'],
   feedback: [Workflow, '反馈改进'],
-  'engineering-request': [GitPullRequest, '研发请求'], 'engineering-return': [CheckCheck, '接回处理'],
+  'engineering-request': [GitPullRequest, '研发请求'], 'engineering-return': [CheckCheck, '研发回执'],
   approval: [ShieldCheck, '项目审批'],
 } as const;
 export const decisionTone = {

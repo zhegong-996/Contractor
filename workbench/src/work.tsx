@@ -292,7 +292,7 @@ function TicketDetail(props: PageProps & { ticket: Ticket; tab: WorkTab }) {
     <div className="ticket-frame" data-inspector={side}>
       <PageTabs value={tab} onChange={value => { window.location.hash = detailLink(value); }} items={workTabs} label="工单详情">
         <TabsContent className="ticket-tab" value="activity">
-          {!viewedVersion && <EngineeringReview key={ticket.id} ticket={ticket} />}
+          {!viewedVersion && <EngineeringReview key={ticket.id} ticket={ticket} project={project} />}
           {ticket.recovery && <div className="decision-focus" data-decision-focus="recovery" tabIndex={-1}><TicketRecovery {...props} ticket={ticket} /></div>}
           {status && !ticket.recovery && <div className="info-callout"><History size={17} /><span>正在确认旧执行停止及接续权限。{ticket.report?.summary}</span></div>}
           {deviceWaiting && !status && !ticket.recovery && <div className="info-callout"><Bot size={17} />{ticket.device?.name}

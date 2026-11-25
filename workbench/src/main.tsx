@@ -317,7 +317,7 @@ function Workspace() {
           <Button size="sm" type="button" className="create-button" onClick={() => props.openTask()}><Plus />发起协作</Button>}
       </Layout.Header>
       {reconnect}
-      {error && !composer && <div className="toolbar-error"><Failure error={new Error(error)} retry={clearError} /></div>}
+      {error && !composer && <div className="toolbar-error"><Failure error={new Error(error)} dismiss={clearError} /></div>}
       <Layout.Content className={'main-view' + (chat ? ' task-center' : '')} id="main-content">
         {chat && <nav className="task-center-tabs" aria-label="会话范围">
           <a href={personalChatRoute(undefined, project.id)} aria-current={route.personalChat ? 'page' : undefined}>个人会话</a>
@@ -339,6 +339,7 @@ function App() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [closingNotice, setClosingNotice] = useState(false);
   const [stored, setStored] = useState<Record<string, unknown>>(() => {
     try {
       const saved = JSON.parse(localStorage.getItem('contractor-drafts') ?? '{}') as unknown;
@@ -364,9 +365,11 @@ function App() {
     return () => window.removeEventListener('contractor-session-expired', expired);
   }, [client, scrollPositions]);
   useEffect(() => {
+    setClosingNotice(false);
     if (!notice) return;
-    const timer = window.setTimeout(() => setNotice(''), 3500);
-    return () => window.clearTimeout(timer);
+    const leave = window.setTimeout(() => setClosingNotice(true), 3360);
+    const clear = window.setTimeout(() => setNotice(''), 3500);
+    return () => { window.clearTimeout(leave); window.clearTimeout(clear); };
   }, [notice]);
   useEffect(() => {
     const remember = (event: PointerEvent | KeyboardEvent) => {
@@ -404,7 +407,7 @@ function App() {
     store: (key, value) => setStored(previous => ({ ...previous, [key]: value })) }}>
     {session.error ? <div className="app-placeholder"><Failure error={session.error} retry={() => void session.refetch()} /></div>
       : session.isPending ? <Loading /> : session.data?.signedIn ? <Workspace /> : <Login session={session.data} />}
-    {notice && <div className="toast" role="status"><CircleCheck size={17} />{notice}</div>}
+    {notice && <div className="toast" role="status" data-closing={closingNotice}><CircleCheck size={17} />{notice}</div>}
   </ActionContext.Provider>;
 }
 
