@@ -260,3 +260,26 @@ button.home-stat { text-align: start; font: inherit; cursor: pointer; }
 }
 
 .agent-navigation .nav-page-title { margin: 0; font: inherit; color: inherit; }
+
+.dispatch-options > summary { overflow-wrap: anywhere; }
+.dispatch-options[open] > :not(summary) { margin-block-start: .75rem; }
+.workspace-results { max-height: min(56dvh, 32rem); overflow-y: auto; overscroll-behavior: contain; }
+.workspace-results h3 { font-size: .8rem; color: var(--dim); margin: 1rem .5rem .25rem; }
+.workspace-results a { display: grid; gap: .15rem; padding: .45rem .5rem; border-radius: .4rem; overflow-wrap: anywhere; }
+.workspace-results small, .timeline-milestone time { color: var(--dim); font-size: .78rem; }
+.workspace-results a:is(:hover,:focus-visible) { background: var(--hover); }
+.timeline-milestone { display: flex; flex-wrap: wrap; align-items: baseline; gap: .25rem .75rem; padding: .4rem 0 .4rem .75rem; border-inline-start: 2px solid var(--line); overflow-wrap: anywhere; }
+.timeline-milestone div { min-width: 0; }
+.timeline-milestone details { font-size: .82rem; }
+.timeline-milestone details p { white-space: pre-wrap; }
+.inbox-group + .inbox-group { border-block-start: 1px solid var(--line); }
+.inbox-group .inbox-row { width: 100%; }
+.priority-card { min-width: 0; border: 1px solid var(--line); border-radius: .6rem; background: var(--surface); }
+.priority-card .work-card { border: 0; box-shadow: none; }
+.priority-card > button { margin: 0 .4rem .3rem; }
+@media (prefers-reduced-motion: no-preference) {
+  .workspace-results a { transition: background-color var(--motion-state); }
+  .timeline-milestone details[open] p { animation: content-arrive var(--motion-state) var(--motion-enter); }
+}
+
+.work-column[data-drop-ready] { outline: 2px dashed var(--accent-ring); outline-offset: -2px; }

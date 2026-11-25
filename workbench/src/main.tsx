@@ -1,3 +1,4 @@
+import { WorkspaceSearch } from './workspace-search.tsx';
 import { Provider as MotionProvider } from '@rc-component/motion';
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -303,6 +304,7 @@ function Workspace() {
           { title: <a href={routeFor(project.id, 'project')}><FolderKanban size={14} /><span>{project.title}</span></a> },
           ...(route.view === 'project' ? [] : [{ title: titles[route.view] }]),
         ]} />
+        <WorkspaceSearch workspace={workspace} />
         {project.mayStart && !route.personalChat && !(chat && (route.item || route.tab === 'project')) && !(route.view === 'work' && !route.item) &&
           <Button size="sm" type="button" className="create-button" onClick={() => props.openTask()}><Plus />发起协作</Button>}
       </Layout.Header>

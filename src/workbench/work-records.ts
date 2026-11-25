@@ -36,6 +36,14 @@ export function openWorkRecords(store: SuperAgentStore, projectFor: (id: string,
       ORDER BY ${time} DESC,t.id DESC LIMIT ?`).all(actor, ...(watching ? [actor] : []), JSON.stringify(projects),
         ...(cursor ? [cursor.updatedAt, cursor.id] : []), limit));
   }
+  function* matchingTickets(actor: string, projects: string[], query: string, pr?: number) {
+    const rows = store.db.prepare(`${source} WHERE ${readable}
+      AND json_extract(w.value,'$.project') IN (SELECT value FROM json_each(?))
+      AND json_extract(w.value,'$.consultation') IS NULL
+      AND (instr(lower(json_extract(t.value,'$.title')),?) OR instr(lower(t.id),?) OR json_extract(w.value,'$.delivery.pr')=?)
+      ORDER BY json_extract(t.value,'$.updatedAt') DESC,t.id DESC`).iterate(actor, JSON.stringify(projects), query, query, pr ?? null);
+    for (const row of rows) yield { ticket: JSON.parse(String(row.ticket)) as Ticket, work: JSON.parse(String(row.work)) as Work };
+  }
   function engineeringStats(project: string, claimed: (lane: string) => boolean) {
     const rows = store.db.prepare(`SELECT w.id, json_extract(w.value,'$.agent') AS agent,
       json_extract(w.value,'$.lane') AS lane, json_extract(w.value,'$.executionBlock.kind') AS block,
@@ -114,5 +122,5 @@ export function openWorkRecords(store: SuperAgentStore, projectFor: (id: string,
     return { active };
   }
   const watching = (actor: string, id: string) => !!store.db.prepare('SELECT 1 FROM workbench_ticket_watch WHERE member=? AND ticket=?').get(actor, id);
-  return { setWatching, watching, workOf, saveWork, ticketFor, createForMandate, recent, children, engineeringStats };
+  return { matchingTickets, setWatching, watching, workOf, saveWork, ticketFor, createForMandate, recent, children, engineeringStats };
 }

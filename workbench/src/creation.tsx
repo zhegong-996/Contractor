@@ -40,8 +40,9 @@ function initialDraft(preset: TaskPreset): Draft {
 
 export function Composer({ project, workspace, route, preset, close }: PageProps & { preset: TaskPreset; close: () => void }) {
   const defaultDraft = useState(() => initialDraft(preset))[0];
-  const key = ['composer', project.id, preset.agent, preset.parent, preset.topic, preset.material?.join(','), preset.lesson?.id, preset.personal].join('/');
-  const [draft, setDraft] = useStored(preset.request ? key + '/' + defaultDraft.nonce : key, defaultDraft);
+  const baseKey = ['composer', project.id, preset.agent, preset.parent, preset.topic, preset.material?.join(','), preset.lesson?.id, preset.personal].join('/');
+  const key = preset.request || preset.device ? JSON.stringify([baseKey, preset.device, preset.request]) : baseKey;
+  const [draft, setDraft] = useStored(key, defaultDraft);
   const { busy, run } = useActions();
   const catalog = useData<Knowledge[]>('knowledge/' + project.id);
   const change = <K extends keyof Draft>(name: K, value: Draft[K]) => setDraft({ ...draft, [name]: value });
@@ -73,9 +74,13 @@ export function Composer({ project, workspace, route, preset, close }: PageProps
     ...(draft.device && { device: draft.device }), ...(preset.personal && { personal: '1' }) });
   const readiness = useData<DispatchReadiness>(incompleteDelivery || (preset.personal && !draft.agent) ? '' : 'project/' + project.id + '/dispatch-readiness?' + selection);
   const blocked = readiness.data?.state === 'blocked';
+  const resolved = readiness.data && 'agent' in readiness.data ? readiness.data : undefined;
+  const scopeKey = JSON.stringify([deliveryTarget?.ref, deliveryTarget?.scope, draft.agent]);
+  const [confirmedScope, setConfirmedScope] = useState('');
+  const confirmWrite = codeDelivery && !!deliveryTarget?.scope && confirmedScope !== scopeKey;
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
-    if (!draft.request.trim() || incompleteDelivery || blocked || readiness.error || !readiness.data) return;
+    if (!draft.request.trim() || incompleteDelivery || confirmWrite || blocked || readiness.error || !readiness.data) return;
     const outcome = await run(async () => {
       if (needsDevice)
         throw new Error('请先选择该 Agent 可以使用的执行设备。');
@@ -114,10 +119,9 @@ export function Composer({ project, workspace, route, preset, close }: PageProps
         outcome.ticket && route.view === 'chat' ? route : undefined);
     }
   };
-  return <Modal title={preset.personal ? '发起只读代办' : preset.parent ? '新建子工单' : '发起协作'} close={close}>
-    <form className="form" onSubmit={handleSubmit}>
-      <Field label="要做什么"><TextArea autoFocus rows={5} value={draft.request} onChange={e => change('request', e.target.value)} required maxLength={3500}
-        placeholder="描述要解决的问题和验收条件" /></Field>
+  const [editing, setEditing] = useState(false);
+  const routingIssue = !!needsDevice || !!blocked || !!incompleteDelivery;
+  const fields = <>
       <Field label="工单标题（选填）"><Input value={draft.title} onChange={e => change('title', e.target.value)} maxLength={100}
         placeholder={draft.request.trim().split(/\r?\n/, 1)[0]?.slice(0, 100) || '默认使用任务描述的第一行'} /></Field>
       {!preset.personal && <Field label="交付方式">
@@ -193,6 +197,20 @@ export function Composer({ project, workspace, route, preset, close }: PageProps
           <Field label="目标"><Input type="number" step="any" value={draft.targetValue} onChange={e => change('targetValue', e.target.value)} /></Field>
         </div>
       </details>
+  </>;
+  return <Modal title={preset.personal ? '发起只读代办' : preset.parent ? '新建子工单' : '发起协作'} close={close}>
+    <form className="form" onSubmit={handleSubmit}>
+      <Field label="要做什么"><TextArea autoFocus rows={5} value={draft.request} onChange={e => change('request', e.target.value)} required maxLength={3500}
+        placeholder="描述要解决的问题和验收条件" /></Field>
+      {preset.topic ? <details className="form-disclosure dispatch-options" open={editing || routingIssue} onToggle={e => setEditing(e.currentTarget.open)}>
+        <summary>{[project.topics.find(row => row.id === draft.topic)?.title ?? '未归入主题',
+          chosenAgent?.title ?? resolved?.agent?.name ?? '按项目职责分派',
+          deviceState?.summary ?? resolved?.device?.name].filter(Boolean).join(' · ')} · 调整</summary>
+        {fields}
+      </details> : fields}
+      {codeDelivery && deliveryTarget?.scope && <label className="check-row"><input type="checkbox" required
+        checked={confirmedScope === scopeKey} onChange={e => setConfirmedScope(e.target.checked ? scopeKey : '')} />
+        确认写入 {deliveryTarget.label} 的 {deliveryTarget.scope.base} 分支范围 · {deliveryTarget.scope.paths.join('、')}</label>}
       {readiness.error && <Failure error={readiness.error} retry={() => void readiness.refetch()} />}
       {readiness.data && <div className="revision-note">
         <div className="inline-meta"><Pill tone={blocked ? 'amber' : readiness.data.state === 'ready' ? 'green' : 'neutral'}>
@@ -208,7 +226,7 @@ export function Composer({ project, workspace, route, preset, close }: PageProps
         </div>)}
         {blocked && <Button type="button" size="sm" variant="ghost" onClick={() => void readiness.refetch()}>重新核对</Button>}
       </div>}
-      <footer className="form-actions"><Button type="submit" loading={busy} disabled={!draft.request.trim() || busy || incompleteDelivery || needsDevice || blocked || !!readiness.error || !readiness.data}><Plus />提交委托</Button></footer>
+      <footer className="form-actions"><Button type="submit" loading={busy} disabled={!draft.request.trim() || busy || incompleteDelivery || confirmWrite || needsDevice || blocked || !!readiness.error || !readiness.data}><Plus />提交委托</Button></footer>
     </form>
   </Modal>;
 }

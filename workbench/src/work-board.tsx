@@ -1,7 +1,7 @@
-import type { ReactNode } from 'react';
+import { useLayoutEffect, useRef, useState, type DragEvent, type ReactNode } from 'react';
 import { ticketListState } from '../../src/workbench/ticket-list-state.ts';
 import { CircleAlert, CircleCheck, CircleDashed, CircleDot, CircleStop, ClipboardCheck, Hourglass } from 'lucide-react';
-import type { TicketRow } from './api.ts';
+import { api, type TicketRow } from './api.ts';
 import { Button } from './components/button.tsx';
 import { routeFor, type PageProps } from './navigation.ts';
 import { Avatar, Pill, short, ticketStatus, topicName, useActions, useSessionScroll, useStored } from './ui.tsx';
@@ -35,7 +35,7 @@ function BoardCard({ ticket, home, workspace, mine, group, origin }: { ticket: T
   const location = [mine && home.title, topic, ticket.work.parent && '子工单'].filter(Boolean).join(' / ');
   const [label] = ticketStatus(ticket);
   const updated = new Date(ticket.updatedAt);
-  return <a className="work-card" data-priority={ticket.work.priority ?? 'normal'} href={routeFor(home.id, 'work', ticket.id)}
+  return <a draggable={group === 'priority' ? false : undefined} className="work-card" data-priority={ticket.work.priority ?? 'normal'} href={routeFor(home.id, 'work', ticket.id)}
     onClick={() => store('board-return:' + ticket.id, origin)}>
     <div className="work-card-meta"><span title={ticket.id}>{short(ticket.id)}</span>
       {ticket.work.version && <span>第 {ticket.work.version} 版</span>}
@@ -65,12 +65,12 @@ function BoardCard({ ticket, home, workspace, mine, group, origin }: { ticket: T
   </a>;
 }
 
-function BoardColumn({ label, tone, items, scrollKey, render, icon: Icon }: {
-  label: string; tone: string; items: TicketRow[]; scrollKey: string; render: (ticket: TicketRow) => ReactNode; icon: typeof CircleDot;
+function BoardColumn({ label, tone, items, scrollKey, render, icon: Icon, drop }: {
+  drop?: (e: DragEvent, commit: boolean) => void; label: string; tone: string; items: TicketRow[]; scrollKey: string; render: (ticket: TicketRow) => ReactNode; icon: typeof CircleDot;
 }) {
   const scroll = useSessionScroll(scrollKey);
   const [limit, setLimit] = useStored('board-limit:' + scrollKey, 30);
-  return <section className="work-column" data-tone={tone} aria-label={label + ' · ' + items.length + ' 张工单'}>
+  return <section className="work-column" data-drop-ready={!!drop || undefined} onDragOver={drop && (e => drop(e, false))} onDrop={drop && (e => drop(e, true))} data-tone={tone} aria-label={label + ' · ' + items.length + ' 张工单'}>
     <header className="work-column-header"><Icon className={'work-state-icon work-state-' + tone} size={17} aria-hidden="true" />
       <h2>{label}</h2><span className="work-column-count">{items.length}</span></header>
     <div className="work-column-items" {...scroll}>
@@ -84,6 +84,21 @@ export function WorkBoard({ tickets, workspace, project, mine, group, scrollKey,
   tickets: TicketRow[]; mine: boolean; group: BoardGrouping; scrollKey: string; origin: BoardOrigin;
 }) {
   const scroll = useSessionScroll(scrollKey);
+  const { busy, run } = useActions();
+  const [dragged, setDragged] = useState<TicketRow>();
+  const restoreButton = useRef<{ ticket: string; priority: string } | null>(null);
+  useLayoutEffect(() => {
+    const target = restoreButton.current;
+    if (!target || !tickets.some(row => row.id === target.ticket && row.work.priority === target.priority)) return;
+    if (document.activeElement === document.body)
+      scroll.ref.current?.querySelector<HTMLButtonElement>('[data-priority-ticket="' + CSS.escape(target.ticket) + '"]')?.focus({ preventScroll: true });
+    restoreButton.current = null;
+  }, [tickets, scroll.ref]);
+  const adjust = (ticket: TicketRow, priority: 'normal' | 'urgent') => {
+    if (!busy && ticket.mayPrioritize && priority !== ticket.work.priority)
+      void run(() => api('ticket/' + ticket.id + '/priority', { priority, previous: ticket.work.priority ?? 'normal', revision: ticket.priorityRevision,
+        version: ticket.work.version ?? 1 }), priority === 'urgent' ? '已设为紧急' : '已设为普通');
+  };
   const columns = group === 'status' ? workStates : priorityGroups;
   const homes = new Map(workspace.projects.map(home => [home.id, home]));
   return <div className="work-board" data-group={group} aria-label="任务看板" role="region" tabIndex={0} {...scroll}>
@@ -91,8 +106,19 @@ export function WorkBoard({ tickets, workspace, project, mine, group, scrollKey,
       const items = tickets.filter(row => (group === 'status' ? workState(row) : row.work.priority ?? 'normal') === column.id);
       if (column.id === 'closed' && !items.length) return null;
       return <BoardColumn key={column.id} label={column.title} icon={column.icon} tone={column.tone} items={items} scrollKey={scrollKey + ':' + column.id}
-        render={ticket => <BoardCard key={ticket.id} ticket={ticket} home={homes.get(ticket.work.project) ?? project}
-          workspace={workspace} mine={mine} group={group} origin={origin} />} />;
+        drop={group === 'priority' && dragged && (column.id === 'normal' || column.id === 'urgent') && column.id !== dragged.work.priority
+          ? (event, commit) => { event.preventDefault(); if (commit) { adjust(dragged, column.id as 'normal' | 'urgent'); setDragged(undefined); } } : undefined}
+        render={ticket => {
+          const card = <BoardCard key={ticket.id} ticket={ticket} home={homes.get(ticket.work.project) ?? project}
+            workspace={workspace} mine={mine} group={group} origin={origin} />;
+          if (group !== 'priority' || !ticket.mayPrioritize) return card;
+          const next = ticket.work.priority === 'urgent' ? 'normal' : 'urgent';
+          return <div className="priority-card" key={ticket.id} draggable={!busy}
+            onDragStart={e => { e.dataTransfer.setData('text/plain', ticket.id); e.dataTransfer.effectAllowed = 'move'; setDragged(ticket); }}
+            onDragEnd={() => setDragged(undefined)}>{card}
+            <Button variant="ghost" size="sm" data-priority-ticket={ticket.id} disabled={busy} aria-label={ticket.title + (next === 'urgent' ? ' · 设为紧急' : ' · 设为普通')}
+              onClick={event => { if (event.detail === 0) restoreButton.current = { ticket: ticket.id, priority: next }; adjust(ticket, next); }}>{next === 'urgent' ? '设为紧急' : '设为普通'}</Button></div>;
+        }} />;
     })}
   </div>;
 }

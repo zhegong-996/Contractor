@@ -102,6 +102,9 @@ test('受限子单单独授权，旧执行退出后接续，两项齐备才出�
   await accept(rules, (await until(() => get(rules).result)).revision);
   assert.equal(get(parent).result, undefined);
   assert.equal(get(parent).recovery?.kind, 'child-results-pending');
+  await until(() => get(parent).requiredChildren.find(row => row.child === rules)?.ready);
+  assert.equal(get(parent).requiredChildren.length, 2);
+  assert.equal(get(parent).requiredChildren.find(row => row.child === delivery)?.ready, false);
   assert.equal(get(parent).runs.length, 1);
   assert.ok(!work.needsYou('product').some(row => row.ticket === parent && row.kind === 'acceptance'));
   const retry = { nonce: randomUUID(), reason: '重新申请原子单访问', version: 1 };
@@ -118,6 +121,7 @@ test('受限子单单独授权，旧执行退出后接续，两项齐备才出�
   await accept(delivery, childResult.revision);
   await accept(delivery, childResult.revision);
   const summary = await until(() => get(parent).result);
+  assert.ok(get(parent).requiredChildren.every(row => row.ready));
   assert.equal(get(parent).runs.length, 2);
   const cardNeedle = '验收当前版本 · ' + parent.slice(0, 8);
   await until(() => updated.at(-1)?.includes(cardNeedle));

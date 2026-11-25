@@ -1125,7 +1125,8 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     if (!mayStart(projectFor(id, actor), actor)) throw new WorkbenchError('项目权限已变化。', 403);
     return { checkedAt, state: issues.length ? 'blocked' as const : 'ready' as const, issues,
       agent: { id: agent.id, name: agent.title, owner: agent.owner }, model, modelCatalogAt, provider,
-      device: device ? { id: device.id, name: device.name } : capability.available ? { name: '工作台运行时' } : undefined,
+      device: device ? { id: device.id, name: device.name } : capability.available && !capability.remote && !issues.some(issue => issue.kind === 'device')
+        ? { name: '工作台运行时' } : undefined,
       estimate: points.estimate(quote) };
   }
 
@@ -4966,6 +4967,45 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     return { stored, output, materialHidden: permitted && !output };
   }
 
+  function requiredChildProgress(actor: string, id: string, work: Work, project: Project) {
+    const rules = project.delegations.filter(rule => rule.from === work.agent && rule.scope);
+    if (!rules.length || work.consultation) return [];
+    const rows = delegations.list(id).filter(row => row.version === (work.version ?? 1) && row.state !== 'dismissed');
+    if (!rows.length && (work.accepted || store.tickets.get(id)?.ended)) return [];
+    return rules.map(rule => {
+      const row = rows.find(item => item.agent === rule.from && item.proposal.function === rule.to);
+      const child = row?.child && workOf(row.child);
+      const visible = child && child.project === project.id && privateConsultationVisible(child, actor);
+      const ready = !!row && !!delegationResult(row);
+      const state = ready ? '结果已齐' : !row ? '等待创建子单' : row.state === 'proposed' ? '等待确认分派'
+        : !visible ? '等待子单结果' : needed(row.child!, child) ? '等待资料授权'
+        : row.result ? '需要重新核对' : store.tickets.get(row.child!)?.ended?.outcome === 'completed' ? '等待子单验收'
+        : store.tickets.get(row.child!)?.ended ? '执行已结束，缺少结果' : '等待执行结果';
+      return { duty: rule.to, title: rule.scope!.title, child: visible ? row.child : undefined, ready, state };
+    });
+  }
+
+  function mayPrioritize(actor: string, ticket: Ticket, work: Work, project: Project) {
+    return !ticket.ended && !work.accepted && !work.consultation && mayStart(project, actor)
+      && (maintain(project, actor) || work.requester === actor || work.deliveryLead === actor);
+  }
+  function setPriority(actor: string, id: string, input: { priority: Work['priority']; previous: Work['priority']; version: number; revision: number }) {
+    return store.atomic(() => {
+      const { ticket, work, project } = ticketFor(id, actor);
+      if (!mayPrioritize(actor, ticket, work, project)) throw new WorkbenchError('当前无法调整这张工单的优先级。', 403);
+      const revision = work.priorityRevision ?? 0;
+      const current = work.priority ?? 'normal';
+      if ((work.version ?? 1) !== input.version) throw new WorkbenchError('工单已换版，请重新核对。', 409);
+      if (current === input.priority && revision === input.revision + 1) return { priority: current, revision };
+      if (revision !== input.revision || current !== input.previous)
+        throw new WorkbenchError('优先级已更新，请重新核对。', 409);
+      if (current === input.priority) return { priority: current, revision };
+      saveWork(id, { ...work, priority: input.priority, priorityRevision: revision + 1 });
+      audit(id, 'work.priority-changed', { actor, ...input });
+      return { priority: input.priority, revision: revision + 1 };
+    });
+  }
+
   function detail(actor: string, id: string) {
     const { ticket, work, project } = ticketFor(id, actor);
     const opening = store.triggers.get(ticket.origin.triggerId)!;
@@ -5126,7 +5166,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
         && (!work.development || delivery?.state === 'ready') && (!deploymentGate || !!deploymentGate.selection)
         && productVerification?.ready !== false,
     };
-    return { id, title: ticket.title, project: project.id, watching: workRecords.watching(actor, id), responsibility, currentEvidence, mayReadChanges: currentEvidence && !!work.development && authorizesDevelopment(project, work.development, actor), engineeringReview, work: { ...visibleWork, material: work.material.filter(visibleMaterial),
+    return { id, title: ticket.title, project: project.id, watching: workRecords.watching(actor, id), requiredChildren: requiredChildProgress(actor, id, work, project), responsibility, currentEvidence, mayReadChanges: currentEvidence && !!work.development && authorizesDevelopment(project, work.development, actor), engineeringReview, work: { ...visibleWork, material: work.material.filter(visibleMaterial),
         recall: work.recall?.filter(visibleMaterial), continuation: visibleContinuation, consultation: !!consultation }, origin: opening.id, request: opening.text,
       createdAt: ticket.createdAt, history, report: report && { ...report,
         summary: currentRun && !decisionEvidenceReadable(id, manifestFor(currentRun.id), actor) ? '本轮执行内容受限。' : report.summary,
@@ -5953,7 +5993,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
       ?? product.state(id, output.revision, work, work.development ? work.delivery : undefined));
     const review = engineering.view(actor, engineeringScope(actor, ticket, work, project)).records.find(r => !r.stale && (r.state === 'open' || r.state === 'answered'));
     const { project: projectId, agent, requester, topic, parent, priority, source, version, personal, accepted, handoff } = work;
-    return { id, title, updatedAt, stage: ticketStage(ticket), attention: pending.has(id) || needsObservation
+    return { id, title, updatedAt, mayPrioritize: mayPrioritize(actor, ticket, work, project), priorityRevision: work.priorityRevision ?? 0, stage: ticketStage(ticket), attention: pending.has(id) || needsObservation
       || recovery?.kind === 'stage-scope' && (actor === work.requester || maintain(project, actor))
       || recovery?.kind === 'stage-verification' && actor === acceptanceAssignee(work),
       work: { project: projectId, agent, requester, topic, parent, priority, source, version, personal,
@@ -5972,6 +6012,56 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
   }
 
   const readableProjects = (actor: string, id?: string) => id ? [projectFor(id, actor)] : config.projects.filter(project => member(project, actor));
+  function workspaceSearch(actor: string, text: string, offset: number) {
+    const q = text.trim().toLowerCase();
+    type Hit = { kind: 'project' | 'topic' | 'ticket' | 'knowledge'; project: string; id: string; title: string };
+    const projects = readableProjects(actor);
+    const contains = (value: string) => value.toLowerCase().includes(q);
+    const match = /^(?:pr\s*#?\s*|#)(\d+)$/i.exec(q);
+    const number = match ? Number(match[1]) : undefined;
+    function* projectHits(): Generator<Hit> {
+      for (const project of projects) if (contains(project.title))
+        yield { kind: 'project', project: project.id, id: project.id, title: project.title };
+    }
+    function* topicHits(): Generator<Hit> {
+      for (const project of projects) for (const topic of topicsFor(project)) if (contains(topic.title))
+        yield { kind: 'topic', project: project.id, id: topic.id, title: topic.title };
+    }
+    function* ticketHits(): Generator<Hit> {
+      for (const { ticket, work } of workRecords.matchingTickets(actor, projects.map(p => p.id), q, Number.isSafeInteger(number) ? number : undefined)) {
+        if (!contains(ticket.title) && !contains(ticket.id)) {
+          const output = currentOutputView(actor, ticket.id, work).output;
+          if (!output || !work.delivery || (output.version ?? 1) !== (work.version ?? 1)
+            || work.development && !matchesCodeDelivery(ticket, work, output, work.delivery)) continue;
+        }
+        yield { kind: 'ticket', project: work.project, id: ticket.id, title: ticket.title };
+      }
+    }
+    function* knowledgeHits(): Generator<Hit> {
+      for (const project of projects) for (const entry of knowledge.list(project.id)) {
+        if ((contains(entry.title) || contains(entry.body)) && currentProjectMemory(entry, project, actor) && canReadEntry(entry, actor))
+          yield { kind: 'knowledge', project: project.id, id: entry.id, title: entry.title };
+      }
+    }
+    // Interleave groups so a long project list cannot displace all ticket and knowledge hits.
+    const streams = new Set(q ? [ticketHits(), projectHits(), topicHits(), knowledgeHits()] : []);
+    const rows: Hit[] = [];
+    let position = 0;
+    try {
+      while (streams.size) for (const stream of streams) {
+        const hit = stream.next();
+        if (hit.done) streams.delete(stream);
+        else if (position++ >= offset) {
+          if (rows.length === 24) return { rows, next: offset + rows.length };
+          rows.push(hit.value);
+        }
+      }
+      return { rows, next: undefined };
+    } finally {
+      for (const stream of streams) stream.return(undefined);
+    }
+  }
+
   const conversations = openConversationIndex(store.db, { projects: readableProjects, topics: topicsFor, scope: (project, actor, target) => {
     const scope = conversationScope(project, actor, target);
     if (target.ticket && workOf(target.ticket)?.consultation) throw new WorkbenchError('请在所属主题中查看咨询。', 404);
@@ -6424,7 +6514,7 @@ export async function openCollaboration(config: Settings, auth: ConsoleAuth, sen
     canReplyToFeishuTopic: (actor: string, id: string, topic?: string) => { const project = projectFor(id, actor); return !!send && mayStart(project, actor) && !!mappedFeishuThread(project, topic); },
     feishuProject: (chat: string, root: unknown) => feishuScope(chat, root).project,
     receiveChannel, receiveNote, resolveChannel, resolveChannelFromHttp, channelView, confirmAccount, refreshDelivery, refreshIssue,
-    setWatching: workRecords.setWatching, engineeringActionFor, engineeringHealth, rememberDiscussion, trackFeishuThread, refreshFeishuHistory, discussionView, discussionRevisions, resolveDiscussion, needsYou, answerDecision, resolveIntake, handoff,
+    workspaceSearch, setPriority, setWatching: workRecords.setWatching, engineeringActionFor, engineeringHealth, rememberDiscussion, trackFeishuThread, refreshFeishuHistory, discussionView, discussionRevisions, resolveDiscussion, needsYou, answerDecision, resolveIntake, handoff,
     memoryHome, memoryUses, projectKnowledgeGraph, setMemoryPin, budgetPools, agentBudgets, setBudget, setAgentBudget,
     projectUsage, projectPointBudgets, pointLimit, setPointLimit, setPointPolicy, pointPolicy, pointControl: () => points.status(),
     octopCatalog, publishOctopSkill, trialOctopSkill, shareOctop, mountOctop, createOctop, publishOctopTemplate, normalizeOctopFeishu,
