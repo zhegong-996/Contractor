@@ -15,13 +15,23 @@ export function openDeliveryEvidence(db: DatabaseSync) {
       ticket TEXT NOT NULL, repository INTEGER NOT NULL, number INTEGER NOT NULL, head TEXT NOT NULL,
       id INTEGER NOT NULL, value TEXT NOT NULL, PRIMARY KEY(ticket,repository,number,head,id)
     );
+    CREATE TABLE IF NOT EXISTS workbench_ci_green (
+      ticket TEXT NOT NULL, repository INTEGER NOT NULL, number INTEGER NOT NULL,
+      head TEXT NOT NULL, policy TEXT NOT NULL, observed INTEGER NOT NULL,
+      PRIMARY KEY(ticket,repository,number,head,policy)
+    );
     INSERT OR IGNORE INTO workbench_ci_attempt
       SELECT v.ticket,v.repository,v.number,v.head,json_extract(c.value,'$.id'),c.value
       FROM workbench_pull_version v, json_each(v.value,'$.checks') c
       WHERE json_type(c.value,'$.id')='integer' AND json_extract(c.value,'$.head_sha')=v.head;
   `);
 
+  const policy = (e: DeliveryEvidence) => JSON.stringify((e.requiredChecks ?? []).map(c => [c.app, c.appId ?? null, c.name]).sort());
   function storeDeliveryVersion(id: string, evidence: DeliveryEvidence) {
+    if (evidence.ci === 'passed') {
+      db.prepare('INSERT OR REPLACE INTO workbench_ci_green VALUES (?,?,?,?,?,?)')
+        .run(id, evidence.repoId!, evidence.pr, evidence.headSha, policy(evidence), Date.now());
+    }
     // Replace the current observation for a revision and keep it newest even after a branch returns to an earlier SHA.
     db.prepare('INSERT OR REPLACE INTO workbench_pull_version VALUES (?,?,?,?,?,?)')
       .run(id, evidence.repoId!, evidence.pr, evidence.baseSha, evidence.headSha, JSON.stringify(evidence));
@@ -36,6 +46,13 @@ export function openDeliveryEvidence(db: DatabaseSync) {
 
   return {
     storeDeliveryVersion, recordCheckAttempts,
+    lastGreen(id: string, evidence: DeliveryEvidence, versions: DeliveryEvidence[]) {
+      if (evidence.ci === 'passed') return evidence.headSha;
+      const seen = db.prepare(`SELECT head FROM workbench_ci_green WHERE ticket=? AND repository=? AND number=? AND policy=?
+        ORDER BY observed DESC,rowid DESC LIMIT 1`).get(id, evidence.repoId ?? 0, evidence.pr, policy(evidence));
+      return seen ? String(seen.head) : versions.find(v => v.repository === evidence.repository && v.pr === evidence.pr
+        && v.ci === 'passed' && policy(v) === policy(evidence))?.headSha;
+    },
     lastLinkedVersion(id: string): DeliveryEvidence | undefined {
       const saved = db.prepare(`SELECT v.value FROM workbench_pull_version v
         WHERE v.ticket=? AND json_extract(v.value,'$.url')=(SELECT json_extract(a.value,'$.pr')

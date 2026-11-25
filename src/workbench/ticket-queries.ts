@@ -44,7 +44,7 @@ export function ticketQueries<T extends Row>(ports: Ports<T>) {
         const agent = ports.agent(work.agent);
         cursor = { id: ticket.id, updatedAt: ticket.updatedAt };
         if (filters.purpose === 'work' && work.consultation || filters.agent && work.agent !== filters.agent
-          || filters.mine && work.requester !== actor && agent?.owner !== actor && !pending.has(ticket.id)) continue;
+          || filters.mine && work.requester !== actor && (work.deliveryLead ?? work.developmentApproval?.actor ?? agent?.owner) !== actor && agent?.owner !== actor && !pending.has(ticket.id)) continue;
         const topics = related.get(project.id) ?? [];
         if (filters.topic && !topicWithin(topics, work.topic, filters.topic)) continue;
         if (query && ![ticket.id, ticket.title, work.requester, agent?.title, project.title, topics.find(topic => topic.id === work.topic)?.title]

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { command } from '../commands.ts';
-import { githubApi, parsePr } from '../github.ts';
+import { allowedFile, githubApi, parsePr } from '../github.ts';
 import { protocolMatches } from './compatibility.ts';
 
 export const commitSha = z.string().regex(/^[a-f0-9]{40}$/);
@@ -12,6 +12,7 @@ const pull = z.object({
   number: z.number().int().positive(), html_url: z.string(), body: z.string().nullable(), base: ref, head: ref,
   user: identity, state: z.enum(['open', 'closed']), draft: z.boolean(), merged: z.boolean(),
   created_at: z.iso.datetime(), updated_at: z.iso.datetime(), merged_at: z.iso.datetime().nullable(), merged_by: identity.nullish(),
+  requested_teams: z.array(z.object({ slug: z.string() })).optional(),
   requested_reviewers: z.array(identity), assignees: z.array(identity),
   labels: z.array(z.object({ id: z.number(), name: z.string() })),
   milestone: z.object({ number: z.number(), title: z.string() }).nullish(),
@@ -113,6 +114,15 @@ export async function inspectCommitChecks(repository: string, sha: string, requi
   return pullChecks(sha, attempts, required);
 }
 
+export async function inspectChangedFiles(repository: string, base: string, head: string, paths: string[]) {
+  const comparison = commitSha.parse(base) + '...' + commitSha.parse(head);
+  // GitHub caps this immutable comparison at 300 files. Discard patch bodies in the CLI.
+  const raw = await command('gh', ['api', 'repos/' + repository + '/compare/' + comparison + '?per_page=1',
+    '--jq', '[.files[].filename]']);
+  const files = z.array(z.string()).parse(JSON.parse(raw));
+  return { files: files.filter(file => allowedFile(file, paths)), truncated: files.length >= 300 };
+}
+
 export async function inspectIssue(repository: string, number: number) {
   const value = issue.parse(JSON.parse(await command('gh', ['api', 'repos/' + repository + '/issues/' + number])));
   if (value.number !== number || value.pull_request) return;
@@ -159,7 +169,7 @@ export async function inspectPull(repository: string, url: string, required: Req
     state: live.merged ? 'merged' as const : live.draft && live.state === 'open' ? 'draft' as const : live.state,
     creator: live.user, createdAt: live.created_at, updatedAt: live.updated_at,
     mergedBy: live.merged_by, mergedAt: live.merged_at,
-    assignees: live.assignees, labels: live.labels, requestedReviewers: live.requested_reviewers, milestone: live.milestone,
+    assignees: live.assignees, labels: live.labels, requestedReviewers: live.requested_reviewers, ...(live.requested_teams && { requestedTeams: live.requested_teams }), milestone: live.milestone,
     reviews: z.array(z.array(review)).parse(JSON.parse(reviews)).flat(),
   };
   return { snapshot, attempts, commits: observed, pushes, body: live.body ?? '' };

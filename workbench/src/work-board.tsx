@@ -15,7 +15,7 @@ export const workStates = [
   { id: 'closed', title: '已结束', tone: 'neutral', icon: CircleStop },
 ] as const;
 export type BoardGrouping = 'status' | 'priority';
-type BoardOrigin = { project: string; topic?: string; scoped: boolean };
+type BoardOrigin = { project: string; topic?: string; scoped: boolean; mine?: boolean };
 const workState = ticketListState;
 
 const priorityGroups = [

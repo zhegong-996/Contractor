@@ -716,7 +716,9 @@ async function serve(release: () => void) {
       else if (view === 'regression' && item && post && action === 'compare' && !reference)
         output = work.compareRegression(actor, id.parse(item), regressionCompareInput.parse(await body(req)));
       else if (get && view === 'ticket' && item && !action) output = work.detail(actor, item);
-      else if (get && view === 'ticket' && item && action === 'changes' && !reference) output = await work.ticketChanges(actor, item);
+      else if (get && view === 'ticket' && item && action === 'changes' && !reference) output = await work.ticketChanges(actor, item, {
+        head: url.searchParams.get('head') ?? undefined, revision: url.searchParams.get('revision') ?? undefined, namesOnly: url.searchParams.get('view') === 'files',
+      });
       else if (get && view === 'request' && item) output = { ticket: work.resolveStart(actor, item) };
       else if (view === 'octop' && item && get && !action) output = work.octopCatalog(actor, item);
       else if (view === 'octop' && item && get && action === 'recall') output = await work.octopRecall(actor, item, (url.searchParams.get('q') ?? '').slice(0, 240));
