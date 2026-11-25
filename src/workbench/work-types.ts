@@ -77,7 +77,7 @@ export type PullSnapshot = Awaited<ReturnType<typeof inspectPull>>['snapshot'];
 export type DeliveryEvidence = Pick<PullSnapshot, 'repository' | 'url' | 'pr' | 'baseSha' | 'headSha' | 'ci'> &
   Partial<PullSnapshot> & { creator?: MappedIdentity; commits?: CommitProvenance[]; attachedBy?: string; workReference?: boolean };
 export type DeliveryPull = Pick<PullSnapshot, 'repository' | 'url' | 'pr' | 'repoId'> & { attachedBy?: string };
-export type DeliveryIssue = 'missing-evidence' | 'ci-failed' | 'review-failed' | 'deployment-failed' | 'verification-missing';
+export type DeliveryIssue = 'merge-conflict' | 'missing-evidence' | 'ci-failed' | 'review-failed' | 'deployment-failed' | 'verification-missing';
 export type CodeDeliveryState = { state: DeliveryIssue | 'ci-pending' | 'review-pending' | 'deployment-pending' | 'ready'; detail: string; output: Output; issue?: DeliveryIssue };
 export type RunActor = {
   delegatedBy: string; requestedVia: Work['source']; delegatedAccount?: PlatformActor;

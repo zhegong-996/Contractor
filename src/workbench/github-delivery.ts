@@ -10,7 +10,7 @@ const repo = z.object({ id: z.number().int().positive(), full_name: z.string() }
 const ref = z.object({ sha: commitSha, ref: z.string().min(1), repo: repo.nullable() });
 const pull = z.object({
   number: z.number().int().positive(), html_url: z.string(), body: z.string().nullable(), base: ref, head: ref,
-  user: identity, state: z.enum(['open', 'closed']), draft: z.boolean(), merged: z.boolean(),
+  user: identity, state: z.enum(['open', 'closed']), draft: z.boolean(), merged: z.boolean(), mergeable: z.boolean().nullish(),
   created_at: z.iso.datetime(), updated_at: z.iso.datetime(), merged_at: z.iso.datetime().nullable(), merged_by: identity.nullish(),
   requested_teams: z.array(z.object({ slug: z.string() })).optional(),
   requested_reviewers: z.array(identity), assignees: z.array(identity),
@@ -114,6 +114,36 @@ export async function inspectCommitChecks(repository: string, sha: string, requi
   return pullChecks(sha, attempts, required);
 }
 
+const annotation = z.object({ path: z.string(), start_line: z.number().int().positive(), end_line: z.number().int().positive(),
+  annotation_level: z.enum(['notice', 'warning', 'failure']) });
+
+export async function inspectCheckAnnotations(repository: string, pr: number, head: string, run: PullCheck, paths: string[], page: number) {
+  async function assertCurrent() {
+    const [current, selection] = await Promise.all([
+      githubApi(repository, 'pulls/' + pr),
+      inspectCommitChecks(repository, head, [{ name: run.name, app: run.app!.slug, appId: run.app!.id }]),
+    ]);
+    if (current.head?.sha !== head || current.base?.repo?.full_name?.toLowerCase() !== repository.toLowerCase()
+        || selection.checks[0]?.id !== run.id || selection.ci !== 'failed')
+      throw new DeliveryChangedError('检查已更新，请刷新工单。');
+  }
+  await assertCurrent();
+  const size = 20, start = (page - 1) * size;
+  const items: z.infer<typeof annotation>[] = [];
+  let visible = 0;
+  for (let upstream = 1; items.length <= size; upstream++) {
+    const rows = z.array(annotation).parse(await githubApi(repository, 'check-runs/' + run.id + '/annotations?per_page=100&page=' + upstream));
+    for (const row of rows) {
+      if (!allowedFile(row.path, paths)) continue;
+      if (visible++ >= start) items.push(row);
+      if (items.length > size) break;
+    }
+    if (rows.length < 100) break;
+  }
+  await assertCurrent();
+  return { items: items.slice(0, size), more: items.length > size };
+}
+
 export async function inspectChangedFiles(repository: string, base: string, head: string, paths: string[]) {
   const comparison = commitSha.parse(base) + '...' + commitSha.parse(head);
   // GitHub caps this immutable comparison at 300 files. Discard patch bodies in the CLI.
@@ -164,7 +194,7 @@ export async function inspectPull(repository: string, url: string, required: Req
   if (!observed.some(commit => commit.sha === live.head.sha)) throw new Error('未核对到 PR 的当前提交。');
   const snapshot = {
     repository, repoId: live.base.repo.id, url: live.html_url, pr: number, baseSha: live.base.sha, headSha: live.head.sha, ...shaChecks,
-    requiredChecks: required, deployed,
+    requiredChecks: required, deployed, ...(live.merged || live.mergeable !== undefined ? { mergeable: live.merged || live.mergeable } : {}),
     baseBranch: live.base.ref, headBranch: live.head.ref, headRepoId: live.head.repo?.id,
     state: live.merged ? 'merged' as const : live.draft && live.state === 'open' ? 'draft' as const : live.state,
     creator: live.user, createdAt: live.created_at, updatedAt: live.updated_at,

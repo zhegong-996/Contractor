@@ -7,6 +7,7 @@ Contractor 原创代码采用 [MIT](../LICENSE)。第三方代码仍采用其各
 - **源码子模块：4 个。** Super-agent、Agent AutoLoop、Octop Gateway 和 Octop Memory 都是固定在 `sources.lock.json` 中的 MIT 提交；仓库不直接修改子模块内容。
 - **适配组件：2 个。** `TopicMemberPicker.tsx` 与 `SignedTopicReply.tsx` 改编自 Octop Web 的 MIT 源码，文件头和锁文件都保留提交与上游路径。
 - **其他 npm 依赖：按实际制品审核。** 根工作台、验收示例和外置沙箱分别使用独立锁文件；浏览器构建随包生成模块许可清单。
+- 可选的只读 ACP 执行端使用设备所有者自行安装的 [codex-acp 0.16.0](https://github.com/zed-industries/codex-acp/releases/tag/v0.16.0)。Contractor 分发自己的协议客户端，发布包不包含该设备程序。
 
 `npm run audit:upstream -- --browser` 会同时核对上述边界。2026-11-22 的当前结果：4 个 MIT 子模块、2 个 Octop 适配组件、327 个根锁文件包、2 个验收示例包、5 个外置沙箱包和 114 条浏览器依赖声明，未发现来源锁或许可冲突。
 

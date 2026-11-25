@@ -8,7 +8,7 @@ import { createRequire } from 'node:module';
 import type { Job } from './execution/protocol.ts';
 import type { Usage } from './execution/protocol.ts';
 import type { Turn } from './execution/protocol.ts';
-import { codexProgram } from './execution/cli.ts';
+import { codexProgram, executable as findExecutable } from './execution/cli.ts';
 import { runtime } from '../config.ts';
 import { allowedFile } from '../github.ts';
 import { bundleHash, codeBundleSchema, codeDeltaSchema, materializeCode, type CodeBundle, type CodeDelta } from './code-bundle.ts';
@@ -86,7 +86,7 @@ async function files(folder: string): Promise<Record<string, string>> {
 }
 
 export function sandboxPolicy(workspace: string, home: string, input: string, executable: string, paths: string[], domains: string[],
-  temp = path.join(home, 'tmp'), readPaths?: string[], sandboxRoot?: string) {
+  temp = path.join(home, 'tmp'), readPaths?: string[], sandboxRoot?: string, singleBinary = false) {
   const system = process.platform === 'darwin'
     ? ['/System/Library', '/usr/lib', '/usr/bin', '/usr/share', '/bin', '/sbin', '/Library/Apple', '/private/etc/ssl', '/private/etc/hosts', '/private/etc/resolv.conf', '/private/etc/codex', '/private/var/select/sh']
     : ['/usr', '/bin', '/sbin', '/lib', '/lib64', '/etc/ssl', '/etc/ld.so.cache', '/etc/resolv.conf', '/etc/hosts', '/etc/codex', '/proc/self', '/proc/thread-self',
@@ -99,7 +99,7 @@ export function sandboxPolicy(workspace: string, home: string, input: string, ex
       allowRead: [...system, '/etc', '/private/etc', '/dev/null', '/dev/urandom', '/dev/random', '/dev/fd',
         ...(readPaths ? readPaths.map(item => path.join(workspace, item)) : [workspace]), home, input,
         // Codex ships its code-mode host beside the native binary; this directory contains programs, not user state.
-        path.dirname(executable), path.resolve(path.dirname(executable), '../codex-path'), temp].map(literal),
+        ...(singleBinary ? [executable] : [path.dirname(executable), path.resolve(path.dirname(executable), '../codex-path')]), temp].map(literal),
       allowWrite: [home, temp, ...paths.map(item => path.join(workspace, item))].map(literal),
       // SRT's compatibility temp paths must not become a shared channel between members.
       denyWrite: ['/tmp/claude', '/private/tmp/claude', path.join(home, 'config.toml'), input,
@@ -169,15 +169,16 @@ export async function isolateJob(agent: RunnerAgent, job: Job, authority: unknow
       provider: agent.execution.provider, model: agent.model ?? 'test-fixture', credentialVersion: 'test', boundary: 'test' } };
   }
   if (!agent.model?.trim()) throw new Error('请明确配置此 Agent 使用的模型');
-  if (agent.engine !== 'codex' || agent.execution.provider !== 'openai')
+  const acp = agent.engine === 'acp' && job.agent.access === 'read' && !code && !previous && !job.session;
+  if ((!acp && agent.engine !== 'codex') || agent.execution.provider !== 'openai')
     throw new Error('此 CLI 或模型服务尚未完成隔离适配，不能继承宿主环境执行');
   const auth = await credential(agent);
   const sandboxRoot = sandboxProvider().root;
-  const executable = await codexExecutable();
-  const executableVersion = execFileSync(executable, ['--version'], { encoding: 'utf8', timeout: 10000,
+  const executable = acp ? await realpath(findExecutable('codex-acp')) : await codexExecutable();
+  const executableVersion = acp ? 'codex-acp/0.16.0' : execFileSync(executable, ['--version'], { encoding: 'utf8', timeout: 10000,
     env: { PATH: '/usr/bin:/bin' }, stdio: ['ignore', 'pipe', 'ignore'] }).trim();
   const effort = job.agent.effort ?? agent.execution.effort;
-  const isolation: Isolation = { scope: hash(JSON.stringify({ owner: agent.owner, agent, authority, credential: auth.version,
+  const isolation: Isolation = { scope: hash(JSON.stringify({ owner: agent.owner, agent, authority, credential: auth.version, ...(acp && { run: job.run, attempt: job.attempt }),
     ...(job.agent.effort && { effort }) })),
     owner: agent.owner, agent: agent.id, provider: agent.execution.provider, model: agent.model,
     credentialVersion: auth.version, boundary: 'os-sandbox', executableVersion };
@@ -201,7 +202,7 @@ export async function isolateJob(agent: RunnerAgent, job: Job, authority: unknow
   if (!existsSync(path.join(home, 'auth.json'))) await writeFile(path.join(home, 'auth.json'), auth.bytes, { mode: 0o600 });
   await writeFile(path.join(home, 'config.toml'), [
     `model = ${JSON.stringify(agent.model)}`, 'model_provider = "openai"', 'approval_policy = "never"',
-    'cli_auth_credentials_store = "file"', 'web_search = "disabled"',
+    ...(acp ? ['sandbox_mode = "read-only"'] : []), 'cli_auth_credentials_store = "file"', 'web_search = "disabled"',
     '[features]', 'apps = false', 'multi_agent = false', '[shell_environment_policy]', 'inherit = "core"',
   ].join('\n'), { mode: 0o600 });
   const baseline: Record<string, string> = {};
@@ -248,13 +249,13 @@ export async function isolateJob(agent: RunnerAgent, job: Job, authority: unknow
   // Mount disjoint read files and write scopes instead; the repository remains private.
   const readPaths = code && process.platform === 'linux'
     ? [...Object.keys(baseline).filter(file => !allowedFile(file, code.paths)), ...code.paths] : undefined;
-  await privateFile(policy, sandboxPolicy(workspace, home, input, executable, code?.paths ?? [], agent.execution.domains, temp, readPaths, sandboxRoot));
+  await privateFile(policy, sandboxPolicy(workspace, home, input, executable, code?.paths ?? [], agent.execution.domains, temp, readPaths, sandboxRoot, acp));
   const launch: Launch = { isolation, executable, workspace, home, input, temp, policy, sandboxRoot, baseline, canonical: code && 'canonical' in code ? code.canonical : undefined, paths: code?.paths ?? [],
     remoteBase: code && 'bundle' in code ? bundleHash(code.bundle) : undefined, placeholders };
   await privateFile(launchFile(job.run, job.attempt), launch);
   const resumableSession = previous?.scope === isolation.scope && await codexSessionFile(isolation, job.session ?? undefined);
   return { isolation, job: { ...job, session: resumableSession ? job.session : null,
-    agent: { ...job.agent, use: 'contractor-isolated', model: agent.model, effort,
+    agent: { ...job.agent, use: acp ? 'contractor-acp' : 'contractor-isolated', model: agent.model, effort,
       command: [launchFile(job.run, job.attempt)] }, rule: { ...job.rule, cwd: workspace } } };
 }
 
@@ -386,6 +387,7 @@ export async function readIsolation(run: number, attempt: number): Promise<Isola
 async function codexSessionFile(isolation: Isolation, session?: string) {
   if (isolation.boundary !== 'os-sandbox' || !session || !/^[a-zA-Z0-9-]+$/.test(session)) return;
   const sessions = path.join(scopeRoot(isolation.scope), 'home', 'sessions');
+  if (await realpath(sessions).catch(() => '') !== path.join(await realpath(runtime()), 'isolated', isolation.scope, 'home', 'sessions')) return;
   async function walk(folder: string): Promise<string | undefined> {
     for (const entry of await readdir(folder, { withFileTypes: true }).catch(() => [])) {
       if (entry.isSymbolicLink()) continue;
@@ -415,6 +417,23 @@ export async function codexSessionEvidence(isolation: Isolation | undefined, ses
     } catch { /* Ignore a malformed or interrupted JSONL record. */ }
   }
   return { model, usage };
+}
+
+export async function completedAcpTurn(isolation: Isolation | undefined, session: string) {
+  const file = isolation && await codexSessionFile(isolation, session);
+  if (!file || (await lstat(file)).size > 32 * 1024 * 1024) return;
+  let text: string | undefined;
+  for (const line of (await readFile(file, 'utf8')).split('\n')) {
+    if (!line.trim()) continue;
+    try {
+      const row = JSON.parse(line);
+      if (row.type !== 'event_msg') continue;
+      if (['task_started', 'turn_started', 'turn_aborted'].includes(row.payload?.type)) text = undefined;
+      if (['task_complete', 'turn_complete'].includes(row.payload?.type) && typeof row.payload.last_agent_message === 'string')
+        text = row.payload.last_agent_message;
+    } catch { return; }
+  }
+  return text;
 }
 
 export async function modelReceipt(isolation: Isolation | undefined, session?: string, runnerModel?: string) {

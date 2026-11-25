@@ -26,6 +26,7 @@ type HandoffPorts = {
   cardsFor: (id: string) => { state: string }[];
   isActive: (agent: Agent | undefined, project: Project) => agent is Agent;
   version: (agent: Agent) => string;
+  mayTakeDuty: (work: Work, agent: Agent) => boolean;
   selectAgent: (project: Project, topic: string | undefined, explicit: string) => Agent | undefined;
   selectDevice: (project: Project, agent: Agent, requested?: string, development?: boolean) => string | undefined;
   deviceAllowed: (device: Device, project: Project, agent: string) => boolean;
@@ -124,7 +125,7 @@ export function openHandoffs(deps: {
     const canResume = mayStart(project, plan.by)
       && (plan.by === work.requester || maintain(project, plan.by) || agentById.get(work.agent)?.owner === plan.by);
     if (!(plan.cause === 'resume' ? canResume : plan.cause === 'access' ? mayStart(project, plan.by) : maintain(project, plan.by))
-      || !mandateCurrent(ticket) || !isActive(replacement, project)
+      || !mandateCurrent(ticket) || !isActive(replacement, project) || !ports.mayTakeDuty(work, replacement)
       || work.development && (!authorizesDevelopment(project, work.development, replacement.owner) || !executionCapabilities(replacement).code)) {
       const reason = '交接条件已变化，请维护人核对资料授权和接续 Agent。';
       if (ticket.assignments.at(-1)?.report?.summary !== reason) reportBlocked(id, work, reason, 'authority-changed');
@@ -220,6 +221,8 @@ export function openHandoffs(deps: {
       if (isActive(replacement, project)) throw new WorkbenchError('正在等待旧执行的停止回执。', 409);
     }
     const replacement = selectAgent(project, work.topic, input.agent);
+    if (replacement && !ports.mayTakeDuty(work, replacement))
+      throw new WorkbenchError('请选原委托职责下、具备当前项目授权的 Agent。', 409);
     if (work.personal && (replacement?.kind !== 'personal' || replacement.owner !== work.requester))
       throw new WorkbenchError('个人代办仅由自己的个人 Agent 接续。', 403);
     if (!replacement || replacement.id === work.agent || input.agent === 'auto') throw new WorkbenchError('请选择本项目内另一位在岗 Agent。', 409);

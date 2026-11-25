@@ -93,6 +93,7 @@ async function adapterFor(job: Job, claudeProvider?: string): Promise<Adapter> {
       if (!process.env.NODE_TEST_CONTEXT) throw new Error('命令执行端仅用于隔离测试');
       return commandAdapter;
     case 'contractor-isolated': return (await import('./codex.ts')).default;
+    case 'contractor-acp': return (await import('../acp-worker.ts')).acpWorker;
     case 'contractor-octop': return (await import('../octop-adapter.ts')).default;
     case 'cursor':
       if (!process.env.NODE_TEST_CONTEXT) throw new Error('缺少 Cursor 隔离执行适配');
@@ -192,6 +193,21 @@ export function workerFactory(home: string, claudeProvider?: string): WorkerFact
         const adapter = await adapterFor(entry.job, claudeProvider);
         const reading = adapter.read(logContent(file(entry, 'stdout-1.log')), code, '');
         if (entry.job.agent.use === 'contractor-isolated') reading.usage = codexAttemptUsage(reading, entry.job.session, entry.usageBaseline);
+        if (entry.job.agent.use === 'contractor-acp' && reading.session && !entry.stopReason && !reading.text) {
+          const { completedAcpTurn, readIsolation } = await import('../isolation.ts');
+          const rejectedModel = reading.error === 'acp-model-unavailable';
+          const text = !rejectedModel && await completedAcpTurn(await readIsolation(entry.run, entry.attempt), reading.session);
+          if (text) { reading.text = text; reading.error = undefined; }
+          else {
+            entry.result = { outcome: 'done', session: reading.session, summary: rejectedModel ? '当前账号无法通过 ACP 使用所选模型' : 'ACP 执行已退出，未取得完整成果',
+              ask: [{ key: 'acp-interrupted', title: rejectedModel ? '请核对 ACP 模型授权' : '是否继续这次中断的执行？',
+                text: rejectedModel ? '模型服务拒绝了当前账号和模型组合。请先调整执行端的模型授权，再接续原单。' : '原提示只提交了一次。请核对后选择是否继续。',
+                options: rejectedModel ? ['模型授权已修复，接续原单', '成员凭据已更新，接续原单'] : ['接续未完成的核对', '重新核对本轮全部内容'],
+                about: '沿用原工单和当前授权，重新核对本轮未完成的事项。' }] };
+            save(entry);
+            return;
+          }
+        }
         result = report(reading, entry.stopReason);
       } catch {
         result = report({ error: 'CLI 回执文件不可读' }, entry.stopReason);

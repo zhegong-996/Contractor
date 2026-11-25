@@ -234,7 +234,7 @@ function TicketDetail(props: PageProps & { ticket: Ticket; tab: WorkTab }) {
     && (!ticket.work.personal || a.kind === 'personal' && a.owner === ticket.work.requester)
     && (!ticket.work.development || project.deliveryTargets.some(ref => ref.externalId === ticket.work.development!.repository
       && ref.eligibleAgents.includes(a.id))));
-  const handoffChoices = agentChoices.filter(a => a.id !== ticket.work.agent && a.engine !== 'octop' && agent?.engine !== 'octop');
+  const handoffChoices = agentChoices.filter(a => a.id !== ticket.work.agent && (!ticket.work.delegatedVia || a.function === ticket.work.function) && a.engine !== 'octop' && agent?.engine !== 'octop');
   const actions = ticket.actions;
   const detailLink = (page: WorkTab) => workFromInbox(
     withConversationOrigin(routeFor(project.id, 'work', ticket.id, page), route.conversationOrigin),
@@ -308,7 +308,7 @@ function TicketDetail(props: PageProps & { ticket: Ticket; tab: WorkTab }) {
             <h3>{ticket.requiredChildren.length} 项必需结果，已齐 {ticket.requiredChildren.filter(row => row.ready).length} 项</h3>
             {ticket.requiredChildren.map(row => <div className="record-row" key={row.duty}>
               {row.child ? <a href={routeFor(project.id, 'work', row.child)}>{row.title}</a> : <span>{row.title}</span>}
-              <span>{row.state}</span></div>)}
+              <span>{row.executor && <small>{row.executor.agent}{row.executor.device && ' · ' + row.executor.device} · 执行 #{row.executor.run}　</small>}{row.state}</span></div>)}
           </section>}
           {ticket.work.development && <CurrentCodeReview ticket={ticket} />}
           {!viewedVersion && <EngineeringReview key={ticket.id} ticket={ticket} project={project} />}
@@ -494,6 +494,25 @@ function changeQuery(ticket: Ticket, namesOnly = false) {
     head: ticket.work.delivery.headSha, view: namesOnly ? 'files' : 'patch' });
 }
 
+function CheckLocations({ ticket, run }: { ticket: Ticket; run: number }) {
+  const [page, setPage] = useState(0);
+  const evidence = ticket.work.delivery!;
+  const path = 'ticket/' + ticket.id + '/annotations?' + new URLSearchParams({ head: evidence.headSha,
+    revision: ticket.result!.revision, run: String(run), page: String(page) });
+  const result = useData<{ items: { path: string; start_line: number; end_line: number }[]; more: boolean } | { unavailable: true }>(page ? path : '');
+  const locations = result.data && 'items' in result.data ? result.data : undefined;
+  return <div><button className="text-button" type="button" aria-expanded={!!page} onClick={() => setPage(page ? 0 : 1)}>
+    {page ? '收起定位' : '定位到文件和行'}</button>
+    {!!page && (result.error ? <small>{result.error.message}</small> : result.isPending ? <small>读取检查标注…</small>
+      : <div>{locations?.items.length ? locations.items.map((row, index) =>
+        <div key={index}><Ext href={'https://github.com/' + evidence.repository + '/blob/' + evidence.headSha + '/' +
+          row.path.split('/').map(encodeURIComponent).join('/') + '#L' + row.start_line + '-L' + row.end_line}>
+          {row.path} · {row.start_line === row.end_line ? row.start_line : row.start_line + '–' + row.end_line} 行</Ext></div>)
+        : <small>{locations ? '没有可见的行级标注。' : '暂时无法读取标注，可打开原检查。'}</small>}
+        {page > 1 && <button type="button" onClick={() => setPage(page - 1)}>上一页</button>}
+        {locations?.more && <button type="button" onClick={() => setPage(page + 1)}>下一页</button>}</div>)}</div>;
+}
+
 function CurrentCodeReview({ ticket }: { ticket: Ticket }) {
   const files = useData<TicketChanges>(changeQuery(ticket, true));
   const evidence = ticket.work.delivery;
@@ -505,6 +524,7 @@ function CurrentCodeReview({ ticket }: { ticket: Ticket }) {
   const green = ticket.lastGreen;
   const filesView = files.data?.available && !files.error ? files.data : undefined;
   return <section className="code-review-summary" aria-label="本版代码核对">
+    {ticket.deliveryStatus?.state === 'merge-conflict' && <p role="status">{ticket.deliveryStatus.detail}</p>}
     <div className="inline-meta"><Ext href={evidence.url}>PR #{evidence.pr}</Ext><code title={evidence.headSha}>{short(evidence.headSha, 8)}</code>
       <Pill tone={evidence.ci === 'passed' ? 'green' : evidence.ci === 'failed' ? 'red' : 'amber'}>
         {{ passed: '本次 CI 通过', failed: '本次 CI 未通过', pending: '本次 CI 待完成' }[evidence.ci]}</Pill>
@@ -515,7 +535,7 @@ function CurrentCodeReview({ ticket }: { ticket: Ticket }) {
         <Ext href={compare}>{filesView && (filesView.truncated || filesView.files.length > 3) ? '查看更多文件' : '查看版本差异'}</Ext>
         {files.isFetching && <span>正在核对文件…</span>}
         {files.error && <button type="button" className="text-button" onClick={() => void files.refetch()}>重新读取文件</button>}</dd>
-      {!!failed?.length && <><dt>未通过的检查</dt><dd>{failed.map(check => <Ext key={check.id} href={check.html_url ?? undefined}>{check.name} · {checkRunLabel(check.status, check.conclusion)}</Ext>)}</dd></>}
+      {!!failed?.length && <><dt>未通过的检查</dt><dd>{failed.map(check => <div key={ticket.result?.revision + ':' + check.id}><Ext href={check.html_url ?? undefined}>{check.name} · {checkRunLabel(check.status, check.conclusion)}</Ext>{ticket.mayReadChanges && ticket.result && <CheckLocations ticket={ticket} run={check.id} />}</div>)}</dd></>}
       <dt>最近通过</dt><dd>{green ? <><code>{short(green, 8)}</code>{green !== evidence.headSha ? '其他提交' : evidence.ci === 'passed' ? '当前提交' : '同一提交曾通过，以本次检查为准'}</> : '暂无已核对的通过记录'}</dd>
       <dt>待审</dt><dd>{evidence.requestedReviewers?.map(githubActor).concat((evidence.requestedTeams ?? []).map(t => '@' + t.slug)).join('、')
         || (evidence.requestedReviewers ? '未指定审查人' : '请到 PR 核对')}</dd>

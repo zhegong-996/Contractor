@@ -116,7 +116,7 @@ function AgentDetail({ agent, project, workspace, route, openTask }: PageProps &
           </dl>
           {project.maintain && <a className="text-button" href={routeFor(project.id, 'project', undefined, 'routing')}>配置本项目的职责、主备模型与设备</a>}
         </Section>
-        {project.mayStart && (project.maintain || agent.owner === workspace.actor) && ['codex', 'claude'].includes(agent.engine)
+        {project.mayStart && (project.maintain || agent.owner === workspace.actor) && ['codex', 'claude', 'acp'].includes(agent.engine)
           && <WorkerHarness project={project.id} agent={agent.id} />}
         {!!topics.length && <Section title="主题咨询">{topics.map(topic => <div className="record-row" key={topic.id}>
           <a className="text-button" href={routeFor(project.id, 'chat', topic.id) + '?agent=' + encodeURIComponent(agent.id)}><MessageSquare size={15} />{topic.title}</a>
