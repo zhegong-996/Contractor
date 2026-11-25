@@ -73,6 +73,10 @@ export function WorkPage(props: PageProps) {
   const [filters, setFilters] = useStored('work:' + project.id + (route.projectWork ? ':project:' + (routedTopic ?? '') : ''),
     { query: '', topic: routedTopic ?? '', status: 'all' });
   const [storedScope, setScope] = useStored('work-scope', 'project');
+  // Remember the explicit personal entry when a list item opens its canonical ticket URL.
+  useLayoutEffect(() => {
+    if (route.myWork && storedScope !== 'mine') setScope('mine');
+  }, [route.myWork]);
   const scope = route.projectWork ? 'project' : route.myWork ? 'mine' : storedScope;
   const [view, setView] = useStored<'board' | 'list'>('work-view', 'board');
   const [group, setGroup] = useStored<BoardGrouping>('work-board-group', 'status');

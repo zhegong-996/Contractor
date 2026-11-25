@@ -258,3 +258,5 @@ button.home-stat { text-align: start; font: inherit; cursor: pointer; }
   .changes-file:active, button.home-stat:active { transform: translateY(1px); }
   .code-review-summary, .inspector { animation: content-arrive var(--motion-state) var(--motion-enter); }
 }
+
+.agent-navigation .nav-page-title { margin: 0; font: inherit; color: inherit; }
