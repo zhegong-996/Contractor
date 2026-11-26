@@ -373,12 +373,16 @@ async function serve(release: () => void) {
         });
         if (url.pathname === '/') {
           const nonce = randomBytes(18).toString('base64');
-          // Allow Ant Design's per-component theme variables only for this document.
+          // The startup recovery script and component styles are scoped to this document.
           const scanFrame = work?.imLogin.qrOrigin() ?? "'none'";
-          res.setHeader('content-security-policy', `default-src 'self'; script-src 'self'; style-src 'self' 'nonce-${nonce}'; img-src 'self' blob: ${imAvatarOrigins.join(' ')}; frame-src ${scanFrame}; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`);
+          res.setHeader('content-security-policy', `default-src 'self'; script-src 'self' 'nonce-${nonce}'; style-src 'self' 'nonce-${nonce}'; img-src 'self' blob: ${imAvatarOrigins.join(' ')}; frame-src ${scanFrame}; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`);
           res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
-            .end(bytes.toString('utf8').replace('content="WORKBENCH_STYLE_NONCE"', `content="${nonce}"`));
-        } else res.writeHead(200, { 'content-type': file[1] === 'image/webp' ? file[1] : file[1] + '; charset=utf-8' }).end(bytes);
+            .end(bytes.toString('utf8').replaceAll('WORKBENCH_STYLE_NONCE', nonce));
+        } else {
+          if (bundled && /-[\w-]{8}\.(js|css|webp)$/.test(bundled[1]!))
+            res.setHeader('cache-control', 'private, max-age=31536000, immutable');
+          res.writeHead(200, { 'content-type': file[1] === 'image/webp' ? file[1] : file[1] + '; charset=utf-8' }).end(bytes);
+        }
         return;
       }
       if (!url.pathname.startsWith('/api/')) throw new WorkbenchError('未找到。', 404);

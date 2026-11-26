@@ -1,3 +1,4 @@
+import { WorkbenchError } from './errors.ts';
 import { z } from 'zod';
 import { approvalStage, routineSchema, title, triggerPolicy, type Project } from './config.ts';
 
@@ -36,6 +37,15 @@ export function exportProjectTemplate(project: Project): ProjectTemplate {
  * 引用外部工单的 next-version 例行任务与当前部署不存在的模型路线会被丢弃。
  */
 export function materializeTemplate(template: ProjectTemplate, actor: string, agentIds: Set<string>, base: string) {
+  for (const rows of [template.topics, template.goals, template.routines, template.approvals ?? []]) {
+    if (new Set(rows.map(row => row.id)).size !== rows.length)
+      throw new WorkbenchError('模板中的主题、目标、例行任务或审批阶段有重复标识，请检查模板。', 400);
+  }
+  const roots = new Set(template.topics.filter(topic => !topic.parent).map(topic => topic.id));
+  for (const topic of template.topics) {
+    if (topic.parent && !roots.has(topic.parent))
+      throw new WorkbenchError('模板中的子主题须归属同一模板的一级主题。', 400);
+  }
   const topicMap = new Map<string, string>();
   const stem = base.replace(/^project-/, '').slice(0, 8);
   const topics: { id: string; title: string; parent?: string }[] = template.topics.map((topic, index) => {
@@ -49,6 +59,8 @@ export function materializeTemplate(template: ProjectTemplate, actor: string, ag
   const routines = template.routines.flatMap(routine => {
     const action = routine.action;
     if (action.kind === 'next-version') return [];
+    if (action.topic && !topicMap.has(action.topic))
+      throw new WorkbenchError('例行任务引用的主题不在此模板中。', 400);
     const next = action.kind === 'consultation'
       ? { kind: 'consultation' as const, topic: topicMap.get(action.topic) ?? action.topic, text: action.text, agent: action.agent }
       : { kind: 'ticket' as const, title: action.title, request: action.request,

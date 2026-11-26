@@ -43,4 +43,17 @@ test('新工作台不预置业务项目，可从空状态创建第一个项目',
   assert.deepEqual(overview.agents.map(agent => agent.projects), [[created.id]]);
   assert.deepEqual(overview.projects.map(project => project.id), [created.id]);
   assert.deepEqual(overview.projects[0]?.topics.map(topic => topic.title), ['开始使用']);
+
+  const template = work.exportProjectTemplate('product', created.id);
+  const input = { nonce: 'import-project', title: '门店推荐理由', firstTopic: '本次交付', template };
+  const imported = work.createProject('product', input);
+  const topics = work.overview('product').projects.find(p => p.id === imported.id)!.topics;
+  assert.deepEqual(topics.map(t => t.title), ['本次交付', '开始使用']);
+  assert.equal(imported.topic, topics[0]?.id);
+  assert.deepEqual(work.createProject('product', input), imported);
+  assert.throws(() => work.createProject('product', { ...input, template: { ...template, goals: [{ id: 'new', title: '其他目标' }] } }), { status: 409 });
+  assert.throws(() => work.createProject('product', { ...input, nonce: 'invalid-tree', template: {
+    ...template, topics: [{ id: 'child', parent: 'missing', title: '失去上级的主题' }],
+  } }), { status: 400 });
+  assert.equal(work.overview('product').projects.length, 2);
 });

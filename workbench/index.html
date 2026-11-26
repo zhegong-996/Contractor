@@ -7,10 +7,31 @@
     <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f5f7fa" />
     <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#10161e" />
     <meta name="workbench-style-nonce" content="WORKBENCH_STYLE_NONCE" />
+    <style nonce="WORKBENCH_STYLE_NONCE">
+      #startup-recovery { margin: 18vh auto 0; padding: 1rem; width: fit-content; max-width: 100%;
+        font: 1rem/1.5 system-ui, sans-serif; text-align: center; }
+      #startup-retry { font: inherit; cursor: pointer; }
+    </style>
     <title>Contractor</title>
   </head>
   <body>
-    <div id="app"></div>
+    <div id="app">
+      <section id="startup-recovery" hidden aria-label="工作台加载">
+        <p>工作台尚未加载完成</p>
+        <button id="startup-retry" type="button">重新加载当前页</button>
+      </section>
+    </div>
+    <script nonce="WORKBENCH_STYLE_NONCE">
+      (() => {
+        const panel = document.getElementById('startup-recovery');
+        const show = () => { if (panel.isConnected) panel.hidden = false; };
+        document.getElementById('startup-retry').addEventListener('click', () => location.reload());
+        window.addEventListener('error', event => {
+          if (event.target instanceof HTMLScriptElement) show();
+        }, true);
+        setTimeout(show, 2500);
+      })();
+    </script>
     <noscript>请启用 JavaScript 后打开 Contractor。</noscript>
     <script type="module" src="/src/main.tsx"></script>
   </body>

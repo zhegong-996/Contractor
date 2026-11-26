@@ -11,6 +11,7 @@ import { exportProjectTemplate as buildProjectTemplate, materializeTemplate, typ
 export function loadProjectDirectory(store: SuperAgentStore, config: Settings) {
   store.db.exec(`
     CREATE TABLE IF NOT EXISTS workbench_created_project (id TEXT PRIMARY KEY, value TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS workbench_project_creation_receipt (id TEXT PRIMARY KEY, request_digest TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS workbench_project_member (project TEXT NOT NULL, member TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1, PRIMARY KEY(project,member));
     CREATE TABLE IF NOT EXISTS workbench_project_maintainers (project TEXT PRIMARY KEY, value TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS workbench_project_reader (project TEXT NOT NULL, member TEXT NOT NULL, PRIMARY KEY(project,member));
@@ -96,23 +97,28 @@ export function projectDirectory(store: SuperAgentStore, loaded: ReturnType<type
     if (!input.parent && !platformRight(actor, 'project-create')) throw new WorkbenchError('当前账号没有创建独立项目的权限。', 403);
     const id = 'project-' + key('project-create', actor, input.nonce);
     const first = input.firstTopic ? { id: 'topic-' + key('first-topic', id).slice(0, 12), title: input.firstTopic } : undefined;
-    const imported = input.template ? materializeTemplate(input.template, actor, new Set(agentById.keys()), id) : undefined;
-    const prior = projectById.get(id);
+    const digest = key('create-input', JSON.stringify([input.title, input.parent, input.firstTopic, input.template]));
+    const prior = store.db.prepare(`SELECT value,request_digest FROM workbench_created_project
+      LEFT JOIN workbench_project_creation_receipt USING (id) WHERE id=?`).get(id);
     if (prior) {
-      if (prior.title !== input.title || prior.parent !== input.parent
-        || prior.topics[0]?.title !== (imported?.topics[0]?.title ?? input.firstTopic))
-        throw new WorkbenchError('这次项目创建请求已被使用。', 409);
-      return { id, topic: imported?.topics[0]?.id ?? first?.id };
+      projectFor(id, actor);
+      const original = JSON.parse(String(prior.value)) as Project;
+      const matches = prior.request_digest ? prior.request_digest === digest : original.title === input.title
+        && original.parent === input.parent && original.topics?.[0]?.title === (input.template?.topics[0]?.title ?? input.firstTopic);
+      if (!matches) throw new WorkbenchError('这次项目创建请求已被使用。', 409);
+      return { id, topic: original.topics?.[0]?.id };
     }
+    const imported = input.template ? materializeTemplate(input.template, actor, new Set(agentById.keys()), id) : undefined;
     const project: Project = { id, title: input.title, parent: input.parent, members: [actor], maintainers: [actor],
       relatedProjects: [], delegations: [], dispatch: [], responsibilities: [],
-      topics: imported?.topics.length ? imported.topics : first ? [first] : [], resources: [],
+      topics: [...(first ? [first] : []), ...(imported?.topics ?? [])], resources: [],
       goals: imported?.goals ?? [], routines: imported?.routines ?? [],
       ...(imported?.trigger ? { trigger: imported.trigger } : {}),
       ...(imported?.approvals ? { approvals: imported.approvals } : {}),
       ...(imported?.modelRoutes ? { modelRoutes: imported.modelRoutes } : {}) };
     store.atomic(() => {
-      store.db.prepare('INSERT INTO workbench_created_project VALUES (?,?)').run(id, JSON.stringify(project));
+      store.db.prepare('INSERT INTO workbench_created_project (id,value) VALUES (?,?)').run(id, JSON.stringify(project));
+      store.db.prepare('INSERT INTO workbench_project_creation_receipt (id,request_digest) VALUES (?,?)').run(id, digest);
       audit(id, 'project.created', { actor, parent: input.parent, fromTemplate: !!input.template });
       if (first) audit(id, 'topic.created', { actor, topic: first.id });
       for (const topic of project.topics.slice(first ? 1 : 0)) audit(id, 'topic.created', { actor, topic: topic.id, fromTemplate: true });

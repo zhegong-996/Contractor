@@ -69,10 +69,16 @@ export async function api<T = { ok: boolean }>(route: string, data?: unknown, si
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(data),
     }),
   });
-  const payload = await response.json().catch(() => ({}));
+  if (response.status === 401 && route !== 'login') window.dispatchEvent(new Event('contractor-session-expired'));
+  const payload = await response.json().catch(error => {
+    if (signal?.aborted) throw error;
+    return undefined;
+  });
   if (!response.ok) {
-    if (response.status === 401 && route !== 'login') window.dispatchEvent(new Event('contractor-session-expired'));
-    throw new ApiError(payload.error || '暂时无法读取工作台，请重试。', response.status);
+    throw new ApiError(typeof payload?.error === 'string' ? payload.error : '暂时无法读取工作台，请重试。', response.status);
+  }
+  if (payload === undefined || (route === 'session' && typeof payload?.signedIn !== 'boolean')) {
+    throw new ApiError(data === undefined ? '未收到完整的工作台数据，请重试。' : '未收到操作回执，请刷新核对结果。', 502);
   }
   return payload as T;
 }
