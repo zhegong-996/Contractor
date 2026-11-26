@@ -367,18 +367,38 @@ async function serve(release: () => void) {
         ? [path.join(staticRoot, 'assets', bundled[1]!), bundled[2] === 'webp' ? 'image/webp'
           : bundled[2] === 'js' ? 'text/javascript' : 'text/css'] : undefined));
       if (file) {
-        const bytes = await readFile(file[0]!).catch(error => {
+        let compressed: Buffer | undefined;
+        if (bundled && bundled[2] !== 'webp') {
+          res.setHeader('vary', 'Accept-Encoding');
+          const acceptsBrotli = (req.headers['accept-encoding'] ?? '').split(',').some(item => {
+            const [coding, weight] = item.trim().toLowerCase().split(/\s*;\s*/);
+            if (coding !== 'br') return false;
+            if (weight === undefined) return true;
+            const quality = weight.startsWith('q=') ? Number(weight.slice(2)) : 0;
+            return quality > 0 && quality <= 1;
+          });
+          if (acceptsBrotli) compressed = await readFile(file[0]! + '.br').catch(error => {
+            if (error.code !== 'ENOENT') throw error;
+            return undefined;
+          });
+        }
+        const bytes = compressed ?? await readFile(file[0]!).catch(error => {
           if (error.code !== 'ENOENT') throw error;
           throw new WorkbenchError(url.pathname === '/' ? '工作台前端尚未构建，请运行 npm run build:ui。' : '未找到资源。', url.pathname === '/' ? 503 : 404);
         });
         if (url.pathname === '/') {
           const nonce = randomBytes(18).toString('base64');
-          // Allow Ant Design's per-component theme variables only for this document.
+          // The startup recovery script and component styles are scoped to this document.
           const scanFrame = work?.imLogin.qrOrigin() ?? "'none'";
-          res.setHeader('content-security-policy', `default-src 'self'; script-src 'self'; style-src 'self' 'nonce-${nonce}'; img-src 'self' blob: ${imAvatarOrigins.join(' ')}; frame-src ${scanFrame}; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`);
+          res.setHeader('content-security-policy', `default-src 'self'; script-src 'self' 'nonce-${nonce}'; style-src 'self' 'nonce-${nonce}'; img-src 'self' blob: ${imAvatarOrigins.join(' ')}; frame-src ${scanFrame}; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`);
           res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
-            .end(bytes.toString('utf8').replace('content="WORKBENCH_STYLE_NONCE"', `content="${nonce}"`));
-        } else res.writeHead(200, { 'content-type': file[1] === 'image/webp' ? file[1] : file[1] + '; charset=utf-8' }).end(bytes);
+            .end(bytes.toString('utf8').replaceAll('WORKBENCH_STYLE_NONCE', nonce));
+        } else {
+          if (compressed) res.setHeader('content-encoding', 'br');
+          if (bundled && /-[\w-]{8}\.(js|css|webp)$/.test(bundled[1]!))
+            res.setHeader('cache-control', 'private, max-age=31536000, immutable');
+          res.writeHead(200, { 'content-type': file[1] === 'image/webp' ? file[1] : file[1] + '; charset=utf-8' }).end(bytes);
+        }
         return;
       }
       if (!url.pathname.startsWith('/api/')) throw new WorkbenchError('未找到。', 404);

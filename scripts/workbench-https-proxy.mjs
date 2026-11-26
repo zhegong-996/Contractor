@@ -50,6 +50,7 @@ createServer((req, res) => {
   for (const name of machine ? machineHeaders : webHeaders) {
     if (req.headers[name] !== undefined) headers[name] = req.headers[name];
   }
+  if (file && req.headers['accept-encoding']) headers['accept-encoding'] = req.headers['accept-encoding'];
   const upstream = request({ hostname: '127.0.0.1', port: machine ? config.remoteRunnerPort : config.port,
     path: url, method: req.method, headers }, reply => {
     res.writeHead(reply.statusCode ?? 502, reply.headers);

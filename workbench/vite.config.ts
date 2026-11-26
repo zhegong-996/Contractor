@@ -1,5 +1,7 @@
 import { fileURLToPath } from 'node:url';
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
+import { brotliCompressSync, constants } from 'node:zlib';
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
@@ -29,6 +31,20 @@ export default defineConfig({
         const dark = styles({ ...themeFor('dark'), algorithm: theme.darkAlgorithm, zeroRuntime: true });
         const colors = Object.entries(palettes.dark).map(([key, value]) => '--scheme-' + key + ':' + value).join(';');
         return styles(workbenchTheme) + '@media (prefers-color-scheme:dark){:root{' + colors + '}' + dark + '}';
+      },
+    },
+    {
+      name: 'workbench-compressed-assets',
+      writeBundle(output, bundle) {
+        for (const name of Object.keys(bundle)) {
+          if (!name.endsWith('.js') && !name.endsWith('.css')) continue;
+          const file = path.join(output.dir!, name);
+          const bytes = readFileSync(file);
+          if (bytes.length < 1024) continue;
+          writeFileSync(file + '.br', brotliCompressSync(bytes, {
+            params: { [constants.BROTLI_PARAM_QUALITY]: 5 },
+          }));
+        }
       },
     },
     {

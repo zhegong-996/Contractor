@@ -199,7 +199,7 @@ export function Composer({ project, workspace, route, preset, close }: PageProps
       </details>
   </>;
   return <Modal title={preset.personal ? '发起只读代办' : preset.parent ? '新建子工单' : '发起协作'} close={close}>
-    <form className="form" onSubmit={handleSubmit}>
+    <form onSubmit={handleSubmit}><fieldset className="form dispatch-fields" disabled={busy}>
       <Field label="要做什么"><TextArea autoFocus rows={5} value={draft.request} onChange={e => change('request', e.target.value)} required maxLength={3500}
         placeholder="描述要解决的问题和验收条件" /></Field>
       {preset.topic ? <details className="form-disclosure dispatch-options" open={editing || routingIssue} onToggle={e => setEditing(e.currentTarget.open)}>
@@ -227,7 +227,7 @@ export function Composer({ project, workspace, route, preset, close }: PageProps
         {blocked && <Button type="button" size="sm" variant="ghost" onClick={() => void readiness.refetch()}>重新核对</Button>}
       </div>}
       <footer className="form-actions"><Button type="submit" loading={busy} disabled={!draft.request.trim() || busy || incompleteDelivery || confirmWrite || needsDevice || blocked || !!readiness.error || !readiness.data}><Plus />提交委托</Button></footer>
-    </form>
+    </fieldset></form>
   </Modal>;
 }
 

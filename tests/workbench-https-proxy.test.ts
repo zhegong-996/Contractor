@@ -18,7 +18,7 @@ test('固定 HTTPS 地址将浏览器确认和 Worker 协议转到各自端口',
       received.push(kind);
       res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({
         kind, path: req.url, host: req.headers.host, cookie: req.headers.cookie, auth: req.headers.authorization,
-        driver: req.headers['x-contractor-execution'], origin: req.headers.origin, range: req.headers.range,
+        encoding: req.headers['accept-encoding'], driver: req.headers['x-contractor-execution'], origin: req.headers.origin, range: req.headers.range,
       }));
     }).listen(0, '127.0.0.1');
     await once(server, 'listening');
@@ -49,6 +49,9 @@ test('固定 HTTPS 地址将浏览器确认和 Worker 协议转到各自端口',
   assert.deepEqual(await fetch(base + capture, { headers: { cookie: 'session=fixture', range: 'bytes=0-511' } }).then(res => res.json()), {
     kind: 'workbench', path: capture, host: 'workbench.example.test', cookie: 'session=fixture', range: 'bytes=0-511',
   });
+  const script = '/assets/index-abcdefgh.js';
+  const packed = await fetch(base + script, { headers: { 'accept-encoding': 'br' } });
+  assert.equal((await packed.json()).encoding, 'br');
   const protocol = '/api/runner/protocol';
   const headers = { 'content-type': 'application/json', authorization: 'Bearer fixture', 'x-contractor-execution': 'contractor' };
   assert.deepEqual(await fetch(base + protocol, { method: 'POST', headers, body: '{}' }).then(res => res.json()), {
@@ -58,5 +61,5 @@ test('固定 HTTPS 地址将浏览器确认和 Worker 协议转到各自端口',
   assert.equal((await fetch(base + protocol)).status, 404);
   assert.equal((await fetch(base + '/health')).status, 404);
   assert.equal((await fetch(base + '/api/runner/extra', { method: 'POST', headers, body: '{}' })).status, 404);
-  assert.deepEqual(received, ['workbench', 'workbench', 'runner']);
+  assert.deepEqual(received, ['workbench', 'workbench', 'workbench', 'runner']);
 });

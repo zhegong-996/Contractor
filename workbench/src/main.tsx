@@ -1,7 +1,7 @@
 import { writeStoredValue } from './drafts.ts';
 import { WorkspaceSearch } from './workspace-search.tsx';
 import { Provider as MotionProvider } from '@rc-component/motion';
-import { lazy, Suspense, useEffect, useRef, useState } from 'react';
+import { Component, type ReactNode, lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query';
 import { Breadcrumb, ConfigProvider, Drawer, Layout, Menu as NavigationMenu, Tabs, type ConfigProviderProps } from 'antd';
@@ -193,49 +193,63 @@ function NewProject({ workspace, close }: { workspace: Overview; close: () => vo
   const [template, setTemplate] = useState<ProjectTemplate>();
   const [templateName, setTemplateName] = useState('');
   const [templateError, setTemplateError] = useState('');
+  const [reading, setReading] = useState(false);
+  const uploadVersion = useRef(0);
+  const upload = useRef<HTMLInputElement>(null);
+  const browse = useRef<HTMLButtonElement>(null);
+  async function readTemplate(file?: File) {
+    const version = ++uploadVersion.current;
+    setTemplate(undefined);
+    setTemplateError('');
+    setTemplateName(file?.name ?? '');
+    setReading(!!file);
+    if (!file) return;
+    try {
+      const parsed = JSON.parse(await file.text()) as ProjectTemplate;
+      if (parsed?.kind !== 'contractor-project-template' || parsed.version !== 1)
+        throw new Error();
+      if (version === uploadVersion.current) setTemplate(parsed);
+    } catch {
+      if (version === uploadVersion.current) setTemplateError('无法导入，请选择 Contractor 导出的项目模板。');
+    } finally {
+      if (version === uploadVersion.current) setReading(false);
+    }
+  }
   const parents = workspace.projects.filter(project => project.maintain);
   return <Modal title="新建项目" close={close}><form className="form" onSubmit={async event => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
+    if (busy || reading || templateError) return;
     const result = await run(() => api<{ id: string }>('project', {
       nonce, title: String(form.get('title')).trim(), parent: form.get('parent') || undefined,
       firstTopic: String(form.get('firstTopic')).trim() || undefined,
       ...(template ? { template } : {}),
     }), '项目已创建');
     if (result) { go(result.id, 'project', undefined, 'structure'); close(); }
-  }}>
+  }}><fieldset className="form dispatch-fields" disabled={busy}>
     <Field label="项目名称"><Input name="title" autoFocus maxLength={100} required /></Field>
     <Field label="首个主题（选填）"><Input name="firstTopic" maxLength={100} /></Field>
-    <Field label="项目模板（选填）">
-      <label className="upload-row">
-        <input type="file" accept="application/json,.json" onChange={event => {
-          const file = event.target.files?.[0];
-          setTemplate(undefined); setTemplateName(''); setTemplateError('');
-          if (!file) return;
-          void file.text().then(text => {
-            try {
-              const parsed = JSON.parse(text) as ProjectTemplate;
-              if (parsed.kind !== 'contractor-project-template' || parsed.version !== 1) {
-                setTemplateError('这不是 Contractor 项目模板文件。'); return;
-              }
-              setTemplate(parsed); setTemplateName(file.name);
-            } catch { setTemplateError('无法读取模板文件，请检查 JSON 内容。'); }
-          });
-        }} />
-        <FileUp size={15} />
-        <span>{template ? '已载入 ' + templateName : '选择模板 JSON 文件'}</span>
-      </label>
-      {templateError && <p className="form-error">{templateError}</p>}
-    </Field>
+    <div className="field"><span>项目模板（选填）</span>
+      <div className="actions">
+        <input hidden ref={upload} type="file" aria-label="项目模板" accept="application/json,.json" disabled={busy}
+          onChange={event => void readTemplate(event.target.files?.[0])} />
+        <button ref={browse} type="button" className="upload-row" onClick={() => upload.current?.click()}><FileUp size={15} /><span>{reading ? '正在读取…' : templateName || '选择模板文件'}</span></button>
+      {templateName && <Button variant="ghost" size="sm" disabled={busy} onClick={() => {
+        if (upload.current) upload.current.value = '';
+        void readTemplate();
+        browse.current?.focus();
+      }}>移除模板</Button>}</div>
+      {templateError && <p className="form-error" role="alert">{templateError}</p>}
+    </div>
     {!!parents.length && <Field label="上级项目"><select name="parent" required={!workspace.canCreateRootProject}>
       {workspace.canCreateRootProject && <option value="">独立项目</option>}
       {parents.map(project => <option value={project.id} key={project.id}>{project.title}</option>)}
     </select></Field>}
-    <div className="form-actions"><Button disabled={busy} type="submit">创建</Button></div>
-  </form></Modal>;
+    <div className="form-actions"><Button loading={busy} disabled={busy || reading || !!templateError} type="submit">创建</Button></div>
+  </fieldset></form></Modal>;
 }
 
-function Workspace() {
+function Workspace({ retrySession }: { retrySession?: () => void }) {
   const overview = useData<Overview>('overview?catalog=1', 2600);
   const requested = useRoute();
   const signOut = useSignOut();
@@ -251,8 +265,8 @@ function Workspace() {
   if (overview.error && (!workspace || !mayKeepStale(overview.error)))
     return <div className="app-placeholder"><Failure error={overview.error} retry={() => void overview.refetch()} /></div>;
   if (!workspace) return <Loading />;
-  const reconnect = overview.error && <div className="toolbar-error"><Failure error={new Error('工作台暂时无法刷新，编辑内容已保留。')}
-    retry={() => void overview.refetch()} /></div>;
+  const reconnect = (overview.error || retrySession) && <div className="toolbar-error"><Failure error={new Error('工作台暂时无法刷新，编辑内容已保留。')}
+    retry={retrySession ?? (() => void overview.refetch())} /></div>;
   if (requested.global) return <Suspense fallback={<Loading />}>
     <GlobalSettings view={requested.global} tab={requested.tab} fromProject={requested.project} returnTo={requested.returnTo} status={reconnect} workspace={workspace} logout={signOut}
       connections={requested.global === 'account' ? <AccountsPage workspace={workspace} embedded /> : undefined} />
@@ -401,8 +415,8 @@ function App() {
   }
   return <ActionContext.Provider value={{ busy, run, error, clearError: () => setError(''), stored, scrollPositions, dialogTrigger,
     store: (key, value, expected) => setStored(previous => writeStoredValue(previous, key, value, expected)) }}>
-    {session.error ? <div className="app-placeholder"><Failure error={session.error} retry={() => void session.refetch()} /></div>
-      : session.isPending ? <Loading /> : session.data?.signedIn ? <Workspace /> : <Login session={session.data} />}
+    {session.error && !(session.data?.signedIn && mayKeepStale(session.error)) ? <div className="app-placeholder"><Failure error={session.error} retry={() => void session.refetch()} /></div>
+      : session.isPending ? <Loading /> : session.data?.signedIn ? <Workspace retrySession={session.error ? () => void session.refetch() : undefined} /> : <Login session={session.data} />}
     {storageFailed && <div className="draft-warning" role="status">草稿仅保留在当前页面，刷新前请复制未提交的内容。</div>}
     {notice && <div className="toast" role="status" data-closing={closingNotice}><CircleCheck size={17} />{notice}</div>}
   </ActionContext.Provider>;
@@ -410,13 +424,25 @@ function App() {
 
 const client = new QueryClient({ defaultOptions: { queries: { staleTime: 0, refetchOnWindowFocus: 'always' } } });
 const styleNonce = document.querySelector<HTMLMetaElement>('meta[name="workbench-style-nonce"]')?.content;
+class PageRecovery extends Component<{ children: ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+  static getDerivedStateFromError() { return { failed: true }; }
+  render() {
+    if (this.state.failed) return <main className="app-placeholder">
+      <p role="alert">当前页面未能打开。</p>
+      <Button onClick={() => window.location.reload()}>重新加载当前页</Button>
+    </main>;
+    return this.props.children;
+  }
+}
+
 function WorkbenchApp() {
   const reduced = useMediaQuery('(prefers-reduced-motion: reduce)');
   return <ConfigProvider locale={zhCN as unknown as ConfigProviderProps['locale']} wave={{ disabled: true }}
     button={{ autoInsertSpace: false }} csp={{ nonce: styleNonce }}
     theme={{ ...workbenchTheme, zeroRuntime: true }}>
     {/* Keep the provider mounted so a live OS setting change preserves the active editor. */}
-    <MotionProvider motion={!reduced}><QueryClientProvider client={client}><App /></QueryClientProvider></MotionProvider>
+    <MotionProvider motion={!reduced}><QueryClientProvider client={client}><PageRecovery><App /></PageRecovery></QueryClientProvider></MotionProvider>
   </ConfigProvider>;
 }
 createRoot(document.getElementById('app')!).render(<WorkbenchApp />);
